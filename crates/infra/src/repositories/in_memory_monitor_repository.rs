@@ -1,0 +1,115 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
+
+use application::ports::MonitorRepository;
+use async_trait::async_trait;
+use domain::Monitor;
+use domain::shared::ids::{MonitorId, UserId};
+
+/// Simple in-memory repository for development and tests.
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryMonitorRepository {
+    monitors: Arc<RwLock<HashMap<MonitorId, Monitor>>>,
+}
+
+impl InMemoryMonitorRepository {
+    pub fn new() -> Self {
+        Self {
+            monitors: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl MonitorRepository for InMemoryMonitorRepository {
+    async fn save(
+        &self,
+        monitor: &Monitor,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.monitors
+            .write()
+            .unwrap()
+            .insert(monitor.id, monitor.clone());
+
+        Ok(())
+    }
+
+    async fn find_by_id(
+        &self,
+        id: MonitorId,
+    ) -> Result<Option<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.monitors.read().unwrap().get(&id).cloned())
+    }
+
+    async fn find_all(&self) -> Result<Vec<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.monitors.read().unwrap().values().cloned().collect())
+    }
+
+    async fn find_by_id_for_user(
+        &self,
+        id: MonitorId,
+        user_id: UserId,
+    ) -> Result<Option<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .monitors
+            .read()
+            .unwrap()
+            .get(&id)
+            .filter(|monitor| monitor.user_id == user_id)
+            .cloned())
+    }
+
+    async fn find_all_for_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .monitors
+            .read()
+            .unwrap()
+            .values()
+            .filter(|monitor| monitor.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn delete_for_user(
+        &self,
+        id: MonitorId,
+        user_id: UserId,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let mut monitors = self.monitors.write().unwrap();
+
+        let belongs_to_user = monitors
+            .get(&id)
+            .map(|monitor| monitor.user_id == user_id)
+            .unwrap_or(false);
+
+        if belongs_to_user {
+            Ok(monitors.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn update(
+        &self,
+        monitor: &Monitor,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.monitors
+            .write()
+            .unwrap()
+            .insert(monitor.id, monitor.clone());
+
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        id: MonitorId,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.monitors.write().unwrap().remove(&id).is_some())
+    }
+}

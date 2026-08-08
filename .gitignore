@@ -1,0 +1,36 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Rust
+/target/
+**/target/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Temporary/local files
+*.swp
+*.swo
+*.tmp
+*.temp
+.cache/
+
+# Local test / generated files
+coverage/
+tmp/
+
+# Local/generated data
+cors.txt

@@ -1,0 +1,18 @@
+"use client";
+
+import { ReactNode, useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
+
+import { makeQueryClient } from "@/lib/query-client";
+
+export function QueryProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(makeQueryClient);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <Toaster richColors position="top-right" />
+    </QueryClientProvider>
+  );
+}
