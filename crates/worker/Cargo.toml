@@ -1,0 +1,34 @@
+[package]
+name = "worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+application = { path = "../application" }
+domain = { path = "../domain" }
+infra = { path = "../infra" }
+shared = { path = "../shared" }
+
+tokio.workspace = true
+uuid.workspace = true
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "json",
+    "gzip",
+    "brotli",
+    "zstd",
+] }
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+axum = "0.8.9"
+
+[dev-dependencies]
+async-trait = { workspace = true }

@@ -1,0 +1,15 @@
+groups:
+  - name: uptime
+    rules:
+
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 1m
+
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0
+        for: 1m
+
+      - alert: WorkerFailures
+        expr: increase(worker_checks_total{result="failure"}[5m]) > 5
+        for: 2m
