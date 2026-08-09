@@ -34,3 +34,8 @@ tmp/
 
 # Local/generated data
 cors.txt
+
+# Development command outputs
+build-errors.txt
+clippy-output.txt
+test-output.txt
