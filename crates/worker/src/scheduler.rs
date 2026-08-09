@@ -27,6 +27,17 @@ struct MonitorCheckState {
     last_checked_at: Option<Instant>,
 }
 
+/// Groups the dependencies that stay constant across every sweep, so
+/// `process_sweep` doesn't need to take each one as a separate argument.
+/// Add new shared dependencies here instead of widening the function signature.
+struct SweepContext<'a, M: ?Sized, C: ?Sized, G: ?Sized> {
+    monitor_repository: &'a M,
+    check_repository: &'a C,
+    incident_manager: &'a IncidentManager,
+    id_generator: &'a G,
+    client: &'a Client,
+}
+
 /// Runs the worker loop forever on a fixed interval.
 pub async fn run(
     monitor_repository: Arc<dyn MonitorRepository>,
@@ -40,28 +51,23 @@ pub async fn run(
     let mut interval = time::interval(Duration::from_secs(30));
     let mut states: HashMap<MonitorId, MonitorCheckState> = HashMap::new();
 
+    let ctx = SweepContext {
+        monitor_repository: monitor_repository.as_ref(),
+        check_repository: check_repository.as_ref(),
+        incident_manager: &incident_manager,
+        id_generator: id_generator.as_ref(),
+        client: &client,
+    };
+
     loop {
         interval.tick().await;
 
-        process_sweep(
-            monitor_repository.as_ref(),
-            check_repository.as_ref(),
-            &incident_manager,
-            id_generator.as_ref(),
-            &client,
-            &mut states,
-            Instant::now(),
-        )
-        .await?;
+        process_sweep(&ctx, &mut states, Instant::now()).await?;
     }
 }
 
 async fn process_sweep<M, C, G>(
-    monitor_repository: &M,
-    check_repository: &C,
-    incident_manager: &IncidentManager,
-    id_generator: &G,
-    client: &Client,
+    ctx: &SweepContext<'_, M, C, G>,
     states: &mut HashMap<MonitorId, MonitorCheckState>,
     now: Instant,
 ) -> Result<()>
@@ -70,6 +76,12 @@ where
     C: CheckRepository + ?Sized,
     G: IdGenerator + ?Sized,
 {
+    let monitor_repository = ctx.monitor_repository;
+    let check_repository = ctx.check_repository;
+    let incident_manager = ctx.incident_manager;
+    let id_generator = ctx.id_generator;
+    let client = ctx.client;
+
     let monitors = monitor_repository.find_all().await?;
 
     info!(count = monitors.len(), "starting monitor sweep");
@@ -496,17 +508,17 @@ mod tests {
         let client = Client::new();
         let mut states = HashMap::new();
 
-        process_sweep(
-            monitor_repository.as_ref(),
-            check_repository.as_ref(),
-            &incident_manager,
-            id_generator.as_ref(),
-            &client,
-            &mut states,
-            Instant::now(),
-        )
-        .await
-        .unwrap();
+        let ctx = SweepContext {
+            monitor_repository: monitor_repository.as_ref(),
+            check_repository: check_repository.as_ref(),
+            incident_manager: &incident_manager,
+            id_generator: id_generator.as_ref(),
+            client: &client,
+        };
+
+        process_sweep(&ctx, &mut states, Instant::now())
+            .await
+            .unwrap();
 
         assert_eq!(check_repository.save_count(), 1);
     }
@@ -524,20 +536,20 @@ mod tests {
         let client = Client::new();
         let mut states = HashMap::new();
 
+        let ctx = SweepContext {
+            monitor_repository: monitor_repository.as_ref(),
+            check_repository: check_repository.as_ref(),
+            incident_manager: &incident_manager,
+            id_generator: id_generator.as_ref(),
+            client: &client,
+        };
+
         let start = Instant::now();
 
         for i in 0..3 {
-            process_sweep(
-                monitor_repository.as_ref(),
-                check_repository.as_ref(),
-                &incident_manager,
-                id_generator.as_ref(),
-                &client,
-                &mut states,
-                start + Duration::from_secs(60 * i),
-            )
-            .await
-            .unwrap();
+            process_sweep(&ctx, &mut states, start + Duration::from_secs(60 * i))
+                .await
+                .unwrap();
         }
 
         assert_eq!(check_repository.save_count(), 3);
@@ -561,20 +573,20 @@ mod tests {
 
         incident_manager.open_if_needed(monitor_id).await.unwrap();
 
+        let ctx = SweepContext {
+            monitor_repository: monitor_repository.as_ref(),
+            check_repository: check_repository.as_ref(),
+            incident_manager: &incident_manager,
+            id_generator: id_generator.as_ref(),
+            client: &client,
+        };
+
         let start = Instant::now();
 
         for i in 0..2 {
-            process_sweep(
-                monitor_repository.as_ref(),
-                check_repository.as_ref(),
-                &incident_manager,
-                id_generator.as_ref(),
-                &client,
-                &mut states,
-                start + Duration::from_secs(60 * i),
-            )
-            .await
-            .unwrap();
+            process_sweep(&ctx, &mut states, start + Duration::from_secs(60 * i))
+                .await
+                .unwrap();
         }
 
         assert_eq!(check_repository.save_count(), 2);
