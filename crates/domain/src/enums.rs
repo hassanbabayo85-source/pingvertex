@@ -40,3 +40,5 @@ pub mod response_part;
 pub use response_part::*;
 pub mod assertion_operator;
 pub use assertion_operator::*;
+pub mod notification_channel_kind;
+pub use notification_channel_kind::*;

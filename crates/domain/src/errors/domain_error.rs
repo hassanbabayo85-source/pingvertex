@@ -32,4 +32,13 @@ pub enum DomainError {
 
     #[error("expected status must be between 100 and 599")]
     InvalidExpectedStatus,
+
+    #[error("notification channel target cannot be empty")]
+    EmptyNotificationTarget,
+
+    #[error("invalid email address for email notification channel")]
+    InvalidNotificationEmail,
+
+    #[error("invalid url for webhook notification channel")]
+    InvalidNotificationWebhookUrl,
 }

@@ -1,9 +1,6 @@
 import axios from "axios";
 
-import {
-  getAccessToken,
-  clearTokens,
-} from "@/lib/auth";
+import { clearTokens } from "@/lib/auth";
 
 export const http = axios.create({
   baseURL:
@@ -12,22 +9,21 @@ export const http = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  // Access token yanzu httpOnly cookie ne (ba JavaScript-readable localStorage
+  // ba), don haka muna bukatar wannan domin browser ya aika/karba cookies a
+  // kowace kira zuwa API.
+  withCredentials: true,
 });
 
-http.interceptors.request.use((config) => {
-  const token = getAccessToken();
-
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
-  return config;
-});
+// Ba mu kara amfani da interceptor da ke kara Authorization header daga
+// localStorage — cookie zata tafi ta atomatik godiya ga `withCredentials: true`.
 
 http.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // Ba mu da token da za mu share a nan — cookie ta server ce ke
+      // sarrafa ta. Mun share flag ɗin UI kawai.
       clearTokens();
     }
 

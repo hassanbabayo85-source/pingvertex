@@ -5,8 +5,9 @@ use api::{
     state::AppState,
 };
 use infra::{
-    create_pool, Argon2PasswordHasher, JsonWebTokenService, PostgresCheckRepository,
-    PostgresIncidentRepository, PostgresMonitorRepository, PostgresUserRepository, UuidIdGenerator,
+    create_pool, Argon2PasswordHasher, JsonWebTokenService, NotificationDispatcher,
+    PostgresCheckRepository, PostgresIncidentRepository, PostgresMonitorRepository,
+    PostgresNotificationChannelRepository, PostgresUserRepository, UuidIdGenerator,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -30,6 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         PostgresMonitorRepository::new(pool.clone()),
         PostgresCheckRepository::new(pool.clone()),
         PostgresIncidentRepository::new(pool.clone()),
+        PostgresNotificationChannelRepository::new(pool.clone()),
+        // Shared across every request. Reads SMTP_* env vars once at
+        // startup so the "send test notification" endpoint and the
+        // worker's IncidentManager use identical delivery logic — see
+        // `NotificationDispatcher::from_env`.
+        NotificationDispatcher::from_env(),
         UuidIdGenerator::new(),
     );
 
@@ -48,7 +55,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

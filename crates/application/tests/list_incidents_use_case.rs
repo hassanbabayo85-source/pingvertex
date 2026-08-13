@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use application::{
+    dto::CreateMonitorRequest,
     ports::{IncidentRepository, incident_repository::RepoResult as IncidentRepoResult},
-    use_cases::ListIncidentsUseCase,
+    use_cases::{CreateMonitorUseCase, ListIncidentsUseCase},
 };
 use async_trait::async_trait;
+use domain::HttpMethod;
 use domain::Incident;
-use domain::shared::ids::{IncidentId, MonitorId};
+use domain::shared::ids::{IncidentId, MonitorId, UserId};
+use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use uuid::Uuid;
 
 #[derive(Clone, Default)]
 struct NoopIncidentRepository;
@@ -36,13 +40,33 @@ impl IncidentRepository for NoopIncidentRepository {
 
 #[tokio::test]
 async fn lists_incidents_for_monitor() {
-    let repository = Arc::new(NoopIncidentRepository);
-    let use_case = ListIncidentsUseCase::new(repository);
+    let monitor_repository = Arc::new(InMemoryMonitorRepository::new());
+    let incident_repository = Arc::new(NoopIncidentRepository);
 
-    let result = use_case
-        .execute(MonitorId(uuid::Uuid::new_v4()))
-        .await
-        .unwrap();
+    let create_use_case =
+        CreateMonitorUseCase::new(monitor_repository.clone(), UuidIdGenerator::new());
+
+    let user_id = UserId(Uuid::new_v4());
+
+    let request = CreateMonitorRequest {
+        user_id,
+        name: "Test Monitor".into(),
+        url: "https://example.com".into(),
+        method: HttpMethod::Get,
+        expected_status: 200,
+        interval_seconds: 60,
+        timeout_seconds: 10,
+        assertions: vec![],
+        is_public: false,
+        ssl_check_enabled: true,
+        ssl_expiry_warning_days: 14,
+    };
+
+    let monitor = create_use_case.execute(request).await.unwrap();
+
+    let use_case = ListIncidentsUseCase::new(monitor_repository, incident_repository);
+
+    let result = use_case.execute(monitor.id, user_id).await.unwrap();
 
     assert!(result.is_empty());
 }

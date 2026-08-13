@@ -15,7 +15,12 @@ pub trait CheckRepository: Send + Sync {
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Check>>;
 
-    async fn list_checks(&self, limit: u32, offset: u32) -> RepoResult<Vec<Check>>;
+    async fn list_checks(
+        &self,
+        limit: u32,
+        offset: u32,
+        user_id: domain::shared::ids::UserId,
+    ) -> RepoResult<Vec<Check>>;
 
     async fn delete_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<u64>;
 }
@@ -37,8 +42,13 @@ where
         (**self).list_by_monitor(monitor_id).await
     }
 
-    async fn list_checks(&self, limit: u32, offset: u32) -> RepoResult<Vec<Check>> {
-        (**self).list_checks(limit, offset).await
+    async fn list_checks(
+        &self,
+        limit: u32,
+        offset: u32,
+        user_id: domain::shared::ids::UserId,
+    ) -> RepoResult<Vec<Check>> {
+        (**self).list_checks(limit, offset, user_id).await
     }
 
     async fn delete_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<u64> {

@@ -18,6 +18,10 @@ export const createMonitorSchema = z.object({
     .min(1, "Timeout must be at least 1 second")
     .max(300, "Timeout is too large"),
   enabled: z.boolean(),
+  // Idan wannan gaskiya ne (true), monitor din zai bayyana a /status (public
+  // status page) ba tare da bukatar login ba. Default OFF domin user ya
+  // zabi ta hannu wanda monitor zai fitowa a fili.
+  is_public: z.boolean(),
 });
 
 export type CreateMonitorValues = z.infer<typeof createMonitorSchema>;
@@ -32,5 +36,6 @@ export function buildCreateMonitorDefaults(userId: string): CreateMonitorValues 
     interval_seconds: 60,
     timeout_seconds: 10,
     enabled: true,
+    is_public: false,
   };
 }

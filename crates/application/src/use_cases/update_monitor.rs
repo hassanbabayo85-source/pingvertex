@@ -1,11 +1,13 @@
 use std::error::Error;
 
 use crate::{commands::UpdateMonitor, ports::MonitorRepository};
-use domain::{CheckInterval, ExpectedStatus, Monitor, MonitorName, Timeout, Url};
+
+use domain::{
+    CheckInterval, ExpectedStatus, Monitor, MonitorName, Timeout, Url, entities::Assertion,
+};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Updates an existing monitor through the application layer.
 pub struct UpdateMonitorUseCase<R> {
     repository: R,
 }
@@ -19,24 +21,45 @@ where
     }
 
     pub async fn execute(&self, command: UpdateMonitor) -> UseCaseResult<Option<Monitor>> {
-        // Tabbatar da cewa mutumin yana da ikon gyara wannan monitor din (User Ownership)
-        let Some(mut monitor) = self
+        let mut monitor = match self
             .repository
             .find_by_id_for_user(command.id, command.user_id)
             .await?
-        else {
-            return Ok(None);
+        {
+            Some(monitor) => monitor,
+            None => return Ok(None),
         };
 
-        monitor.name = MonitorName::new(command.name)?;
-        monitor.url = Url::new(command.url)?.as_str().to_owned();
-        monitor.method = command.method;
-        monitor.expected_status = ExpectedStatus::new(command.expected_status)?.into();
-        monitor.interval_seconds = CheckInterval::new(command.interval_seconds)?.into();
-        monitor.timeout_seconds = Timeout::new(command.timeout_seconds)?.into();
+        monitor.update(
+            MonitorName::new(command.name)?,
+            Url::new(command.url)?,
+            command.method,
+            ExpectedStatus::new(command.expected_status)?,
+            CheckInterval::new(command.interval_seconds)?,
+            Timeout::new(command.timeout_seconds)?,
+        );
 
-        // Muna amfani da update() domin Mun riga mun tabbatar da Ownership a sama
-        self.repository.update(&monitor).await?;
+        monitor.is_public = command.is_public;
+        monitor.ssl_check_enabled = command.ssl_check_enabled;
+        monitor.ssl_expiry_warning_days = command.ssl_expiry_warning_days;
+
+        monitor.assertions.clear();
+
+        for input in &command.assertions {
+            let assertion = Assertion::new(
+                input.response_part.clone(),
+                input.operator.clone(),
+                input.target.clone(),
+                input.expected_value.clone(),
+            )
+            .map_err(Box::<dyn Error + Send + Sync>::from)?;
+
+            monitor
+                .add_assertion(assertion)
+                .map_err(Box::<dyn Error + Send + Sync>::from)?;
+        }
+
+        self.repository.save(&monitor).await?;
 
         Ok(Some(monitor))
     }

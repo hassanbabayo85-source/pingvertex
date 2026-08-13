@@ -32,6 +32,53 @@ async fn save_and_find_by_id_round_trips_incident() {
 
 #[serial]
 #[tokio::test]
+async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
+    // SEC-010 regression test: idan worker replicas fiye da ɗaya suka yi
+    // kokarin buɗe incident ga monitor guda ɗaya lokaci guda (race), sai da
+    // dukansu su kira `save` da wani incident *daban* (id daban) amma duka
+    // biyun open ne (resolved_at = None) ga wannan monitor guda. Sabon
+    // partial unique index din ya kamata ya toshe na biyu (ta hanyar ON
+    // CONFLICT DO NOTHING) maimakon ya jefar da error ko ya ƙirƙiri kwafi.
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let incident_repository = PostgresIncidentRepository::new(pool);
+
+    let monitor = sample_monitor("Duplicate Guard", "https://duplicate-guard.example.com");
+    monitor_repository.save(&monitor).await.unwrap();
+
+    let first_open = sample_incident(monitor.id);
+    let second_open = sample_incident(monitor.id);
+
+    // Babu ɗayan waɗannan da ke da resolved_at — duka biyun open ne.
+    assert!(first_open.resolved_at.is_none());
+    assert!(second_open.resolved_at.is_none());
+
+    incident_repository.save(&first_open).await.unwrap();
+
+    // Wannan BA ZAI jefar da error ba, koda kuwa yana karo da constraint din
+    // — ON CONFLICT DO NOTHING yana mayar da shi shiru.
+    incident_repository.save(&second_open).await.unwrap();
+
+    let open_incidents = incident_repository
+        .list_by_monitor(monitor.id)
+        .await
+        .unwrap();
+
+    // Incident guda ɗaya kawai ya kamata ya wanzu — na biyun an "watsar" da
+    // shi shiru ta hanyar ON CONFLICT DO NOTHING.
+    assert_eq!(open_incidents.len(), 1);
+    assert_eq!(open_incidents[0].id, first_open.id);
+
+    let still_open = incident_repository
+        .find_open_by_monitor(monitor.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still_open.id, first_open.id);
+}
+
+#[serial]
+#[tokio::test]
 async fn find_open_by_monitor_returns_only_unresolved_incident() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
@@ -95,9 +142,18 @@ async fn list_by_monitor_returns_incidents_for_monitor() {
     monitor_repository.save(&monitor_a).await.unwrap();
     monitor_repository.save(&monitor_b).await.unwrap();
 
-    let incident_a1 = sample_incident(monitor_a.id);
+    let mut incident_a1 = sample_incident(monitor_a.id);
     let incident_a2 = sample_incident(monitor_a.id);
     let incident_b = sample_incident(monitor_b.id);
+
+    // SEC-010: database ɗin yanzu baya yarda da fiye da open incident guda
+    // ɗaya (resolved_at IS NULL) ga kowane monitor a lokaci guda. Domin
+    // wannan test ɗin ya ci gaba da tabbatar da `list_by_monitor` (wanda ke
+    // dawo da DUKA incidents, ba open kaɗai ba), sai mun warware
+    // incident_a1 kafin mu buɗe incident_a2 — daidai da yadda ainihin
+    // amfani zai kasance (babu incidents biyu masu buɗe lokaci guda ga
+    // monitor guda).
+    incident_a1.resolve();
 
     incident_repository.save(&incident_a1).await.unwrap();
     incident_repository.save(&incident_a2).await.unwrap();

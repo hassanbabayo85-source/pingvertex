@@ -37,6 +37,12 @@ pub trait MonitorRepository: Send + Sync {
     ) -> RepoResult<bool> {
         unimplemented!()
     }
+
+    /// Returns monitors explicitly marked `is_public = true`, for the
+    /// unauthenticated public status page.
+    async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -83,5 +89,9 @@ where
         user_id: domain::shared::ids::UserId,
     ) -> RepoResult<bool> {
         (**self).delete_for_user(id, user_id).await
+    }
+
+    async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
+        (**self).find_public().await
     }
 }

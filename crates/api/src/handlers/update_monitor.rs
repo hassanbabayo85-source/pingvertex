@@ -33,6 +33,10 @@ pub async fn update_monitor(
         expected_status: body.expected_status,
         interval_seconds: body.interval_seconds,
         timeout_seconds: body.timeout_seconds,
+        assertions: body.assertions,
+        is_public: body.is_public,
+        ssl_check_enabled: body.ssl_check_enabled,
+        ssl_expiry_warning_days: body.ssl_expiry_warning_days,
     };
 
     let use_case = UpdateMonitorUseCase::new(state.monitor_repository.clone());
@@ -40,7 +44,7 @@ pub async fn update_monitor(
     let monitor = use_case
         .execute(command)
         .await
-        .map_err(|err| ApiError::internal(format!("failed to update monitor: {err}")))?
+        .map_err(|err| ApiError::internal_with_source("failed to update monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     Ok(Json(MonitorResponse::from(monitor)))

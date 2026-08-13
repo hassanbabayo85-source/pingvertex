@@ -20,6 +20,9 @@ pub struct Check {
     pub error_message: Option<String>,
 
     pub checked_at: DateTime<Utc>,
+
+    pub cert_expires_at: Option<DateTime<Utc>>,
+    pub cert_days_remaining: Option<i64>,
 }
 
 impl Check {
@@ -42,6 +45,21 @@ impl Check {
             error_type,
             error_message,
             checked_at: Utc::now(),
+            cert_expires_at: None,
+            cert_days_remaining: None,
         }
+    }
+
+    /// Attaches TLS certificate expiry info to this check. Consuming
+    /// builder-style method so call sites that don't check certs (e.g.
+    /// non-HTTPS monitors) can leave these fields as `None`.
+    pub fn with_cert_info(
+        mut self,
+        cert_expires_at: Option<DateTime<Utc>>,
+        cert_days_remaining: Option<i64>,
+    ) -> Self {
+        self.cert_expires_at = cert_expires_at;
+        self.cert_days_remaining = cert_days_remaining;
+        self
     }
 }

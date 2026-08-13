@@ -4,6 +4,12 @@ global:
 scrape_configs:
   - job_name: api
     metrics_path: /metrics
+    # /metrics yanzu yana buƙatar sirrin token (ba a buɗe wa kowa ba —
+    # duba METRICS_TOKEN a .env). A saita wannan darajar iri ɗaya da
+    # METRICS_TOKEN na api service.
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_token
     static_configs:
       - targets:
           - api:3000

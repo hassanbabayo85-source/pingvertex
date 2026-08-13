@@ -21,31 +21,21 @@ import { useAuthContext } from "@/providers/auth-provider";
 
 export function UserMenu() {
   const router = useRouter();
-  const { session, logout } = useAuthContext();
-
-  const initials =
-    session?.user.username
-      ?.split(" ")
-      .map((part) => part[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase() ?? "U";
+  const { logout } = useAuthContext();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="rounded-full outline-none">
         <Avatar className="h-10 w-10">
-          <AvatarFallback>{initials}</AvatarFallback>
+          <AvatarFallback>U</AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-60">
         <div className="px-3 py-2">
-          <p className="font-medium">
-            {session?.user.username ?? "Guest"}
-          </p>
+          <p className="font-medium">User</p>
           <p className="text-xs text-muted-foreground">
-            {session?.user.email ?? ""}
+            Authenticated
           </p>
         </div>
 

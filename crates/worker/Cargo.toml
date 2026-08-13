@@ -17,6 +17,7 @@ uuid.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 
+ipnet = "2"
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
     "http2",
@@ -30,5 +31,20 @@ metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
 axum = "0.8.9"
 
+# Sababbin dependencies don tantancewar assertion
+serde_json = "1.0"
+chrono = { workspace = true }
+regex = "1"
+
+# TLS certificate inspection (SSL expiry monitoring). Versions pinned to
+# match the rustls stack reqwest's "rustls-tls" feature already pulls in,
+# so we don't end up with two separate rustls major versions in the tree.
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-native-certs = "0.8"
+x509-parser = "0.16"
+
 [dev-dependencies]
 async-trait = { workspace = true }
+rcgen = "0.13"
+time = "0.3"

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  AlertTriangle,
   CheckCircle2,
   Clock3,
   Globe,
@@ -11,37 +10,16 @@ import {
 import { IncidentHistory, type StatusIncident } from "@/components/status/incident-history";
 import { OverallStatus } from "@/components/status/overall-status";
 import { ServiceList, type StatusService } from "@/components/status/service-list";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { getChecks, getIncidents, getMonitors, type CheckDto, type IncidentDto, type MonitorDto } from "@/lib/api";
+import { getPublicStatus, type PublicMonitorDto } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-type StatusMonitor = {
-  monitor: MonitorDto;
-  latestCheck: CheckDto | null;
-  checks: CheckDto[];
-  incidents: IncidentDto[];
-};
-
-async function loadStatusData(): Promise<StatusMonitor[]> {
-  const monitors = await getMonitors();
-
-  return Promise.all(
-    monitors.map(async (monitor) => {
-      const [checks, incidents] = await Promise.all([
-        getChecks(monitor.id),
-        getIncidents(monitor.id),
-      ]);
-
-      return {
-        monitor,
-        latestCheck: checks[0] ?? null,
-        checks,
-        incidents,
-      };
-    }),
-  );
+// Wannan shafi mara-auth ne (public), don haka yana amfani da
+// getPublicStatus() kawai — endpoint wanda ke dawo da monitors da aka yiwa
+// alama a matsayin `is_public` KAWAI, ba dukkan monitors na kowa ba.
+async function loadStatusData(): Promise<PublicMonitorDto[]> {
+  return getPublicStatus();
 }
 
 function formatDate(value: string | null) {
@@ -56,26 +34,20 @@ function formatDate(value: string | null) {
 export default async function StatusPage() {
   const data = await loadStatusData();
 
-  const services: StatusService[] = data.map((item) => {
-    const upCount = item.checks.filter((check) => check.status === "Up").length;
-    const totalCount = item.checks.length;
-    const uptime = totalCount === 0 ? 100 : (upCount / totalCount) * 100;
-
-    return {
-      id: item.monitor.id,
-      name: item.monitor.name,
-      url: item.monitor.url,
-      status: item.latestCheck?.status ?? "Idle",
-      latency: item.latestCheck?.latency_ms ?? null,
-      uptime,
-    };
-  });
+  const services: StatusService[] = data.map((item) => ({
+    id: item.id,
+    name: item.name,
+    url: item.url,
+    status: item.status ?? "Idle",
+    latency: item.latency_ms,
+    uptime: item.uptime_percentage,
+  }));
 
   const incidents: StatusIncident[] = data
     .flatMap((item) =>
       item.incidents.map((incident) => ({
         id: incident.id,
-        serviceName: item.monitor.name,
+        serviceName: item.name,
         started_at: incident.started_at,
         resolved_at: incident.resolved_at,
       })),

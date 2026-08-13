@@ -36,10 +36,12 @@ async fn reset_database(pool: &PgPool) {
 }
 
 pub async fn clear_tables(pool: &PgPool) {
-    query("TRUNCATE TABLE incidents, checks, monitors RESTART IDENTITY CASCADE")
-        .execute(pool)
-        .await
-        .unwrap();
+    query(
+        "TRUNCATE TABLE notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 pub fn sample_monitor(name: &str, url: &str) -> Monitor {
@@ -51,6 +53,45 @@ pub fn sample_monitor(name: &str, url: &str) -> Monitor {
         .interval(CheckInterval::new(60).unwrap())
         .timeout(Timeout::new(10).unwrap())
         .build()
+}
+
+/// Inserts a minimal, valid row into `users` for `user_id`.
+///
+/// Needed since `migrations/0010_create_notification_channels.sql` added
+/// `notification_channels.user_id REFERENCES users(id) ON DELETE CASCADE`
+/// — unlike `monitors.user_id`, which has no such FK — so any test that
+/// creates a notification channel must first make sure the owning user
+/// actually exists in `users`, or the insert fails with a foreign-key
+/// violation.
+///
+/// `email` is derived from `user_id` so it's unique per call even when a
+/// test creates more than one user (e.g. an "owner" and an "attacker").
+#[allow(dead_code)]
+pub async fn insert_user(pool: &PgPool, user_id: UserId) {
+    let email = format!("{}@example.test", user_id.0);
+
+    query(
+        r#"
+        INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
+        VALUES ($1, $2, 'not-a-real-hash', 'Test User', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(user_id.0)
+    .bind(email)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Convenience: builds a monitor AND inserts the matching `users` row for
+/// its `user_id`, so callers don't have to remember to call `insert_user`
+/// separately every time.
+#[allow(dead_code)]
+pub async fn sample_monitor_with_user(pool: &PgPool, name: &str, url: &str) -> Monitor {
+    let monitor = sample_monitor(name, url);
+    insert_user(pool, monitor.user_id).await;
+    monitor
 }
 
 #[allow(dead_code)]

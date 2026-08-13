@@ -1,4 +1,4 @@
-use domain::shared::ids::{MonitorId, UserId};
+use domain::shared::ids::{MonitorId, NotificationChannelId, UserId};
 use uuid::Uuid;
 
 use crate::error::ApiError;
@@ -11,6 +11,11 @@ pub fn parse_uuid(value: &str) -> Result<Uuid, ApiError> {
 /// Parses a monitor id string into MonitorId.
 pub fn parse_monitor_id(value: &str) -> Result<MonitorId, ApiError> {
     Ok(MonitorId(parse_uuid(value)?))
+}
+
+/// Parses a notification channel id string into NotificationChannelId.
+pub fn parse_notification_channel_id(value: &str) -> Result<NotificationChannelId, ApiError> {
+    Ok(NotificationChannelId(parse_uuid(value)?))
 }
 
 /// Parses an optional user id string into UserId.

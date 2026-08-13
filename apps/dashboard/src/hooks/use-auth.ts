@@ -1,9 +1,9 @@
 "use client";
 
-import { getAccessToken } from "@/lib/auth";
+import { isMarkedAuthenticated } from "@/lib/auth";
 
 export function useAuth() {
-  const authenticated = !!getAccessToken();
+  const authenticated = isMarkedAuthenticated();
 
   return {
     authenticated,

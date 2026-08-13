@@ -1,20 +1,20 @@
-const ACCESS_KEY = "uptime.access_token";
-const REFRESH_KEY = "uptime.refresh_token";
+// Kada a ajiye access_token a localStorage kwata-kwata — token din yanzu
+// httpOnly cookie ne, wanda JavaScript baya iya karantawa (rage hadarin
+// satar token ta XSS). Ana ajiye kawai boolean flag domin UI ta san ko an
+// login, ba ainihin token ba.
+const AUTH_FLAG = "uptime.is_authenticated";
 
-export function saveTokens(access: string, refresh: string) {
-  localStorage.setItem(ACCESS_KEY, access);
-  localStorage.setItem(REFRESH_KEY, refresh);
+export function markAuthenticated() {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(AUTH_FLAG, "1");
 }
 
-export function getAccessToken() {
-  return localStorage.getItem(ACCESS_KEY);
-}
-
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_KEY);
+export function isMarkedAuthenticated() {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(AUTH_FLAG) === "1";
 }
 
 export function clearTokens() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(AUTH_FLAG);
 }

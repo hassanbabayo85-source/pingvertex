@@ -11,4 +11,6 @@ pub struct UpdateMonitorRequest {
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
+    pub ssl_check_enabled: bool,
+    pub ssl_expiry_warning_days: u32,
 }

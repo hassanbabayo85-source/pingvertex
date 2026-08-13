@@ -5,9 +5,16 @@ use crate::{
     ports::{PasswordHasher, TokenService, UserRepository},
 };
 
-use domain::Email;
+use domain::{Email, UserStatus};
 
 type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// Argon2id hash of a value nobody will ever type, used so that a login
+/// attempt for a non-existent email still pays the cost of a full hash
+/// verification. This keeps response time roughly constant whether or not
+/// the account exists, closing a timing side-channel that could otherwise
+/// be used to enumerate registered emails.
+const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$dummysaltdummysalt$dummyhash";
 
 pub struct LoginUserUseCase<R, H, T> {
     repository: R,
@@ -32,19 +39,40 @@ where
     pub async fn execute(&self, request: LoginRequest) -> UseCaseResult<AuthResponse> {
         let email = Email::new(request.email)?;
 
-        let user = self
-            .repository
-            .find_by_email(&email)
-            .await?
-            .ok_or("invalid email or password")?;
+        let user = self.repository.find_by_email(&email).await?;
+
+        // KOYAUSHE a yi verify, ko da user bai wanzu ba, domin lokacin amsa
+        // ya kasance daidai a kowane hali (constant-time behavior) —
+        // wannan yana toshe timing side-channel da zai iya bawa mai kai
+        // hari damar gane wanne email ke wanzu a database.
+        let password_hash = user
+            .as_ref()
+            .map(|u| u.password_hash().as_str().to_string())
+            .unwrap_or_else(|| DUMMY_PASSWORD_HASH.to_string());
 
         let valid = self
             .password_hasher
-            .verify(&request.password, user.password_hash().as_str())
+            .verify(&request.password, &password_hash)
             .await?;
 
-        if !valid {
+        if !valid || user.is_none() {
             return Err("invalid email or password".into());
+        }
+
+        let user = user.unwrap();
+
+        // A yanzu ana kyale login ga duk wanda ba a dakatar da shi ba ko
+        // ba a goge shi ba. `PendingVerification` ana ɗaukarsa daidai da
+        // `Active` saboda babu wani email-verification flow tukuna da zai
+        // hana shi; za a sake duba wannan idan an gina wannan flow.
+        match user.status() {
+            UserStatus::Active | UserStatus::PendingVerification => {}
+            UserStatus::Suspended => {
+                return Err("account suspended".into());
+            }
+            UserStatus::Deleted => {
+                return Err("invalid email or password".into());
+            }
         }
 
         let token = self.token_service.generate(user.id()).await?;

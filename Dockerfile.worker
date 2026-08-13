@@ -24,6 +24,12 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/worker /usr/local/bin/worker
 
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
 EXPOSE 3001
 
 CMD ["worker"]

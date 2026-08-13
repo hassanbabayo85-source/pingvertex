@@ -8,6 +8,9 @@ const baseURL =
 const api = axios.create({
   baseURL,
   timeout: 15_000,
+  // Access token yanzu httpOnly cookie ne, don haka muna bukatar wannan
+  // domin browser ya aika ta zuwa authenticated endpoints.
+  withCredentials: true,
 });
 
 export type MonitorDto = {
@@ -20,6 +23,7 @@ export type MonitorDto = {
   interval_seconds: number;
   timeout_seconds: number;
   enabled: boolean;
+  is_public: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -53,7 +57,32 @@ export type CreateMonitorPayload = {
   interval_seconds: number;
   timeout_seconds: number;
   enabled: boolean;
+  is_public: boolean;
 };
+
+export type PublicIncidentDto = {
+  id: string;
+  started_at: string;
+  resolved_at: string | null;
+};
+
+// Bayanin da endpoint na public (mara-auth) ke dawowa — a hankali, KAWAI
+// fields marasa hadari. Babu user_id ko assertions a nan, domin kowa zai
+// iya ganin wannan bayanin ba tare da login ba.
+export type PublicMonitorDto = {
+  id: string;
+  name: string;
+  url: string;
+  status: "Up" | "Down" | null;
+  latency_ms: number | null;
+  uptime_percentage: number;
+  incidents: PublicIncidentDto[];
+};
+
+export async function getPublicStatus() {
+  const { data } = await api.get<PublicMonitorDto[]>("/public/status");
+  return data;
+}
 
 export async function getMonitors() {
   const { data } = await api.get<MonitorDto[]>("/monitors");

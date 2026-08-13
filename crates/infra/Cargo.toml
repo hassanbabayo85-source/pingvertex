@@ -15,6 +15,8 @@ tokio.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
 
 jsonwebtoken = "9"
 argon2 = "0.5"
@@ -28,6 +30,34 @@ sqlx = { version = "0.8", features = [
     "chrono",
     "macros"
 ] }
+
+# --- Notification adapters ---
+# SMTP email delivery (SmtpEmailNotificationService). tokio1-rustls-tls
+# keeps us on the same TLS stack (rustls, no OpenSSL/system-cert dependency)
+# as `worker`'s reqwest client below, for a consistent, easy-to-build-in-Docker
+# TLS story across the whole workspace.
+lettre = { version = "0.11", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "smtp-transport",
+    "builder",
+] }
+# Outbound webhook HTTP calls (WebhookNotificationService). Identical
+# feature set to `crates/worker`'s reqwest, since both send SSRF-checked,
+# DNS-pinned requests to user-supplied URLs via `shared::ssrf` and should
+# behave identically (same TLS stack, same compression support).
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "json",
+    "gzip",
+    "brotli",
+    "zstd",
+] }
+# HMAC-SHA256 webhook payload signing (X-Webhook-Signature header).
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 serial_test = "3.1"

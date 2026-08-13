@@ -1,6 +1,7 @@
 use application::ports::IdGenerator;
 use async_trait::async_trait;
-use domain::{CheckId, IncidentId, MonitorId, UserId};
+use domain::{CheckId, IncidentId, MonitorId, NotificationChannelId, UserId};
+use rand_core::{OsRng, RngCore};
 
 #[derive(Debug, Default, Clone)]
 pub struct UuidIdGenerator;
@@ -27,5 +28,21 @@ impl IdGenerator for UuidIdGenerator {
 
     async fn next_incident_id(&self) -> IncidentId {
         IncidentId::generate()
+    }
+
+    async fn next_notification_channel_id(&self) -> NotificationChannelId {
+        NotificationChannelId::generate()
+    }
+
+    async fn next_webhook_signing_secret(&self) -> String {
+        // 32 bytes (256 bits) from the OS CSPRNG, hex-encoded, with a
+        // "whsec_" prefix so the secret is self-describing at a glance
+        // (same convention Stripe/GitHub use for their webhook secrets) —
+        // this is what gets shown to the user exactly once on channel
+        // creation and used as the HMAC-SHA256 key in
+        // `crates/infra/src/services/webhook_notification_service.rs`.
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        format!("whsec_{}", hex::encode(bytes))
     }
 }
