@@ -26,6 +26,10 @@ async fn deletes_monitor_successfully() {
         expected_status: 200,
         interval_seconds: 60,
         timeout_seconds: 10,
+        assertions: vec![],
+        is_public: false,
+        ssl_check_enabled: true,
+        ssl_expiry_warning_days: 14,
     };
 
     let monitor = create_use_case.execute(request).await.unwrap();

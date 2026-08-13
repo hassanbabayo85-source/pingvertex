@@ -146,6 +146,19 @@ export function MonitorForm({
         </Label>
       </div>
 
+      <div className="flex items-center gap-3">
+        <input
+          id="is_public"
+          type="checkbox"
+          className="h-4 w-4 rounded border-border"
+          {...register("is_public")}
+          disabled={loading}
+        />
+        <Label htmlFor="is_public" className="text-sm font-normal">
+          Show on public status page
+        </Label>
+      </div>
+
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           Cancel

@@ -1,13 +1,16 @@
-use api::{auth_state::AuthState, router::build_router, state::AppState};
+use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{CheckRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
 use domain::{Check, HttpMethod, Incident};
-use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{
+    InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
+    UuidIdGenerator,
+};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -39,6 +42,7 @@ impl CheckRepository for NoopCheckRepository {
         &self,
         _: u32,
         _: u32,
+        _: UserId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -87,10 +91,14 @@ impl IncidentRepository for NoopIncidentRepository {
 }
 
 fn build_test_app() -> axum::Router {
+    let monitor_repository = InMemoryMonitorRepository::new();
+
     let state = AppState::new(
-        InMemoryMonitorRepository::new(),
+        monitor_repository.clone(),
         NoopCheckRepository,
         NoopIncidentRepository,
+        InMemoryNotificationChannelRepository::new(monitor_repository),
+        NoopNotificationService::new(),
         UuidIdGenerator::new(),
     );
 
@@ -100,7 +108,7 @@ fn build_test_app() -> axum::Router {
         NoopTokenService,
         UuidIdGenerator::new(),
     );
-    build_router(state, auth_state)
+    build_test_router(state, auth_state)
 }
 
 fn monitor_payload(user_id: Uuid, name: &str, url: &str, method: HttpMethod) -> Value {
@@ -111,7 +119,8 @@ fn monitor_payload(user_id: Uuid, name: &str, url: &str, method: HttpMethod) -> 
         "method": method,
         "expected_status": 200,
         "interval_seconds": 60,
-        "timeout_seconds": 10
+        "timeout_seconds": 10,
+        "assertions": []
     })
 }
 

@@ -1,6 +1,9 @@
+use application::dto::AssertionInput;
 use chrono::{DateTime, Utc};
+use domain::entities::NotificationChannel;
+use domain::enums::NotificationChannelKind;
 use domain::shared::ids::UserId;
-use domain::{HttpMethod, Monitor};
+use domain::{Check, CheckStatus, HttpMethod, Incident, Monitor};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -16,6 +19,9 @@ pub struct MonitorResponse {
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
     pub enabled: bool,
+    pub is_public: bool,
+    pub ssl_check_enabled: bool,
+    pub ssl_expiry_warning_days: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -32,6 +38,9 @@ impl From<Monitor> for MonitorResponse {
             interval_seconds: monitor.interval_seconds,
             timeout_seconds: monitor.timeout_seconds,
             enabled: monitor.enabled,
+            is_public: monitor.is_public,
+            ssl_check_enabled: monitor.ssl_check_enabled,
+            ssl_expiry_warning_days: monitor.ssl_expiry_warning_days,
             created_at: monitor.created_at,
             updated_at: monitor.updated_at,
         }
@@ -48,6 +57,28 @@ pub struct MonitorWriteRequest {
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
+    #[serde(default)]
+    pub assertions: Vec<AssertionInput>,
+    /// Whether this monitor should be exposed on the unauthenticated public
+    /// status page. Defaults to `false` if the client omits it.
+    #[serde(default)]
+    pub is_public: bool,
+    /// Whether SSL certificate expiry should be checked for this monitor.
+    /// Defaults to `true` if the client omits it.
+    #[serde(default = "default_ssl_check_enabled")]
+    pub ssl_check_enabled: bool,
+    /// Number of days before certificate expiry at which a warning should
+    /// be raised. Defaults to `14` if the client omits it.
+    #[serde(default = "default_ssl_expiry_warning_days")]
+    pub ssl_expiry_warning_days: u32,
+}
+
+fn default_ssl_check_enabled() -> bool {
+    true
+}
+
+fn default_ssl_expiry_warning_days() -> u32 {
+    14
 }
 
 impl MonitorWriteRequest {
@@ -58,5 +89,140 @@ impl MonitorWriteRequest {
             .ok_or_else(|| "user_id is required".to_string())?;
         let id = Uuid::parse_str(raw).map_err(|_| "invalid user_id".to_string())?;
         Ok(UserId(id))
+    }
+}
+
+/// A single incident, as exposed on the public status page.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicIncidentResponse {
+    pub id: String,
+    pub started_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+/// JSON representation of a monitor returned by the *public, unauthenticated*
+/// status endpoint.
+///
+/// IMPORTANT: this type must only ever carry safe, operational fields. It
+/// must NEVER include `user_id`, `assertions`, or any other owner-only or
+/// internal data — this response is served to anonymous clients.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicMonitorResponse {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub status: Option<CheckStatus>,
+    pub latency_ms: Option<u128>,
+    pub uptime_percentage: f64,
+    pub incidents: Vec<PublicIncidentResponse>,
+}
+
+impl PublicMonitorResponse {
+    /// Builds the public response from a monitor plus its checks/incidents.
+    /// `checks` is expected to be ordered most-recent-first (same ordering
+    /// already relied upon by the authenticated `/monitors/{id}/checks`
+    /// endpoint).
+    pub fn from_parts(monitor: Monitor, checks: &[Check], incidents: &[Incident]) -> Self {
+        let latest = checks.first();
+
+        let total = checks.len();
+        let up = checks
+            .iter()
+            .filter(|check| check.status == CheckStatus::Up)
+            .count();
+
+        let uptime_percentage = if total == 0 {
+            100.0
+        } else {
+            (up as f64 / total as f64) * 100.0
+        };
+
+        let mut incidents: Vec<PublicIncidentResponse> = incidents
+            .iter()
+            .map(|incident| PublicIncidentResponse {
+                id: incident.id.0.to_string(),
+                started_at: incident.started_at,
+                resolved_at: incident.resolved_at,
+            })
+            .collect();
+        incidents.sort_by_key(|b| std::cmp::Reverse(b.started_at));
+        incidents.truncate(10);
+
+        Self {
+            id: monitor.id.0.to_string(),
+            name: monitor.name.as_str().to_owned(),
+            url: monitor.url,
+            status: latest.map(|check| check.status),
+            latency_ms: latest.map(|check| check.latency_ms),
+            uptime_percentage,
+            incidents,
+        }
+    }
+}
+
+/// Request body for `POST /monitors/{monitor_id}/notifications`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateNotificationChannelRequest {
+    pub kind: NotificationChannelKind,
+    pub target: String,
+}
+
+/// JSON representation of a notification channel, as returned by the list
+/// and delete endpoints.
+///
+/// Deliberately has NO `signing_secret` field. See
+/// `NotificationChannelCreateResponse` below for the one place a signing
+/// secret is ever returned, and only once, at creation time — same
+/// convention GitHub/Stripe use for webhook secrets.
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationChannelResponse {
+    pub id: String,
+    pub monitor_id: String,
+    pub kind: NotificationChannelKind,
+    pub target: String,
+    pub enabled: bool,
+    /// `true` for webhook channels (which always have a signing secret),
+    /// `false` for email channels. Lets a client show "signing secret
+    /// configured" in a UI without ever re-exposing the value itself.
+    pub has_signing_secret: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<NotificationChannel> for NotificationChannelResponse {
+    fn from(channel: NotificationChannel) -> Self {
+        Self {
+            id: channel.id.0.to_string(),
+            monitor_id: channel.monitor_id.0.to_string(),
+            kind: channel.kind,
+            target: channel.target,
+            enabled: channel.enabled,
+            has_signing_secret: channel.signing_secret.is_some(),
+            created_at: channel.created_at,
+            updated_at: channel.updated_at,
+        }
+    }
+}
+
+/// Returned ONLY by `POST /monitors/{monitor_id}/notifications`.
+///
+/// Carries the plaintext `signing_secret` for webhook channels exactly
+/// once. No other endpoint (list, get) ever returns it again — the caller
+/// must save it now, or delete and recreate the channel to get a new one.
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationChannelCreateResponse {
+    #[serde(flatten)]
+    pub channel: NotificationChannelResponse,
+    pub signing_secret: Option<String>,
+}
+
+impl NotificationChannelCreateResponse {
+    pub fn from_created(channel: NotificationChannel) -> Self {
+        let signing_secret = channel.signing_secret.clone();
+
+        Self {
+            channel: NotificationChannelResponse::from(channel),
+            signing_secret,
+        }
     }
 }

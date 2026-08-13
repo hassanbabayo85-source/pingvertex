@@ -62,19 +62,36 @@ pub async fn run(
     loop {
         interval.tick().await;
 
-        process_sweep(&ctx, &mut states, Instant::now()).await?;
+        process_sweep(&ctx, &mut states, Instant::now(), run_check).await?;
     }
 }
 
-async fn process_sweep<M, C, G>(
+fn run_check<'a>(
+    client: &'a reqwest::Client,
+    monitor: &'a domain::Monitor,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>> {
+    Box::pin(check_monitor(client, monitor))
+}
+
+async fn process_sweep<M, C, G, F>(
     ctx: &SweepContext<'_, M, C, G>,
     states: &mut HashMap<MonitorId, MonitorCheckState>,
     now: Instant,
+    check_fn: F,
 ) -> Result<()>
 where
     M: MonitorRepository + ?Sized,
     C: CheckRepository + ?Sized,
     G: IdGenerator + ?Sized,
+    F: for<'a> Fn(
+            &'a reqwest::Client,
+            &'a domain::Monitor,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>,
+        > + Copy
+        + Send
+        + Sync
+        + 'static,
 {
     let monitor_repository = ctx.monitor_repository;
     let check_repository = ctx.check_repository;
@@ -117,7 +134,7 @@ where
         let client = client.clone();
 
         tasks.spawn(async move {
-            let result = check_monitor(&client, &monitor).await;
+            let result = check_fn(&client, &monitor).await;
             (monitor, result)
         });
     }
@@ -177,7 +194,8 @@ where
                         ErrorType::Unknown
                     },
                     result.error,
-                );
+                )
+                .with_cert_info(result.cert_expires_at, result.cert_days_remaining);
 
                 if let Err(err) = check_repository.save(&check).await {
                     counter!("worker_check_save_errors_total").increment(1);
@@ -198,7 +216,7 @@ where
 
                     counter!("worker_incidents_opened_total").increment(1);
 
-                    if let Err(err) = incident_manager.open_if_needed(monitor.id).await {
+                    if let Err(err) = incident_manager.open_if_needed(&monitor).await {
                         error!(
                             monitor_id = %monitor.id.0,
                             error = %err,
@@ -217,7 +235,7 @@ where
 
                     counter!("worker_incidents_resolved_total").increment(1);
 
-                    if let Err(err) = incident_manager.resolve_if_needed(monitor.id).await {
+                    if let Err(err) = incident_manager.resolve_if_needed(&monitor).await {
                         error!(
                             monitor_id = %monitor.id.0,
                             error = %err,
@@ -251,10 +269,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        net::SocketAddr,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use application::ports::{CheckRepository, IncidentRepository, MonitorRepository};
     use async_trait::async_trait;
@@ -263,12 +278,27 @@ mod tests {
         Check, CheckInterval, ExpectedStatus, HttpMethod, Incident, Monitor, MonitorBuilder,
         MonitorName, Timeout, Url,
     };
-    use infra::UuidIdGenerator;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
+    use infra::{
+        InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
+        UuidIdGenerator,
     };
     use uuid::Uuid;
+
+    /// Builds a fresh `Arc<IncidentManager>`-compatible dependency pair for
+    /// tests that don't care about notification behavior — see
+    /// `crates/worker/tests/incident_manager.rs` for tests that DO assert
+    /// on notification dispatch.
+    fn test_notification_deps() -> (
+        Arc<InMemoryNotificationChannelRepository>,
+        Arc<NoopNotificationService>,
+    ) {
+        (
+            Arc::new(InMemoryNotificationChannelRepository::new(
+                InMemoryMonitorRepository::new(),
+            )),
+            Arc::new(NoopNotificationService::new()),
+        )
+    }
 
     #[derive(Clone, Default)]
     struct MockMonitorRepository {
@@ -373,6 +403,7 @@ mod tests {
             &self,
             _limit: u32,
             _offset: u32,
+            _user_id: UserId,
         ) -> std::result::Result<Vec<Check>, Box<dyn Error + Send + Sync>> {
             Ok(vec![])
         }
@@ -455,36 +486,6 @@ mod tests {
         }
     }
 
-    async fn spawn_http_server(status: u16) -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr: SocketAddr = listener.local_addr().unwrap();
-
-        tokio::spawn(async move {
-            loop {
-                if let Ok((mut socket, _)) = listener.accept().await {
-                    let mut buf = [0_u8; 1024];
-                    let _ = socket.read(&mut buf).await;
-
-                    let reason = match status {
-                        200 => "OK",
-                        500 => "Internal Server Error",
-                        503 => "Service Unavailable",
-                        _ => "OK",
-                    };
-
-                    let response = format!(
-                        "HTTP/1.1 {status} {reason}\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
-                    );
-
-                    let _ = socket.write_all(response.as_bytes()).await;
-                    let _ = socket.shutdown().await;
-                }
-            }
-        });
-
-        format!("http://{addr}")
-    }
-
     fn build_monitor(url: String) -> Monitor {
         MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
             .name(MonitorName::new("Test Monitor").unwrap())
@@ -496,16 +497,48 @@ mod tests {
             .build()
     }
 
+    fn mock_success<'a>(
+        _c: &'a reqwest::Client,
+        _m: &'a domain::Monitor,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>>
+    {
+        Box::pin(async move { Ok(domain::CheckResult::success(200, 10)) })
+    }
+
+    fn mock_failure<'a>(
+        _c: &'a reqwest::Client,
+        _m: &'a domain::Monitor,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            Ok(domain::CheckResult::failure_with_status(
+                503,
+                10,
+                "test failure",
+            ))
+        })
+    }
+
     #[tokio::test]
     async fn saves_a_check_for_a_healthy_monitor() {
-        let url = spawn_http_server(200).await;
+        let url = "http://example.com".to_string();
         let monitor = build_monitor(url);
-        let monitor_repository = Arc::new(MockMonitorRepository::with_monitors(vec![monitor]));
+        let monitor_repository =
+            Arc::new(MockMonitorRepository::with_monitors(vec![monitor.clone()]));
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
-        let incident_manager = IncidentManager::new(incident_repository, id_generator.clone());
-        let client = Client::new();
+        let (notification_channel_repository, notification_service) = test_notification_deps();
+        let incident_manager = IncidentManager::new(
+            incident_repository,
+            id_generator.clone(),
+            notification_channel_repository,
+            notification_service,
+        );
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
         let mut states = HashMap::new();
 
         let ctx = SweepContext {
@@ -516,7 +549,7 @@ mod tests {
             client: &client,
         };
 
-        process_sweep(&ctx, &mut states, Instant::now())
+        process_sweep(&ctx, &mut states, Instant::now(), mock_success)
             .await
             .unwrap();
 
@@ -525,15 +558,24 @@ mod tests {
 
     #[tokio::test]
     async fn opens_incident_after_failure_threshold() {
-        let url = spawn_http_server(503).await;
+        let url = "http://example.com".to_string();
         let monitor = build_monitor(url);
-        let monitor_repository = Arc::new(MockMonitorRepository::with_monitors(vec![monitor]));
+        let monitor_repository =
+            Arc::new(MockMonitorRepository::with_monitors(vec![monitor.clone()]));
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
-        let incident_manager =
-            IncidentManager::new(incident_repository.clone(), id_generator.clone());
-        let client = Client::new();
+        let (notification_channel_repository, notification_service) = test_notification_deps();
+        let incident_manager = IncidentManager::new(
+            incident_repository.clone(),
+            id_generator.clone(),
+            notification_channel_repository,
+            notification_service,
+        );
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
         let mut states = HashMap::new();
 
         let ctx = SweepContext {
@@ -547,9 +589,14 @@ mod tests {
         let start = Instant::now();
 
         for i in 0..3 {
-            process_sweep(&ctx, &mut states, start + Duration::from_secs(60 * i))
-                .await
-                .unwrap();
+            process_sweep(
+                &ctx,
+                &mut states,
+                start + std::time::Duration::from_secs(60 * i),
+                mock_failure,
+            )
+            .await
+            .unwrap();
         }
 
         assert_eq!(check_repository.save_count(), 3);
@@ -559,19 +606,28 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_incident_after_success_threshold() {
-        let url = spawn_http_server(200).await;
+        let url = "http://example.com".to_string();
         let monitor = build_monitor(url);
-        let monitor_id = monitor.id;
-        let monitor_repository = Arc::new(MockMonitorRepository::with_monitors(vec![monitor]));
+        let _monitor_id = monitor.id;
+        let monitor_repository =
+            Arc::new(MockMonitorRepository::with_monitors(vec![monitor.clone()]));
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
-        let incident_manager =
-            IncidentManager::new(incident_repository.clone(), id_generator.clone());
-        let client = Client::new();
+        let (notification_channel_repository, notification_service) = test_notification_deps();
+        let incident_manager = IncidentManager::new(
+            incident_repository.clone(),
+            id_generator.clone(),
+            notification_channel_repository,
+            notification_service,
+        );
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
         let mut states = HashMap::new();
 
-        incident_manager.open_if_needed(monitor_id).await.unwrap();
+        incident_manager.open_if_needed(&monitor).await.unwrap();
 
         let ctx = SweepContext {
             monitor_repository: monitor_repository.as_ref(),
@@ -584,9 +640,14 @@ mod tests {
         let start = Instant::now();
 
         for i in 0..2 {
-            process_sweep(&ctx, &mut states, start + Duration::from_secs(60 * i))
-                .await
-                .unwrap();
+            process_sweep(
+                &ctx,
+                &mut states,
+                start + std::time::Duration::from_secs(60 * i),
+                mock_success,
+            )
+            .await
+            .unwrap();
         }
 
         assert_eq!(check_repository.save_count(), 2);

@@ -27,7 +27,7 @@ pub async fn get_monitor(
     let monitor = use_case
         .execute(GetMonitor { id, user_id })
         .await
-        .map_err(|err| ApiError::internal(format!("failed to fetch monitor: {err}")))?
+        .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     Ok(Json(MonitorResponse::from(monitor)))

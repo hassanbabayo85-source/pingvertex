@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Extension, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -8,32 +8,28 @@ use serde::Deserialize;
 use tracing::info;
 
 use application::use_cases::ListChecksUseCase;
+use domain::shared::ids::UserId;
 
 use crate::{error::ApiError, state::AppState, validation::validate_pagination};
 
-/// Query parameters for listing checks.
 #[derive(Deserialize)]
 pub struct ListChecksQuery {
-    /// Number of checks to retrieve per page.
     #[serde(default = "default_limit")]
     limit: u32,
-    /// Number of checks to skip before starting to retrieve results.
     #[serde(default = "default_offset")]
     offset: u32,
 }
 
-/// Default limit for pagination (10).
 fn default_limit() -> u32 {
     10
 }
-/// Default offset for pagination (0).
 fn default_offset() -> u32 {
     0
 }
 
-/// Lists all checks.
 pub async fn list_checks(
     Query(query): Query<ListChecksQuery>,
+    Extension(user_id): Extension<UserId>, // sabo
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("API: list_checks");
@@ -44,8 +40,9 @@ pub async fn list_checks(
 
     let use_case = ListChecksUseCase::new(state.check_repository.clone());
 
-    match use_case.execute(query.limit, query.offset).await {
+    match use_case.execute(query.limit, query.offset, user_id).await {
+        // wuce user_id
         Ok(checks) => (StatusCode::OK, Json(checks)).into_response(),
-        Err(err) => ApiError::internal(format!("failed to list checks: {err}")).into_response(),
+        Err(err) => ApiError::internal_with_source("failed to list checks", err).into_response(),
     }
 }

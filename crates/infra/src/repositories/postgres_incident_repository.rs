@@ -60,6 +60,14 @@ impl IncidentRepository for PostgresIncidentRepository {
     async fn save(&self, incident: &Incident) -> RepoResult<()> {
         let row = IncidentRow::from_domain(incident);
 
+        // SEC-010: idan wani worker na biyu (misali a wani horizontal-scaled
+        // replica) ya riga ya kai wannan monitor_id gaban mu tare da wani
+        // open incident (resolved_at IS NULL), partial unique index
+        // `idx_incidents_unique_open_per_monitor` zai toshe kwafi (duplicate)
+        // a matakin database. Muna amfani da ON CONFLICT ... DO NOTHING
+        // domin wannan yanayin ya zama shiru (no-op) maimakon ya dawo da
+        // wani error da zai iya rikita worker ɗin ko ya haddasa ɓoyayyen
+        // panic/log spam a cikin sweep loop.
         sqlx::query(
             r#"
             INSERT INTO incidents (
@@ -71,6 +79,7 @@ impl IncidentRepository for PostgresIncidentRepository {
                 updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (monitor_id) WHERE resolved_at IS NULL DO NOTHING
             "#,
         )
         .bind(row.id)

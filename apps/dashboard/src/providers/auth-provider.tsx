@@ -8,20 +8,19 @@ import {
   useState,
 } from "react";
 
-import type { AuthSession } from "@/types/auth";
+import type { AuthResponse } from "@/types/auth";
 import {
   clearTokens,
-  getAccessToken,
-  getRefreshToken,
-  saveTokens,
+  isMarkedAuthenticated,
+  markAuthenticated,
 } from "@/lib/auth";
 
 type AuthContextValue = {
-  session: AuthSession | null;
+  session: AuthResponse | null;
   authenticated: boolean;
   loading: boolean;
 
-  setSession: (session: AuthSession | null) => void;
+  setSession: (session: AuthResponse | null) => void;
   logout: () => void;
 };
 
@@ -33,44 +32,30 @@ export function AuthProvider({
   children: React.ReactNode;
 }) {
   const [session, setSessionState] =
-    useState<AuthSession | null>(null);
+    useState<AuthResponse | null>(null);
 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const access = getAccessToken();
-    const refresh = getRefreshToken();
-
-    if (access && refresh) {
-      setSessionState({
-        user: {
-          id: "",
-          email: "",
-          username: "",
-          avatar_url: null,
-        },
-        tokens: {
-          access_token: access,
-          refresh_token: refresh,
-        },
-      });
+    // Ba mu iya karanta access_token din kai tsaye (httpOnly cookie ce),
+    // don haka mun dogara ga UI flag kawai domin sanin ko an login. Kiran
+    // authenticated endpoint na farko zai kori user zuwa /login ta hanyar
+    // 401 interceptor idan cookie ba ta wanzu ba ko ta kare.
+    if (isMarkedAuthenticated()) {
+      setSessionState({ access_token: "" });
     }
 
     setLoading(false);
   }, []);
 
-  function setSession(session: AuthSession | null) {
+  function setSession(session: AuthResponse | null) {
     if (!session) {
       clearTokens();
       setSessionState(null);
       return;
     }
 
-    saveTokens(
-      session.tokens.access_token,
-      session.tokens.refresh_token,
-    );
-
+    markAuthenticated();
     setSessionState(session);
   }
 

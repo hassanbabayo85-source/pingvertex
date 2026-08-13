@@ -1,14 +1,15 @@
 use std::{error::Error, sync::Arc};
 
 use infra::{
-    PostgresCheckRepository, PostgresIncidentRepository, PostgresMonitorRepository,
-    UuidIdGenerator, create_pool,
+    NotificationDispatcher, PostgresCheckRepository, PostgresIncidentRepository,
+    PostgresMonitorRepository, PostgresNotificationChannelRepository, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
-use worker::{IncidentManager, metrics, run};
+use worker::{IncidentManager, init_rustls_crypto_provider, metrics, run};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    init_rustls_crypto_provider();
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,tower_http=trace"));
 
@@ -32,12 +33,28 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
     let check_repository = Arc::new(PostgresCheckRepository::new(pool.clone()));
-    let incident_repository = Arc::new(PostgresIncidentRepository::new(pool));
+    let incident_repository = Arc::new(PostgresIncidentRepository::new(pool.clone()));
+    let notification_channel_repository =
+        Arc::new(PostgresNotificationChannelRepository::new(pool));
     let id_generator = Arc::new(UuidIdGenerator::new());
 
-    let incident_manager = IncidentManager::new(incident_repository, id_generator.clone());
+    // Built once at startup: reads SMTP_* env vars for email (falling back
+    // to a "disabled, logs a clear error" adapter if they're absent — see
+    // `NotificationDispatcher::from_env`), webhook delivery needs no
+    // global config since each channel carries its own target + secret.
+    let notification_service = Arc::new(NotificationDispatcher::from_env());
 
-    let client = reqwest::Client::new();
+    let incident_manager = IncidentManager::new(
+        incident_repository,
+        id_generator.clone(),
+        notification_channel_repository,
+        notification_service,
+    );
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("Failed to build reqwest client");
 
     run(
         monitor_repository,

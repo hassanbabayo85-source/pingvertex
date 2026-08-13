@@ -16,12 +16,6 @@ export type RegisterRequest = {
   password: string;
 };
 
-export type AuthTokens = {
+export type AuthResponse = {
   access_token: string;
-  refresh_token: string;
-};
-
-export type AuthSession = {
-  user: User;
-  tokens: AuthTokens;
 };

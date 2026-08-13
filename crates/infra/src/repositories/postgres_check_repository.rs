@@ -3,7 +3,7 @@ use std::error::Error;
 use application::ports::CheckRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::shared::ids::{CheckId, MonitorId};
+use domain::shared::ids::{CheckId, MonitorId, UserId};
 use domain::{Check, CheckStatus, ErrorType};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
@@ -31,6 +31,8 @@ struct CheckRow {
     error_type: String,
     error_message: Option<String>,
     checked_at: DateTime<Utc>,
+    cert_expires_at: Option<DateTime<Utc>>,
+    cert_days_remaining: Option<i64>,
 }
 
 impl CheckRow {
@@ -48,6 +50,8 @@ impl CheckRow {
             error_type: format!("{:?}", check.error_type),
             error_message: check.error_message.clone(),
             checked_at: check.checked_at,
+            cert_expires_at: check.cert_expires_at,
+            cert_days_remaining: check.cert_days_remaining,
         }
     }
 
@@ -78,7 +82,10 @@ impl CheckRow {
             error_type,
             error_message: self.error_message,
             checked_at: self.checked_at,
-        })
+            cert_expires_at: None,
+            cert_days_remaining: None,
+        }
+        .with_cert_info(self.cert_expires_at, self.cert_days_remaining))
     }
 }
 
@@ -97,9 +104,11 @@ impl CheckRepository for PostgresCheckRepository {
                 response_time_ms,
                 error_type,
                 error_message,
-                checked_at
+                checked_at,
+                cert_expires_at,
+                cert_days_remaining
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
             "#,
         )
         .bind(row.id)
@@ -110,6 +119,8 @@ impl CheckRepository for PostgresCheckRepository {
         .bind(row.error_type)
         .bind(row.error_message)
         .bind(row.checked_at)
+        .bind(row.cert_expires_at)
+        .bind(row.cert_days_remaining)
         .execute(&self.pool)
         .await?;
 
@@ -127,7 +138,9 @@ impl CheckRepository for PostgresCheckRepository {
                 response_time_ms,
                 error_type,
                 error_message,
-                checked_at
+                checked_at,
+                cert_expires_at,
+                cert_days_remaining
             FROM checks
             WHERE id = $1
             "#,
@@ -153,7 +166,9 @@ impl CheckRepository for PostgresCheckRepository {
                 response_time_ms,
                 error_type,
                 error_message,
-                checked_at
+                checked_at,
+                cert_expires_at,
+                cert_days_remaining
             FROM checks
             WHERE monitor_id = $1
             ORDER BY checked_at DESC
@@ -166,25 +181,35 @@ impl CheckRepository for PostgresCheckRepository {
         rows.into_iter().map(CheckRow::into_domain).collect()
     }
 
-    async fn list_checks(&self, limit: u32, offset: u32) -> RepoResult<Vec<Check>> {
+    async fn list_checks(
+        &self,
+        limit: u32,
+        offset: u32,
+        user_id: UserId,
+    ) -> RepoResult<Vec<Check>> {
         let rows = sqlx::query_as::<_, CheckRow>(
             r#"
             SELECT
-                id,
-                monitor_id,
-                status,
-                http_status,
-                response_time_ms,
-                error_type,
-                error_message,
-                checked_at
-            FROM checks
-            ORDER BY checked_at DESC
+                c.id,
+                c.monitor_id,
+                c.status,
+                c.http_status,
+                c.response_time_ms,
+                c.error_type,
+                c.error_message,
+                c.checked_at,
+                c.cert_expires_at,
+                c.cert_days_remaining
+            FROM checks c
+            JOIN monitors m ON c.monitor_id = m.id
+            WHERE m.user_id = $3
+            ORDER BY c.checked_at DESC
             LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit as i64)
         .bind(offset as i64)
+        .bind(user_id.0) // UUID
         .fetch_all(&self.pool)
         .await?;
 

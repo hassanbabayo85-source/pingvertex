@@ -21,7 +21,7 @@ pub async fn list_monitors(
     let monitors = use_case
         .execute(ListMonitors { user_id })
         .await
-        .map_err(|err| ApiError::internal(format!("failed to list monitors: {err}")))?;
+        .map_err(|err| ApiError::internal_with_source("failed to list monitors", err))?;
 
     Ok(Json(
         monitors.into_iter().map(MonitorResponse::from).collect(),

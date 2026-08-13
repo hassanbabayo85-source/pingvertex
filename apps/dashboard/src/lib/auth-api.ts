@@ -11,11 +11,15 @@ export type RegisterRequest = {
   password: string;
 };
 
+export type AuthResponse = {
+  access_token: string;
+};
+
 export const authApi = http;
 
 export async function login(
   body: LoginRequest,
-) {
+): Promise<AuthResponse> {
   const response = await authApi.post(
     "/auth/login",
     body,
@@ -26,31 +30,10 @@ export async function login(
 
 export async function register(
   body: RegisterRequest,
-) {
+): Promise<AuthResponse> {
   const response = await authApi.post(
     "/auth/register",
     body,
-  );
-
-  return response.data;
-}
-
-export async function logout() {
-  const response = await authApi.post(
-    "/auth/logout",
-  );
-
-  return response.data;
-}
-
-export async function refreshToken(
-  refreshToken: string,
-) {
-  const response = await authApi.post(
-    "/auth/refresh",
-    {
-      refresh_token: refreshToken,
-    },
   );
 
   return response.data;

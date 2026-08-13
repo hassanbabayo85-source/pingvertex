@@ -10,3 +10,9 @@ serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+
+# Used only for URL parsing in `ssrf` (the identical type reqwest itself
+# re-exports as `reqwest::Url`) — deliberately NOT depending on reqwest here
+# so `shared` stays a lightweight leaf crate with no HTTP client of its own.
+url = "2.5.8"

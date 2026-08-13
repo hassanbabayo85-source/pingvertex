@@ -29,6 +29,10 @@ pub async fn create_monitor(
         expected_status: payload.expected_status,
         interval_seconds: payload.interval_seconds,
         timeout_seconds: payload.timeout_seconds,
+        assertions: payload.assertions,
+        is_public: payload.is_public,
+        ssl_check_enabled: payload.ssl_check_enabled,
+        ssl_expiry_warning_days: payload.ssl_expiry_warning_days,
     };
 
     let use_case = CreateMonitorUseCase::new(state.monitor_repository.clone(), state.id_generator);
@@ -36,7 +40,7 @@ pub async fn create_monitor(
     let monitor = use_case
         .execute(request)
         .await
-        .map_err(|err| ApiError::internal(format!("failed to create monitor: {err}")))?;
+        .map_err(|err| ApiError::internal_with_source("failed to create monitor", err))?;
 
     Ok((StatusCode::CREATED, Json(MonitorResponse::from(monitor))))
 }

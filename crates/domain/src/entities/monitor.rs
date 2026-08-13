@@ -34,6 +34,11 @@ pub struct Monitor {
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
     pub enabled: bool,
+    /// Whether this monitor is exposed on the unauthenticated public status
+    /// page. Defaults to `false` — an owner must explicitly opt in.
+    pub is_public: bool,
+    pub ssl_check_enabled: bool,
+    pub ssl_expiry_warning_days: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -55,6 +60,9 @@ impl Monitor {
             interval_seconds: input.interval_seconds,
             timeout_seconds: input.timeout_seconds,
             enabled: true,
+            is_public: false,
+            ssl_check_enabled: true,
+            ssl_expiry_warning_days: 14,
             created_at: now,
             assertions: Vec::new(),
             updated_at: now,

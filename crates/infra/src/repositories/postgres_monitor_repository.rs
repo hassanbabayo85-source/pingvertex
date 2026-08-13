@@ -36,6 +36,9 @@ struct MonitorRow {
     interval_seconds: i32,
     timeout_seconds: i32,
     enabled: bool,
+    is_public: bool,
+    ssl_check_enabled: bool,
+    ssl_expiry_warning_days: i32,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -77,6 +80,10 @@ impl MonitorRow {
             timeout_seconds: i32::try_from(i64::from(monitor.timeout_seconds))
                 .expect("timeout_seconds exceeds i32 capacity"),
             enabled: monitor.enabled,
+            is_public: monitor.is_public,
+            ssl_check_enabled: monitor.ssl_check_enabled,
+            ssl_expiry_warning_days: i32::try_from(i64::from(monitor.ssl_expiry_warning_days))
+                .expect("ssl_expiry_warning_days exceeds i32 capacity"),
             created_at: monitor.created_at,
             updated_at: monitor.updated_at,
         }
@@ -95,6 +102,9 @@ impl MonitorRow {
             interval_seconds: self.interval_seconds.try_into()?,
             timeout_seconds: self.timeout_seconds.try_into()?,
             enabled: self.enabled,
+            is_public: self.is_public,
+            ssl_check_enabled: self.ssl_check_enabled,
+            ssl_expiry_warning_days: self.ssl_expiry_warning_days.try_into()?,
             created_at: self.created_at,
             updated_at: self.updated_at,
             assertions,
@@ -224,10 +234,12 @@ impl MonitorRepository for PostgresMonitorRepository {
                 interval_seconds,
                 timeout_seconds,
                 enabled,
+                ssl_check_enabled,
+                ssl_expiry_warning_days,
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             ON CONFLICT (id) DO UPDATE SET
                 user_id = EXCLUDED.user_id,
                 name = EXCLUDED.name,
@@ -237,6 +249,8 @@ impl MonitorRepository for PostgresMonitorRepository {
                 interval_seconds = EXCLUDED.interval_seconds,
                 timeout_seconds = EXCLUDED.timeout_seconds,
                 enabled = EXCLUDED.enabled,
+                ssl_check_enabled = EXCLUDED.ssl_check_enabled,
+                ssl_expiry_warning_days = EXCLUDED.ssl_expiry_warning_days,
                 updated_at = EXCLUDED.updated_at
             "#,
         )
@@ -249,6 +263,8 @@ impl MonitorRepository for PostgresMonitorRepository {
         .bind(row.interval_seconds)
         .bind(row.timeout_seconds)
         .bind(row.enabled)
+        .bind(row.ssl_check_enabled)
+        .bind(row.ssl_expiry_warning_days)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&mut *tx)
@@ -316,6 +332,9 @@ impl MonitorRepository for PostgresMonitorRepository {
                 interval_seconds,
                 timeout_seconds,
                 enabled,
+                is_public,
+                ssl_check_enabled,
+                ssl_expiry_warning_days,
                 created_at,
                 updated_at
             FROM monitors
@@ -372,6 +391,9 @@ impl MonitorRepository for PostgresMonitorRepository {
                 interval_seconds,
                 timeout_seconds,
                 enabled,
+                is_public,
+                ssl_check_enabled,
+                ssl_expiry_warning_days,
                 created_at,
                 updated_at
             FROM monitors
@@ -431,7 +453,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         id: MonitorId,
         user_id: UserId,
     ) -> RepoResult<Option<Monitor>> {
-        let row = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, created_at, updated_at FROM monitors WHERE id = $1 AND user_id = $2")
+        let row = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE id = $1 AND user_id = $2")
             .bind(id.0).bind(user_id.0).fetch_optional(&self.pool).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -446,7 +468,7 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<Monitor>> {
-        let monitor_rows = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, created_at, updated_at FROM monitors WHERE user_id = $1 ORDER BY created_at DESC")
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE user_id = $1 ORDER BY created_at DESC")
             .bind(user_id.0).fetch_all(&self.pool).await?;
         if monitor_rows.is_empty() {
             return Ok(Vec::new());
@@ -474,6 +496,26 @@ impl MonitorRepository for PostgresMonitorRepository {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
+        // Yana dawo da monitors da `is_public = true` KAWAI. Ba mu bukatar
+        // assertions a nan domin sabis din public baya bukatar bayanan cikin
+        // gida na assertion rules.
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>(
+            "SELECT id, user_id, name, url, method, expected_status, interval_seconds, \
+             timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at \
+             FROM monitors WHERE is_public = true ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut monitors = Vec::with_capacity(monitor_rows.len());
+        for row in monitor_rows {
+            monitors.push(row.into_domain(Vec::new())?);
+        }
+
+        Ok(monitors)
     }
 
     async fn delete(&self, id: MonitorId) -> RepoResult<bool> {

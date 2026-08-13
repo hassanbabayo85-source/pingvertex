@@ -47,6 +47,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/uptime_monitor
       RUST_LOG: info
@@ -64,6 +66,16 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # Added for the notifications feature: the worker is what actually
+    # sends email/webhook notifications when an incident opens or
+    # resolves (see crates/worker/src/incident_manager.rs), so it needs
+    # the same SMTP_* variables as the api service. Previously only `api`
+    # read `.env` here — without this, the worker would silently run with
+    # email notifications disabled (falls back to
+    # `DisabledEmailNotificationService`, logs a warning) even if SMTP_*
+    # was correctly set in `.env`.
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/uptime_monitor
       RUST_LOG: info

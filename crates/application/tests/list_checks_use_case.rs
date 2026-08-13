@@ -6,7 +6,7 @@ use application::{
 };
 use async_trait::async_trait;
 use domain::Check;
-use domain::shared::ids::{CheckId, MonitorId};
+use domain::shared::ids::{CheckId, MonitorId, UserId};
 
 #[derive(Clone, Default)]
 struct NoopCheckRepository;
@@ -25,7 +25,7 @@ impl CheckRepository for NoopCheckRepository {
         Ok(vec![])
     }
 
-    async fn list_checks(&self, _: u32, _: u32) -> CheckRepoResult<Vec<Check>> {
+    async fn list_checks(&self, _: u32, _: u32, _: UserId) -> CheckRepoResult<Vec<Check>> {
         Ok(vec![])
     }
 
@@ -39,7 +39,8 @@ async fn lists_checks() {
     let repository = Arc::new(NoopCheckRepository);
     let use_case = ListChecksUseCase::new(repository);
 
-    let result = use_case.execute(10, 0).await.unwrap();
+    let user_id = UserId::from_uuid(uuid::Uuid::new_v4());
+    let result = use_case.execute(10, 0, user_id).await.unwrap();
 
     assert!(result.is_empty());
 }

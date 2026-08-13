@@ -1,14 +1,21 @@
-use api::{auth_state::AuthState, router::build_router, state::AppState};
-use application::ports::{CheckRepository, IncidentRepository, MonitorRepository};
+use api::{auth_state::AuthState, router::build_test_router, state::AppState};
+use application::ports::{CheckRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
-use domain::{Check, Incident, Monitor};
-use infra::UuidIdGenerator;
+use domain::{Check, Incident};
+use infra::{
+    InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
+    UuidIdGenerator,
+};
 use tower::ServiceExt;
+
+// ---------------------------------------------------------------------------
+// Mock repositories for checks, incidents, and user/auth
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
 struct MockCheckRepository;
@@ -37,6 +44,7 @@ impl CheckRepository for MockCheckRepository {
         &self,
         _: u32,
         _: u32,
+        _: UserId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -80,33 +88,14 @@ impl IncidentRepository for NoopIncidentRepository {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopMonitorRepository;
-
-#[async_trait]
-impl MonitorRepository for NoopMonitorRepository {
-    async fn save(&self, _: &Monitor) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-    async fn update(&self, _: &Monitor) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-    async fn find_by_id(
-        &self,
-        _: MonitorId,
-    ) -> Result<Option<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(None)
-    }
-    async fn find_all(&self) -> Result<Vec<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(vec![])
-    }
-    async fn delete(&self, _: MonitorId) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(false)
-    }
-}
+// ---------------------------------------------------------------------------
+// No-op auth services – JWT verification returns a fixed UserId so tests
+// are consistent across requests.
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
 struct NoopUserRepository;
+
 #[async_trait]
 impl UserRepository for NoopUserRepository {
     async fn create(&self, _: &User) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -155,6 +144,7 @@ impl UserRepository for NoopUserRepository {
 
 #[derive(Clone, Default)]
 struct NoopPasswordHasher;
+
 #[async_trait]
 impl PasswordHasher for NoopPasswordHasher {
     async fn hash(&self, _: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -185,15 +175,28 @@ impl TokenService for NoopTokenService {
         &self,
         _: &str,
     ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(domain::UserId::from_uuid(uuid::Uuid::new_v4()))
+        // FIX: Tsayayyen UserId (nil UUID) don kowane buƙata ya kasance iri ɗaya.
+        // Wannan yana tabbatar da cewa POST da GET a gwaji suna da mai amfani iri ɗaya,
+        // don haka monitor ɗin da aka ƙirƙira zai kasance mallakar wannan mai amfanin.
+        Ok(domain::UserId::from_uuid(uuid::Uuid::nil()))
     }
 }
 
+// ---------------------------------------------------------------------------
+// Test helper
+// ---------------------------------------------------------------------------
+
 fn build_test_app() -> axum::Router {
+    // InMemoryMonitorRepository yana da cikakkiyar aiki na MonitorRepository,
+    // gami da find_by_id_for_user() da ownership checks.
+    let monitor_repo = InMemoryMonitorRepository::new();
+
     let state = AppState::new(
-        NoopMonitorRepository,
+        monitor_repo.clone(),
         MockCheckRepository,
         NoopIncidentRepository,
+        InMemoryNotificationChannelRepository::new(monitor_repo),
+        NoopNotificationService::new(),
         UuidIdGenerator::new(),
     );
 
@@ -204,8 +207,12 @@ fn build_test_app() -> axum::Router {
         UuidIdGenerator::new(),
     );
 
-    build_router(state, auth_state)
+    build_test_router(state, auth_state)
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn list_checks_returns_ok() {
@@ -215,6 +222,7 @@ async fn list_checks_returns_ok() {
         .oneshot(
             Request::builder()
                 .uri("/api/v1/checks")
+                .header("Authorization", "Bearer test-token")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -227,8 +235,42 @@ async fn list_checks_returns_ok() {
 #[tokio::test]
 async fn list_monitor_checks_returns_ok() {
     let app = build_test_app();
-    let monitor_id = uuid::Uuid::new_v4();
 
+    // Fara ƙirƙirar monitor ta hanyar amfani da router ɗin da muka gina.
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("Authorization", "Bearer test-token")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    r#"{
+                        "name": "Test Monitor",
+                        "url": "https://example.com",
+                        "method": "GET",
+                        "expected_status": 200,
+                        "interval_seconds": 60,
+                        "timeout_seconds": 10,
+                        "assertions": []
+                    }"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+
+    // Cire ID daga cikin amsar
+    let body = axum::body::to_bytes(create_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let monitor_id = json["id"].as_str().unwrap();
+
+    // Yanzu neman checks na wannan monitor
     let response = app
         .oneshot(
             Request::builder()

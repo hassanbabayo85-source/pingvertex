@@ -41,6 +41,7 @@ export function EditMonitorDialog({ monitor }: EditMonitorDialogProps) {
       interval_seconds: monitor.interval_seconds,
       timeout_seconds: monitor.timeout_seconds,
       enabled: monitor.enabled,
+      is_public: monitor.is_public,
     }),
     [monitor],
   );
