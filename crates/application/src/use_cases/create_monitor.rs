@@ -71,7 +71,7 @@ where
             .repository
             .find_all_for_user(request.user_id)
             .await
-            .map_err(|e| CreateMonitorError::Other(e.into()))?;
+            .map_err(|e| CreateMonitorError::Other(e))?;
 
         if monitors.len() >= MAX_MONITORS_PER_USER {
             return Err(CreateMonitorError::QuotaExceeded {
