@@ -98,7 +98,7 @@ pub async fn execute_flow(
             let passed = failed_at_step.is_none();
 
             FlowExecutionResult {
-                flow_id: flow.id.clone(),
+                flow_id: flow.id,
                 passed,
                 failed_at_step,
                 outcomes,
@@ -133,7 +133,7 @@ pub async fn execute_flow(
             });
 
             FlowExecutionResult {
-                flow_id: flow.id.clone(),
+                flow_id: flow.id,
                 passed: false,
                 failed_at_step: None,
                 outcomes,

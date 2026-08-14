@@ -66,11 +66,10 @@ impl ApiFlowStep {
             }
         }
 
-        if let Some(body) = &body {
-            if body.len() > MAX_BODY_LENGTH {
+        if let Some(body) = &body
+            && body.len() > MAX_BODY_LENGTH {
                 return Err(DomainError::FlowStepBodyTooLarge);
             }
-        }
 
         Ok(Self {
             id: ApiFlowStepId::new(),

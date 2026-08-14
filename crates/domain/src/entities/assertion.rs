@@ -47,21 +47,19 @@ impl Assertion {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(target) = &self.target {
-            if target.len() > MAX_ASSERTION_STRING_LENGTH {
+        if let Some(target) = &self.target
+            && target.len() > MAX_ASSERTION_STRING_LENGTH {
                 return Err(format!(
                     "assertion target must not exceed {MAX_ASSERTION_STRING_LENGTH} characters"
                 ));
             }
-        }
 
-        if let Some(expected_value) = &self.expected_value {
-            if expected_value.len() > MAX_ASSERTION_STRING_LENGTH {
+        if let Some(expected_value) = &self.expected_value
+            && expected_value.len() > MAX_ASSERTION_STRING_LENGTH {
                 return Err(format!(
                     "assertion expected_value must not exceed {MAX_ASSERTION_STRING_LENGTH} characters"
                 ));
             }
-        }
 
         Ok(())
     }
