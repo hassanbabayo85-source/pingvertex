@@ -42,3 +42,5 @@ pub mod assertion_operator;
 pub use assertion_operator::*;
 pub mod notification_channel_kind;
 pub use notification_channel_kind::*;
+pub mod extract_source;
+pub use extract_source::ExtractSource;

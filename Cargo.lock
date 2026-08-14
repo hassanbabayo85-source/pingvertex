@@ -3776,6 +3776,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "x509-parser",
 ]

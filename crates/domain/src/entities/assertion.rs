@@ -3,6 +3,16 @@ use crate::shared::ids::AssertionId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Hard cap on the byte length of an assertion's `target` or `expected_value`
+/// string.
+///
+/// Both fields are client-supplied, optional `String`s with no prior limit —
+/// a single assertion could carry megabytes of text that would be validated
+/// and persisted for no legitimate reason (real assertions compare a JSON
+/// path, header name, or short expected string). 2048 mirrors the URL length
+/// cap used elsewhere in the domain and comfortably covers real assertions.
+pub const MAX_ASSERTION_STRING_LENGTH: usize = 2048;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Assertion {
     pub id: AssertionId,
@@ -37,6 +47,22 @@ impl Assertion {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(target) = &self.target {
+            if target.len() > MAX_ASSERTION_STRING_LENGTH {
+                return Err(format!(
+                    "assertion target must not exceed {MAX_ASSERTION_STRING_LENGTH} characters"
+                ));
+            }
+        }
+
+        if let Some(expected_value) = &self.expected_value {
+            if expected_value.len() > MAX_ASSERTION_STRING_LENGTH {
+                return Err(format!(
+                    "assertion expected_value must not exceed {MAX_ASSERTION_STRING_LENGTH} characters"
+                ));
+            }
+        }
+
         Ok(())
     }
 }

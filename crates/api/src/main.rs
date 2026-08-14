@@ -6,8 +6,9 @@ use api::{
 };
 use infra::{
     create_pool, Argon2PasswordHasher, JsonWebTokenService, NotificationDispatcher,
-    PostgresCheckRepository, PostgresIncidentRepository, PostgresMonitorRepository,
-    PostgresNotificationChannelRepository, PostgresUserRepository, UuidIdGenerator,
+    PostgresApiFlowRepository, PostgresCheckRepository, PostgresIncidentRepository,
+    PostgresMonitorRepository, PostgresNotificationChannelRepository, PostgresUserRepository,
+    UuidIdGenerator,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -37,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // worker's IncidentManager use identical delivery logic — see
         // `NotificationDispatcher::from_env`.
         NotificationDispatcher::from_env(),
+        PostgresApiFlowRepository::new(pool.clone()),
         UuidIdGenerator::new(),
     );
 

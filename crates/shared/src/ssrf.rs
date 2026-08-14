@@ -22,6 +22,15 @@ use url::Url;
 fn is_private_ipv4(ip: Ipv4Addr) -> bool {
     let octets = ip.octets();
 
+    // 0.0.0.0/8 ("this network" / unspecified). Also closes a subtle gap
+    // introduced by unwrapping IPv4-mapped IPv6 addresses below: `::`
+    // and `::1` both unwrap to 0.0.0.0 / 0.0.0.1 via `Ipv6Addr::to_ipv4()`,
+    // so this range needs to be blocked here too, not just via
+    // `Ipv6Addr::is_unspecified()`/`is_loopback()` on the un-unwrapped form.
+    if octets[0] == 0 {
+        return true;
+    }
+
     // 10.0.0.0/8
     if octets[0] == 10 {
         return true;
@@ -91,7 +100,47 @@ fn is_private_ipv4(ip: Ipv4Addr) -> bool {
 }
 
 /// Duba idan adireshin IPv6 na cikin jerin sassa masu zaman kansu ko na musamman.
+///
+/// SECURITY: this also unwraps IPv6 encodings that carry an embedded IPv4
+/// address — `::ffff:a.b.c.d` (IPv4-mapped), the deprecated `::a.b.c.d`
+/// (IPv4-compatible), `2002::/16` (6to4), and `2001::/32` (Teredo) — and
+/// validates THAT address against `is_private_ipv4` too.
+///
+/// Without this, an attacker could bypass every check below simply by
+/// writing a private/internal IPv4 target in one of these IPv6 forms —
+/// e.g. `http://[::ffff:169.254.169.254]/` resolves as `IpAddr::V6` and
+/// would pass every check that only looks at the "native" IPv6 ranges
+/// (loopback/ULA/link-local/multicast), while the OS network stack
+/// dials the wrapped IPv4 address on the wire. This is a well-known,
+/// actively-exploited SSRF bypass technique — it isn't hypothetical.
 fn is_private_ipv6(ip: Ipv6Addr) -> bool {
+    // ::ffff:a.b.c.d (IPv4-mapped) and the deprecated ::a.b.c.d
+    // (IPv4-compatible) both carry a real IPv4 address in the low 32
+    // bits. `to_ipv4()` recognizes both forms.
+    if let Some(mapped) = ip.to_ipv4() {
+        return is_private_ipv4(mapped);
+    }
+
+    // 2002::/16 (6to4): the embedded IPv4 address is segments[1..3].
+    let segments = ip.segments();
+    if segments[0] == 0x2002 {
+        let embedded = Ipv4Addr::new(
+            (segments[1] >> 8) as u8,
+            (segments[1] & 0xff) as u8,
+            (segments[2] >> 8) as u8,
+            (segments[2] & 0xff) as u8,
+        );
+        return is_private_ipv4(embedded);
+    }
+
+    // 2001::/32 (Teredo): the client's IPv4 address is the last 32 bits,
+    // obfuscated by XOR with 0xffffffff.
+    if segments[0] == 0x2001 && segments[1] == 0x0000 {
+        let obfuscated = ((segments[6] as u32) << 16) | segments[7] as u32;
+        let embedded = Ipv4Addr::from(obfuscated ^ 0xffff_ffff);
+        return is_private_ipv4(embedded);
+    }
+
     // ::1 (Loopback)
     if ip.is_loopback() {
         return true;
@@ -239,6 +288,16 @@ mod tests {
     }
 
     #[test]
+    fn blocks_zero_network_ipv4() {
+        // 0.0.0.0/8 — also guards against the `::` / `::1` unwrap
+        // interaction documented on `is_private_ipv4`.
+        let ip: IpAddr = "0.0.0.0".parse().unwrap();
+        assert!(is_private_ip(ip));
+        let ip: IpAddr = "0.0.0.1".parse().unwrap();
+        assert!(is_private_ip(ip));
+    }
+
+    #[test]
     fn blocks_ipv6_internal_addresses() {
         let private_ips = ["::1", "::", "fc00::1", "fe80::1", "ff02::1"];
 
@@ -247,6 +306,39 @@ mod tests {
             assert!(
                 is_private_ip(ip),
                 "Expected private IPv6 {ip} to be blocked"
+            );
+        }
+    }
+
+    /// Regression test for a real SSRF bypass class: IPv6 encodings that
+    /// embed a private IPv4 address must be blocked too, not just the
+    /// "native" IPv6 private ranges. Without unwrapping these, an
+    /// attacker could reach internal/cloud-metadata IPv4 addresses simply
+    /// by writing them in one of these forms.
+    #[test]
+    fn blocks_ipv6_encodings_that_embed_a_private_ipv4_address() {
+        let bypass_attempts = [
+            // IPv4-mapped — the classic bypass: AWS/GCP/Azure metadata
+            // endpoint (169.254.169.254) written as IPv6.
+            "::ffff:169.254.169.254",
+            "::ffff:a9fe:a9fe", // same address, hex-segment form
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:192.168.1.1",
+            // Deprecated IPv4-compatible form.
+            "::169.254.169.254",
+            // 6to4 (2002::/16) wrapping a private IPv4 address.
+            "2002:a9fe:a9fe::", // 2002:<169.254.169.254 as hex>::
+            // Teredo (2001::/32): client IPv4 is the last 32 bits, XORed
+            // with 0xffffffff. This encodes 169.254.169.254.
+            "2001:0000:0000:0000:0000:0000:5601:5601",
+        ];
+
+        for ip_str in bypass_attempts {
+            let ip: IpAddr = ip_str.parse().unwrap();
+            assert!(
+                is_private_ip(ip),
+                "Expected IPv6 bypass attempt {ip} (embedding a private IPv4 address) to be blocked"
             );
         }
     }

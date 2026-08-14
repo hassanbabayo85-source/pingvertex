@@ -12,8 +12,13 @@ use domain::{Email, PasswordHash, UserBuilder, UserRole, UserStatus, Username};
 type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 const MIN_PASSWORD_LENGTH: usize = 12;
+const MAX_PASSWORD_LENGTH: usize = 128;
 
 fn validate_password(password: &str) -> Result<(), &'static str> {
+    if password.chars().count() > MAX_PASSWORD_LENGTH {
+        return Err("password must not exceed 128 characters");
+    }
+
     if password.trim().is_empty() {
         return Err("password must not be empty");
     }
@@ -151,5 +156,19 @@ mod tests {
     #[test]
     fn accepts_strong_password() {
         assert!(validate_password("SecurePassword123!").is_ok());
+    }
+
+    #[test]
+    fn rejects_password_longer_than_128_characters() {
+        let long_password = "A1a!".repeat(40); // 160 characters
+        assert!(validate_password(&long_password).is_err());
+    }
+
+    #[test]
+    fn accepts_password_at_128_character_boundary() {
+        // 124 filler chars + "A1a!" (4 chars) = 128 chars, satisfies all rules
+        let boundary_password = format!("{}A1a!", "a".repeat(124));
+        assert_eq!(boundary_password.chars().count(), 128);
+        assert!(validate_password(&boundary_password).is_ok());
     }
 }

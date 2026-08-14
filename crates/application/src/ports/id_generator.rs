@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use domain::{CheckId, IncidentId, MonitorId, NotificationChannelId, UserId};
+use domain::{ApiFlowId, CheckId, IncidentId, MonitorId, NotificationChannelId, UserId};
 
 /// Generates unique IDs for domain entities.
 #[async_trait]
@@ -13,6 +13,8 @@ pub trait IdGenerator: Send + Sync {
     async fn next_incident_id(&self) -> IncidentId;
 
     async fn next_notification_channel_id(&self) -> NotificationChannelId;
+
+    async fn next_api_flow_id(&self) -> ApiFlowId;
 
     /// Generates a new high-entropy secret used to HMAC-sign outgoing
     /// webhook payloads (see `crates/infra/src/services/webhook_notification_service.rs`).

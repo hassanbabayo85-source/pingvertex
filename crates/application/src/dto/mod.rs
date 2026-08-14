@@ -1,17 +1,23 @@
+pub mod api_flow_step_input;
 pub mod assertion_input;
 pub mod auth_response;
+pub mod create_api_flow_request;
 pub mod create_monitor_request;
 pub mod get_monitor_response;
 pub mod list_monitors_response;
 pub mod login_request;
 pub mod register_request;
 pub mod update_monitor_request;
+pub mod variable_extraction_input;
 
+pub use api_flow_step_input::ApiFlowStepInput;
 pub use assertion_input::AssertionInput;
 pub use auth_response::AuthResponse;
+pub use create_api_flow_request::CreateApiFlowRequest;
 pub use create_monitor_request::CreateMonitorRequest;
 pub use get_monitor_response::GetMonitorResponse;
 pub use list_monitors_response::ListMonitorsResponse;
 pub use login_request::LoginRequest;
 pub use register_request::RegisterRequest;
 pub use update_monitor_request::UpdateMonitorRequest;
+pub use variable_extraction_input::{ExtractSourceInput, VariableExtractionInput};

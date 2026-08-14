@@ -9,8 +9,8 @@ use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{Check, Incident, Monitor, User};
 use infra::{
-    InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use tower::util::ServiceExt;
 
@@ -228,6 +228,7 @@ async fn health_endpoint_returns_ok() {
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
+        InMemoryApiFlowRepository::new(),
         UuidIdGenerator::new(),
     );
 
@@ -261,6 +262,7 @@ async fn register_rejects_weak_password() {
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
+        InMemoryApiFlowRepository::new(),
         UuidIdGenerator::new(),
     );
 
@@ -308,6 +310,7 @@ async fn register_accepts_strong_password() {
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
+        InMemoryApiFlowRepository::new(),
         UuidIdGenerator::new(),
     );
 

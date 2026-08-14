@@ -15,6 +15,7 @@ struct ErrorBody {
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    Conflict(String),
     NotFound(String),
     Internal(String),
 }
@@ -22,6 +23,10 @@ pub enum ApiError {
 impl ApiError {
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest(message.into())
+    }
+
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::Conflict(message.into())
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
@@ -59,6 +64,7 @@ impl ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -66,9 +72,10 @@ impl ApiError {
 
     fn message(&self) -> String {
         match self {
-            Self::BadRequest(message) | Self::NotFound(message) | Self::Internal(message) => {
-                message.clone()
-            }
+            Self::BadRequest(message)
+            | Self::Conflict(message)
+            | Self::NotFound(message)
+            | Self::Internal(message) => message.clone(),
         }
     }
 }
