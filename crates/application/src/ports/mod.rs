@@ -1,3 +1,4 @@
+pub mod api_flow_repository;
 pub mod check_repository;
 pub mod http_client;
 pub mod id_generator;
@@ -10,6 +11,7 @@ pub mod subscriber_repository;
 pub mod token_service;
 pub mod user_repository;
 
+pub use api_flow_repository::ApiFlowRepository;
 pub use check_repository::CheckRepository;
 pub use http_client::*;
 pub use id_generator::*;

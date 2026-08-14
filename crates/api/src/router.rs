@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     middleware::{from_fn, from_fn_with_state},
     routing::get,
     Router,
@@ -13,9 +14,21 @@ use crate::{
     auth_state::AuthState,
     metrics::metrics_handler,
     middleware::{jwt_auth::jwt_auth, metrics::record_http_metrics},
-    routes::{auth, checks, health, monitors, notifications, public},
+    routes::{api_flows, auth, checks, health, monitors, notifications, public},
     state::AppState,
 };
+
+// Iyakar girman JSON/request body a matakin GLOBAL na server, domin toshe
+// DoS ta hanyar turo babban payload (misali multi-MB) zuwa ko wane
+// endpoint, wanda zai sa server ya karanta/serialize/deserialize bayanai
+// marasa amfani kafin ma a kai ga business logic.
+//
+// 16KB: `login`/`register` suna karɓan ƴan filaye ne kawai (ƙanana sosai),
+// amma `create_monitor` yana karɓan `Vec<AssertionInput>` wanda zai iya
+// ƙunshi daruruwan assertions na gaskiya a monitor guda ɗaya — 16KB yana
+// isar da wannan amfani na gaskiya yayin da yake toshe manya-manyan
+// payload marasa amfani.
+const MAX_REQUEST_BODY_SIZE: usize = 16 * 1024;
 
 fn cors_layer() -> CorsLayer {
     let allowed_origin = std::env::var("CORS_ALLOWED_ORIGIN")
@@ -114,6 +127,26 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    // API Flow routes — the tightest limit in the API. One flow can run up
+    // to 10 outbound HTTP steps on the worker, which is far more
+    // resource-intensive than the single outbound request made by
+    // "send test notification". This limit is deliberately stricter than
+    // notification_test_routes (burst of 3 vs 5) to prevent an
+    // authenticated user from converting the worker into an HTTP flooder.
+    //
+    // 3 requests per 60 seconds, burst of 3.
+    let api_flow_routes = api_flows::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(60)
+                .burst_size(3)
+                .use_headers()
+                .finish()
+                .expect("valid api flow rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // Rate-limit authentication endpoints by client IP.
     //
     // 5 requests per 60 seconds, with a burst of 5.
@@ -156,6 +189,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", check_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
+        .nest("/api/v1", api_flow_routes)
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/public", public_routes)
         .layer(from_fn(record_http_metrics))
@@ -170,6 +204,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 ),
         )
         .layer(cors_layer())
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
 }
 
 /// Test router.
@@ -199,6 +234,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let api_flow_routes = api_flows::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // No GovernorLayer here.
     let auth_routes = auth::router().with_state(auth_state);
 
@@ -211,6 +250,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", check_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
+        .nest("/api/v1", api_flow_routes)
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/public", public_routes)
         .layer(from_fn(record_http_metrics))
@@ -225,4 +265,5 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
                 ),
         )
         .layer(cors_layer())
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
 }

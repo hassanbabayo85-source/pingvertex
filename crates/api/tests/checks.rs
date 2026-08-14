@@ -8,8 +8,8 @@ use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
 use domain::{Check, Incident};
 use infra::{
-    InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use tower::ServiceExt;
 
@@ -197,6 +197,7 @@ fn build_test_app() -> axum::Router {
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(monitor_repo),
         NoopNotificationService::new(),
+        InMemoryApiFlowRepository::new(),
         UuidIdGenerator::new(),
     );
 

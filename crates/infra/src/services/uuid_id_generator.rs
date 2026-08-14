@@ -1,6 +1,6 @@
 use application::ports::IdGenerator;
 use async_trait::async_trait;
-use domain::{CheckId, IncidentId, MonitorId, NotificationChannelId, UserId};
+use domain::{ApiFlowId, CheckId, IncidentId, MonitorId, NotificationChannelId, UserId};
 use rand_core::{OsRng, RngCore};
 
 #[derive(Debug, Default, Clone)]
@@ -32,6 +32,10 @@ impl IdGenerator for UuidIdGenerator {
 
     async fn next_notification_channel_id(&self) -> NotificationChannelId {
         NotificationChannelId::generate()
+    }
+
+    async fn next_api_flow_id(&self) -> ApiFlowId {
+        ApiFlowId::new()
     }
 
     async fn next_webhook_signing_secret(&self) -> String {

@@ -1,3 +1,4 @@
+pub mod api_flows;
 pub mod auth;
 pub mod checks;
 pub mod health;

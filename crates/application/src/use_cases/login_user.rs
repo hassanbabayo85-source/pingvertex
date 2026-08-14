@@ -9,6 +9,13 @@ use domain::{Email, UserStatus};
 
 type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// Iyaka mafi girma na tsawon password a login flow. Ana duba wannan
+/// KAFIN a kira `password_hasher.verify()`, domin `verify()` yana kiran
+/// Argon2id wanda ke da tsada sosai a CPU — babu wannan iyaka, mai kai
+/// hari zai iya tura babban password (misali 10MB) akai-akai zuwa login
+/// endpoint, ko da ba shi da account, ya cinye CPU din server (DoS).
+const MAX_PASSWORD_LENGTH: usize = 128;
+
 /// Argon2id hash of a value nobody will ever type, used so that a login
 /// attempt for a non-existent email still pays the cost of a full hash
 /// verification. This keeps response time roughly constant whether or not
@@ -38,6 +45,16 @@ where
 
     pub async fn execute(&self, request: LoginRequest) -> UseCaseResult<AuthResponse> {
         let email = Email::new(request.email)?;
+
+        // Duba tsawon password KAFIN a yi query zuwa database ko kira
+        // verify(). Ana mayar da SAME saƙon kuskure na "invalid email or
+        // password" (ba wani saƙo daban ba) domin kar a fallasa cewa
+        // akwai irin wannan iyakar tsawo — hakan zai iya taimakawa mai
+        // kai hari ya bambanta amsoshi (oracle) tsakanin kuskuren
+        // password/email da kuskuren tsawon password.
+        if request.password.chars().count() > MAX_PASSWORD_LENGTH {
+            return Err("invalid email or password".into());
+        }
 
         let user = self.repository.find_by_email(&email).await?;
 

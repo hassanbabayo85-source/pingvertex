@@ -17,9 +17,19 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// polled every 30 seconds forever, causing unbounded worker and database costs.
 pub const MAX_MONITORS_PER_USER: usize = 10;
 
+/// Hard cap on the number of assertions a single monitor may be created with.
+///
+/// `CreateMonitorRequest.assertions` is an unbounded `Vec<AssertionInput>` supplied
+/// directly by the client. Without a limit, a single request could carry hundreds or
+/// thousands of assertions, each of which gets validated and persisted individually —
+/// wasted CPU and database work for a use case where real monitors need only a
+/// handful of checks. 20 comfortably covers legitimate use while blocking abuse.
+pub const MAX_ASSERTIONS_PER_MONITOR: usize = 20;
+
 #[derive(Debug)]
 pub enum CreateMonitorError {
     QuotaExceeded { limit: usize },
+    TooManyAssertions { limit: usize },
     Other(Box<dyn Error + Send + Sync>),
 }
 
@@ -32,6 +42,12 @@ impl fmt::Display for CreateMonitorError {
                     "monitor limit reached: free plan allows at most {limit} monitors"
                 )
             }
+            Self::TooManyAssertions { limit } => {
+                write!(
+                    f,
+                    "too many assertions: a monitor allows at most {limit} assertions"
+                )
+            }
             Self::Other(err) => write!(f, "{err}"),
         }
     }
@@ -41,6 +57,7 @@ impl Error for CreateMonitorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::QuotaExceeded { .. } => None,
+            Self::TooManyAssertions { .. } => None,
             Self::Other(err) => Some(err.as_ref()),
         }
     }
@@ -67,6 +84,15 @@ where
         &self,
         request: CreateMonitorRequest,
     ) -> Result<Monitor, CreateMonitorError> {
+        // Cheap, in-memory check done first — before any repository/database
+        // call — so an oversized assertions array is rejected without
+        // spending a database round-trip on it.
+        if request.assertions.len() > MAX_ASSERTIONS_PER_MONITOR {
+            return Err(CreateMonitorError::TooManyAssertions {
+                limit: MAX_ASSERTIONS_PER_MONITOR,
+            });
+        }
+
         let monitors = self
             .repository
             .find_all_for_user(request.user_id)

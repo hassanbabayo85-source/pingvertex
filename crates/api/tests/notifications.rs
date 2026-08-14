@@ -11,8 +11,8 @@ use domain::notification::NotificationEvent;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{Check, HttpMethod, Incident, User};
 use infra::{
-    InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -208,6 +208,7 @@ where
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(monitor_repository),
         notification_service,
+        InMemoryApiFlowRepository::new(),
         UuidIdGenerator::new(),
     );
 

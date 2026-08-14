@@ -15,6 +15,9 @@ pub enum DomainError {
     #[error("invalid url")]
     InvalidUrl,
 
+    #[error("url must not exceed 2048 characters")]
+    UrlTooLong,
+
     #[error("only http and https urls are supported")]
     UnsupportedUrlScheme,
 
@@ -41,4 +44,43 @@ pub enum DomainError {
 
     #[error("invalid url for webhook notification channel")]
     InvalidNotificationWebhookUrl,
+
+    #[error("extraction name cannot be empty")]
+    EmptyExtractionName,
+
+    #[error("extraction name cannot exceed 64 characters")]
+    ExtractionNameTooLong,
+
+    #[error("extraction name may only contain alphanumeric characters and underscores")]
+    InvalidExtractionNameCharacters,
+
+    #[error("flow step name cannot be empty")]
+    EmptyFlowStepName,
+
+    #[error("flow step name cannot exceed 100 characters")]
+    FlowStepNameTooLong,
+
+    #[error("an api flow cannot have more than 10 steps")]
+    TooManyFlowSteps,
+
+    #[error("url template cannot be empty")]
+    EmptyUrlTemplate,
+
+    #[error("url template must not exceed 2048 characters")]
+    UrlTemplateTooLong,
+
+    #[error("header value must not exceed 2048 characters")]
+    HeaderValueTooLong,
+
+    #[error("flow step body cannot exceed 65536 bytes (64KB)")]
+    FlowStepBodyTooLarge,
+
+    #[error("an api flow must have at least one step")]
+    EmptyFlowSteps,
+
+    #[error("flow step order must be sequential starting at 1 with no gaps or duplicates")]
+    InvalidStepOrder,
+
+    #[error("a flow step cannot have more than 20 headers")]
+    TooManyHeaders,
 }
