@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 use crate::enums::{AssertionOperator, ResponsePart};
 use crate::shared::ids::AssertionId;
 use chrono::{DateTime, Utc};
