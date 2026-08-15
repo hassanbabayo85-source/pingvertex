@@ -23,3 +23,9 @@ pub use password_hasher::PasswordHasher;
 pub use subscriber_repository::SubscriberRepository;
 pub use token_service::TokenService;
 pub use user_repository::UserRepository;
+pub mod proxy_check_job_repository;
+pub use proxy_check_job_repository::ProxyCheckJobRepository;
+pub mod proxy_credential_cipher;
+pub use proxy_credential_cipher::{
+    EncryptedProxyCredentials, ProxyCredentialCipher, ProxyCredentialCipherError,
+};

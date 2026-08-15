@@ -12,6 +12,7 @@ shared = { path = "../shared" }
 async-trait.workspace = true
 tokio.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 

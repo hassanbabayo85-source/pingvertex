@@ -23,3 +23,7 @@ pub mod api_flow_step;
 pub use api_flow_step::ApiFlowStep;
 pub mod api_flow;
 pub use api_flow::ApiFlow;
+pub mod proxy_entry;
+pub use proxy_entry::ProxyEntry;
+pub mod proxy_check_job;
+pub use proxy_check_job::ProxyCheckJob;
