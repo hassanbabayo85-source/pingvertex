@@ -83,4 +83,31 @@ pub enum DomainError {
 
     #[error("a flow step cannot have more than 20 headers")]
     TooManyHeaders,
+
+    #[error("proxy host cannot be empty")]
+    EmptyProxyHost,
+
+    #[error("proxy host must not exceed 253 characters")]
+    ProxyHostTooLong,
+
+    #[error("invalid proxy host")]
+    InvalidProxyHost,
+
+    #[error("private, loopback, or link-local addresses are not allowed as a proxy host")]
+    ProxyHostIsPrivateOrReserved,
+
+    #[error("proxy port is not allowed; only known proxy ports are permitted")]
+    ProxyPortNotAllowed,
+
+    #[error("a proxy check job cannot have more than 500 proxy entries")]
+    TooManyProxyEntries,
+
+    #[error("proxy entries cannot be empty")]
+    EmptyProxyEntries,
+
+    #[error("proxy credentials username and password cannot both be empty")]
+    EmptyProxyCredentials,
+
+    #[error("proxy credential fields must not exceed 256 characters")]
+    ProxyCredentialFieldTooLong,
 }

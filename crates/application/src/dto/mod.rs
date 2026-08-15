@@ -21,3 +21,7 @@ pub use login_request::LoginRequest;
 pub use register_request::RegisterRequest;
 pub use update_monitor_request::UpdateMonitorRequest;
 pub use variable_extraction_input::{ExtractSourceInput, VariableExtractionInput};
+pub mod proxy_entry_input;
+pub use proxy_entry_input::ProxyEntryInput;
+pub mod create_proxy_check_job_request;
+pub use create_proxy_check_job_request::CreateProxyCheckJobRequest;

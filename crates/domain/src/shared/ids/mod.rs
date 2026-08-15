@@ -23,3 +23,7 @@ pub mod api_flow_id;
 pub mod api_flow_step_id;
 pub use api_flow_id::ApiFlowId;
 pub use api_flow_step_id::ApiFlowStepId;
+pub mod proxy_check_job_id;
+pub mod proxy_entry_id;
+pub use proxy_check_job_id::ProxyCheckJobId;
+pub use proxy_entry_id::ProxyEntryId;
