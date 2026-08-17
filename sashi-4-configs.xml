@@ -69,197 +69,6 @@ migrations/
 <files>
 This section contains the contents of the repository's files.
 
-<file path="migrations/0015_create_diagnostic_reports.sql">
-CREATE TABLE IF NOT EXISTS diagnostic_reports (
-    id UUID PRIMARY KEY,
-    check_id UUID NOT NULL REFERENCES checks(id) ON DELETE CASCADE,
-    steps JSONB NOT NULL,
-    root_cause_summary VARCHAR(500) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Kowanne check ba shi da fiye da diagnostic report guda daya.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_diagnostic_reports_check_id
-    ON diagnostic_reports (check_id);
-</file>
-
-<file path="migrations/0016_alter_incidents_add_ack_escalation_maintenance.sql">
-ALTER TABLE incidents
-    ADD COLUMN acknowledged_at TIMESTAMPTZ,
-    ADD COLUMN acknowledged_by UUID,
-    ADD COLUMN occurred_during_maintenance BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN escalation_step_index INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN last_escalation_at TIMESTAMPTZ;
-</file>
-
-<file path="migrations/0017_create_escalation_policies_and_maintenance_windows.sql">
--- Escalation policies
-CREATE TABLE escalation_policies (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    monitor_id UUID REFERENCES monitors(id) ON DELETE CASCADE,
-    steps JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT escalation_steps_max_5 CHECK (jsonb_array_length(steps) <= 5)
-);
-
--- Ensure only one monitor-specific policy per monitor per user
-CREATE UNIQUE INDEX idx_escalation_policies_monitor_user
-    ON escalation_policies (monitor_id, user_id)
-    WHERE monitor_id IS NOT NULL;
-
--- Ensure only one global policy per user
-CREATE UNIQUE INDEX idx_escalation_policies_global_user
-    ON escalation_policies (user_id)
-    WHERE monitor_id IS NULL;
-
--- Maintenance windows
-CREATE TABLE maintenance_windows (
-    id UUID PRIMARY KEY,
-    monitor_id UUID NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-    starts_at TIMESTAMPTZ NOT NULL,
-    ends_at TIMESTAMPTZ NOT NULL,
-    reason TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT maintenance_window_reason_max_len CHECK (char_length(reason) <= 500),
-    CONSTRAINT maintenance_window_duration_max CHECK (ends_at - starts_at <= interval '7 days'),
-    CONSTRAINT maintenance_window_duration_positive CHECK (ends_at > starts_at)
-);
-</file>
-
-<file path="migrations/0018_create_status_pages.sql">
-CREATE TABLE IF NOT EXISTS status_pages (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-    name TEXT NOT NULL,
-
-    -- The `<subdomain>.pingvertex.com` slug. Validated by the domain-layer
-    -- `Subdomain` value object (DNS label rules, reserved-word denylist)
-    -- before ever reaching this column; UNIQUE here is the database-level
-    -- backstop against a race between two concurrent creates picking the
-    -- same subdomain.
-    subdomain TEXT NOT NULL,
-
-    -- Custom domain + its DNS TXT-record ownership verification state.
-    -- Exactly one of these states must hold at any time (enforced below):
-    --   1. No custom domain requested:  all three columns NULL.
-    --   2. Verification pending:        custom_domain + custom_domain_token
-    --                                    set, custom_domain_verified_at NULL.
-    --   3. Verified:                    custom_domain +
-    --                                    custom_domain_verified_at set,
-    --                                    custom_domain_token NULL.
-    --
-    -- SECURITY: application/infra code performing host-header routing
-    -- MUST filter on `custom_domain_verified_at IS NOT NULL` — see
-    -- idx_status_pages_verified_custom_domain below, which is the only
-    -- index that exists for this purpose, specifically to make an
-    -- "accidentally query the wrong column" mistake harder to write.
-    custom_domain TEXT,
-    custom_domain_token TEXT,
-    custom_domain_requested_at TIMESTAMPTZ,
-    custom_domain_verified_at TIMESTAMPTZ,
-
-    logo_url TEXT,
-
-    -- Stored as `#RRGGBB`, validated by the domain-layer `HexColor` value
-    -- object before reaching this column.
-    primary_color TEXT,
-
-    -- Ordered list of monitor UUIDs to display on this page. Bounded to
-    -- MAX_STATUS_PAGE_MONITORS (50) entries by the domain layer before
-    -- persistence; the CHECK constraint below is the database-level
-    -- backstop against that bound being bypassed.
-    monitor_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
-
-    CONSTRAINT chk_status_pages_monitor_ids_max_50
-        CHECK (jsonb_array_length(monitor_ids) <= 50),
-
-    CONSTRAINT chk_status_pages_custom_domain_state
-        CHECK (
-            -- No custom domain at all.
-            (custom_domain IS NULL AND custom_domain_token IS NULL AND custom_domain_requested_at IS NULL AND custom_domain_verified_at IS NULL)
-            -- Pending verification: domain + token + requested_at set, not yet verified.
-            OR (custom_domain IS NOT NULL AND custom_domain_token IS NOT NULL AND custom_domain_requested_at IS NOT NULL AND custom_domain_verified_at IS NULL)
-            -- Verified: domain + verified_at set, token/requested_at cleared.
-            OR (custom_domain IS NOT NULL AND custom_domain_token IS NULL AND custom_domain_requested_at IS NULL AND custom_domain_verified_at IS NOT NULL)
-        )
-);
-
--- Enforces subdomain uniqueness across ALL status pages (not scoped per
--- user) — `acme.pingvertex.com` can only ever belong to one page,
--- platform-wide. This is also the index the public `GET /status/:subdomain`
--- endpoint's lookup relies on.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_status_pages_subdomain
-    ON status_pages (subdomain);
-
--- Enforces custom-domain uniqueness across ALL status pages, but only
--- while a domain is actually verified — a still-`Pending` domain string
--- is not reserved and does not block another user's (also pending) claim
--- on the same string, since ownership hasn't been established for either
--- yet. This is also the ONLY index usable for the host-header routing
--- lookup, which is deliberately restricted to verified domains only (see
--- the SECURITY note on `custom_domain_verified_at` above).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_status_pages_verified_custom_domain
-    ON status_pages (custom_domain)
-    WHERE custom_domain_verified_at IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_status_pages_user_id
-    ON status_pages (user_id);
-</file>
-
-<file path="migrations/0019_create_proxy_check_jobs.sql">
-CREATE TABLE IF NOT EXISTS proxy_check_jobs (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at TIMESTAMPTZ,
-    total_count INT NOT NULL,
-    checked_count INT NOT NULL DEFAULT 0
-);
-
--- Speeds up the per-user daily quota query (COUNT/SUM of jobs for a given
--- user within a time window), which filters on user_id and orders/filters
--- by created_at.
-CREATE INDEX IF NOT EXISTS idx_proxy_check_jobs_user_id_created_at
-    ON proxy_check_jobs (user_id, created_at);
-</file>
-
-<file path="migrations/0020_create_proxy_entries.sql">
-CREATE TABLE IF NOT EXISTS proxy_entries (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES proxy_check_jobs(id) ON DELETE CASCADE,
-    host TEXT NOT NULL,
-    port INT NOT NULL,
-    scheme TEXT NOT NULL,
-
-    -- SECURITY: proxy credentials (if any) are encrypted at the
-    -- application layer (see domain::ProxyCredentialCipher) before ever
-    -- reaching this column. This column stores ciphertext only — BYTEA,
-    -- never TEXT — so nothing that looks like a plaintext
-    -- password/secret column exists in this table.
-    encrypted_credentials BYTEA,
-
-    result_json JSONB
-);
-
-CREATE INDEX IF NOT EXISTS idx_proxy_entries_job_id
-    ON proxy_entries (job_id);
-</file>
-
-<file path="migrations/0021_add_monitor_regions.sql">
-ALTER TABLE monitors ADD COLUMN IF NOT EXISTS regions TEXT[] NOT NULL DEFAULT ARRAY['us-east'];
-</file>
-
-<file path="migrations/0022_add_check_region.sql">
-ALTER TABLE checks ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT 'us-east';
-</file>
-
 <file path="migrations/0001_create_monitors.sql">
 CREATE TABLE IF NOT EXISTS monitors (
     id UUID PRIMARY KEY,
@@ -520,6 +329,197 @@ ALTER TABLE monitor_assertions ADD COLUMN api_flow_step_id UUID REFERENCES api_f
 CREATE INDEX idx_monitor_assertions_api_flow_step_id
     ON monitor_assertions(api_flow_step_id)
     WHERE api_flow_step_id IS NOT NULL;
+</file>
+
+<file path="migrations/0015_create_diagnostic_reports.sql">
+CREATE TABLE IF NOT EXISTS diagnostic_reports (
+    id UUID PRIMARY KEY,
+    check_id UUID NOT NULL REFERENCES checks(id) ON DELETE CASCADE,
+    steps JSONB NOT NULL,
+    root_cause_summary VARCHAR(500) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Kowanne check ba shi da fiye da diagnostic report guda daya.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_diagnostic_reports_check_id
+    ON diagnostic_reports (check_id);
+</file>
+
+<file path="migrations/0016_alter_incidents_add_ack_escalation_maintenance.sql">
+ALTER TABLE incidents
+    ADD COLUMN acknowledged_at TIMESTAMPTZ,
+    ADD COLUMN acknowledged_by UUID,
+    ADD COLUMN occurred_during_maintenance BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN escalation_step_index INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN last_escalation_at TIMESTAMPTZ;
+</file>
+
+<file path="migrations/0017_create_escalation_policies_and_maintenance_windows.sql">
+-- Escalation policies
+CREATE TABLE escalation_policies (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    monitor_id UUID REFERENCES monitors(id) ON DELETE CASCADE,
+    steps JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT escalation_steps_max_5 CHECK (jsonb_array_length(steps) <= 5)
+);
+
+-- Ensure only one monitor-specific policy per monitor per user
+CREATE UNIQUE INDEX idx_escalation_policies_monitor_user
+    ON escalation_policies (monitor_id, user_id)
+    WHERE monitor_id IS NOT NULL;
+
+-- Ensure only one global policy per user
+CREATE UNIQUE INDEX idx_escalation_policies_global_user
+    ON escalation_policies (user_id)
+    WHERE monitor_id IS NULL;
+
+-- Maintenance windows
+CREATE TABLE maintenance_windows (
+    id UUID PRIMARY KEY,
+    monitor_id UUID NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT maintenance_window_reason_max_len CHECK (char_length(reason) <= 500),
+    CONSTRAINT maintenance_window_duration_max CHECK (ends_at - starts_at <= interval '7 days'),
+    CONSTRAINT maintenance_window_duration_positive CHECK (ends_at > starts_at)
+);
+</file>
+
+<file path="migrations/0018_create_status_pages.sql">
+CREATE TABLE IF NOT EXISTS status_pages (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    name TEXT NOT NULL,
+
+    -- The `<subdomain>.pingvertex.com` slug. Validated by the domain-layer
+    -- `Subdomain` value object (DNS label rules, reserved-word denylist)
+    -- before ever reaching this column; UNIQUE here is the database-level
+    -- backstop against a race between two concurrent creates picking the
+    -- same subdomain.
+    subdomain TEXT NOT NULL,
+
+    -- Custom domain + its DNS TXT-record ownership verification state.
+    -- Exactly one of these states must hold at any time (enforced below):
+    --   1. No custom domain requested:  all three columns NULL.
+    --   2. Verification pending:        custom_domain + custom_domain_token
+    --                                    set, custom_domain_verified_at NULL.
+    --   3. Verified:                    custom_domain +
+    --                                    custom_domain_verified_at set,
+    --                                    custom_domain_token NULL.
+    --
+    -- SECURITY: application/infra code performing host-header routing
+    -- MUST filter on `custom_domain_verified_at IS NOT NULL` — see
+    -- idx_status_pages_verified_custom_domain below, which is the only
+    -- index that exists for this purpose, specifically to make an
+    -- "accidentally query the wrong column" mistake harder to write.
+    custom_domain TEXT,
+    custom_domain_token TEXT,
+    custom_domain_requested_at TIMESTAMPTZ,
+    custom_domain_verified_at TIMESTAMPTZ,
+
+    logo_url TEXT,
+
+    -- Stored as `#RRGGBB`, validated by the domain-layer `HexColor` value
+    -- object before reaching this column.
+    primary_color TEXT,
+
+    -- Ordered list of monitor UUIDs to display on this page. Bounded to
+    -- MAX_STATUS_PAGE_MONITORS (50) entries by the domain layer before
+    -- persistence; the CHECK constraint below is the database-level
+    -- backstop against that bound being bypassed.
+    monitor_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT chk_status_pages_monitor_ids_max_50
+        CHECK (jsonb_array_length(monitor_ids) <= 50),
+
+    CONSTRAINT chk_status_pages_custom_domain_state
+        CHECK (
+            -- No custom domain at all.
+            (custom_domain IS NULL AND custom_domain_token IS NULL AND custom_domain_requested_at IS NULL AND custom_domain_verified_at IS NULL)
+            -- Pending verification: domain + token + requested_at set, not yet verified.
+            OR (custom_domain IS NOT NULL AND custom_domain_token IS NOT NULL AND custom_domain_requested_at IS NOT NULL AND custom_domain_verified_at IS NULL)
+            -- Verified: domain + verified_at set, token/requested_at cleared.
+            OR (custom_domain IS NOT NULL AND custom_domain_token IS NULL AND custom_domain_requested_at IS NULL AND custom_domain_verified_at IS NOT NULL)
+        )
+);
+
+-- Enforces subdomain uniqueness across ALL status pages (not scoped per
+-- user) — `acme.pingvertex.com` can only ever belong to one page,
+-- platform-wide. This is also the index the public `GET /status/:subdomain`
+-- endpoint's lookup relies on.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_status_pages_subdomain
+    ON status_pages (subdomain);
+
+-- Enforces custom-domain uniqueness across ALL status pages, but only
+-- while a domain is actually verified — a still-`Pending` domain string
+-- is not reserved and does not block another user's (also pending) claim
+-- on the same string, since ownership hasn't been established for either
+-- yet. This is also the ONLY index usable for the host-header routing
+-- lookup, which is deliberately restricted to verified domains only (see
+-- the SECURITY note on `custom_domain_verified_at` above).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_status_pages_verified_custom_domain
+    ON status_pages (custom_domain)
+    WHERE custom_domain_verified_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_status_pages_user_id
+    ON status_pages (user_id);
+</file>
+
+<file path="migrations/0019_create_proxy_check_jobs.sql">
+CREATE TABLE IF NOT EXISTS proxy_check_jobs (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    total_count INT NOT NULL,
+    checked_count INT NOT NULL DEFAULT 0
+);
+
+-- Speeds up the per-user daily quota query (COUNT/SUM of jobs for a given
+-- user within a time window), which filters on user_id and orders/filters
+-- by created_at.
+CREATE INDEX IF NOT EXISTS idx_proxy_check_jobs_user_id_created_at
+    ON proxy_check_jobs (user_id, created_at);
+</file>
+
+<file path="migrations/0020_create_proxy_entries.sql">
+CREATE TABLE IF NOT EXISTS proxy_entries (
+    id UUID PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES proxy_check_jobs(id) ON DELETE CASCADE,
+    host TEXT NOT NULL,
+    port INT NOT NULL,
+    scheme TEXT NOT NULL,
+
+    -- SECURITY: proxy credentials (if any) are encrypted at the
+    -- application layer (see domain::ProxyCredentialCipher) before ever
+    -- reaching this column. This column stores ciphertext only — BYTEA,
+    -- never TEXT — so nothing that looks like a plaintext
+    -- password/secret column exists in this table.
+    encrypted_credentials BYTEA,
+
+    result_json JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_proxy_entries_job_id
+    ON proxy_entries (job_id);
+</file>
+
+<file path="migrations/0021_add_monitor_regions.sql">
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS regions TEXT[] NOT NULL DEFAULT ARRAY['us-east'];
+</file>
+
+<file path="migrations/0022_add_check_region.sql">
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT 'us-east';
 </file>
 
 </files>
