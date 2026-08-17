@@ -1,0 +1,103 @@
+use async_trait::async_trait;
+use std::{error::Error, sync::Arc};
+
+use domain::{entities::StatusPage, shared::ids::StatusPageId, shared::ids::UserId};
+
+pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+#[async_trait]
+pub trait StatusPageRepository: Send + Sync {
+    async fn save(&self, status_page: &StatusPage) -> RepoResult<()>;
+
+    async fn update(&self, status_page: &StatusPage) -> RepoResult<()>;
+
+    async fn delete_for_user(&self, id: StatusPageId, user_id: UserId) -> RepoResult<bool>;
+
+    async fn find_by_id_for_user(
+        &self,
+        id: StatusPageId,
+        user_id: UserId,
+    ) -> RepoResult<Option<StatusPage>>;
+
+    async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>>;
+
+    /// Looks up a status page by its `pingvertex.com` subdomain, e.g.
+    /// `"acme"` for `acme.pingvertex.com`. Used by the unauthenticated
+    /// public status-page endpoint.
+    async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {
+        let _ = subdomain;
+        unimplemented!()
+    }
+
+    /// Looks up a status page by a VERIFIED custom domain, e.g.
+    /// `"status.acme.com"`.
+    ///
+    /// SECURITY: implementations MUST only match against domains whose
+    /// verification state is `Verified` (see
+    /// `domain::entities::CustomDomainVerification`) — a `Pending` domain
+    /// must never be returned here, or host-header routing could be
+    /// hijacked by anyone who merely *requested* (without proving
+    /// ownership of) someone else's domain. This is exactly the strict
+    /// allowlist the task's SECURITY REQUIREMENTS call for.
+    async fn find_by_verified_custom_domain(
+        &self,
+        custom_domain: &str,
+    ) -> RepoResult<Option<StatusPage>> {
+        let _ = custom_domain;
+        unimplemented!()
+    }
+
+    /// Returns every status page whose `custom_domain` is currently
+    /// `Pending` verification. Used by the background
+    /// `CustomDomainVerificationWorker` sweep — it has no per-user scope
+    /// because the worker runs system-wide, not on behalf of any single
+    /// caller.
+    async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl<T> StatusPageRepository for Arc<T>
+where
+    T: StatusPageRepository + Send + Sync + ?Sized,
+{
+    async fn save(&self, status_page: &StatusPage) -> RepoResult<()> {
+        (**self).save(status_page).await
+    }
+
+    async fn update(&self, status_page: &StatusPage) -> RepoResult<()> {
+        (**self).update(status_page).await
+    }
+
+    async fn delete_for_user(&self, id: StatusPageId, user_id: UserId) -> RepoResult<bool> {
+        (**self).delete_for_user(id, user_id).await
+    }
+
+    async fn find_by_id_for_user(
+        &self,
+        id: StatusPageId,
+        user_id: UserId,
+    ) -> RepoResult<Option<StatusPage>> {
+        (**self).find_by_id_for_user(id, user_id).await
+    }
+
+    async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>> {
+        (**self).find_all_for_user(user_id).await
+    }
+
+    async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {
+        (**self).find_by_subdomain(subdomain).await
+    }
+
+    async fn find_by_verified_custom_domain(
+        &self,
+        custom_domain: &str,
+    ) -> RepoResult<Option<StatusPage>> {
+        (**self).find_by_verified_custom_domain(custom_domain).await
+    }
+
+    async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
+        (**self).find_pending_custom_domains().await
+    }
+}

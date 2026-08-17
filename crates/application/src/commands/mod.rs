@@ -1,3 +1,6 @@
+pub mod acknowledge_incident;
+pub mod create_escalation_policy;
+pub mod create_maintenance_window;
 pub mod create_monitor;
 pub mod create_notification_channel;
 pub mod delete_api_flow;
@@ -5,7 +8,9 @@ pub mod delete_monitor;
 pub mod delete_notification_channel;
 pub mod update_api_flow;
 pub mod update_monitor;
-
+pub use acknowledge_incident::*;
+pub use create_escalation_policy::*;
+pub use create_maintenance_window::*;
 pub use create_monitor::*;
 pub use create_notification_channel::*;
 pub use delete_api_flow::*;
@@ -13,3 +18,9 @@ pub use delete_monitor::*;
 pub use delete_notification_channel::*;
 pub use update_api_flow::*;
 pub use update_monitor::*;
+pub mod request_custom_domain;
+pub mod update_status_page;
+pub use request_custom_domain::*;
+pub use update_status_page::*;
+pub mod upload_status_page_logo;
+pub use upload_status_page_logo::*;

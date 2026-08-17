@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use domain::entities::NotificationChannel;
 use domain::enums::NotificationChannelKind;
 use domain::shared::ids::UserId;
-use domain::{Check, CheckStatus, HttpMethod, Incident, Monitor};
+use domain::{Check, CheckStatus, ErrorType, HttpMethod, Incident, Monitor};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -225,4 +225,175 @@ impl NotificationChannelCreateResponse {
             signing_secret,
         }
     }
+}
+
+/// JSON representation of a single diagnostic step.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagnosticStepResponse {
+    pub name: String,
+    pub status: String,
+    pub duration_ms: u64,
+    pub detail: String,
+}
+
+impl From<domain::DiagnosticStep> for DiagnosticStepResponse {
+    fn from(step: domain::DiagnosticStep) -> Self {
+        Self {
+            name: step.name,
+            status: format!("{:?}", step.status),
+            duration_ms: step.duration_ms,
+            detail: step.detail,
+        }
+    }
+}
+
+/// JSON representation of a full diagnostic report.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagnosticReportResponse {
+    pub id: String,
+    pub check_id: String,
+    pub steps: Vec<DiagnosticStepResponse>,
+    pub root_cause_summary: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<domain::DiagnosticReport> for DiagnosticReportResponse {
+    fn from(report: domain::DiagnosticReport) -> Self {
+        Self {
+            id: report.id.0.to_string(),
+            check_id: report.check_result_id.0.to_string(),
+            steps: report
+                .steps
+                .into_iter()
+                .map(DiagnosticStepResponse::from)
+                .collect(),
+            root_cause_summary: report.root_cause_summary,
+            created_at: report.created_at,
+        }
+    }
+}
+
+/// JSON representation of a check, now with optional diagnostic report.
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckResponse {
+    pub id: String,
+    pub monitor_id: String,
+    pub status: CheckStatus,
+    pub status_code: Option<u16>,
+    pub latency_ms: u128,
+    pub error_type: ErrorType,
+    pub error_message: Option<String>,
+    pub checked_at: DateTime<Utc>,
+    pub cert_expires_at: Option<DateTime<Utc>>,
+    pub cert_days_remaining: Option<i64>,
+    pub diagnostic_report: Option<DiagnosticReportResponse>,
+}
+
+impl From<application::dto::CheckWithDiagnosticReport> for CheckResponse {
+    fn from(pair: application::dto::CheckWithDiagnosticReport) -> Self {
+        let check = pair.check;
+        Self {
+            id: check.id.0.to_string(),
+            monitor_id: check.monitor_id.0.to_string(),
+            status: check.status,
+            status_code: check.status_code,
+            latency_ms: check.latency_ms,
+            error_type: check.error_type,
+            error_message: check.error_message,
+            checked_at: check.checked_at,
+            cert_expires_at: check.cert_expires_at,
+            cert_days_remaining: check.cert_days_remaining,
+            diagnostic_report: pair.diagnostic_report.map(DiagnosticReportResponse::from),
+        }
+    }
+}
+
+/// JSON representation of a status page returned by the authenticated API.
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusPageResponse {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub subdomain: String,
+    pub custom_domain: Option<String>,
+    pub custom_domain_verified: bool,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub monitor_ids: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<domain::entities::StatusPage> for StatusPageResponse {
+    fn from(status_page: domain::entities::StatusPage) -> Self {
+        let (custom_domain, custom_domain_verified) = match &status_page.custom_domain {
+            Some((domain, domain::entities::CustomDomainVerification::Verified { .. })) => {
+                (Some(domain.as_str().to_owned()), true)
+            }
+            Some((domain, domain::entities::CustomDomainVerification::Pending { .. })) => {
+                (Some(domain.as_str().to_owned()), false)
+            }
+            None => (None, false),
+        };
+
+        Self {
+            id: status_page.id.0.to_string(),
+            user_id: status_page.user_id.0.to_string(),
+            name: status_page.name,
+            subdomain: status_page.subdomain.as_str().to_owned(),
+            custom_domain,
+            custom_domain_verified,
+            logo_url: status_page.logo_url,
+            primary_color: status_page
+                .primary_color
+                .as_ref()
+                .map(|color| color.as_str().to_owned()),
+            monitor_ids: status_page
+                .monitor_ids
+                .iter()
+                .map(|id| id.0.to_string())
+                .collect(),
+            created_at: status_page.created_at,
+            updated_at: status_page.updated_at,
+        }
+    }
+}
+
+/// Request body for `POST /status-pages`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusPageCreateRequest {
+    pub name: String,
+    pub subdomain: String,
+    #[serde(default)]
+    pub monitor_ids: Vec<String>,
+}
+
+/// Request body for `PUT /status-pages/{id}`. Does not include the
+/// subdomain (immutable after creation) or the custom domain (has its own
+/// dedicated endpoint, since it triggers a separate verification flow).
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusPageUpdateRequest {
+    pub name: String,
+    #[serde(default)]
+    pub monitor_ids: Vec<String>,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+}
+
+/// Request body for `POST /status-pages/{id}/custom-domain`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CustomDomainRequestBody {
+    pub domain: String,
+}
+
+/// Response body for the unauthenticated public status page endpoint.
+///
+/// SECURITY: must never carry `user_id` or any other owner-only field —
+/// same rule as `PublicMonitorResponse` above.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicStatusPageResponse {
+    pub name: String,
+    pub logo_url: Option<String>,
+    pub primary_color: Option<String>,
+    pub monitors: Vec<PublicMonitorResponse>,
 }

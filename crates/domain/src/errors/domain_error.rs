@@ -110,4 +110,67 @@ pub enum DomainError {
 
     #[error("proxy credential fields must not exceed 256 characters")]
     ProxyCredentialFieldTooLong,
+
+    #[error("unsupported region code")]
+    UnsupportedRegionCode,
+
+    // Sabbin variants:
+    #[error("invalid escalation steps: {0}")]
+    InvalidEscalationSteps(String),
+
+    #[error("invalid maintenance reason: {0}")]
+    InvalidMaintenanceReason(String),
+
+    #[error("invalid maintenance window: {0}")]
+    InvalidMaintenanceWindow(String),
+
+    #[error("subdomain cannot be empty")]
+    EmptySubdomain,
+
+    #[error("subdomain cannot exceed 63 characters")]
+    SubdomainTooLong,
+
+    #[error(
+        "subdomain may only contain lowercase letters, digits, and hyphens, and cannot start or end with a hyphen"
+    )]
+    InvalidSubdomainCharacters,
+
+    #[error("this subdomain is reserved and cannot be used")]
+    ReservedSubdomain,
+
+    #[error("hex color must match the format #RRGGBB")]
+    InvalidHexColor,
+
+    #[error("custom domain cannot be empty")]
+    EmptyCustomDomain,
+
+    #[error("custom domain must not exceed 253 characters")]
+    CustomDomainTooLong,
+
+    #[error("invalid custom domain")]
+    InvalidCustomDomain,
+
+    #[error("status page name cannot be empty")]
+    EmptyStatusPageName,
+
+    #[error("status page name cannot exceed 100 characters")]
+    StatusPageNameTooLong,
+
+    #[error("a status page cannot have more than 50 monitors")]
+    TooManyStatusPageMonitors,
+
+    #[error("logo url must not exceed 2048 characters")]
+    LogoUrlTooLong,
+
+    #[error("invalid logo url")]
+    InvalidLogoUrl,
+
+    #[error("logo image cannot be empty")]
+    EmptyLogoImage,
+
+    #[error("logo image must not exceed 500 KB")]
+    LogoImageTooLarge,
+
+    #[error("logo image must be a PNG, JPEG, GIF, or WebP file")]
+    UnsupportedLogoImageType,
 }

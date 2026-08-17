@@ -1,0 +1,375 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: Dockerfile.*, docker-compose.yml, scripts/**, monitoring/**
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+monitoring/
+  alertmanager.yml
+  prometheus.yml
+  rules.yml
+docker-compose.yml
+Dockerfile.agent
+Dockerfile.api
+Dockerfile.worker
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="Dockerfile.agent">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p agent
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/agent /usr/local/bin/agent
+
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+CMD ["agent"]
+</file>
+
+<file path="monitoring/alertmanager.yml">
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: default
+</file>
+
+<file path="monitoring/rules.yml">
+groups:
+  - name: uptime
+    rules:
+
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 1m
+
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0
+        for: 1m
+
+      - alert: WorkerFailures
+        expr: increase(worker_checks_total{result="failure"}[5m]) > 5
+        for: 2m
+</file>
+
+<file path="monitoring/prometheus.yml">
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    # /metrics yanzu yana buƙatar sirrin token (ba a buɗe wa kowa ba —
+    # duba METRICS_TOKEN a .env). A saita wannan darajar iri ɗaya da
+    # METRICS_TOKEN na api service.
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_token
+    static_configs:
+      - targets:
+          - api:3000
+
+  - job_name: worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - worker:3001
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/rules.yml
+</file>
+
+<file path="docker-compose.yml">
+services:
+  postgres:
+    image: postgres:16
+    container_name: uptime-monitor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: uptime_monitor
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d uptime_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: rust:1.89-slim
+    container_name: uptime-monitor-migrate
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/uptime_monitor
+    volumes:
+      - .:/app
+    command: >
+      bash -c "
+      export PATH=/usr/local/cargo/bin:/root/.cargo/bin:$PATH &&
+      apt-get update &&
+      apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates &&
+      cargo install sqlx-cli --no-default-features --features postgres &&
+      sqlx database create || true &&
+      sqlx migrate run --source migrations
+      "
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: uptime-monitor-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/uptime_monitor
+      RUST_LOG: info
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: uptime-monitor-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Added for the notifications feature: the worker is what actually
+    # sends email/webhook notifications when an incident opens or
+    # resolves (see crates/worker/src/incident_manager.rs), so it needs
+    # the same SMTP_* variables as the api service. Previously only `api`
+    # read `.env` here — without this, the worker would silently run with
+    # email notifications disabled (falls back to
+    # `DisabledEmailNotificationService`, logs a warning) even if SMTP_*
+    # was correctly set in `.env`.
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/uptime_monitor
+      RUST_LOG: info
+    ports:
+      - "3001:3001"
+
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: uptime-monitor-prometheus
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: uptime-monitor-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3002:3000"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: uptime-monitor-alertmanager
+    restart: unless-stopped
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+
+    ports:
+      - "9093:9093"
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: uptime-monitor-agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AGENT_API_BASE_URL: http://api:3000/internal/v1
+      RUST_LOG: info
+</file>
+
+<file path="Dockerfile.api">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p api
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/api /usr/local/bin/api
+
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+EXPOSE 3000
+
+CMD ["api"]
+</file>
+
+<file path="Dockerfile.worker">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p worker
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/worker /usr/local/bin/worker
+
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+EXPOSE 3001
+
+CMD ["worker"]
+</file>
+
+</files>

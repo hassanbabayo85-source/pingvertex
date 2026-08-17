@@ -1,16 +1,16 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
-    CheckRepository, IncidentRepository, MonitorRepository, PasswordHasher, TokenService,
-    UserRepository,
+    CheckRepository, DiagnosticReportRepository, IncidentRepository, MonitorRepository,
+    PasswordHasher, TokenService, UserRepository,
 };
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
-use domain::{Check, Incident, Monitor, User};
+use domain::{Check, DiagnosticReport, Incident, Monitor, User};
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use tower::util::ServiceExt;
 
@@ -84,6 +84,26 @@ impl CheckRepository for NoopCheckRepository {
         _: MonitorId,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopDiagnosticReportRepository;
+
+#[async_trait]
+impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
+    async fn save(
+        &self,
+        _: &DiagnosticReport,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn find_by_check_id(
+        &self,
+        _: CheckId,
+    ) -> Result<Option<DiagnosticReport>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(None)
     }
 }
 
@@ -225,10 +245,12 @@ async fn health_endpoint_returns_ok() {
     let state = AppState::new(
         NoopMonitorRepository,
         NoopCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 
@@ -259,10 +281,12 @@ async fn register_rejects_weak_password() {
     let state = AppState::new(
         NoopMonitorRepository,
         NoopCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 
@@ -307,10 +331,12 @@ async fn register_accepts_strong_password() {
     let state = AppState::new(
         NoopMonitorRepository,
         NoopCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(InMemoryMonitorRepository::new()),
         NoopNotificationService::new(),
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 

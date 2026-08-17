@@ -52,6 +52,49 @@ impl ProxyCheckJob {
         })
     }
 
+    /// Reconstructs a `ProxyCheckJob` from data already persisted in
+    /// storage, bypassing the `new()` invariants (non-zero/bounded entry
+    /// count, `Pending` starting status, `checked_count == 0`).
+    ///
+    /// This exists solely for repository implementations
+    /// (`ProxyCheckJobRepository::find_job_by_id` /
+    /// `find_jobs_by_user_id`) to rebuild a job in whatever state it was
+    /// last saved in — `Completed` with a non-zero `checked_count`,
+    /// `Failed`, etc. `new()` cannot express this: it always starts a
+    /// job at `Pending` with `checked_count = 0`, by design, so that a
+    /// freshly *created* job can never be constructed already
+    /// "finished". Application code that is not a repository should
+    /// never call this directly; a job's lifecycle should only ever be
+    /// driven forward through `mark_running`/`record_progress`/
+    /// `mark_completed`/`mark_failed`.
+    ///
+    /// No validation is performed here (unlike `new()`) because the
+    /// values passed in already passed `new()`'s validation once, back
+    /// when the job was first created and saved — re-validating
+    /// already-trusted, already-persisted data on every read would be
+    /// redundant and would also make row-level DB corruption fail as a
+    /// domain error deep inside a `find` call rather than surfacing as
+    /// an obvious data-integrity problem.
+    pub fn from_persisted(
+        id: ProxyCheckJobId,
+        user_id: UserId,
+        status: ProxyCheckJobStatus,
+        created_at: DateTime<Utc>,
+        completed_at: Option<DateTime<Utc>>,
+        total_count: u32,
+        checked_count: u32,
+    ) -> Self {
+        Self {
+            id,
+            user_id,
+            status,
+            created_at,
+            completed_at,
+            total_count,
+            checked_count,
+        }
+    }
+
     /// Transitions the job from `Pending` to `Running`.
     ///
     /// This is a no-op — the status is left untouched and `false` is
@@ -192,5 +235,30 @@ mod tests {
 
         assert_eq!(job.status(), &ProxyCheckJobStatus::Failed);
         assert!(job.completed_at().is_some());
+    }
+
+    #[test]
+    fn from_persisted_reconstructs_a_completed_job_with_progress() {
+        let id = ProxyCheckJobId::new();
+        let user_id = UserId::new();
+        let created_at = Utc::now();
+        let completed_at = Some(Utc::now());
+
+        let job = ProxyCheckJob::from_persisted(
+            id,
+            user_id.clone(),
+            ProxyCheckJobStatus::Completed,
+            created_at,
+            completed_at,
+            10,
+            10,
+        );
+
+        assert_eq!(job.id(), id);
+        assert_eq!(job.user_id(), &user_id);
+        assert_eq!(job.status(), &ProxyCheckJobStatus::Completed);
+        assert_eq!(job.total_count(), 10);
+        assert_eq!(job.checked_count(), 10);
+        assert_eq!(job.completed_at(), completed_at);
     }
 }

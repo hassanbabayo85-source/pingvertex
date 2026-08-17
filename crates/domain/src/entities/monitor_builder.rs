@@ -76,6 +76,7 @@ impl MonitorBuilder {
                 .into(),
             interval_seconds: self.interval.expect("Interval is required").into(),
             timeout_seconds: self.timeout.expect("Timeout is required").into(),
+            regions: Vec::new(),
         };
 
         Monitor::create(input)

@@ -123,3 +123,18 @@ services:
 
     ports:
       - "9093:9093"
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: uptime-monitor-agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AGENT_API_BASE_URL: http://api:3000/internal/v1
+      RUST_LOG: info

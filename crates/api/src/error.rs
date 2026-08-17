@@ -17,6 +17,7 @@ pub enum ApiError {
     BadRequest(String),
     Conflict(String),
     NotFound(String),
+    TooManyRequests(String),
     Internal(String),
 }
 
@@ -31,6 +32,13 @@ impl ApiError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::NotFound(message.into())
+    }
+
+    /// 429 Too Many Requests — used when a caller-specific quota (not the
+    /// IP-based `GovernorLayer` rate limiter, which axum never sees as an
+    /// `ApiError`) has been exceeded, e.g. the daily proxy-check job quota.
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
+        Self::TooManyRequests(message.into())
     }
 
     /// Generic internal error.
@@ -66,6 +74,7 @@ impl ApiError {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -75,6 +84,7 @@ impl ApiError {
             Self::BadRequest(message)
             | Self::Conflict(message)
             | Self::NotFound(message)
+            | Self::TooManyRequests(message)
             | Self::Internal(message) => message.clone(),
         }
     }
@@ -167,6 +177,18 @@ mod tests {
         assert_eq!(
             ApiError::not_found("x").status_code(),
             StatusCode::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn too_many_requests_carries_its_own_message() {
+        assert_eq!(
+            ApiError::too_many_requests("daily limit reached").message(),
+            "daily limit reached"
+        );
+        assert_eq!(
+            ApiError::too_many_requests("x").status_code(),
+            StatusCode::TOO_MANY_REQUESTS
         );
     }
 }

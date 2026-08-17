@@ -6,11 +6,12 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use domain::{CheckResult, HttpMethod, Monitor};
+use domain::{CheckResult, HttpMethod, Monitor, RegionCode};
 use reqwest::Client;
 use tracing::{info, warn};
 
 use crate::assertion_evaluator::{EvalContext, evaluate_assertions};
+use crate::diagnostics;
 
 type Result = std::result::Result<CheckResult, Box<dyn Error + Send + Sync>>;
 
@@ -19,23 +20,7 @@ type Result = std::result::Result<CheckResult, Box<dyn Error + Send + Sync>>;
 /// Otherwise returns `(None, None)` immediately without any network I/O.
 ///
 /// `hostname` and `socket_addr` MUST already have been through SSRF
-/// validation by the caller — this mirrors the exact safety contract
-/// documented on `tls_cert::fetch_certificate_info` itself. In
-/// `check_monitor` below, both are taken from the `ResolvedDestination`
-/// that `crate::ssrf::resolve_and_validate_destination` already produced
-/// for the HTTP request, so no second DNS resolution happens here.
-///
-/// This never fails the overall check: a certificate fetch error (bad
-/// handshake, timeout, untrusted/expired cert, ...) is logged as a
-/// `warn!` and simply results in `(None, None)` — the monitor's HTTP
-/// check already succeeded by the time this is called, and a cert-fetch
-/// problem alongside a successful HTTP response is informational, not a
-/// reason to mark the monitor down.
-///
-/// Exposed as `pub` (rather than private) so integration tests in
-/// `crates/worker/tests/checker.rs` can exercise this wiring directly
-/// against a local test TLS server, the same way `check_monitor_with_validator`
-/// lets tests bypass the production SSRF resolver without weakening it.
+/// validation by the caller.
 pub async fn maybe_fetch_cert_info(
     monitor: &Monitor,
     hostname: &str,
@@ -77,7 +62,11 @@ pub async fn maybe_fetch_cert_info(
 /// Send a single HTTP request for a monitor and return the check result.
 pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
     if !monitor.enabled {
-        return Ok(CheckResult::failure(0, "monitor is disabled"));
+        return Ok(CheckResult::failure(
+            RegionCode::default_region(),
+            0,
+            "monitor is disabled",
+        ));
     }
 
     let method = match monitor.method {
@@ -85,33 +74,63 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
         HttpMethod::Head => reqwest::Method::HEAD,
     };
 
+    let overall_started = Instant::now();
+
     // Resolve DNS + validate IP exactly once.
     //
-    // The returned socket address is then pinned into the reqwest client
-    // below. This prevents a second DNS lookup from reaching a different
-    // address after validation.
-    let destination = crate::ssrf::resolve_and_validate_destination(monitor.url.as_str())
-        .await
-        .map_err(Box::<dyn Error + Send + Sync>::from)?;
+    // IMPORTANT: this is intentionally NOT propagated via `?` anymore. A
+    // DNS/SSRF failure here IS a real "Down" result for this monitor
+    // (ErrorType::Dns territory) and must be persisted as a Check like
+    // any other failure — including a diagnostic report explaining that
+    // DNS resolution failed. Silently short-circuiting via `?` would skip
+    // saving a Check entirely (see `scheduler.rs`'s `Ok((monitor, Err(_)))`
+    // branch, which only logs, it never calls `check_repository.save`).
+    let destination =
+        match crate::ssrf::resolve_and_validate_destination(monitor.url.as_str()).await {
+            Ok(destination) => destination,
+            Err(err) => {
+                let latency = overall_started.elapsed().as_millis();
+                let diag = diagnostics::run_diagnostics(monitor, None).await;
+
+                warn!(
+                    monitor_id = %monitor.id.0,
+                    name = %monitor.name.as_str(),
+                    error = %err,
+                    "failed to resolve/validate monitor destination"
+                );
+
+                return Ok(
+                    CheckResult::failure(RegionCode::default_region(), latency, err)
+                        .with_diagnostics(diag.steps, diag.root_cause_summary),
+                );
+            }
+        };
 
     // Keep the original hostname in the URL so HTTPS certificate validation
     // and SNI continue to use the real hostname.
-    //
-    // `resolve()` tells reqwest to use the already validated socket address
-    // instead of performing another DNS lookup for this hostname.
-    //
-    // Redirects remain disabled because a redirect to an internal address
-    // would otherwise create another SSRF path.
-    let pinned_client = reqwest::Client::builder()
+    let pinned_client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
         .build()
-        .map_err(Box::<dyn Error + Send + Sync>::from)?;
+    {
+        Ok(client) => client,
+        Err(err) => {
+            let latency = overall_started.elapsed().as_millis();
+            let diag = diagnostics::run_diagnostics(monitor, Some(&destination)).await;
+
+            return Ok(CheckResult::failure(
+                RegionCode::default_region(),
+                latency,
+                err.to_string(),
+            )
+            .with_diagnostics(diag.steps, diag.root_cause_summary));
+        }
+    };
 
     let started = Instant::now();
 
     let response = pinned_client
-        .request(method, destination.url)
+        .request(method, destination.url.clone())
         .timeout(Duration::from_secs(monitor.timeout_seconds.into()))
         .send()
         .await;
@@ -161,7 +180,16 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
                             error_msg
                         );
 
-                        return Ok(CheckResult::failure_with_status(status, latency, error_msg));
+                        // Assertion failures are NOT connectivity problems —
+                        // the server responded correctly at the HTTP level,
+                        // so no diagnostic run (DNS/TCP/TLS/HTTP) is needed
+                        // here; the assertion message already explains why.
+                        return Ok(CheckResult::failure_with_status(
+                            RegionCode::default_region(),
+                            status,
+                            latency,
+                            error_msg,
+                        ));
                     }
 
                     info!(
@@ -181,16 +209,14 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
                     );
                 }
 
-                // Reuse the SSRF-validated `destination.host`/`socket_addr`
-                // from above — no second DNS resolution happens here. This
-                // is a no-op ((None, None), no I/O) for monitors that don't
-                // have ssl_check_enabled or aren't https://.
                 let (cert_expires_at, cert_days_remaining) =
                     maybe_fetch_cert_info(monitor, &destination.host, destination.socket_addr)
                         .await;
 
-                Ok(CheckResult::success(status, latency)
-                    .with_cert_info(cert_expires_at, cert_days_remaining))
+                Ok(
+                    CheckResult::success(RegionCode::default_region(), status, latency)
+                        .with_cert_info(cert_expires_at, cert_days_remaining),
+                )
             } else {
                 warn!(
                     monitor_id = %monitor.id.0,
@@ -202,6 +228,7 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
                 );
 
                 Ok(CheckResult::failure(
+                    RegionCode::default_region(),
                     latency,
                     format!("expected {}, got {}", monitor.expected_status, status),
                 ))
@@ -217,7 +244,16 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
                 "monitor request failed"
             );
 
-            Ok(CheckResult::failure(latency, err.to_string()))
+            // DNS/SSRF already succeeded (we have `destination`) but the
+            // actual HTTP request failed — this is TCP/TLS/HTTP territory,
+            // so run diagnostics reusing the already-validated destination
+            // (no second DNS lookup).
+            let diag = diagnostics::run_diagnostics(monitor, Some(&destination)).await;
+
+            Ok(
+                CheckResult::failure(RegionCode::default_region(), latency, err.to_string())
+                    .with_diagnostics(diag.steps, diag.root_cause_summary),
+            )
         }
     }
 }
@@ -228,6 +264,12 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
 /// Production code should normally call `check_monitor`, which uses the real
 /// SSRF validator. Tests can inject a validator so they can use a local HTTP
 /// server without weakening the production SSRF protection.
+///
+/// NOTE: this test-only path does not run diagnostics — it has no
+/// `ResolvedDestination` to work with (the injected validator only
+/// validates, it doesn't resolve/pin), so it is out of scope for the
+/// diagnostics feature. Production traffic always goes through
+/// `check_monitor` above.
 pub async fn check_monitor_with_validator<F, Fut>(
     client: &Client,
     monitor: &Monitor,
@@ -238,7 +280,11 @@ where
     Fut: std::future::Future<Output = std::result::Result<(), Box<dyn Error + Send + Sync>>>,
 {
     if !monitor.enabled {
-        return Ok(CheckResult::failure(0, "monitor is disabled"));
+        return Ok(CheckResult::failure(
+            RegionCode::default_region(),
+            0,
+            "monitor is disabled",
+        ));
     }
 
     let method = match monitor.method {
@@ -263,7 +309,6 @@ where
             let status = response.status().as_u16();
 
             if status == monitor.expected_status {
-                // Evaluate assertions if present
                 if !monitor.assertions.is_empty() {
                     let headers: HashMap<String, String> = response
                         .headers()
@@ -301,7 +346,12 @@ where
                             error_msg
                         );
 
-                        return Ok(CheckResult::failure_with_status(status, latency, error_msg));
+                        return Ok(CheckResult::failure_with_status(
+                            RegionCode::default_region(),
+                            status,
+                            latency,
+                            error_msg,
+                        ));
                     }
 
                     info!(
@@ -321,7 +371,11 @@ where
                     );
                 }
 
-                Ok(CheckResult::success(status, latency))
+                Ok(CheckResult::success(
+                    RegionCode::default_region(),
+                    status,
+                    latency,
+                ))
             } else {
                 warn!(
                     monitor_id = %monitor.id.0,
@@ -333,6 +387,7 @@ where
                 );
 
                 Ok(CheckResult::failure(
+                    RegionCode::default_region(),
                     latency,
                     format!("expected {}, got {}", monitor.expected_status, status),
                 ))
@@ -348,7 +403,11 @@ where
                 "monitor request failed"
             );
 
-            Ok(CheckResult::failure(latency, err.to_string()))
+            Ok(CheckResult::failure(
+                RegionCode::default_region(),
+                latency,
+                err.to_string(),
+            ))
         }
     }
 }

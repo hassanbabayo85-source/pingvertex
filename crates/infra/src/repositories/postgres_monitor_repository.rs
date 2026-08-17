@@ -4,7 +4,9 @@ use std::error::Error;
 use application::ports::MonitorRepository;
 use async_trait::async_trait;
 use domain::shared::ids::{AssertionId, MonitorId, UserId};
-use domain::{Assertion, AssertionOperator, HttpMethod, Monitor, MonitorName, ResponsePart, Url};
+use domain::{
+    Assertion, AssertionOperator, HttpMethod, Monitor, MonitorName, RegionCode, ResponsePart, Url,
+};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -29,6 +31,7 @@ impl PostgresMonitorRepository {
 struct MonitorRow {
     id: Uuid,
     user_id: Uuid,
+    regions: Vec<String>,
     name: String,
     url: String,
     method: String,
@@ -70,6 +73,7 @@ impl MonitorRow {
         Self {
             id: monitor.id.0,
             user_id: monitor.user_id.0,
+            regions: monitor.regions.iter().map(|r| r.to_string()).collect(),
             name: monitor.name.as_str().to_owned(),
             url: monitor.url.clone(),
             method: method_to_db(monitor.method),
@@ -92,9 +96,16 @@ impl MonitorRow {
     fn into_domain(self, assertions: Vec<Assertion>) -> RepoResult<Monitor> {
         let method = method_from_db(&self.method)?;
 
+        let regions = self
+            .regions
+            .iter()
+            .map(|r| RegionCode::new(r.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(Monitor {
             id: MonitorId(self.id),
             user_id: UserId(self.user_id),
+            regions,
             name: MonitorName::new(self.name)?,
             url: Url::new(self.url)?.as_str().to_owned(),
             method,
@@ -227,6 +238,7 @@ impl MonitorRepository for PostgresMonitorRepository {
             INSERT INTO monitors (
                 id,
                 user_id,
+                regions,
                 name,
                 url,
                 method,
@@ -239,9 +251,10 @@ impl MonitorRepository for PostgresMonitorRepository {
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             ON CONFLICT (id) DO UPDATE SET
                 user_id = EXCLUDED.user_id,
+                regions = EXCLUDED.regions,
                 name = EXCLUDED.name,
                 url = EXCLUDED.url,
                 method = EXCLUDED.method,
@@ -256,6 +269,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         )
         .bind(row.id)
         .bind(row.user_id)
+        .bind(row.regions)
         .bind(row.name)
         .bind(row.url)
         .bind(row.method)
@@ -325,6 +339,7 @@ impl MonitorRepository for PostgresMonitorRepository {
             SELECT
                 id,
                 user_id,
+                regions,
                 name,
                 url,
                 method,
@@ -384,6 +399,7 @@ impl MonitorRepository for PostgresMonitorRepository {
             SELECT
                 id,
                 user_id,
+                regions,
                 name,
                 url,
                 method,
@@ -453,7 +469,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         id: MonitorId,
         user_id: UserId,
     ) -> RepoResult<Option<Monitor>> {
-        let row = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE id = $1 AND user_id = $2")
+        let row = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE id = $1 AND user_id = $2")
             .bind(id.0).bind(user_id.0).fetch_optional(&self.pool).await?;
         let Some(row) = row else {
             return Ok(None);
@@ -468,7 +484,7 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<Monitor>> {
-        let monitor_rows = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE user_id = $1 ORDER BY created_at DESC")
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE user_id = $1 ORDER BY created_at DESC")
             .bind(user_id.0).fetch_all(&self.pool).await?;
         if monitor_rows.is_empty() {
             return Ok(Vec::new());
@@ -503,7 +519,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         // assertions a nan domin sabis din public baya bukatar bayanan cikin
         // gida na assertion rules.
         let monitor_rows = sqlx::query_as::<_, MonitorRow>(
-            "SELECT id, user_id, name, url, method, expected_status, interval_seconds, \
+            "SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, \
              timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at \
              FROM monitors WHERE is_public = true ORDER BY created_at DESC",
         )
