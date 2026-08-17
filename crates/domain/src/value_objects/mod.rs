@@ -33,3 +33,16 @@ pub mod proxy_credentials;
 pub use proxy_credentials::ProxyCredentials;
 pub mod proxy_result;
 pub use proxy_result::ProxyResult;
+
+pub mod subdomain;
+pub use subdomain::Subdomain;
+pub mod hex_color;
+pub use hex_color::HexColor;
+pub mod custom_domain;
+pub use custom_domain::CustomDomain;
+
+pub mod logo_image;
+pub use logo_image::{LogoImage, LogoImageType, MAX_LOGO_IMAGE_SIZE};
+
+pub mod region_code;
+pub use region_code::RegionCode;

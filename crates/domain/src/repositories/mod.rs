@@ -6,3 +6,4 @@ pub use monitor_repository::*;
 
 pub mod user_repository;
 pub use user_repository::UserRepository;
+pub mod status_page_repository;

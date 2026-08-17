@@ -5,9 +5,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use application::ports::{CheckRepository, IdGenerator, MonitorRepository};
+use application::ports::{
+    CheckRepository, DiagnosticReportRepository, IdGenerator, MonitorRepository,
+};
+use chrono::Utc;
 use domain::shared::ids::MonitorId;
-use domain::{Check, CheckStatus, ErrorType};
+use domain::{Check, CheckStatus, DiagnosticReport, ErrorType};
 use metrics::{counter, histogram};
 use reqwest::Client;
 use tokio::{task::JoinSet, time};
@@ -17,25 +20,21 @@ use crate::{checker::check_monitor, incident_manager::IncidentManager};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-const FAILURE_THRESHOLD: u32 = 3;
-const SUCCESS_THRESHOLD: u32 = 2;
-
 #[derive(Debug, Default)]
 struct MonitorCheckState {
-    consecutive_failures: u32,
-    consecutive_successes: u32,
     last_checked_at: Option<Instant>,
 }
 
 /// Groups the dependencies that stay constant across every sweep, so
 /// `process_sweep` doesn't need to take each one as a separate argument.
 /// Add new shared dependencies here instead of widening the function signature.
-struct SweepContext<'a, M: ?Sized, C: ?Sized, G: ?Sized> {
+struct SweepContext<'a, M: ?Sized, C: ?Sized, G: ?Sized, D: ?Sized> {
     monitor_repository: &'a M,
     check_repository: &'a C,
     incident_manager: &'a IncidentManager,
     id_generator: &'a G,
     client: &'a Client,
+    diagnostic_report_repository: &'a D,
 }
 
 /// Runs the worker loop forever on a fixed interval.
@@ -45,6 +44,7 @@ pub async fn run(
     incident_manager: IncidentManager,
     id_generator: Arc<dyn IdGenerator>,
     client: Client,
+    diagnostic_report_repository: Arc<dyn DiagnosticReportRepository>,
 ) -> Result<()> {
     info!("Worker scheduler started");
 
@@ -57,6 +57,7 @@ pub async fn run(
         incident_manager: &incident_manager,
         id_generator: id_generator.as_ref(),
         client: &client,
+        diagnostic_report_repository: diagnostic_report_repository.as_ref(),
     };
 
     loop {
@@ -73,8 +74,24 @@ fn run_check<'a>(
     Box::pin(check_monitor(client, monitor))
 }
 
-async fn process_sweep<M, C, G, F>(
-    ctx: &SweepContext<'_, M, C, G>,
+async fn evaluate_monitor_incident<C: CheckRepository + ?Sized>(
+    check_repository: &C,
+    incident_manager: &IncidentManager,
+    monitor: &domain::Monitor,
+) -> Result<()> {
+    let recent_checks = check_repository.list_by_monitor(monitor.id).await?;
+    let status = domain::evaluate_multi_region_status(&monitor.regions, &recent_checks, Utc::now());
+
+    match status {
+        CheckStatus::Down => incident_manager.open_if_needed(monitor).await?,
+        CheckStatus::Up => incident_manager.resolve_if_needed(monitor).await?,
+    }
+
+    Ok(())
+}
+
+async fn process_sweep<M, C, G, D, F>(
+    ctx: &SweepContext<'_, M, C, G, D>,
     states: &mut HashMap<MonitorId, MonitorCheckState>,
     now: Instant,
     check_fn: F,
@@ -83,6 +100,7 @@ where
     M: MonitorRepository + ?Sized,
     C: CheckRepository + ?Sized,
     G: IdGenerator + ?Sized,
+    D: DiagnosticReportRepository + ?Sized,
     F: for<'a> Fn(
             &'a reqwest::Client,
             &'a domain::Monitor,
@@ -98,6 +116,7 @@ where
     let incident_manager = ctx.incident_manager;
     let id_generator = ctx.id_generator;
     let client = ctx.client;
+    let diagnostic_report_repository = ctx.diagnostic_report_repository;
 
     let monitors = monitor_repository.find_all().await?;
 
@@ -142,8 +161,6 @@ where
     while let Some(join_result) = tasks.join_next().await {
         match join_result {
             Ok((monitor, Ok(result))) => {
-                let state = states.entry(monitor.id).or_default();
-
                 counter!(
                     "worker_checks_total",
                     "result" => if result.success { "success" } else { "failure" }
@@ -165,22 +182,20 @@ where
                     "monitor check completed"
                 );
 
-                if result.success {
-                    state.consecutive_successes += 1;
-                    state.consecutive_failures = 0;
-                } else {
-                    state.consecutive_failures += 1;
-                    state.consecutive_successes = 0;
-                }
-
                 info!(
                     monitor_id = %monitor.id.0,
                     "saving check"
                 );
 
+                let check_id = id_generator.next_check_id().await;
+
+                let diagnostic_steps = result.diagnostic_steps.clone();
+                let diagnostic_summary = result.diagnostic_root_cause_summary.clone();
+
                 let check = Check::new(
-                    id_generator.next_check_id().await,
+                    check_id,
                     monitor.id,
+                    result.region.clone(),
                     if result.success {
                         CheckStatus::Up
                     } else {
@@ -208,42 +223,38 @@ where
                     continue;
                 }
 
-                if !result.success && state.consecutive_failures >= FAILURE_THRESHOLD {
-                    info!(
-                        monitor_id = %monitor.id.0,
-                        "failure threshold reached; opening incident"
+                // Save the diagnostic report (if the check failed and a
+                // diagnostic run was performed). Non-fatal: a failure to
+                // persist the diagnostic report must never block the
+                // sweep, exactly like notification failures in
+                // `incident_manager.rs`.
+                if !diagnostic_steps.is_empty() {
+                    let diagnostic_report_id = id_generator.next_diagnostic_report_id().await;
+                    let report = DiagnosticReport::new(
+                        diagnostic_report_id,
+                        check.id,
+                        diagnostic_steps,
+                        diagnostic_summary.unwrap_or_default(),
                     );
 
-                    counter!("worker_incidents_opened_total").increment(1);
-
-                    if let Err(err) = incident_manager.open_if_needed(&monitor).await {
+                    if let Err(err) = diagnostic_report_repository.save(&report).await {
                         error!(
                             monitor_id = %monitor.id.0,
+                            check_id = %check.id.0,
                             error = %err,
-                            "failed to open incident"
+                            "failed to save diagnostic report"
                         );
                     }
-
-                    state.consecutive_failures = 0;
                 }
 
-                if result.success && state.consecutive_successes >= SUCCESS_THRESHOLD {
-                    info!(
+                if let Err(err) =
+                    evaluate_monitor_incident(check_repository, incident_manager, &monitor).await
+                {
+                    error!(
                         monitor_id = %monitor.id.0,
-                        "success threshold reached; resolving incident"
+                        error = %err,
+                        "failed to evaluate multi-region incident status"
                     );
-
-                    counter!("worker_incidents_resolved_total").increment(1);
-
-                    if let Err(err) = incident_manager.resolve_if_needed(&monitor).await {
-                        error!(
-                            monitor_id = %monitor.id.0,
-                            error = %err,
-                            "failed to resolve incident"
-                        );
-                    }
-
-                    state.consecutive_successes = 0;
                 }
             }
 
@@ -284,10 +295,6 @@ mod tests {
     };
     use uuid::Uuid;
 
-    /// Builds a fresh `Arc<IncidentManager>`-compatible dependency pair for
-    /// tests that don't care about notification behavior — see
-    /// `crates/worker/tests/incident_manager.rs` for tests that DO assert
-    /// on notification dispatch.
     fn test_notification_deps() -> (
         Arc<InMemoryNotificationChannelRepository>,
         Arc<NoopNotificationService>,
@@ -394,9 +401,16 @@ mod tests {
 
         async fn list_by_monitor(
             &self,
-            _monitor_id: MonitorId,
+            monitor_id: MonitorId,
         ) -> std::result::Result<Vec<Check>, Box<dyn Error + Send + Sync>> {
-            Ok(vec![])
+            Ok(self
+                .saved_checks
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|check| check.monitor_id == monitor_id)
+                .cloned()
+                .collect())
         }
 
         async fn list_checks(
@@ -486,6 +500,35 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct MockDiagnosticReportRepository {
+        saved: Arc<Mutex<Vec<DiagnosticReport>>>,
+    }
+
+    impl MockDiagnosticReportRepository {
+        fn save_count(&self) -> usize {
+            self.saved.lock().unwrap().len()
+        }
+    }
+
+    #[async_trait]
+    impl DiagnosticReportRepository for MockDiagnosticReportRepository {
+        async fn save(
+            &self,
+            report: &DiagnosticReport,
+        ) -> std::result::Result<(), Box<dyn Error + Send + Sync>> {
+            self.saved.lock().unwrap().push(report.clone());
+            Ok(())
+        }
+
+        async fn find_by_check_id(
+            &self,
+            _check_id: CheckId,
+        ) -> std::result::Result<Option<DiagnosticReport>, Box<dyn Error + Send + Sync>> {
+            Ok(None)
+        }
+    }
+
     fn build_monitor(url: String) -> Monitor {
         MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
             .name(MonitorName::new("Test Monitor").unwrap())
@@ -502,7 +545,13 @@ mod tests {
         _m: &'a domain::Monitor,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>>
     {
-        Box::pin(async move { Ok(domain::CheckResult::success(200, 10)) })
+        Box::pin(async move {
+            Ok(domain::CheckResult::success(
+                domain::RegionCode::default_region(),
+                200,
+                10,
+            ))
+        })
     }
 
     fn mock_failure<'a>(
@@ -512,6 +561,7 @@ mod tests {
     {
         Box::pin(async move {
             Ok(domain::CheckResult::failure_with_status(
+                domain::RegionCode::default_region(),
                 503,
                 10,
                 "test failure",
@@ -528,6 +578,7 @@ mod tests {
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
+        let diagnostic_report_repository = Arc::new(MockDiagnosticReportRepository::default());
         let (notification_channel_repository, notification_service) = test_notification_deps();
         let incident_manager = IncidentManager::new(
             incident_repository,
@@ -547,6 +598,7 @@ mod tests {
             incident_manager: &incident_manager,
             id_generator: id_generator.as_ref(),
             client: &client,
+            diagnostic_report_repository: diagnostic_report_repository.as_ref(),
         };
 
         process_sweep(&ctx, &mut states, Instant::now(), mock_success)
@@ -554,6 +606,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(check_repository.save_count(), 1);
+        assert_eq!(diagnostic_report_repository.save_count(), 0);
     }
 
     #[tokio::test]
@@ -565,6 +618,7 @@ mod tests {
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
+        let diagnostic_report_repository = Arc::new(MockDiagnosticReportRepository::default());
         let (notification_channel_repository, notification_service) = test_notification_deps();
         let incident_manager = IncidentManager::new(
             incident_repository.clone(),
@@ -584,6 +638,7 @@ mod tests {
             incident_manager: &incident_manager,
             id_generator: id_generator.as_ref(),
             client: &client,
+            diagnostic_report_repository: diagnostic_report_repository.as_ref(),
         };
 
         let start = Instant::now();
@@ -614,6 +669,7 @@ mod tests {
         let check_repository = Arc::new(MockCheckRepository::default());
         let incident_repository = Arc::new(MockIncidentRepository::new(false));
         let id_generator = Arc::new(UuidIdGenerator::new());
+        let diagnostic_report_repository = Arc::new(MockDiagnosticReportRepository::default());
         let (notification_channel_repository, notification_service) = test_notification_deps();
         let incident_manager = IncidentManager::new(
             incident_repository.clone(),
@@ -635,6 +691,7 @@ mod tests {
             incident_manager: &incident_manager,
             id_generator: id_generator.as_ref(),
             client: &client,
+            diagnostic_report_repository: diagnostic_report_repository.as_ref(),
         };
 
         let start = Instant::now();
@@ -651,6 +708,6 @@ mod tests {
         }
 
         assert_eq!(check_repository.save_count(), 2);
-        assert_eq!(incident_repository.update_count(), 1);
+        assert_eq!(incident_repository.update_count(), 2);
     }
 }

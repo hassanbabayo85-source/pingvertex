@@ -5,7 +5,7 @@ use crate::shared::ids::{MonitorId, UserId};
 
 use crate::{
     enums::HttpMethod,
-    value_objects::{CheckInterval, ExpectedStatus, MonitorName, Timeout, Url},
+    value_objects::{CheckInterval, ExpectedStatus, MonitorName, RegionCode, Timeout, Url},
 };
 
 /// Data required to create a monitor.
@@ -19,6 +19,9 @@ pub struct CreateMonitor {
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
+    /// Regions this monitor should be checked from.
+    /// Empty means "use the default single region" (`us-east`).
+    pub regions: Vec<RegionCode>,
 }
 
 /// A monitor configured by a user.
@@ -37,6 +40,9 @@ pub struct Monitor {
     /// Whether this monitor is exposed on the unauthenticated public status
     /// page. Defaults to `false` — an owner must explicitly opt in.
     pub is_public: bool,
+    /// Regions this monitor is checked from. Never empty after
+    /// `Monitor::create`; defaults to `[us-east]` for backward compatibility.
+    pub regions: Vec<RegionCode>,
     pub ssl_check_enabled: bool,
     pub ssl_expiry_warning_days: u32,
     pub created_at: DateTime<Utc>,
@@ -61,6 +67,11 @@ impl Monitor {
             timeout_seconds: input.timeout_seconds,
             enabled: true,
             is_public: false,
+            regions: if input.regions.is_empty() {
+                vec![RegionCode::default_region()]
+            } else {
+                input.regions
+            },
             ssl_check_enabled: true,
             ssl_expiry_warning_days: 14,
             created_at: now,
