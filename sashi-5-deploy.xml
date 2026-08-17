@@ -54,39 +54,6 @@ Dockerfile.worker
 <files>
 This section contains the contents of the repository's files.
 
-<file path="Dockerfile.agent">
-FROM rust:1.89-slim AS builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-
-RUN cargo build --release -p agent
-
-FROM debian:trixie-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=builder /app/target/release/agent /usr/local/bin/agent
-
-RUN groupadd -r app && useradd -r -g app -u 1000 appuser
-USER appuser
-
-CMD ["agent"]
-</file>
-
 <file path="monitoring/alertmanager.yml">
 global:
   resolve_timeout: 5m
@@ -120,6 +87,39 @@ groups:
         for: 2m
 </file>
 
+<file path="Dockerfile.agent">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p agent
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/agent /usr/local/bin/agent
+
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+CMD ["agent"]
+</file>
+
 <file path="monitoring/prometheus.yml">
 global:
   scrape_interval: 15s
@@ -151,6 +151,82 @@ alerting:
 
 rule_files:
   - /etc/prometheus/rules.yml
+</file>
+
+<file path="Dockerfile.api">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p api
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/api /usr/local/bin/api
+
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+EXPOSE 3000
+
+CMD ["api"]
+</file>
+
+<file path="Dockerfile.worker">
+FROM rust:1.89-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+RUN cargo build --release -p worker
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/worker /usr/local/bin/worker
+
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+EXPOSE 3001
+
+CMD ["worker"]
 </file>
 
 <file path="docker-compose.yml">
@@ -294,82 +370,6 @@ services:
     environment:
       AGENT_API_BASE_URL: http://api:3000/internal/v1
       RUST_LOG: info
-</file>
-
-<file path="Dockerfile.api">
-FROM rust:1.89-slim AS builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-
-RUN cargo build --release -p api
-
-FROM debian:trixie-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=builder /app/target/release/api /usr/local/bin/api
-
-# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
-# non-root user domin rage blast radius idan aka sami wata
-# container-escape vulnerability.
-RUN groupadd -r app && useradd -r -g app -u 1000 appuser
-USER appuser
-
-EXPOSE 3000
-
-CMD ["api"]
-</file>
-
-<file path="Dockerfile.worker">
-FROM rust:1.89-slim AS builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-
-RUN cargo build --release -p worker
-
-FROM debian:trixie-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY --from=builder /app/target/release/worker /usr/local/bin/worker
-
-# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
-# non-root user domin rage blast radius idan aka sami wata
-# container-escape vulnerability.
-RUN groupadd -r app && useradd -r -g app -u 1000 appuser
-USER appuser
-
-EXPOSE 3001
-
-CMD ["worker"]
 </file>
 
 </files>
