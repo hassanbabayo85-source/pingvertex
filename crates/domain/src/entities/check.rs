@@ -4,12 +4,15 @@ use serde::{Deserialize, Serialize};
 use crate::shared::ids::{CheckId, MonitorId};
 
 use crate::enums::{CheckStatus, ErrorType};
+use crate::value_objects::RegionCode;
 
 /// Represents one execution of a monitor check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Check {
     pub id: CheckId,
     pub monitor_id: MonitorId,
+
+    pub region: RegionCode,
 
     pub status: CheckStatus,
     pub status_code: Option<u16>,
@@ -30,6 +33,7 @@ impl Check {
     pub fn new(
         id: CheckId,
         monitor_id: MonitorId,
+        region: RegionCode,
         status: CheckStatus,
         status_code: Option<u16>,
         latency_ms: u128,
@@ -39,6 +43,7 @@ impl Check {
         Self {
             id,
             monitor_id,
+            region,
             status,
             status_code,
             latency_ms,

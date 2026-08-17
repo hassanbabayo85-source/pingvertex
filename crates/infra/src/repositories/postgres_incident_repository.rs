@@ -4,7 +4,7 @@ use application::ports::IncidentRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::Incident;
-use domain::shared::ids::{IncidentId, MonitorId};
+use domain::shared::ids::{IncidentId, MonitorId, UserId};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -29,6 +29,11 @@ struct IncidentRow {
     resolved_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    acknowledged_at: Option<DateTime<Utc>>,
+    acknowledged_by: Option<Uuid>,
+    occurred_during_maintenance: bool,
+    escalation_step_index: i32,
+    last_escalation_at: Option<DateTime<Utc>>,
 }
 
 impl IncidentRow {
@@ -40,6 +45,11 @@ impl IncidentRow {
             resolved_at: incident.resolved_at,
             created_at: incident.created_at,
             updated_at: incident.updated_at,
+            acknowledged_at: incident.acknowledged_at,
+            acknowledged_by: incident.acknowledged_by.map(|uid| uid.0),
+            occurred_during_maintenance: incident.occurred_during_maintenance,
+            escalation_step_index: incident.escalation_step_index as i32,
+            last_escalation_at: incident.last_escalation_at,
         }
     }
 
@@ -51,23 +61,22 @@ impl IncidentRow {
             resolved_at: self.resolved_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            acknowledged_at: self.acknowledged_at,
+            acknowledged_by: self.acknowledged_by.map(UserId),
+            occurred_during_maintenance: self.occurred_during_maintenance,
+            escalation_step_index: self.escalation_step_index as u32,
+            last_escalation_at: self.last_escalation_at,
         }
     }
 }
+
+const SELECT_COLUMNS: &str = "id, monitor_id, started_at, resolved_at, created_at, updated_at, acknowledged_at, acknowledged_by, occurred_during_maintenance, escalation_step_index, last_escalation_at";
 
 #[async_trait]
 impl IncidentRepository for PostgresIncidentRepository {
     async fn save(&self, incident: &Incident) -> RepoResult<()> {
         let row = IncidentRow::from_domain(incident);
 
-        // SEC-010: idan wani worker na biyu (misali a wani horizontal-scaled
-        // replica) ya riga ya kai wannan monitor_id gaban mu tare da wani
-        // open incident (resolved_at IS NULL), partial unique index
-        // `idx_incidents_unique_open_per_monitor` zai toshe kwafi (duplicate)
-        // a matakin database. Muna amfani da ON CONFLICT ... DO NOTHING
-        // domin wannan yanayin ya zama shiru (no-op) maimakon ya dawo da
-        // wani error da zai iya rikita worker ɗin ko ya haddasa ɓoyayyen
-        // panic/log spam a cikin sweep loop.
         sqlx::query(
             r#"
             INSERT INTO incidents (
@@ -76,9 +85,14 @@ impl IncidentRepository for PostgresIncidentRepository {
                 started_at,
                 resolved_at,
                 created_at,
-                updated_at
+                updated_at,
+                acknowledged_at,
+                acknowledged_by,
+                occurred_during_maintenance,
+                escalation_step_index,
+                last_escalation_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (monitor_id) WHERE resolved_at IS NULL DO NOTHING
             "#,
         )
@@ -88,6 +102,11 @@ impl IncidentRepository for PostgresIncidentRepository {
         .bind(row.resolved_at)
         .bind(row.created_at)
         .bind(row.updated_at)
+        .bind(row.acknowledged_at)
+        .bind(row.acknowledged_by)
+        .bind(row.occurred_during_maintenance)
+        .bind(row.escalation_step_index)
+        .bind(row.last_escalation_at)
         .execute(&self.pool)
         .await?;
 
@@ -105,7 +124,12 @@ impl IncidentRepository for PostgresIncidentRepository {
                 started_at = $3,
                 resolved_at = $4,
                 created_at = $5,
-                updated_at = $6
+                updated_at = $6,
+                acknowledged_at = $7,
+                acknowledged_by = $8,
+                occurred_during_maintenance = $9,
+                escalation_step_index = $10,
+                last_escalation_at = $11
             WHERE id = $1
             "#,
         )
@@ -115,6 +139,11 @@ impl IncidentRepository for PostgresIncidentRepository {
         .bind(row.resolved_at)
         .bind(row.created_at)
         .bind(row.updated_at)
+        .bind(row.acknowledged_at)
+        .bind(row.acknowledged_by)
+        .bind(row.occurred_during_maintenance)
+        .bind(row.escalation_step_index)
+        .bind(row.last_escalation_at)
         .execute(&self.pool)
         .await?;
 
@@ -122,19 +151,9 @@ impl IncidentRepository for PostgresIncidentRepository {
     }
 
     async fn find_by_id(&self, id: IncidentId) -> RepoResult<Option<Incident>> {
-        let row = sqlx::query_as::<_, IncidentRow>(
-            r#"
-            SELECT
-                id,
-                monitor_id,
-                started_at,
-                resolved_at,
-                created_at,
-                updated_at
-            FROM incidents
-            WHERE id = $1
-            "#,
-        )
+        let row = sqlx::query_as::<_, IncidentRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM incidents WHERE id = $1"
+        ))
         .bind(id.0)
         .fetch_optional(&self.pool)
         .await?;
@@ -143,22 +162,11 @@ impl IncidentRepository for PostgresIncidentRepository {
     }
 
     async fn find_open_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Option<Incident>> {
-        let row = sqlx::query_as::<_, IncidentRow>(
-            r#"
-            SELECT
-                id,
-                monitor_id,
-                started_at,
-                resolved_at,
-                created_at,
-                updated_at
-            FROM incidents
-            WHERE monitor_id = $1
-              AND resolved_at IS NULL
-            ORDER BY started_at DESC
-            LIMIT 1
-            "#,
-        )
+        let row = sqlx::query_as::<_, IncidentRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM incidents \
+             WHERE monitor_id = $1 AND resolved_at IS NULL \
+             ORDER BY started_at DESC LIMIT 1"
+        ))
         .bind(monitor_id.0)
         .fetch_optional(&self.pool)
         .await?;
@@ -167,21 +175,23 @@ impl IncidentRepository for PostgresIncidentRepository {
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Incident>> {
-        let rows = sqlx::query_as::<_, IncidentRow>(
-            r#"
-            SELECT
-                id,
-                monitor_id,
-                started_at,
-                resolved_at,
-                created_at,
-                updated_at
-            FROM incidents
-            WHERE monitor_id = $1
-            ORDER BY started_at DESC
-            "#,
-        )
+        let rows = sqlx::query_as::<_, IncidentRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM incidents \
+             WHERE monitor_id = $1 ORDER BY started_at DESC"
+        ))
         .bind(monitor_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(IncidentRow::into_domain).collect())
+    }
+
+    async fn list_open_unacknowledged(&self) -> RepoResult<Vec<Incident>> {
+        let rows = sqlx::query_as::<_, IncidentRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM incidents \
+             WHERE resolved_at IS NULL AND acknowledged_at IS NULL \
+             ORDER BY started_at ASC"
+        ))
         .fetch_all(&self.pool)
         .await?;
 

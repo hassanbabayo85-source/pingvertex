@@ -1,15 +1,15 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
-use application::ports::{CheckRepository, IncidentRepository};
+use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
-use domain::{Check, HttpMethod, Incident};
+use domain::{Check, DiagnosticReport, HttpMethod, Incident};
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -56,6 +56,26 @@ impl CheckRepository for NoopCheckRepository {
 }
 
 #[derive(Clone, Default)]
+struct NoopDiagnosticReportRepository;
+
+#[async_trait]
+impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
+    async fn save(
+        &self,
+        _: &DiagnosticReport,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn find_by_check_id(
+        &self,
+        _: CheckId,
+    ) -> Result<Option<DiagnosticReport>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(None)
+    }
+}
+
+#[derive(Clone, Default)]
 struct NoopIncidentRepository;
 
 #[async_trait]
@@ -96,10 +116,12 @@ fn build_test_app() -> axum::Router {
     let state = AppState::new(
         monitor_repository.clone(),
         NoopCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(monitor_repository),
         NoopNotificationService::new(),
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 

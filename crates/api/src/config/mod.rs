@@ -31,6 +31,14 @@ const KNOWN_LEAKED_OR_EXAMPLE_SECRETS: &[&str] = &[
 pub struct Config {
     pub database_url: String,
     pub jwt_secret: String,
+    /// Connection URL for the status-page response cache (`RedisStatusPageCache`).
+    ///
+    /// Optional, same reasoning as `infra::SmtpConfig`: a self-hosted
+    /// deployment that doesn't care about status pages (or is fine with
+    /// every public status-page request hitting Postgres directly)
+    /// shouldn't be forced to stand up Redis just to boot. When absent,
+    /// `main.rs` wires a no-op cache instead.
+    pub redis_url: Option<String>,
 }
 
 /// Kurakuran da za a iya samu wajen loda/tabbatar da configuration.
@@ -94,6 +102,13 @@ fn validate_jwt_secret(secret: &str) -> Result<(), ConfigError> {
     Ok(())
 }
 
+fn non_empty_env(key: &str) -> Option<String> {
+    env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 impl Config {
     /// Loda configuration daga environment variables.
     ///
@@ -117,9 +132,12 @@ impl Config {
 
         validate_jwt_secret(&jwt_secret)?;
 
+        let redis_url = non_empty_env("REDIS_URL");
+
         Ok(Self {
             database_url,
             jwt_secret,
+            redis_url,
         })
     }
 }
@@ -184,11 +202,6 @@ mod tests {
 
     #[test]
     fn rejects_the_specific_secret_that_was_leaked_in_dot_env() {
-        // Wannan shi ne ainihin sirrin da aka samu a bayyane a cikin
-        // fayil ɗin `.env` yayin security audit. Yana da tsayi da ya
-        // wuce 32 chars, don haka SAI hard-coded blocklist ɗin zai iya
-        // toshe shi — wannan gwajin yana tabbatar da cewa har abada ba
-        // za a sake amfani da shi ba.
         let leaked_secret = "9cd090161fdad318d781961889b215d98d845d331b4b4d2722b0799b9449a50d940ac2e82f2d0d6943ffb598fb4286a24cd13774c964a9762745cd83ac4a3366";
         assert_eq!(
             validate_jwt_secret(leaked_secret),
@@ -198,15 +211,6 @@ mod tests {
 
     #[test]
     fn accepts_a_properly_generated_random_secret() {
-        // Misalin sirri irin wanda `openssl rand -hex 64` zai fitar.
-        //
-        // NOTE: wannan BA ita ce ainihin darajar da app ɗin ke amfani da ita
-        // a kowane environment ba — misali ne kawai domin gwajin unit test.
-        // (Tsohon misalin da aka yi amfani da shi a nan an sanya shi cikin
-        // KNOWN_LEAKED_OR_EXAMPLE_SECRETS bayan ya sake bayyana a wani zip
-        // artifact da aka raba domin audit na 2026-08-12, don haka an
-        // maye gurbinsa da sabon misali a nan domin wannan gwajin ya ci
-        // gaba da tabbatar da halin "valid secret" daidai.)
         let strong_secret =
             "b1a4c9e02d7f8635a0e2c4f96d1b7a8e3c5f0d9a2b6e1c4f7a0d3b8e5c2f9a6d0b3e7c1a4f8d5b2e9c6f0a3d7b1e4c8f2a5d9b6e0c3f7a1d4b8e2c5f9a0d3b6";
         assert!(validate_jwt_secret(strong_secret).is_ok());
@@ -214,10 +218,6 @@ mod tests {
 
     #[test]
     fn try_from_env_fails_closed_when_database_url_missing() {
-        // SAFETY: gwaje-gwaje na tests suna gudana daban-daban (isolated
-        // process kowanne a Rust idan ba a yi amfani da shared globals
-        // ba), don haka amfani da env::remove_var a nan lafiya ne a
-        // cikin wannan test module.
         unsafe {
             env::remove_var("DATABASE_URL");
             env::remove_var("JWT_SECRET");

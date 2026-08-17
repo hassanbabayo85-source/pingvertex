@@ -10,7 +10,10 @@ use tracing::info;
 use application::use_cases::ListChecksUseCase;
 use domain::shared::ids::UserId;
 
-use crate::{error::ApiError, state::AppState, validation::validate_pagination};
+use crate::{
+    error::ApiError, handlers::types::CheckResponse, state::AppState,
+    validation::validate_pagination,
+};
 
 #[derive(Deserialize)]
 pub struct ListChecksQuery {
@@ -29,7 +32,7 @@ fn default_offset() -> u32 {
 
 pub async fn list_checks(
     Query(query): Query<ListChecksQuery>,
-    Extension(user_id): Extension<UserId>, // sabo
+    Extension(user_id): Extension<UserId>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("API: list_checks");
@@ -38,11 +41,17 @@ pub async fn list_checks(
         return err.into_response();
     }
 
-    let use_case = ListChecksUseCase::new(state.check_repository.clone());
+    let use_case = ListChecksUseCase::new(
+        state.check_repository.clone(),
+        state.diagnostic_report_repository.clone(),
+    );
 
     match use_case.execute(query.limit, query.offset, user_id).await {
-        // wuce user_id
-        Ok(checks) => (StatusCode::OK, Json(checks)).into_response(),
+        Ok(checks) => {
+            let response: Vec<CheckResponse> =
+                checks.into_iter().map(CheckResponse::from).collect();
+            (StatusCode::OK, Json(response)).into_response()
+        }
         Err(err) => ApiError::internal_with_source("failed to list checks", err).into_response(),
     }
 }

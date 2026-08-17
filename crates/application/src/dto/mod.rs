@@ -9,7 +9,6 @@ pub mod login_request;
 pub mod register_request;
 pub mod update_monitor_request;
 pub mod variable_extraction_input;
-
 pub use api_flow_step_input::ApiFlowStepInput;
 pub use assertion_input::AssertionInput;
 pub use auth_response::AuthResponse;
@@ -25,3 +24,7 @@ pub mod proxy_entry_input;
 pub use proxy_entry_input::ProxyEntryInput;
 pub mod create_proxy_check_job_request;
 pub use create_proxy_check_job_request::CreateProxyCheckJobRequest;
+pub mod check_with_diagnostic_report;
+pub use check_with_diagnostic_report::CheckWithDiagnosticReport;
+pub mod create_status_page_request;
+pub use create_status_page_request::CreateStatusPageRequest;
