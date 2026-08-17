@@ -283,3 +283,128 @@ mod tests {
         );
     }
 }
+
+/// Diagnostic-only TLS handshake probe. Performs the SAME real,
+/// fully-verified handshake `fetch_certificate_info` does — never
+/// disables verification for this. Returns `Ok(())` on a successful
+/// handshake or `Err(reason)` (stringified rustls/IO error) on failure.
+///
+/// `socket_addr` MUST already be SSRF-validated by the caller — see the
+/// module-level SSRF note above; this function performs no validation
+/// itself, exactly like `fetch_certificate_info`.
+pub async fn probe_tls_handshake(
+    hostname: &str,
+    socket_addr: SocketAddr,
+    timeout_duration: Duration,
+) -> Result<(), String> {
+    let client_config = production_client_config().map_err(|e| e.to_string())?;
+    fetch_certificate_info_with_config(hostname, socket_addr, timeout_duration, client_config)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Diagnostic-only: attempts a TLS connection WITHOUT certificate
+/// verification, SOLELY to read the leaf certificate's `notAfter` date so
+/// a failed handshake (from `probe_tls_handshake`) can be explained as
+/// "certificate expired on {date}" instead of a generic failure.
+///
+/// SECURITY: this connection is verification-disabled BY DESIGN. It must
+/// NEVER be used to send/receive application data — and it is not: the
+/// handshake completes, the leaf certificate is read, and the connection
+/// is dropped. It connects to the SAME already-SSRF-validated
+/// `socket_addr` the caller already validated. The monitor's actual HTTP
+/// traffic always goes through the fully-verified pinned reqwest client
+/// in `checker.rs`, never through this path. Returns `None` (rather than
+/// propagating an error) on any failure — this is best-effort diagnostic
+/// enrichment, not a required step.
+pub async fn probe_expired_cert_date(
+    hostname: &str,
+    socket_addr: SocketAddr,
+    timeout_duration: Duration,
+) -> Option<DateTime<Utc>> {
+    ensure_crypto_provider_installed();
+
+    let insecure_config = ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(AcceptAnyCertVerifier))
+        .with_no_client_auth();
+
+    let server_name = ServerName::try_from(hostname.to_string()).ok()?;
+    let connector = TlsConnector::from(Arc::new(insecure_config));
+
+    let tcp_stream = timeout(timeout_duration, TcpStream::connect(socket_addr))
+        .await
+        .ok()?
+        .ok()?;
+
+    let tls_stream = timeout(timeout_duration, connector.connect(server_name, tcp_stream))
+        .await
+        .ok()?
+        .ok()?;
+
+    let (_io, connection) = tls_stream.get_ref();
+    let peer_certs = connection.peer_certificates()?;
+    let leaf_der = peer_certs.first()?;
+
+    let (_, parsed) = x509_parser::parse_x509_certificate(leaf_der.as_ref()).ok()?;
+    let not_after = parsed.validity().not_after;
+
+    DateTime::<Utc>::from_timestamp(not_after.timestamp(), 0)
+}
+
+/// Verifier used ONLY by `probe_expired_cert_date` above, to read an
+/// otherwise-untrusted certificate's fields for diagnostic purposes. It
+/// accepts ANY certificate — this must NEVER be reused anywhere a
+/// verified identity actually matters (i.e. never for real monitor
+/// traffic; only for this one best-effort diagnostic read).
+#[derive(Debug)]
+struct AcceptAnyCertVerifier;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA1,
+            rustls::SignatureScheme::ECDSA_SHA1_Legacy,
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PSS_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA512,
+            rustls::SignatureScheme::ED25519,
+        ]
+    }
+}

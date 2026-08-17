@@ -27,3 +27,15 @@ pub mod proxy_entry;
 pub use proxy_entry::ProxyEntry;
 pub mod proxy_check_job;
 pub use proxy_check_job::ProxyCheckJob;
+pub mod diagnostic_report;
+pub use diagnostic_report::*;
+
+// Sabbin modules:
+mod escalation_policy;
+pub use escalation_policy::{EscalationPolicy, EscalationStep};
+
+mod maintenance_window;
+pub use maintenance_window::MaintenanceWindow;
+
+mod status_page;
+pub use status_page::*;

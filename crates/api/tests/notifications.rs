@@ -1,7 +1,7 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
-    CheckRepository, IncidentRepository, NotificationService, NotifyResult, PasswordHasher,
-    TokenService, UserRepository,
+    CheckRepository, DiagnosticReportRepository, IncidentRepository, NotificationService,
+    NotifyResult, PasswordHasher, TokenService, UserRepository,
 };
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
@@ -9,10 +9,10 @@ use axum::http::{Request, StatusCode};
 use domain::entities::NotificationChannel;
 use domain::notification::NotificationEvent;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
-use domain::{Check, HttpMethod, Incident, User};
+use domain::{Check, DiagnosticReport, HttpMethod, Incident, User};
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -55,6 +55,26 @@ impl CheckRepository for NoopCheckRepository {
         _: MonitorId,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopDiagnosticReportRepository;
+
+#[async_trait]
+impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
+    async fn save(
+        &self,
+        _: &DiagnosticReport,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn find_by_check_id(
+        &self,
+        _: CheckId,
+    ) -> Result<Option<DiagnosticReport>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(None)
     }
 }
 
@@ -205,10 +225,12 @@ where
     let state = AppState::new(
         monitor_repository.clone(),
         NoopCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(monitor_repository),
         notification_service,
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 

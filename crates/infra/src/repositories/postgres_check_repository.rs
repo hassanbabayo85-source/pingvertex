@@ -4,7 +4,7 @@ use application::ports::CheckRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::shared::ids::{CheckId, MonitorId, UserId};
-use domain::{Check, CheckStatus, ErrorType};
+use domain::{Check, CheckStatus, ErrorType, RegionCode};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -25,6 +25,7 @@ impl PostgresCheckRepository {
 struct CheckRow {
     id: Uuid,
     monitor_id: Uuid,
+    region: String,
     status: i16,
     http_status: Option<i32>,
     response_time_ms: i64,
@@ -40,6 +41,7 @@ impl CheckRow {
         Self {
             id: check.id.0,
             monitor_id: check.monitor_id.0,
+            region: check.region.to_string(),
             status: if matches!(check.status, CheckStatus::Up) {
                 1
             } else {
@@ -73,9 +75,12 @@ impl CheckRow {
             _ => ErrorType::Unknown,
         };
 
+        let region = RegionCode::new(self.region)?;
+
         Ok(Check {
             id: CheckId(self.id),
             monitor_id: MonitorId(self.monitor_id),
+            region,
             status,
             status_code: self.http_status.map(|v| v as u16),
             latency_ms: self.response_time_ms as u128,
@@ -99,6 +104,7 @@ impl CheckRepository for PostgresCheckRepository {
             INSERT INTO checks (
                 id,
                 monitor_id,
+                region,
                 status,
                 http_status,
                 response_time_ms,
@@ -108,11 +114,12 @@ impl CheckRepository for PostgresCheckRepository {
                 cert_expires_at,
                 cert_days_remaining
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             "#,
         )
         .bind(row.id)
         .bind(row.monitor_id)
+        .bind(row.region)
         .bind(row.status)
         .bind(row.http_status)
         .bind(row.response_time_ms)
@@ -133,6 +140,7 @@ impl CheckRepository for PostgresCheckRepository {
             SELECT
                 id,
                 monitor_id,
+                region,
                 status,
                 http_status,
                 response_time_ms,
@@ -161,6 +169,7 @@ impl CheckRepository for PostgresCheckRepository {
             SELECT
                 id,
                 monitor_id,
+                region,
                 status,
                 http_status,
                 response_time_ms,
@@ -192,6 +201,7 @@ impl CheckRepository for PostgresCheckRepository {
             SELECT
                 c.id,
                 c.monitor_id,
+                c.region,
                 c.status,
                 c.http_status,
                 c.response_time_ms,

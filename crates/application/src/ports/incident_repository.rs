@@ -19,6 +19,16 @@ pub trait IncidentRepository: Send + Sync {
     async fn find_open_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Option<Incident>>;
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Incident>>;
+
+    /// Lists all open incidents that have not been acknowledged yet.
+    /// Used by the escalation worker.
+    ///
+    /// Defaults to an empty list so existing test mocks and simple
+    /// in-memory implementations do not have to change. The Postgres
+    /// repository overrides this with a real query.
+    async fn list_open_unacknowledged(&self) -> RepoResult<Vec<Incident>> {
+        Ok(vec![])
+    }
 }
 
 #[async_trait]
@@ -44,5 +54,9 @@ where
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Incident>> {
         (**self).list_by_monitor(monitor_id).await
+    }
+
+    async fn list_open_unacknowledged(&self) -> RepoResult<Vec<Incident>> {
+        (**self).list_open_unacknowledged().await
     }
 }

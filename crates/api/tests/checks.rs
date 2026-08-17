@@ -1,15 +1,15 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
-use application::ports::{CheckRepository, IncidentRepository};
+use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
-use domain::{Check, Incident};
+use domain::{Check, DiagnosticReport, Incident};
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use tower::ServiceExt;
 
@@ -54,6 +54,26 @@ impl CheckRepository for MockCheckRepository {
         _: MonitorId,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         Ok(0)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopDiagnosticReportRepository;
+
+#[async_trait]
+impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
+    async fn save(
+        &self,
+        _: &DiagnosticReport,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn find_by_check_id(
+        &self,
+        _: CheckId,
+    ) -> Result<Option<DiagnosticReport>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(None)
     }
 }
 
@@ -194,10 +214,12 @@ fn build_test_app() -> axum::Router {
     let state = AppState::new(
         monitor_repo.clone(),
         MockCheckRepository,
+        NoopDiagnosticReportRepository,
         NoopIncidentRepository,
         InMemoryNotificationChannelRepository::new(monitor_repo),
         NoopNotificationService::new(),
         InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
     );
 

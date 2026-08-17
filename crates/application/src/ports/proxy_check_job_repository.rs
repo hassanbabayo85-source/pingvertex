@@ -38,6 +38,10 @@ pub trait ProxyCheckJobRepository: Send + Sync {
     async fn update_entry(&self, entry: &ProxyEntry) -> RepoResult<()>;
 
     async fn find_entries_by_job_id(&self, job_id: ProxyCheckJobId) -> RepoResult<Vec<ProxyEntry>>;
+
+    /// Finds up to `limit` proxy-check jobs with `Pending` status, oldest
+    /// first. The worker polls this method to discover new work.
+    async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>>;
 }
 
 #[async_trait]
@@ -67,5 +71,9 @@ where
 
     async fn find_entries_by_job_id(&self, job_id: ProxyCheckJobId) -> RepoResult<Vec<ProxyEntry>> {
         (**self).find_entries_by_job_id(job_id).await
+    }
+
+    async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>> {
+        (**self).find_pending_jobs(limit).await
     }
 }

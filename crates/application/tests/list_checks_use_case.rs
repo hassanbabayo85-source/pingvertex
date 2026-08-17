@@ -1,12 +1,16 @@
+use std::error::Error;
 use std::sync::Arc;
 
 use application::{
-    ports::{CheckRepository, check_repository::RepoResult as CheckRepoResult},
+    ports::{
+        CheckRepository, DiagnosticReportRepository,
+        check_repository::RepoResult as CheckRepoResult,
+    },
     use_cases::ListChecksUseCase,
 };
 use async_trait::async_trait;
-use domain::Check;
 use domain::shared::ids::{CheckId, MonitorId, UserId};
+use domain::{Check, DiagnosticReport};
 
 #[derive(Clone, Default)]
 struct NoopCheckRepository;
@@ -34,10 +38,29 @@ impl CheckRepository for NoopCheckRepository {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopDiagnosticReportRepository;
+
+#[async_trait]
+impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
+    async fn save(&self, _: &DiagnosticReport) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn find_by_check_id(
+        &self,
+        _: CheckId,
+    ) -> Result<Option<DiagnosticReport>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+}
+
 #[tokio::test]
 async fn lists_checks() {
     let repository = Arc::new(NoopCheckRepository);
-    let use_case = ListChecksUseCase::new(repository);
+    let diagnostic_repository = Arc::new(NoopDiagnosticReportRepository);
+
+    let use_case = ListChecksUseCase::new(repository, diagnostic_repository);
 
     let user_id = UserId::from_uuid(uuid::Uuid::new_v4());
     let result = use_case.execute(10, 0, user_id).await.unwrap();

@@ -13,8 +13,14 @@ use tracing::Level;
 use crate::{
     auth_state::AuthState,
     metrics::metrics_handler,
-    middleware::{jwt_auth::jwt_auth, metrics::record_http_metrics},
-    routes::{api_flows, auth, checks, health, monitors, notifications, public},
+    middleware::{
+        agent_auth::agent_auth, custom_domain_routing::custom_domain_routing, jwt_auth::jwt_auth,
+        metrics::record_http_metrics,
+    },
+    routes::{
+        api_flows, auth, checks, health, internal_agents, monitors, notifications, proxy_checks,
+        public, status_pages,
+    },
     state::AppState,
 };
 
@@ -147,6 +153,56 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    // Proxy check routes — same strict tier as API Flow routes, because a
+    // single proxy-check job can enqueue many outbound proxy checks on the
+    // worker (similar resource risk as an API Flow's outbound steps).
+    //
+    // 3 requests per 60 seconds, burst of 3.
+    let proxy_check_routes = proxy_checks::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(60)
+                .burst_size(3)
+                .use_headers()
+                .finish()
+                .expect("valid proxy check rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    // Status page CRUD — same standard write limit as monitors/checks.
+    let status_page_routes = status_pages::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(60)
+                .burst_size(30)
+                .use_headers()
+                .finish()
+                .expect("valid status page rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    // Requesting a custom domain is much rarer and more expensive than an
+    // ordinary status-page write: it kicks off a recurring background DNS
+    // TXT-record verification job for as long as the domain stays
+    // unverified. Tightened to the same tier as notification_test_routes
+    // to prevent an authenticated user from spinning up an unbounded
+    // number of these background jobs.
+    //
+    // 5 requests per 60 seconds, burst of 5.
+    let custom_domain_routes = status_pages::custom_domain_router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(60)
+                .burst_size(5)
+                .use_headers()
+                .finish()
+                .expect("valid custom domain rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // Rate-limit authentication endpoints by client IP.
     //
     // 5 requests per 60 seconds, with a burst of 5.
@@ -163,12 +219,14 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .with_state(auth_state.clone());
 
     // Sabon public status endpoint — BABU jwt_auth layer, domin an tsara shi
-    // domin ya dawo da kawai monitors da aka yiwa alama a matsayin `is_public`.
+    // domin ya dawo da kawai monitors da aka yiwa alama a matsayin `is_public`
+    // (ko monitors da aka zaɓa a wani status page na jama'a).
     //
     // Ko da yake babu authentication, endpoint din yana yin N+1 queries
     // (checks + incidents ga kowane public monitor) a kowace kira, don haka
     // muna sanya IP-based rate limit a nan domin toshe resource-exhaustion
-    // / DoS ta hanyar buƙatu masu yawa.
+    // / DoS ta hanyar buƙatu masu yawa. Status-page sashen yana da caching
+    // a bayan fage domin rage wannan kaya har ma da wannan iyaka.
     //
     // 60 requests per 60 seconds, with a burst of 60.
     let public_routes = public::router()
@@ -182,6 +240,20 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
+    // Internal agent routes: agent auth (not JWT), strict rate limit,
+    // and NO CORS layer because agents talk server-to-server.
+    let internal_agent_routes = internal_agents::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(60)
+                .burst_size(300)
+                .use_headers()
+                .finish()
+                .expect("valid internal agent rate-limit configuration"),
+        ))
+        .route_layer(axum::middleware::from_fn(agent_auth))
+        .with_state(app_state.clone());
+
     Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
@@ -190,8 +262,12 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
+        .nest("/api/v1", proxy_check_routes)
+        .nest("/api/v1", status_page_routes)
+        .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/public", public_routes)
+        .nest("/internal/v1", internal_agent_routes)
         .layer(from_fn(record_http_metrics))
         .layer(
             TraceLayer::new_for_http()
@@ -205,6 +281,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         )
         .layer(cors_layer())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
+        .layer(from_fn_with_state(app_state.clone(), custom_domain_routing))
 }
 
 /// Test router.
@@ -238,10 +315,26 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let proxy_check_routes = proxy_checks::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // No GovernorLayer here.
+    let status_page_routes = status_pages::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let custom_domain_routes = status_pages::custom_domain_router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let auth_routes = auth::router().with_state(auth_state);
 
     let public_routes = public::router().with_state(app_state.clone());
+
+    let internal_agent_routes = internal_agents::router()
+        .route_layer(axum::middleware::from_fn(agent_auth))
+        .with_state(app_state.clone());
 
     Router::new()
         .route("/metrics", get(metrics_handler))
@@ -251,8 +344,12 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
+        .nest("/api/v1", proxy_check_routes)
+        .nest("/api/v1", status_page_routes)
+        .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/public", public_routes)
+        .nest("/internal/v1", internal_agent_routes)
         .layer(from_fn(record_http_metrics))
         .layer(
             TraceLayer::new_for_http()
@@ -266,4 +363,5 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         )
         .layer(cors_layer())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
+        .layer(from_fn_with_state(app_state.clone(), custom_domain_routing))
 }

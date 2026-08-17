@@ -27,3 +27,15 @@ pub mod proxy_check_job_id;
 pub mod proxy_entry_id;
 pub use proxy_check_job_id::ProxyCheckJobId;
 pub use proxy_entry_id::ProxyEntryId;
+pub mod diagnostic_report_id;
+pub use diagnostic_report_id::DiagnosticReportId;
+
+// Sabbin ID modules:
+pub mod escalation_policy_id;
+pub use escalation_policy_id::EscalationPolicyId;
+
+pub mod maintenance_window_id;
+pub use maintenance_window_id::MaintenanceWindowId;
+
+pub mod status_page_id;
+pub use status_page_id::StatusPageId;

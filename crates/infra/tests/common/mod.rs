@@ -3,7 +3,7 @@ use std::env;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{
     Check, CheckInterval, CheckStatus, ErrorType, ExpectedStatus, HttpMethod, Incident, Monitor,
-    MonitorBuilder, MonitorName, Timeout, Url,
+    MonitorBuilder, MonitorName, RegionCode, Timeout, Url,
 };
 use infra::create_pool;
 use sqlx::{PgPool, query};
@@ -37,7 +37,7 @@ async fn reset_database(pool: &PgPool) {
 
 pub async fn clear_tables(pool: &PgPool) {
     query(
-        "TRUNCATE TABLE notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
+        "TRUNCATE TABLE status_pages, notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
     )
     .execute(pool)
     .await
@@ -99,6 +99,7 @@ pub fn sample_check(monitor_id: MonitorId) -> Check {
     Check::new(
         CheckId(Uuid::new_v4()),
         monitor_id,
+        RegionCode::default_region(),
         CheckStatus::Up,
         Some(200),
         123,
@@ -110,4 +111,34 @@ pub fn sample_check(monitor_id: MonitorId) -> Check {
 #[allow(dead_code)]
 pub fn sample_incident(monitor_id: MonitorId) -> Incident {
     Incident::new(IncidentId(Uuid::new_v4()), monitor_id)
+}
+
+#[allow(dead_code)]
+pub fn sample_status_page(
+    pool_user_id: UserId,
+    name: &str,
+    subdomain: &str,
+) -> domain::entities::StatusPage {
+    domain::entities::StatusPage::create(domain::entities::CreateStatusPage {
+        id: domain::shared::ids::StatusPageId::new(),
+        user_id: pool_user_id,
+        name: name.to_string(),
+        subdomain: domain::value_objects::Subdomain::new(subdomain).unwrap(),
+        monitor_ids: vec![],
+    })
+    .unwrap()
+}
+
+/// Convenience: builds a status page AND inserts the matching `users` row
+/// for its `user_id`, mirroring `sample_monitor_with_user` above — needed
+/// since `status_pages.user_id REFERENCES users(id) ON DELETE CASCADE`.
+#[allow(dead_code)]
+pub async fn sample_status_page_with_user(
+    pool: &PgPool,
+    name: &str,
+    subdomain: &str,
+) -> domain::entities::StatusPage {
+    let user_id = UserId(Uuid::new_v4());
+    insert_user(pool, user_id).await;
+    sample_status_page(user_id, name, subdomain)
 }

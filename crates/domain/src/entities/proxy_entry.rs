@@ -41,6 +41,42 @@ impl ProxyEntry {
         })
     }
 
+    /// Reconstructs a `ProxyEntry` from data already persisted in
+    /// storage, including whatever `result` (if any) was recorded the
+    /// last time it was checked.
+    ///
+    /// This exists solely for repository implementations
+    /// (`ProxyCheckJobRepository::find_entries_by_job_id`) to rebuild an
+    /// entry exactly as stored — `new()` cannot express this, since it
+    /// always starts an entry at `result: None` by design (a freshly
+    /// *created* entry, by definition, has not been checked yet).
+    /// Application code that is not a repository should never call this
+    /// directly; an entry's result should only ever be set through
+    /// `set_result`.
+    ///
+    /// No validation is performed here (unlike `new()`'s port-allowlist
+    /// check) because the values passed in already passed that
+    /// validation once, when the entry was first created and saved.
+    pub fn from_persisted(
+        id: ProxyEntryId,
+        job_id: ProxyCheckJobId,
+        host: ProxyHost,
+        port: u16,
+        scheme: ProxyScheme,
+        credentials: Option<ProxyCredentials>,
+        result: Option<ProxyResult>,
+    ) -> Self {
+        Self {
+            id,
+            job_id,
+            host,
+            port,
+            scheme,
+            credentials,
+            result,
+        }
+    }
+
     pub fn id(&self) -> ProxyEntryId {
         self.id
     }
@@ -112,5 +148,35 @@ mod tests {
         );
 
         assert_eq!(result.err(), Some(DomainError::ProxyPortNotAllowed));
+    }
+
+    #[test]
+    fn from_persisted_reconstructs_an_entry_with_a_result() {
+        let id = ProxyEntryId::new();
+        let job_id = ProxyCheckJobId::new();
+        let result = ProxyResult {
+            reachable: true,
+            latency_ms: Some(120),
+            anonymity: None,
+            supports_https: true,
+            country_code: Some("US".to_string()),
+            error: None,
+        };
+
+        let entry = ProxyEntry::from_persisted(
+            id,
+            job_id,
+            host(),
+            8080,
+            ProxyScheme::Http,
+            None,
+            Some(result),
+        );
+
+        assert_eq!(entry.id(), id);
+        assert_eq!(entry.job_id(), job_id);
+        assert_eq!(entry.port(), 8080);
+        assert!(entry.result().is_some());
+        assert!(entry.result().unwrap().reachable);
     }
 }
