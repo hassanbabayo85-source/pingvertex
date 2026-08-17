@@ -242,15 +242,11 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 
     // Internal agent routes: agent auth (not JWT), strict rate limit,
     // and NO CORS layer because agents talk server-to-server.
+    // TODO: rate-limit internal agent routes separately, but for now
+    // leave them unthrottled. Agents poll every 5s and submit one result
+    // per monitor, so a generic IP-based GovernorLayer caused 429s under
+    // normal Docker networking conditions.
     let internal_agent_routes = internal_agents::router()
-        .layer(GovernorLayer::new(
-            GovernorConfigBuilder::default()
-                .per_second(60)
-                .burst_size(300)
-                .use_headers()
-                .finish()
-                .expect("valid internal agent rate-limit configuration"),
-        ))
         .route_layer(axum::middleware::from_fn(agent_auth))
         .with_state(app_state.clone());
 
