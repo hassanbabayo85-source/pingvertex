@@ -1,0 +1,6090 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: apps/**
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+apps/
+  dashboard/
+    public/
+      file.svg
+      globe.svg
+      next.svg
+      vercel.svg
+      window.svg
+    reports/
+      ui-compatibility.json
+    src/
+      app/
+        login/
+          page.tsx
+        monitors/
+          [id]/
+            page.tsx
+        profile/
+          page.tsx
+        register/
+          page.tsx
+        status/
+          page.tsx
+        test/
+          page.tsx
+        favicon.ico
+        globals.css
+        layout.tsx
+        loading.tsx
+        page.tsx
+      components/
+        auth/
+          login-form.tsx
+          protected-route.tsx
+          register-form.tsx
+          user-menu.tsx
+        dashboard/
+          analytics-strip.tsx
+          dashboard-content.tsx
+          dashboard-skeleton.tsx
+          dashboard-summary.tsx
+          incident-timeline.tsx
+          latency-overview-chart.tsx
+          monitor-toolbar.tsx
+          uptime-card.tsx
+        layout/
+          header.tsx
+          sidebar.tsx
+        monitors/
+          create-monitor-dialog.tsx
+          delete-monitor-dialog.tsx
+          edit-monitor-dialog.tsx
+          latency-chart.tsx
+          monitor-actions.tsx
+          monitor-form.tsx
+          monitor-schema.ts
+        providers/
+          dashboard-events.tsx
+        status/
+          incident-history.tsx
+          overall-status.tsx
+          service-list.tsx
+          uptime-badge.tsx
+        ui/
+          alert-dialog.tsx
+          avatar.tsx
+          badge.tsx
+          button.tsx
+          card.tsx
+          dialog.tsx
+          dropdown-menu.tsx
+          input.tsx
+          label.tsx
+          select.tsx
+          separator.tsx
+          sheet.tsx
+          skeleton.tsx
+          table.tsx
+          tabs.tsx
+          textarea.tsx
+          toast.tsx
+        theme-toggle.tsx
+      hooks/
+        use-auth.ts
+        use-create-monitor.ts
+        use-delete-monitor.ts
+        use-login.ts
+        use-register.ts
+        use-update-monitor.ts
+      lib/
+        auth/
+          index.ts
+          token-storage.ts
+        api.ts
+        auth-api.ts
+        events.ts
+        http.ts
+        query-client.ts
+        utils.ts
+      providers/
+        auth-provider.tsx
+        query-provider.tsx
+        theme-provider.tsx
+      types/
+        auth.ts
+    .gitignore
+    AGENTS.md
+    CLAUDE.md
+    components.json
+    eslint.config.mjs
+    next.config.ts
+    package.json
+    postcss.config.mjs
+    README.md
+    tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="apps/dashboard/public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="apps/dashboard/public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="apps/dashboard/public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="apps/dashboard/public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="apps/dashboard/public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path="apps/dashboard/reports/ui-compatibility.json">
+{
+  "ui_library": "Base UI",
+  "react": "19.2.4",
+  "next": "16.2.12",
+  "components": [
+    {
+      "file": "alert-dialog.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "avatar.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "badge.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "button.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "card.tsx",
+      "uses_base_ui": false,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "dialog.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "dropdown-menu.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "input.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "label.tsx",
+      "uses_base_ui": false,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "select.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "separator.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "sheet.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "skeleton.tsx",
+      "uses_base_ui": false,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "table.tsx",
+      "uses_base_ui": false,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "tabs.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "textarea.tsx",
+      "uses_base_ui": false,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    },
+    {
+      "file": "toast.tsx",
+      "uses_base_ui": true,
+      "uses_radix_ui": false,
+      "contains_asChild": false
+    }
+  ]
+}
+</file>
+
+<file path="apps/dashboard/src/app/login/page.tsx">
+import { LoginForm } from "@/components/auth/login-form";
+
+
+
+export default function LoginPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+      <LoginForm />
+    </main>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/app/monitors/[id]/page.tsx">
+import { notFound } from "next/navigation";
+
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { MonitorActions } from "@/components/monitors/monitor-actions";
+import { LatencyChart } from "@/components/monitors/latency-chart";
+import {
+  getChecks,
+  getIncidents,
+  getMonitor,
+  type CheckDto,
+  type IncidentDto,
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
+
+type PageProps = {
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+type MonitorData = Awaited<ReturnType<typeof getMonitor>>;
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatLatency(latencyMs: number | null) {
+  if (latencyMs === null) return "—";
+  return `${latencyMs} ms`;
+}
+
+function statusClass(status?: "Up" | "Down" | "Idle") {
+  switch (status) {
+    case "Up":
+      return "border-emerald-500/30 bg-emerald-500/15 text-emerald-700";
+    case "Down":
+      return "border-rose-500/30 bg-rose-500/15 text-rose-700";
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+function StatusBadge({ status }: { status?: "Up" | "Down" | "Idle" }) {
+  return (
+    <Badge className={cn("rounded-full px-3 py-1 font-medium", statusClass(status))}>
+      {status ?? "Idle"}
+    </Badge>
+  );
+}
+
+async function loadMonitorData(id: string) {
+  const [monitor, checks, incidents] = await Promise.all([
+    getMonitor(id),
+    getChecks(id),
+    getIncidents(id),
+  ]);
+
+  return { monitor, checks, incidents };
+}
+
+function getLatestCheck(checks: CheckDto[]) {
+  return checks[0] ?? null;
+}
+
+function getOpenIncident(incidents: IncidentDto[]) {
+  return incidents.find((incident) => incident.resolved_at === null) ?? null;
+}
+
+export default async function MonitorDetailsPage({ params }: PageProps) {
+  const { id } = await params;
+  const { monitor, checks, incidents } = await loadMonitorData(id);
+
+  if (!monitor) {
+    notFound();
+  }
+
+  const currentMonitor = monitor as NonNullable<MonitorData>;
+  const latestCheck = getLatestCheck(checks);
+  const openIncident = getOpenIncident(incidents);
+  const status = latestCheck?.status ?? "Idle";
+
+  const chartData = [...checks]
+    .slice(0, 20)
+    .reverse()
+    .map((check) => ({
+      time: check.checked_at,
+      latency: check.latency_ms,
+      status: check.status,
+    }));
+
+  return (
+    <main className="mx-auto max-w-6xl space-y-8 p-8">
+      <section className="space-y-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">Monitor details</p>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {currentMonitor.name}
+            </h1>
+            <p className="mt-2 text-muted-foreground">{currentMonitor.url}</p>
+          </div>
+
+          <MonitorActions monitor={currentMonitor} />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StatusBadge status={status} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">
+                Expected status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-bold">
+              {currentMonitor.expected_status}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Interval</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-bold">
+              {currentMonitor.interval_seconds}s
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Timeout</CardTitle>
+            </CardHeader>
+            <CardContent className="text-2xl font-bold">
+              {currentMonitor.timeout_seconds}s
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Monitor summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Method</span>
+              <span className="font-medium">{currentMonitor.method}</span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Enabled</span>
+              <span className="font-medium">
+                {currentMonitor.enabled ? "Yes" : "No"}
+              </span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Created</span>
+              <span className="font-medium">
+                {formatDate(currentMonitor.created_at)}
+              </span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Updated</span>
+              <span className="font-medium">
+                {formatDate(currentMonitor.updated_at)}
+              </span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Latest latency</span>
+              <span className="font-medium">
+                {latestCheck ? formatLatency(latestCheck.latency_ms) : "—"}
+              </span>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Open incident</span>
+              <span className="font-medium">{openIncident ? "Yes" : "None"}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Current check details</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {latestCheck ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Status</span>
+                  <StatusBadge status={latestCheck.status} />
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Status code</span>
+                  <span className="font-medium">
+                    {latestCheck.status_code ?? "—"}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Latency</span>
+                  <span className="font-medium">
+                    {formatLatency(latestCheck.latency_ms)}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Error type</span>
+                  <span className="font-medium">{latestCheck.error_type}</span>
+                </div>
+                <Separator />
+                <div className="flex flex-col gap-1">
+                  <span className="text-muted-foreground">Error message</span>
+                  <span className="font-medium">
+                    {latestCheck.error_message ?? "—"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground">No checks yet.</p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <LatencyChart data={chartData} />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Incidents</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto p-0">
+            {incidents.length === 0 ? (
+              <div className="p-6 text-sm text-muted-foreground">
+                No incidents recorded yet.
+              </div>
+            ) : (
+              <table className="w-full min-w-[700px]">
+                <thead className="border-b bg-muted/40 text-left text-sm">
+                  <tr>
+                    <th className="px-6 py-4 font-medium">Started</th>
+                    <th className="px-6 py-4 font-medium">Resolved</th>
+                    <th className="px-6 py-4 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {incidents.map((incident) => (
+                    <tr key={incident.id} className="border-b last:border-b-0">
+                      <td className="px-6 py-4 text-sm">
+                        {formatDate(incident.started_at)}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {formatDate(incident.resolved_at)}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <Badge
+                          className={cn(
+                            "rounded-full px-3 py-1 font-medium",
+                            incident.resolved_at
+                              ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-700"
+                              : "border-rose-500/30 bg-rose-500/15 text-rose-700",
+                          )}
+                        >
+                          {incident.resolved_at ? "Resolved" : "Open"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+    </main>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/app/profile/page.tsx">
+import { ProtectedRoute } from "@/components/auth/protected-route";
+
+export default function ProfilePage() {
+  return (
+    <ProtectedRoute>
+    <main className="flex min-h-screen items-center justify-center">
+      <h1 className="text-3xl font-bold">
+        Profile (Coming Next)
+      </h1>
+    </main>
+      </ProtectedRoute>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/app/register/page.tsx">
+import { RegisterForm } from "@/components/auth/register-form";
+
+export default function RegisterPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+      <RegisterForm />
+    </main>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/app/test/page.tsx">
+export default function TestPage() { return <pre>{process.env.NEXT_PUBLIC_API_URL}</pre>; }
+</file>
+
+<file path="apps/dashboard/src/app/globals.css">
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+</file>
+
+<file path="apps/dashboard/src/app/layout.tsx">
+import { AuthProvider } from "@/providers/auth-provider";
+import type { Metadata } from "next";
+import "./globals.css";
+
+import { QueryProvider } from "@/providers/query-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
+import { DashboardEvents } from "@/components/providers/dashboard-events";
+import { Toaster } from "sonner";
+
+export const metadata: Metadata = {
+  title: "Uptime Monitor",
+  description: "Dashboard for monitors, checks, and incidents.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen bg-background text-foreground antialiased">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <QueryProvider>
+          <DashboardEvents />
+          <AuthProvider>{children}</AuthProvider>
+        </QueryProvider>
+        <Toaster richColors position="top-right" />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/app/loading.tsx">
+import { DashboardSkeleton } from "@/components/dashboard/dashboard-skeleton";
+
+export default function Loading() {
+  return <DashboardSkeleton />;
+}
+</file>
+
+<file path="apps/dashboard/src/app/page.tsx">
+<div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">
+            Uptime Dashboard
+          </h1>
+
+          <p className="text-muted-foreground">
+            Monitor your infrastructure.
+          </p>
+        </div>
+
+        <UserMenu />
+      </div>
+
+import { DashboardContent } from "@/components/dashboard/dashboard-content";
+import { UserMenu } from "@/components/auth/user-menu";
+import {
+  getChecks,
+  getIncidents,
+  getMonitors,
+  type CheckDto,
+  type IncidentDto,
+  type MonitorDto,
+} from "@/lib/api";
+
+export const dynamic = "force-dynamic";
+
+type MonitorOverview = {
+  monitor: MonitorDto;
+  latestCheck: CheckDto | null;
+  incidents: IncidentDto[];
+};
+
+async function loadDashboard(): Promise<MonitorOverview[]> {
+  const monitors = await getMonitors();
+
+  return Promise.all(
+    monitors.map(async (monitor) => {
+      const [checks, incidents] = await Promise.all([
+        getChecks(monitor.id),
+        getIncidents(monitor.id),
+      ]);
+
+      return {
+        monitor,
+        latestCheck: checks[0] ?? null,
+        incidents,
+      };
+    }),
+  );
+}
+
+export default async function Page() {
+  const monitors = await loadDashboard();
+
+  return <DashboardContent monitors={monitors} />;
+}
+</file>
+
+<file path="apps/dashboard/src/components/auth/login-form.tsx">
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+import { useLogin } from "@/hooks/use-login";
+import { useAuthContext } from "@/providers/auth-provider";
+
+const loginSchema = z.object({
+  email: z.string().email("Enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+type LoginValues = z.infer<typeof loginSchema>;
+
+export function LoginForm() {
+  const router = useRouter();
+  const auth = useAuthContext();
+  const loginMutation = useLogin();
+
+  const [loading, setLoading] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  async function onSubmit(values: LoginValues) {
+    setLoading(true);
+
+    try {
+      const session = await loginMutation.mutateAsync(values);
+
+      auth.setSession(session);
+
+      toast.success("Welcome back!");
+
+      router.replace("/");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Login failed",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>Sign in</CardTitle>
+
+        <CardDescription>
+          Access your uptime dashboard.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <form
+          className="space-y-5"
+          onSubmit={handleSubmit(onSubmit)}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+
+            <Input
+              id="email"
+              type="email"
+              {...register("email")}
+            />
+
+            {errors.email && (
+              <p className="text-sm text-rose-500">
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">
+              Password
+            </Label>
+
+            <Input
+              id="password"
+              type="password"
+              {...register("password")}
+            />
+
+            {errors.password && (
+              <p className="text-sm text-rose-500">
+                {errors.password.message}
+              </p>
+            )}
+          </div>
+
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading}
+          >
+            {loading
+              ? "Signing in..."
+              : "Sign in"}
+          </Button>
+
+          <p className="text-center text-sm text-muted-foreground">
+            No account?{" "}
+            <Link
+              href="/register"
+              className="text-primary hover:underline"
+            >
+              Create one
+            </Link>
+          </p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/auth/protected-route.tsx">
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { useAuthContext } from "@/providers/auth-provider";
+
+type ProtectedRouteProps = {
+  children: React.ReactNode;
+};
+
+export function ProtectedRoute({
+  children,
+}: ProtectedRouteProps) {
+  const router = useRouter();
+
+  const {
+    authenticated,
+    loading,
+  } = useAuthContext();
+
+  useEffect(() => {
+    if (!loading && !authenticated) {
+      router.replace("/login");
+    }
+  }, [
+    authenticated,
+    loading,
+    router,
+  ]);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">
+          Loading session...
+        </p>
+      </main>
+    );
+  }
+
+  if (!authenticated) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+</file>
+
+<file path="apps/dashboard/src/components/auth/register-form.tsx">
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+import { useRegister } from "@/hooks/use-register";
+import { useAuthContext } from "@/providers/auth-provider";
+
+const registerSchema = z
+  .object({
+    username: z.string().min(3, "Username is required"),
+    email: z.string().email("Enter a valid email"),
+    password: z.string().min(8, "Minimum 8 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine(
+    (data) => data.password === data.confirmPassword,
+    {
+      path: ["confirmPassword"],
+      message: "Passwords do not match",
+    },
+  );
+
+type RegisterValues = z.infer<typeof registerSchema>;
+
+export function RegisterForm() {
+  const router = useRouter();
+  const auth = useAuthContext();
+  const registerMutation = useRegister();
+
+  const [loading, setLoading] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<RegisterValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      username: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  async function onSubmit(values: RegisterValues) {
+    setLoading(true);
+
+    try {
+      const session = await registerMutation.mutateAsync({
+        username: values.username,
+        email: values.email,
+        password: values.password,
+      });
+
+      auth.setSession(session);
+
+      toast.success("Account created successfully!");
+
+      router.replace("/");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Registration failed",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>Create account</CardTitle>
+        <CardDescription>
+          Create your uptime dashboard account.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <form
+          className="space-y-4"
+          onSubmit={handleSubmit(onSubmit)}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              {...register("username")}
+            />
+            {errors.username && (
+              <p className="text-sm text-rose-500">
+                {errors.username.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              {...register("email")}
+            />
+            {errors.email && (
+              <p className="text-sm text-rose-500">
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              {...register("password")}
+            />
+            {errors.password && (
+              <p className="text-sm text-rose-500">
+                {errors.password.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">
+              Confirm Password
+            </Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              {...register("confirmPassword")}
+            />
+            {errors.confirmPassword && (
+              <p className="text-sm text-rose-500">
+                {errors.confirmPassword.message}
+              </p>
+            )}
+          </div>
+
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading}
+          >
+            {loading
+              ? "Creating account..."
+              : "Create account"}
+          </Button>
+
+          <p className="text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link
+              href="/login"
+              className="text-primary hover:underline"
+            >
+              Sign in
+            </Link>
+          </p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/analytics-strip.tsx">
+"use client";
+
+import { Activity, Gauge, TrendingDown, TrendingUp } from "lucide-react";
+
+import { Card, CardContent } from "@/components/ui/card";
+
+type Props = {
+  latencies: number[];
+  openIncidents: number;
+  monitorCount: number;
+};
+
+function average(values: number[]) {
+  if (values.length === 0) return 0;
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+}
+
+export function AnalyticsStrip({
+  latencies,
+  openIncidents,
+  monitorCount,
+}: Props) {
+  const avg = average(latencies);
+  const min = latencies.length === 0 ? 0 : Math.min(...latencies);
+  const max = latencies.length === 0 ? 0 : Math.max(...latencies);
+
+  const items = [
+    {
+      label: "Monitors",
+      value: monitorCount,
+      icon: Activity,
+    },
+    {
+      label: "Avg Latency",
+      value: `${avg} ms`,
+      icon: Gauge,
+    },
+    {
+      label: "Fastest",
+      value: `${min} ms`,
+      icon: TrendingDown,
+    },
+    {
+      label: "Slowest",
+      value: `${max} ms`,
+      icon: TrendingUp,
+    },
+    {
+      label: "Open Incidents",
+      value: openIncidents,
+      icon: Activity,
+    },
+  ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      {items.map((item) => {
+        const Icon = item.icon;
+
+        return (
+          <Card key={item.label} className="transition-all hover:shadow-md">
+            <CardContent className="flex items-center justify-between p-5">
+              <div>
+                <p className="text-sm text-muted-foreground">{item.label}</p>
+                <div className="mt-2 text-2xl font-bold">{item.value}</div>
+              </div>
+              <Icon className="h-5 w-5 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/dashboard-content.tsx">
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Clock3,
+  Globe,
+  LayoutDashboard,
+  ShieldAlert,
+} from "lucide-react";
+
+import { DashboardSummary } from "@/components/dashboard/dashboard-summary";
+import { IncidentTimeline } from "@/components/dashboard/incident-timeline";
+import { MonitorToolbar } from "@/components/dashboard/monitor-toolbar";
+import { UptimeCard } from "@/components/dashboard/uptime-card";
+import { Header } from "@/components/layout/header";
+import { Sidebar } from "@/components/layout/sidebar";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
+import { LatencyOverviewChart } from "@/components/dashboard/latency-overview-chart";
+
+type MonitorOverview = {
+  monitor: {
+    id: string;
+    name: string;
+    url: string;
+    method: string;
+    interval_seconds: number;
+  };
+  latestCheck: {
+    status?: "Up" | "Down" | "Idle";
+    latency_ms?: number | null;
+    checked_at?: string;
+    status_code?: number | null;
+  } | null;
+  incidents: {
+    id: string;
+    started_at: string;
+    resolved_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }[];
+};
+
+type Props = {
+  monitors: MonitorOverview[];
+};
+
+function formatLatency(latencyMs: number | null) {
+  if (latencyMs === null) return "—";
+  return `${latencyMs} ms`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function statusClass(status?: "Up" | "Down" | "Idle") {
+  switch (status) {
+    case "Up":
+      return "border-emerald-500/30 bg-emerald-500/15 text-emerald-700";
+    case "Down":
+      return "border-rose-500/30 bg-rose-500/15 text-rose-700";
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
+function StatusBadge({ status }: { status?: "Up" | "Down" | "Idle" }) {
+  return (
+    <Badge className={cn("rounded-full px-3 py-1 font-medium", statusClass(status))}>
+      {status ?? "Idle"}
+    </Badge>
+  );
+}
+
+export function DashboardContent({ monitors }: Props) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+
+  const filteredMonitors = useMemo(() => {
+    return monitors.filter((item) => {
+      const query = search.trim().toLowerCase();
+
+      const matchesSearch =
+        query.length === 0 ||
+        item.monitor.name.toLowerCase().includes(query) ||
+        item.monitor.url.toLowerCase().includes(query);
+
+      const currentStatus = item.latestCheck?.status?.toLowerCase() ?? "idle";
+      const matchesStatus = status === "all" || currentStatus === status;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [monitors, search, status]);
+
+  const summaryMonitors = filteredMonitors.map((item) => ({
+    id: item.monitor.id,
+    status: item.latestCheck?.status,
+    latency_ms: item.latestCheck?.latency_ms ?? null,
+  }));
+
+  const latencyChartData = filteredMonitors
+    .map((item) => ({
+      name: item.monitor.name,
+      latency: item.latestCheck?.latency_ms ?? 0,
+    }))
+    .filter((item) => item.latency > 0);
+
+  const uptimePercentage =
+    filteredMonitors.length === 0
+      ? 100
+      : (() => {
+          let total = 0;
+          let up = 0;
+
+          for (const monitor of filteredMonitors) {
+            total++;
+            if (monitor.latestCheck?.status === "Up") {
+              up++;
+            }
+          }
+
+          return total === 0 ? 100 : (up / total) * 100;
+        })();
+
+  const totalMonitors = filteredMonitors.length;
+  const healthyMonitors = filteredMonitors.filter(
+    (item) => item.latestCheck?.status === "Up",
+  ).length;
+  const downMonitors = filteredMonitors.filter(
+    (item) => item.latestCheck?.status === "Down",
+  ).length;
+  const openIncidents = filteredMonitors.flatMap((item) =>
+    item.incidents.filter((incident) => incident.resolved_at === null),
+  ).length;
+
+  const recentIncidents = filteredMonitors
+    .flatMap((item) => item.incidents)
+    .sort(
+      (a, b) =>
+        new Date(b.started_at).getTime() -
+        new Date(a.started_at).getTime(),
+    )
+    .slice(0, 10);
+
+  return (
+    <div className="flex min-h-screen bg-muted/30">
+      <Sidebar />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header />
+
+        <main className="space-y-8 p-6">
+          <section id="dashboard" className="space-y-6">
+            <div>
+              <p className="text-sm text-muted-foreground">Overview</p>
+              <h2 className="text-3xl font-semibold tracking-tight">
+                System status at a glance
+              </h2>
+            </div>
+
+            <DashboardSummary monitors={summaryMonitors} />
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <UptimeCard uptime={uptimePercentage} />
+              <IncidentTimeline incidents={recentIncidents} />
+            </div>
+
+            <LatencyOverviewChart data={latencyChartData} />
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Total Monitors
+                  </CardTitle>
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold">{totalMonitors}</div>
+                  <p className="text-xs text-muted-foreground">
+                    All monitors currently tracked.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Healthy</CardTitle>
+                  <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-emerald-600">
+                    {healthyMonitors}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Latest check returned Up.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Down</CardTitle>
+                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-rose-600">
+                    {downMonitors}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Latest check returned Down.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Open Incidents
+                  </CardTitle>
+                  <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold">{openIncidents}</div>
+                  <p className="text-xs text-muted-foreground">
+                    Incidents waiting for recovery.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+
+          <section id="monitors" className="space-y-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Monitors</p>
+                <h3 className="text-2xl font-semibold">Current monitors</h3>
+              </div>
+
+              <MonitorToolbar
+                search={search}
+                status={status}
+                onSearchChange={setSearch}
+                onStatusChange={(value) => setStatus(value ?? "all")}
+              />
+            </div>
+
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                {filteredMonitors.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    No monitors match your search or filter.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px]">
+                      <thead className="border-b bg-muted/40 text-left text-sm">
+                        <tr>
+                          <th className="px-6 py-4 font-medium">Status</th>
+                          <th className="px-6 py-4 font-medium">Name</th>
+                          <th className="px-6 py-4 font-medium">URL</th>
+                          <th className="px-6 py-4 font-medium">Last Check</th>
+                          <th className="px-6 py-4 font-medium">Latency</th>
+                          <th className="px-6 py-4 font-medium">Incidents</th>
+                          <th className="px-6 py-4 font-medium text-right">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMonitors.map(({ monitor, latestCheck, incidents }) => {
+                          const currentStatus = latestCheck?.status ?? "Idle";
+                          const openIncident = incidents.find(
+                            (incident) => incident.resolved_at === null,
+                          );
+
+                          return (
+                            <tr key={monitor.id} className="border-b last:border-b-0">
+                              <td className="px-6 py-4">
+                                <StatusBadge status={currentStatus} />
+                              </td>
+                              <td className="px-6 py-4">
+                                <Link
+                                  href={`/monitors/${monitor.id}`}
+                                  className="font-medium hover:underline"
+                                >
+                                  {monitor.name}
+                                </Link>
+                                <div className="text-xs text-muted-foreground">
+                                  {monitor.method} · every {monitor.interval_seconds}s
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-sm text-muted-foreground">
+                                {monitor.url}
+                              </td>
+                              <td className="px-6 py-4 text-sm">
+                                {latestCheck
+                                  ? formatDate(latestCheck.checked_at ?? null)
+                                  : "—"}
+                              </td>
+                              <td className="px-6 py-4 text-sm">
+                                {latestCheck
+                                  ? formatLatency(latestCheck.latency_ms ?? null)
+                                  : "—"}
+                              </td>
+                              <td className="px-6 py-4">
+                                {openIncident ? (
+                                  <Badge className="rounded-full border-rose-500/30 bg-rose-500/15 px-3 py-1 text-rose-700">
+                                    Open
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">None</Badge>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-right text-sm">
+                                <Link
+                                  href={`/monitors/${monitor.id}`}
+                                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                                >
+                                  View <ArrowUpRight className="h-3.5 w-3.5" />
+                                </Link>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section id="incidents" className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Incidents</p>
+              <h3 className="text-2xl font-semibold">Recent incidents</h3>
+            </div>
+
+            <Card>
+              <CardContent className="space-y-4 p-6">
+                {recentIncidents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No incidents yet. This is a good sign.
+                  </p>
+                ) : (
+                  recentIncidents.map((incident) => (
+                    <div
+                      key={incident.id}
+                      className="flex flex-col gap-2 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">
+                          Incident #{incident.id.slice(0, 8)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {incident.resolved_at ? "Resolved" : "Open"}
+                        </div>
+                      </div>
+                      <div className="grid gap-2 text-sm md:text-right">
+                        <div>
+                          Started:{" "}
+                          <span className="font-medium">
+                            {formatDate(incident.started_at)}
+                          </span>
+                        </div>
+                        <div>
+                          Resolved:{" "}
+                          <span className="font-medium">
+                            {formatDate(incident.resolved_at)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <section id="activity" className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Activity</p>
+              <h3 className="text-2xl font-semibold">Latest check activity</h3>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Live polling status</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock3 className="h-4 w-4" />
+                  Checks are being pulled from the Rust worker every 30 seconds.
+                </div>
+                <Separator />
+                <div className="text-sm text-muted-foreground">
+                  Use the API to add more monitors and the table above will update
+                  automatically after refresh.
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
+          <section id="settings" className="space-y-4 pb-10">
+            <div>
+              <p className="text-sm text-muted-foreground">Settings</p>
+              <h3 className="text-2xl font-semibold">Foundation complete</h3>
+            </div>
+
+            <Card>
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                Backend, worker, PostgreSQL, and the first dashboard view are
+                connected. The next step is create/edit forms and real-time
+                interactions.
+              </CardContent>
+            </Card>
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/dashboard-skeleton.tsx">
+import { Skeleton } from "@/components/ui/skeleton";
+
+export function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 p-6">
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-40" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 rounded-xl" />
+        ))}
+      </div>
+
+      <Skeleton className="h-96 rounded-xl" />
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/dashboard-summary.tsx">
+"use client";
+
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Gauge,
+} from "lucide-react";
+
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+type Monitor = {
+  id: string;
+  status?: "Up" | "Down" | "Idle";
+  latency_ms?: number | null;
+};
+
+type Props = {
+  monitors: Monitor[];
+};
+
+export function DashboardSummary({ monitors }: Props) {
+  const total = monitors.length;
+
+  const up = monitors.filter((m) => m.status === "Up").length;
+  const down = monitors.filter((m) => m.status === "Down").length;
+
+  const latency = monitors
+    .map((m) => m.latency_ms)
+    .filter((v): v is number => typeof v === "number");
+
+  const avg =
+    latency.length === 0
+      ? 0
+      : Math.round(latency.reduce((a, b) => a + b, 0) / latency.length);
+
+  const cards = [
+    {
+      title: "Total Monitors",
+      value: total,
+      icon: Activity,
+      color: "text-blue-600",
+      bg: "bg-blue-50 dark:bg-blue-950/20",
+    },
+    {
+      title: "Healthy",
+      value: up,
+      icon: CheckCircle2,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50 dark:bg-emerald-950/20",
+    },
+    {
+      title: "Down",
+      value: down,
+      icon: AlertTriangle,
+      color: "text-rose-600",
+      bg: "bg-rose-50 dark:bg-rose-950/20",
+    },
+    {
+      title: "Avg Latency",
+      value: `${avg} ms`,
+      icon: Gauge,
+      color: "text-amber-600",
+      bg: "bg-amber-50 dark:bg-amber-950/20",
+    },
+  ];
+
+  return (
+    <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      {cards.map((card) => {
+        const Icon = card.icon;
+
+        return (
+          <Card
+            key={card.title}
+            className="transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
+          >
+            <CardContent className="flex items-center justify-between p-6">
+              <div>
+                <p className="text-sm text-muted-foreground">{card.title}</p>
+                <h2 className="mt-2 text-3xl font-bold">{card.value}</h2>
+              </div>
+
+              <div className={cn("rounded-xl p-3", card.bg)}>
+                <Icon className={cn("h-7 w-7", card.color)} />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/incident-timeline.tsx">
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+export interface Incident {
+  id: string;
+  started_at: string;
+  resolved_at: string | null;
+}
+
+interface Props {
+  incidents: Incident[];
+}
+
+export function IncidentTimeline({ incidents }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent Incidents</CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {incidents.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No incidents found.
+          </p>
+        )}
+
+        {incidents.map((incident) => (
+          <div
+            key={incident.id}
+            className="border-l-2 pl-4"
+          >
+            <div className="font-medium">
+              Started
+            </div>
+
+            <div className="text-sm text-muted-foreground">
+              {new Date(incident.started_at).toLocaleString()}
+            </div>
+
+            <div className="mt-1 text-sm">
+              {incident.resolved_at
+                ? `Resolved: ${new Date(
+                    incident.resolved_at
+                  ).toLocaleString()}`
+                : "Still Active"}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/latency-overview-chart.tsx">
+"use client";
+
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+type ChartPoint = {
+  name: string;
+  latency: number;
+};
+
+type Props = {
+  data: ChartPoint[];
+};
+
+export function LatencyOverviewChart({ data }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Latency overview</CardTitle>
+      </CardHeader>
+      <CardContent className="h-80">
+        {data.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            No latency data available.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 12 }}
+                interval={0}
+                angle={-20}
+                textAnchor="end"
+                height={60}
+              />
+              <YAxis
+                tick={{ fontSize: 12 }}
+                width={50}
+                tickFormatter={(value) => `${value} ms`}
+              />
+              <Tooltip
+                formatter={(value) => `${String(value)} ms`}
+                labelStyle={{ fontWeight: 600 }}
+              />
+              <Bar dataKey="latency" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/monitor-toolbar.tsx">
+"use client";
+
+import { Search } from "lucide-react";
+
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+type Props = {
+  search: string;
+  status: string;
+  onSearchChange: (value: string) => void;
+  onStatusChange: (value: string | null) => void;
+};
+
+export function MonitorToolbar({
+  search,
+  status,
+  onSearchChange,
+  onStatusChange,
+}: Props) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="relative w-full md:max-w-md">
+        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+
+        <Input
+          className="pl-9"
+          placeholder="Search monitor..."
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
+      </div>
+
+      <Select
+        value={status}
+        onValueChange={(value) => onStatusChange(value)}
+      >
+        <SelectTrigger className="w-full md:w-44">
+          <SelectValue />
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectItem value="all">All</SelectItem>
+          <SelectItem value="up">Up</SelectItem>
+          <SelectItem value="down">Down</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/dashboard/uptime-card.tsx">
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface Props {
+  uptime: number;
+}
+
+export function UptimeCard({ uptime }: Props) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">
+          Uptime
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent>
+        <div className="text-3xl font-bold">
+          {uptime.toFixed(2)}%
+        </div>
+
+        <p className="mt-2 text-sm text-muted-foreground">
+          Based on recent checks
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/layout/header.tsx">
+"use client";
+
+import { Search } from "lucide-react";
+
+import { CreateMonitorDialog } from "@/components/monitors/create-monitor-dialog";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Input } from "@/components/ui/input";
+
+export function Header() {
+  return (
+    <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
+      <div className="flex h-16 items-center justify-between gap-4 px-6">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+            Workspace
+          </p>
+          <h1 className="text-lg font-semibold">Uptime Monitor</h1>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 rounded-full border bg-muted/40 px-3 py-2 md:flex">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <Input
+              className="h-8 w-64 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
+              placeholder="Search monitors"
+            />
+          </div>
+
+          <ThemeToggle />
+          <CreateMonitorDialog />
+        </div>
+      </div>
+    </header>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/layout/sidebar.tsx">
+"use client";
+
+import Link from "next/link";
+import {
+  Activity,
+  Bell,
+  Globe,
+  LayoutDashboard,
+  Settings,
+  ShieldAlert,
+} from "lucide-react";
+
+import { cn } from "@/lib/utils";
+
+const items = [
+  { href: "/#dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/#monitors", label: "Monitors", icon: Globe },
+  { href: "/#incidents", label: "Incidents", icon: ShieldAlert },
+  { href: "/#activity", label: "Activity", icon: Activity },
+  { href: "/#settings", label: "Settings", icon: Settings },
+];
+
+export function Sidebar() {
+  return (
+    <aside className="hidden w-72 shrink-0 border-r bg-background/90 lg:flex lg:flex-col">
+      <div className="flex h-16 items-center border-b px-6">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+            Uptime Monitor
+          </p>
+          <p className="text-sm font-medium">Dashboard</p>
+        </div>
+      </div>
+
+      <nav className="flex-1 space-y-2 p-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-muted-foreground transition",
+                "hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="border-t p-4">
+        <div className="rounded-2xl border bg-muted/30 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Bell className="h-4 w-4" />
+            Live polling
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Dashboard data refreshes every 30 seconds.
+          </p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/create-monitor-dialog.tsx">
+"use client";
+
+import { useState } from "react";
+import { PlusCircle } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useCreateMonitor } from "@/hooks/use-create-monitor";
+
+import { MonitorForm } from "./monitor-form";
+import {
+  buildCreateMonitorDefaults,
+  createMonitorSchema,
+  type CreateMonitorValues,
+} from "./monitor-schema";
+
+export function CreateMonitorDialog() {
+  const [open, setOpen] = useState(false);
+  const [userId] = useState(() => crypto.randomUUID());
+
+  const defaults = buildCreateMonitorDefaults(userId);
+
+  const form = useForm<CreateMonitorValues>({
+    resolver: zodResolver(createMonitorSchema),
+    defaultValues: defaults,
+  });
+
+  const mutation = useCreateMonitor(() => {
+    setOpen(false);
+    form.reset(defaults);
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          form.reset(defaults);
+        }
+      }}
+    >
+      <Button type="button" onClick={() => setOpen(true)}>
+        <PlusCircle className="mr-2 h-4 w-4" />
+        New Monitor
+      </Button>
+
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create Monitor</DialogTitle>
+          <DialogDescription>
+            Add a new endpoint to be checked by the worker every interval.
+          </DialogDescription>
+        </DialogHeader>
+
+        <MonitorForm
+          form={form}
+          onSubmit={(values) => mutation.mutate(values)}
+          onCancel={() => setOpen(false)}
+          loading={mutation.isPending}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/delete-monitor-dialog.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useDeleteMonitor } from "@/hooks/use-delete-monitor";
+import type { MonitorDto } from "@/lib/api";
+
+type DeleteMonitorDialogProps = {
+  monitor: MonitorDto;
+};
+
+export function DeleteMonitorDialog({ monitor }: DeleteMonitorDialogProps) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  const mutation = useDeleteMonitor(() => {
+    setOpen(false);
+    router.replace("/");
+    router.refresh();
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="destructive"
+        onClick={() => setOpen(true)}
+      >
+        <Trash2 className="mr-2 h-4 w-4" />
+        Delete Monitor
+      </Button>
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this monitor?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently remove{" "}
+            <span className="font-medium text-foreground">{monitor.name}</span>{" "}
+            and all of its checks and incidents.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mutation.isPending}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => mutation.mutate(monitor.id)}
+            disabled={mutation.isPending}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {mutation.isPending ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/latency-chart.tsx">
+"use client";
+
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+type CheckPoint = {
+  time: string;
+  latency: number;
+  status: "Up" | "Down";
+};
+
+type LatencyChartProps = {
+  data: CheckPoint[];
+};
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+export function LatencyChart({ data }: LatencyChartProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Response time</CardTitle>
+      </CardHeader>
+      <CardContent className="h-80">
+        {data.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            No latency data yet.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis
+                dataKey="time"
+                tickFormatter={formatTime}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis
+                tick={{ fontSize: 12 }}
+                width={50}
+                tickFormatter={(value) => `${value} ms`}
+              />
+              <Tooltip
+                labelFormatter={(value) => formatTime(String(value))}
+                formatter={(value) => `${String(value)} ms`}
+              />
+              <Line
+                type="monotone"
+                dataKey="latency"
+                stroke="currentColor"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 6 }}
+                className="text-primary"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/monitor-actions.tsx">
+"use client";
+
+import type { MonitorDto } from "@/lib/api";
+
+import { DeleteMonitorDialog } from "./delete-monitor-dialog";
+import { EditMonitorDialog } from "./edit-monitor-dialog";
+
+type MonitorActionsProps = {
+  monitor: MonitorDto;
+};
+
+export function MonitorActions({ monitor }: MonitorActionsProps) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      <EditMonitorDialog monitor={monitor} />
+      <DeleteMonitorDialog monitor={monitor} />
+    </div>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/providers/dashboard-events.tsx">
+"use client";
+
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { connectDashboardEvents } from "@/lib/events";
+
+export function DashboardEvents() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    return connectDashboardEvents((event) => {
+      queryClient.invalidateQueries();
+
+      switch (event.type) {
+        case "monitor.updated":
+          toast.info("Monitor updated");
+          break;
+
+        case "check.completed":
+          toast.success("Health check completed");
+          break;
+
+        case "incident.created":
+          toast.error("New incident detected");
+          break;
+
+        case "incident.resolved":
+          toast.success("Incident resolved");
+          break;
+
+        default:
+          break;
+      }
+    });
+  }, [queryClient]);
+
+  return null;
+}
+</file>
+
+<file path="apps/dashboard/src/components/status/incident-history.tsx">
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+
+export type StatusIncident = {
+  id: string;
+  serviceName: string;
+  started_at: string;
+  resolved_at: string | null;
+};
+
+type Props = {
+  incidents: StatusIncident[];
+};
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+export function IncidentHistory({ incidents }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent incidents</CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {incidents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No incidents recorded.
+          </p>
+        ) : (
+          incidents.map((incident) => (
+            <div
+              key={incident.id}
+              className="rounded-2xl border p-4"
+            >
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="font-medium">{incident.serviceName}</div>
+                  <div className="text-sm text-muted-foreground">
+                    Started: {formatDate(incident.started_at)}
+                  </div>
+                </div>
+
+                <Badge
+                  className={
+                    incident.resolved_at
+                      ? "rounded-full border-emerald-500/30 bg-emerald-500/15 px-3 py-1 text-emerald-700"
+                      : "rounded-full border-rose-500/30 bg-rose-500/15 px-3 py-1 text-rose-700"
+                  }
+                >
+                  {incident.resolved_at ? "Resolved" : "Open"}
+                </Badge>
+              </div>
+
+              <div className="mt-3 text-sm text-muted-foreground">
+                Resolved: {formatDate(incident.resolved_at)}
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/status/overall-status.tsx">
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  title: string;
+  subtitle: string;
+  variant: "operational" | "degraded" | "outage";
+  uptime: number;
+  openIncidents: number;
+};
+
+function variantClass(variant: Props["variant"]) {
+  switch (variant) {
+    case "operational":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+    case "degraded":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+    case "outage":
+      return "border-rose-500/30 bg-rose-500/10 text-rose-700";
+  }
+}
+
+function variantLabel(variant: Props["variant"]) {
+  switch (variant) {
+    case "operational":
+      return "Operational";
+    case "degraded":
+      return "Degraded";
+    case "outage":
+      return "Outage";
+  }
+}
+
+export function OverallStatus({
+  title,
+  subtitle,
+  variant,
+  uptime,
+  openIncidents,
+}: Props) {
+  return (
+    <Card className={cn("overflow-hidden", variantClass(variant))}>
+      <CardHeader className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <CardTitle className="text-2xl font-bold">{title}</CardTitle>
+          <Badge className="rounded-full px-3 py-1">{variantLabel(variant)}</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </CardHeader>
+
+      <CardContent className="grid gap-4 md:grid-cols-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Overall uptime</p>
+          <p className="mt-2 text-3xl font-bold">{uptime.toFixed(2)}%</p>
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Open incidents</p>
+          <p className="mt-2 text-3xl font-bold">{openIncidents}</p>
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">System state</p>
+          <p className="mt-2 text-3xl font-bold">{variantLabel(variant)}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/status/service-list.tsx">
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { UptimeBadge } from "@/components/status/uptime-badge";
+
+export type StatusService = {
+  id: string;
+  name: string;
+  url: string;
+  status: "Up" | "Down" | "Idle";
+  latency: number | null;
+  uptime: number;
+};
+
+type Props = {
+  services: StatusService[];
+};
+
+export function ServiceList({ services }: Props) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Services</CardTitle>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {services.length === 0 ? (
+          <div className="p-6 text-sm text-muted-foreground">
+            No services available.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px]">
+              <thead className="border-b bg-muted/40 text-left text-sm">
+                <tr>
+                  <th className="px-6 py-4 font-medium">Service</th>
+                  <th className="px-6 py-4 font-medium">Status</th>
+                  <th className="px-6 py-4 font-medium">Latency</th>
+                  <th className="px-6 py-4 font-medium">Uptime</th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((service) => (
+                  <tr key={service.id} className="border-b last:border-b-0">
+                    <td className="px-6 py-4">
+                      <div className="font-medium">{service.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {service.url}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <UptimeBadge status={service.status} />
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {service.latency === null ? "—" : `${service.latency} ms`}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium">
+                      {service.uptime.toFixed(2)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/status/uptime-badge.tsx">
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  status: "Up" | "Down" | "Idle";
+};
+
+export function UptimeBadge({ status }: Props) {
+  const className =
+    status === "Up"
+      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-700"
+      : status === "Down"
+        ? "border-rose-500/30 bg-rose-500/15 text-rose-700"
+        : "border-border bg-muted text-muted-foreground";
+
+  return (
+    <Badge className={cn("rounded-full px-3 py-1 font-medium", className)}>
+      {status}
+    </Badge>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/alert-dialog.tsx">
+"use client"
+
+import * as React from "react"
+import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+
+function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+}
+
+function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
+  return (
+    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
+  )
+}
+
+function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
+  return (
+    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
+  )
+}
+
+function AlertDialogOverlay({
+  className,
+  ...props
+}: AlertDialogPrimitive.Backdrop.Props) {
+  return (
+    <AlertDialogPrimitive.Backdrop
+      data-slot="alert-dialog-overlay"
+      className={cn(
+        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogContent({
+  className,
+  size = "default",
+  ...props
+}: AlertDialogPrimitive.Popup.Props & {
+  size?: "default" | "sm"
+}) {
+  return (
+    <AlertDialogPortal>
+      <AlertDialogOverlay />
+      <AlertDialogPrimitive.Popup
+        data-slot="alert-dialog-content"
+        data-size={size}
+        className={cn(
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          className
+        )}
+        {...props}
+      />
+    </AlertDialogPortal>
+  )
+}
+
+function AlertDialogHeader({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-header"
+      className={cn(
+        "grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-4 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogFooter({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-footer"
+      className={cn(
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogMedia({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-media"
+      className={cn(
+        "mb-2 inline-flex size-10 items-center justify-center rounded-md bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-6",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
+  return (
+    <AlertDialogPrimitive.Title
+      data-slot="alert-dialog-title"
+      className={cn(
+        "font-heading text-base font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
+  return (
+    <AlertDialogPrimitive.Description
+      data-slot="alert-dialog-description"
+      className={cn(
+        "text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogAction({
+  className,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      data-slot="alert-dialog-action"
+      className={cn(className)}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogCancel({
+  className,
+  variant = "outline",
+  size = "default",
+  ...props
+}: AlertDialogPrimitive.Close.Props &
+  Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
+  return (
+    <AlertDialogPrimitive.Close
+      data-slot="alert-dialog-cancel"
+      className={cn(className)}
+      render={<Button variant={variant} size={size} />}
+      {...props}
+    />
+  )
+}
+
+export {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/avatar.tsx">
+"use client"
+
+import * as React from "react"
+import { Avatar as AvatarPrimitive } from "@base-ui/react/avatar"
+
+import { cn } from "@/lib/utils"
+
+function Avatar({
+  className,
+  size = "default",
+  ...props
+}: AvatarPrimitive.Root.Props & {
+  size?: "default" | "sm" | "lg"
+}) {
+  return (
+    <AvatarPrimitive.Root
+      data-slot="avatar"
+      data-size={size}
+      className={cn(
+        "group/avatar relative flex size-8 shrink-0 rounded-full select-none after:absolute after:inset-0 after:rounded-full after:border after:border-border after:mix-blend-darken data-[size=lg]:size-10 data-[size=sm]:size-6 dark:after:mix-blend-lighten",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AvatarImage({ className, ...props }: AvatarPrimitive.Image.Props) {
+  return (
+    <AvatarPrimitive.Image
+      data-slot="avatar-image"
+      className={cn(
+        "aspect-square size-full rounded-full object-cover",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AvatarFallback({
+  className,
+  ...props
+}: AvatarPrimitive.Fallback.Props) {
+  return (
+    <AvatarPrimitive.Fallback
+      data-slot="avatar-fallback"
+      className={cn(
+        "flex size-full items-center justify-center rounded-full bg-muted text-sm text-muted-foreground group-data-[size=sm]/avatar:text-xs",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AvatarBadge({ className, ...props }: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="avatar-badge"
+      className={cn(
+        "absolute right-0 bottom-0 z-10 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground bg-blend-color ring-2 ring-background select-none",
+        "group-data-[size=sm]/avatar:size-2 group-data-[size=sm]/avatar:[&>svg]:hidden",
+        "group-data-[size=default]/avatar:size-2.5 group-data-[size=default]/avatar:[&>svg]:size-2",
+        "group-data-[size=lg]/avatar:size-3 group-data-[size=lg]/avatar:[&>svg]:size-2",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AvatarGroup({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="avatar-group"
+      className={cn(
+        "group/avatar-group flex -space-x-2 *:data-[slot=avatar]:ring-2 *:data-[slot=avatar]:ring-background",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AvatarGroupCount({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="avatar-group-count"
+      className={cn(
+        "relative flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm text-muted-foreground ring-2 ring-background group-has-data-[size=lg]/avatar-group:size-10 group-has-data-[size=sm]/avatar-group:size-6 [&>svg]:size-4 group-has-data-[size=lg]/avatar-group:[&>svg]:size-5 group-has-data-[size=sm]/avatar-group:[&>svg]:size-3",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  Avatar,
+  AvatarImage,
+  AvatarFallback,
+  AvatarGroup,
+  AvatarGroupCount,
+  AvatarBadge,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/badge.tsx">
+import { mergeProps } from "@base-ui/react/merge-props"
+import { useRender } from "@base-ui/react/use-render"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const badgeVariants = cva(
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        secondary:
+          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        destructive:
+          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        outline:
+          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
+        ghost:
+          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+function Badge({
+  className,
+  variant = "default",
+  render,
+  ...props
+}: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
+  return useRender({
+    defaultTagName: "span",
+    props: mergeProps<"span">(
+      {
+        className: cn(badgeVariants({ variant }), className),
+      },
+      props
+    ),
+    render,
+    state: {
+      slot: "badge",
+      variant,
+    },
+  })
+}
+
+export { Badge, badgeVariants }
+</file>
+
+<file path="apps/dashboard/src/components/ui/button.tsx">
+import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default:
+          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-8",
+        "icon-xs":
+          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+</file>
+
+<file path="apps/dashboard/src/components/ui/card.tsx">
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+  return (
+    <div
+      data-slot="card"
+      data-size={size}
+      className={cn(
+        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn(
+        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-(--card-spacing)", className)}
+      {...props}
+    />
+  )
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn(
+        "flex items-center rounded-b-xl border-t bg-muted/50 p-(--card-spacing)",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/dialog.tsx">
+"use client"
+
+import * as React from "react"
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { XIcon } from "lucide-react"
+
+function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+}
+
+function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+}
+
+function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+}
+
+function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+}
+
+function DialogOverlay({
+  className,
+  ...props
+}: DialogPrimitive.Backdrop.Props) {
+  return (
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-overlay"
+      className={cn(
+        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DialogContent({
+  className,
+  children,
+  showCloseButton = true,
+  ...props
+}: DialogPrimitive.Popup.Props & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Popup
+        data-slot="dialog-content"
+        className={cn(
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon
+            />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Popup>
+    </DialogPortal>
+  )
+}
+
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn("flex flex-col gap-2", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogFooter({
+  className,
+  showCloseButton = false,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {showCloseButton && (
+        <DialogPrimitive.Close render={<Button variant="outline" />}>
+          Close
+        </DialogPrimitive.Close>
+      )}
+    </div>
+  )
+}
+
+function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
+  return (
+    <DialogPrimitive.Title
+      data-slot="dialog-title"
+      className={cn(
+        "font-heading text-base leading-none font-medium",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DialogDescription({
+  className,
+  ...props
+}: DialogPrimitive.Description.Props) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn(
+        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/dropdown-menu.tsx">
+"use client"
+
+import * as React from "react"
+import { Menu as MenuPrimitive } from "@base-ui/react/menu"
+
+import { cn } from "@/lib/utils"
+import { ChevronRightIcon, CheckIcon } from "lucide-react"
+
+function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
+  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+}
+
+function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
+  return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
+}
+
+function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
+  return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
+}
+
+function DropdownMenuContent({
+  align = "start",
+  alignOffset = 0,
+  side = "bottom",
+  sideOffset = 4,
+  className,
+  ...props
+}: MenuPrimitive.Popup.Props &
+  Pick<
+    MenuPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset"
+  >) {
+  return (
+    <MenuPrimitive.Portal>
+      <MenuPrimitive.Positioner
+        className="isolate z-50 outline-none"
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+      >
+        <MenuPrimitive.Popup
+          data-slot="dropdown-menu-content"
+          className={cn("z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+          {...props}
+        />
+      </MenuPrimitive.Positioner>
+    </MenuPrimitive.Portal>
+  )
+}
+
+function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
+  return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
+}
+
+function DropdownMenuLabel({
+  className,
+  inset,
+  ...props
+}: MenuPrimitive.GroupLabel.Props & {
+  inset?: boolean
+}) {
+  return (
+    <MenuPrimitive.GroupLabel
+      data-slot="dropdown-menu-label"
+      data-inset={inset}
+      className={cn(
+        "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuItem({
+  className,
+  inset,
+  variant = "default",
+  ...props
+}: MenuPrimitive.Item.Props & {
+  inset?: boolean
+  variant?: "default" | "destructive"
+}) {
+  return (
+    <MenuPrimitive.Item
+      data-slot="dropdown-menu-item"
+      data-inset={inset}
+      data-variant={variant}
+      className={cn(
+        "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props) {
+  return <MenuPrimitive.SubmenuRoot data-slot="dropdown-menu-sub" {...props} />
+}
+
+function DropdownMenuSubTrigger({
+  className,
+  inset,
+  children,
+  ...props
+}: MenuPrimitive.SubmenuTrigger.Props & {
+  inset?: boolean
+}) {
+  return (
+    <MenuPrimitive.SubmenuTrigger
+      data-slot="dropdown-menu-sub-trigger"
+      data-inset={inset}
+      className={cn(
+        "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-popup-open:bg-accent data-popup-open:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRightIcon className="ml-auto" />
+    </MenuPrimitive.SubmenuTrigger>
+  )
+}
+
+function DropdownMenuSubContent({
+  align = "start",
+  alignOffset = -3,
+  side = "right",
+  sideOffset = 0,
+  className,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuContent>) {
+  return (
+    <DropdownMenuContent
+      data-slot="dropdown-menu-sub-content"
+      className={cn("w-auto min-w-[96px] rounded-lg bg-popover p-1 text-popover-foreground shadow-lg ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+      align={align}
+      alignOffset={alignOffset}
+      side={side}
+      sideOffset={sideOffset}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuCheckboxItem({
+  className,
+  children,
+  checked,
+  inset,
+  ...props
+}: MenuPrimitive.CheckboxItem.Props & {
+  inset?: boolean
+}) {
+  return (
+    <MenuPrimitive.CheckboxItem
+      data-slot="dropdown-menu-checkbox-item"
+      data-inset={inset}
+      className={cn(
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      checked={checked}
+      {...props}
+    >
+      <span
+        className="pointer-events-none absolute right-2 flex items-center justify-center"
+        data-slot="dropdown-menu-checkbox-item-indicator"
+      >
+        <MenuPrimitive.CheckboxItemIndicator>
+          <CheckIcon
+          />
+        </MenuPrimitive.CheckboxItemIndicator>
+      </span>
+      {children}
+    </MenuPrimitive.CheckboxItem>
+  )
+}
+
+function DropdownMenuRadioGroup({ ...props }: MenuPrimitive.RadioGroup.Props) {
+  return (
+    <MenuPrimitive.RadioGroup
+      data-slot="dropdown-menu-radio-group"
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuRadioItem({
+  className,
+  children,
+  inset,
+  ...props
+}: MenuPrimitive.RadioItem.Props & {
+  inset?: boolean
+}) {
+  return (
+    <MenuPrimitive.RadioItem
+      data-slot="dropdown-menu-radio-item"
+      data-inset={inset}
+      className={cn(
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <span
+        className="pointer-events-none absolute right-2 flex items-center justify-center"
+        data-slot="dropdown-menu-radio-item-indicator"
+      >
+        <MenuPrimitive.RadioItemIndicator>
+          <CheckIcon
+          />
+        </MenuPrimitive.RadioItemIndicator>
+      </span>
+      {children}
+    </MenuPrimitive.RadioItem>
+  )
+}
+
+function DropdownMenuSeparator({
+  className,
+  ...props
+}: MenuPrimitive.Separator.Props) {
+  return (
+    <MenuPrimitive.Separator
+      data-slot="dropdown-menu-separator"
+      className={cn("-mx-1 my-1 h-px bg-border", className)}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuShortcut({
+  className,
+  ...props
+}: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="dropdown-menu-shortcut"
+      className={cn(
+        "ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  DropdownMenu,
+  DropdownMenuPortal,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/input.tsx">
+import * as React from "react"
+import { Input as InputPrimitive } from "@base-ui/react/input"
+
+import { cn } from "@/lib/utils"
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <InputPrimitive
+      type={type}
+      data-slot="input"
+      className={cn(
+        "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Input }
+</file>
+
+<file path="apps/dashboard/src/components/ui/label.tsx">
+"use client"
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Label({ className, ...props }: React.ComponentProps<"label">) {
+  return (
+    <label
+      data-slot="label"
+      className={cn(
+        "flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Label }
+</file>
+
+<file path="apps/dashboard/src/components/ui/select.tsx">
+"use client"
+
+import * as React from "react"
+import { Select as SelectPrimitive } from "@base-ui/react/select"
+
+import { cn } from "@/lib/utils"
+import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+
+const Select = SelectPrimitive.Root
+
+function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
+  return (
+    <SelectPrimitive.Group
+      data-slot="select-group"
+      className={cn("scroll-my-1 p-1", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      className={cn("flex flex-1 text-left", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectTrigger({
+  className,
+  size = "default",
+  children,
+  ...props
+}: SelectPrimitive.Trigger.Props & {
+  size?: "sm" | "default"
+}) {
+  return (
+    <SelectPrimitive.Trigger
+      data-slot="select-trigger"
+      data-size={size}
+      className={cn(
+        "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon
+        render={
+          <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+        }
+      />
+    </SelectPrimitive.Trigger>
+  )
+}
+
+function SelectContent({
+  className,
+  children,
+  side = "bottom",
+  sideOffset = 4,
+  align = "center",
+  alignOffset = 0,
+  alignItemWithTrigger = true,
+  ...props
+}: SelectPrimitive.Popup.Props &
+  Pick<
+    SelectPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
+  >) {
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Positioner
+        side={side}
+        sideOffset={sideOffset}
+        align={align}
+        alignOffset={alignOffset}
+        alignItemWithTrigger={alignItemWithTrigger}
+        className="isolate z-50"
+      >
+        <SelectPrimitive.Popup
+          data-slot="select-content"
+          data-align-trigger={alignItemWithTrigger}
+          className={cn("relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+          {...props}
+        >
+          <SelectScrollUpButton />
+          <SelectPrimitive.List>{children}</SelectPrimitive.List>
+          <SelectScrollDownButton />
+        </SelectPrimitive.Popup>
+      </SelectPrimitive.Positioner>
+    </SelectPrimitive.Portal>
+  )
+}
+
+function SelectLabel({
+  className,
+  ...props
+}: SelectPrimitive.GroupLabel.Props) {
+  return (
+    <SelectPrimitive.GroupLabel
+      data-slot="select-label"
+      className={cn("px-1.5 py-1 text-xs text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectItem({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Item.Props) {
+  return (
+    <SelectPrimitive.Item
+      data-slot="select-item"
+      className={cn(
+        "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        className
+      )}
+      {...props}
+    >
+      <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
+        {children}
+      </SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemIndicator
+        render={
+          <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+        }
+      >
+        <CheckIcon className="pointer-events-none" />
+      </SelectPrimitive.ItemIndicator>
+    </SelectPrimitive.Item>
+  )
+}
+
+function SelectSeparator({
+  className,
+  ...props
+}: SelectPrimitive.Separator.Props) {
+  return (
+    <SelectPrimitive.Separator
+      data-slot="select-separator"
+      className={cn("pointer-events-none -mx-1 my-1 h-px bg-border", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectScrollUpButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) {
+  return (
+    <SelectPrimitive.ScrollUpArrow
+      data-slot="select-scroll-up-button"
+      className={cn(
+        "top-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <ChevronUpIcon
+      />
+    </SelectPrimitive.ScrollUpArrow>
+  )
+}
+
+function SelectScrollDownButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) {
+  return (
+    <SelectPrimitive.ScrollDownArrow
+      data-slot="select-scroll-down-button"
+      className={cn(
+        "bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <ChevronDownIcon
+      />
+    </SelectPrimitive.ScrollDownArrow>
+  )
+}
+
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectScrollDownButton,
+  SelectScrollUpButton,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/separator.tsx">
+"use client"
+
+import { Separator as SeparatorPrimitive } from "@base-ui/react/separator"
+
+import { cn } from "@/lib/utils"
+
+function Separator({
+  className,
+  orientation = "horizontal",
+  ...props
+}: SeparatorPrimitive.Props) {
+  return (
+    <SeparatorPrimitive
+      data-slot="separator"
+      orientation={orientation}
+      className={cn(
+        "shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Separator }
+</file>
+
+<file path="apps/dashboard/src/components/ui/sheet.tsx">
+"use client"
+
+import * as React from "react"
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { XIcon } from "lucide-react"
+
+function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+}
+
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
+}
+
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />
+}
+
+function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
+}
+
+function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+  return (
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function SheetContent({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  ...props
+}: SheetPrimitive.Popup.Props & {
+  side?: "top" | "right" | "bottom" | "left"
+  showCloseButton?: boolean
+}) {
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
+        className={cn(
+          "fixed z-50 flex flex-col gap-4 bg-popover bg-clip-padding text-sm text-popover-foreground shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <SheetPrimitive.Close
+            data-slot="sheet-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-3 right-3"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon
+            />
+            <span className="sr-only">Close</span>
+          </SheetPrimitive.Close>
+        )}
+      </SheetPrimitive.Popup>
+    </SheetPortal>
+  )
+}
+
+function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-header"
+      className={cn("flex flex-col gap-0.5 p-4", className)}
+      {...props}
+    />
+  )
+}
+
+function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-footer"
+      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      {...props}
+    />
+  )
+}
+
+function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+  return (
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
+      className={cn(
+        "font-heading text-base font-medium text-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function SheetDescription({
+  className,
+  ...props
+}: SheetPrimitive.Description.Props) {
+  return (
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/skeleton.tsx">
+import { cn } from "@/lib/utils"
+
+function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="skeleton"
+      className={cn("animate-pulse rounded-md bg-muted", className)}
+      {...props}
+    />
+  )
+}
+
+export { Skeleton }
+</file>
+
+<file path="apps/dashboard/src/components/ui/table.tsx">
+"use client"
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Table({ className, ...props }: React.ComponentProps<"table">) {
+  return (
+    <div
+      data-slot="table-container"
+      className="relative w-full overflow-x-auto"
+    >
+      <table
+        data-slot="table"
+        className={cn("w-full caption-bottom text-sm", className)}
+        {...props}
+      />
+    </div>
+  )
+}
+
+function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
+  return (
+    <thead
+      data-slot="table-header"
+      className={cn("[&_tr]:border-b", className)}
+      {...props}
+    />
+  )
+}
+
+function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
+  return (
+    <tbody
+      data-slot="table-body"
+      className={cn("[&_tr:last-child]:border-0", className)}
+      {...props}
+    />
+  )
+}
+
+function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
+  return (
+    <tfoot
+      data-slot="table-footer"
+      className={cn(
+        "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
+  return (
+    <tr
+      data-slot="table-row"
+      className={cn(
+        "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+  return (
+    <th
+      data-slot="table-head"
+      className={cn(
+        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+  return (
+    <td
+      data-slot="table-cell"
+      className={cn(
+        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TableCaption({
+  className,
+  ...props
+}: React.ComponentProps<"caption">) {
+  return (
+    <caption
+      data-slot="table-caption"
+      className={cn("mt-4 text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableCaption,
+}
+</file>
+
+<file path="apps/dashboard/src/components/ui/tabs.tsx">
+"use client"
+
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+function Tabs({
+  className,
+  orientation = "horizontal",
+  ...props
+}: TabsPrimitive.Root.Props) {
+  return (
+    <TabsPrimitive.Root
+      data-slot="tabs"
+      data-orientation={orientation}
+      className={cn(
+        "group/tabs flex gap-2 data-horizontal:flex-col",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+const tabsListVariants = cva(
+  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  {
+    variants: {
+      variant: {
+        default: "bg-muted",
+        line: "gap-1 bg-transparent",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+function TabsList({
+  className,
+  variant = "default",
+  ...props
+}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+  return (
+    <TabsPrimitive.List
+      data-slot="tabs-list"
+      data-variant={variant}
+      className={cn(tabsListVariants({ variant }), className)}
+      {...props}
+    />
+  )
+}
+
+function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
+  return (
+    <TabsPrimitive.Tab
+      data-slot="tabs-trigger"
+      className={cn(
+        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
+        "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
+        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
+  return (
+    <TabsPrimitive.Panel
+      data-slot="tabs-content"
+      className={cn("flex-1 text-sm outline-none", className)}
+      {...props}
+    />
+  )
+}
+
+export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+</file>
+
+<file path="apps/dashboard/src/components/ui/textarea.tsx">
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Textarea }
+</file>
+
+<file path="apps/dashboard/src/components/ui/toast.tsx">
+"use client"
+
+import * as React from "react"
+import { Toast as ToastPrimitive } from "@base-ui/react/toast"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+
+const toast = ToastPrimitive.createToastManager()
+
+function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
+  return <ToastPrimitive.Provider {...props} />
+}
+
+function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
+  return <ToastPrimitive.Portal data-slot="toast-portal" {...props} />
+}
+
+function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
+  return (
+    <ToastPrimitive.Viewport
+      data-slot="toast-viewport"
+      className={cn(
+        "pointer-events-none fixed inset-x-4 bottom-4 z-50 mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
+  return (
+    <ToastPrimitive.Root
+      data-slot="toast"
+      className={cn(
+        "group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "[--gap:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)*-1+calc(var(--toast-index)*var(--gap)*-1)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]",
+        "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)-(var(--toast-index)*var(--peek))-(var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_500ms,height_150ms]",
+        "after:absolute after:top-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
+        "data-expanded:h-(--toast-height) data-expanded:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
+        "data-limited:opacity-0 data-starting-style:[transform:translateY(150%)]",
+        "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(150%)]",
+        "data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]",
+        "data-ending-style:data-[swipe-direction=left]:[transform:translateX(calc(var(--toast-swipe-movement-x)-150%))_translateY(var(--offset-y))]",
+        "data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]",
+        "data-ending-style:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))]",
+        "data-expanded:data-ending-style:data-[swipe-direction=down]:[transform:translateY(calc(var(--toast-swipe-movement-y)+150%))]",
+        "data-expanded:data-ending-style:data-[swipe-direction=left]:[transform:translateX(calc(var(--toast-swipe-movement-x)-150%))_translateY(var(--offset-y))]",
+        "data-expanded:data-ending-style:data-[swipe-direction=right]:[transform:translateX(calc(var(--toast-swipe-movement-x)+150%))_translateY(var(--offset-y))]",
+        "data-expanded:data-ending-style:data-[swipe-direction=up]:[transform:translateY(calc(var(--toast-swipe-movement-y)-150%))]",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
+  return (
+    <ToastPrimitive.Content
+      data-slot="toast-content"
+      className={cn(
+        "flex h-full items-center gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function ToastTitle({ className, ...props }: ToastPrimitive.Title.Props) {
+  return (
+    <ToastPrimitive.Title
+      data-slot="toast-title"
+      className={cn("text-sm font-medium", className)}
+      {...props}
+    />
+  )
+}
+
+function ToastDescription({
+  className,
+  ...props
+}: ToastPrimitive.Description.Props) {
+  return (
+    <ToastPrimitive.Description
+      data-slot="toast-description"
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function ToastAction({
+  className,
+  render = <Button variant="outline" size="sm" />,
+  ...props
+}: ToastPrimitive.Action.Props) {
+  return (
+    <ToastPrimitive.Action
+      data-slot="toast-action"
+      render={render}
+      className={cn("shrink-0", className)}
+      {...props}
+    />
+  )
+}
+
+function ToastClose({
+  className,
+  children,
+  render = <Button variant="ghost" size="icon-sm" />,
+  ...props
+}: ToastPrimitive.Close.Props) {
+  return (
+    <ToastPrimitive.Close
+      data-slot="toast-close"
+      aria-label="Close toast"
+      render={render}
+      className={cn(
+        "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
+        className
+      )}
+      {...props}
+    >
+      {children ?? (
+        <XIcon aria-hidden="true" />
+      )}
+    </ToastPrimitive.Close>
+  )
+}
+
+function ToastIcon({ type }: { type: string | undefined }) {
+  let icon: React.ReactNode = null
+
+  if (type === "success") {
+    icon = (
+      <CircleCheckIcon aria-hidden="true" />
+    )
+  }
+
+  if (type === "info") {
+    icon = (
+      <InfoIcon aria-hidden="true" />
+    )
+  }
+
+  if (type === "warning") {
+    icon = (
+      <TriangleAlertIcon aria-hidden="true" />
+    )
+  }
+
+  if (type === "error") {
+    icon = (
+      <OctagonXIcon className="text-destructive" aria-hidden="true" />
+    )
+  }
+
+  if (type === "loading") {
+    icon = (
+      <Loader2Icon className="animate-spin" aria-hidden="true" />
+    )
+  }
+
+  if (!icon) {
+    return null
+  }
+
+  return (
+    <span
+      data-slot="toast-icon"
+      className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4"
+    >
+      {icon}
+    </span>
+  )
+}
+
+function ToastList() {
+  const { toasts } = ToastPrimitive.useToastManager()
+
+  return toasts.map((toastItem) => (
+    <Toast key={toastItem.id} toast={toastItem}>
+      <ToastContent>
+        <ToastIcon type={toastItem.type} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <ToastTitle />
+          <ToastDescription />
+        </div>
+        <ToastAction />
+        <ToastClose />
+      </ToastContent>
+    </Toast>
+  ))
+}
+
+function Toaster({
+  children,
+  toastManager = toast,
+  ...props
+}: ToastPrimitive.Provider.Props) {
+  return (
+    <ToastProvider toastManager={toastManager} {...props}>
+      {children}
+      <ToastPortal>
+        <ToastViewport>
+          <ToastList />
+        </ToastViewport>
+      </ToastPortal>
+    </ToastProvider>
+  )
+}
+
+const createToastManager = ToastPrimitive.createToastManager
+const useToastManager = ToastPrimitive.useToastManager
+
+export {
+  Toaster,
+  Toast,
+  ToastAction,
+  ToastClose,
+  ToastContent,
+  ToastDescription,
+  ToastPortal,
+  ToastProvider,
+  ToastTitle,
+  ToastViewport,
+  createToastManager,
+  toast,
+  useToastManager,
+}
+</file>
+
+<file path="apps/dashboard/src/components/theme-toggle.tsx">
+"use client";
+
+import { MoonStar, SunMedium } from "lucide-react";
+import { useTheme } from "next-themes";
+
+import { Button } from "@/components/ui/button";
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+
+  const isDark = theme === "dark";
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      aria-label="Toggle theme"
+    >
+      {isDark ? (
+        <SunMedium className="h-4 w-4" />
+      ) : (
+        <MoonStar className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-create-monitor.ts">
+"use client";
+
+import axios from "axios";
+import { useMutation } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+import { createMonitor, type CreateMonitorPayload } from "@/lib/api";
+
+function extractErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+
+    if (typeof data === "string") {
+      return data;
+    }
+
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Failed to create monitor";
+}
+
+export function useCreateMonitor(onSuccess?: () => void) {
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: (payload: CreateMonitorPayload) => createMonitor(payload),
+    onSuccess: () => {
+      toast.success("Monitor created successfully");
+      onSuccess?.();
+      router.refresh();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error));
+    },
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-delete-monitor.ts">
+"use client";
+
+import axios from "axios";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { deleteMonitor } from "@/lib/api";
+
+function extractErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+
+    if (typeof data === "string") {
+      return data;
+    }
+
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Failed to delete monitor";
+}
+
+export function useDeleteMonitor(onSuccess?: () => void) {
+  return useMutation({
+    mutationFn: (id: string) => deleteMonitor(id),
+    onSuccess: () => {
+      toast.success("Monitor deleted successfully");
+      onSuccess?.();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error));
+    },
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-login.ts">
+"use client";
+
+import { useMutation } from "@tanstack/react-query";
+import { login } from "@/lib/auth-api";
+
+export function useLogin() {
+  return useMutation({
+    mutationFn: login,
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-register.ts">
+"use client";
+
+import { useMutation } from "@tanstack/react-query";
+import { register } from "@/lib/auth-api";
+
+export function useRegister() {
+  return useMutation({
+    mutationFn: register,
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-update-monitor.ts">
+"use client";
+
+import axios from "axios";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import { updateMonitor, type CreateMonitorPayload } from "@/lib/api";
+
+function extractErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+
+    if (typeof data === "string") {
+      return data;
+    }
+
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Failed to update monitor";
+}
+
+type UpdateMonitorInput = {
+  id: string;
+  payload: CreateMonitorPayload;
+};
+
+export function useUpdateMonitor(onSuccess?: () => void) {
+  return useMutation({
+    mutationFn: ({ id, payload }: UpdateMonitorInput) =>
+      updateMonitor(id, payload),
+    onSuccess: () => {
+      toast.success("Monitor updated successfully");
+      onSuccess?.();
+    },
+    onError: (error) => {
+      toast.error(extractErrorMessage(error));
+    },
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/lib/events.ts">
+export type DashboardEvent =
+  | {
+      type: "monitor.updated";
+      monitorId: string;
+    }
+  | {
+      type: "check.completed";
+      monitorId: string;
+    }
+  | {
+      type: "incident.created";
+      monitorId: string;
+    }
+  | {
+      type: "incident.resolved";
+      monitorId: string;
+    };
+
+export function connectDashboardEvents(
+  onEvent: (event: DashboardEvent) => void,
+) {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000";
+
+  const url = `${base}/events`;
+
+  const source = new EventSource(url);
+
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  source.onerror = () => {
+    console.warn("Event stream disconnected");
+  };
+
+  return () => source.close();
+}
+</file>
+
+<file path="apps/dashboard/src/lib/query-client.ts">
+import { QueryClient } from "@tanstack/react-query";
+
+export function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        refetchInterval: 30_000,
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
+    },
+  });
+}
+</file>
+
+<file path="apps/dashboard/src/lib/utils.ts">
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+</file>
+
+<file path="apps/dashboard/src/providers/query-provider.tsx">
+"use client";
+
+import { ReactNode, useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
+
+import { makeQueryClient } from "@/lib/query-client";
+
+export function QueryProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(makeQueryClient);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <Toaster richColors position="top-right" />
+    </QueryClientProvider>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/providers/theme-provider.tsx">
+"use client";
+
+import * as React from "react";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
+
+export function ThemeProvider({
+  children,
+  ...props
+}: React.ComponentProps<typeof NextThemesProvider>) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>;
+}
+</file>
+
+<file path="apps/dashboard/.gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="apps/dashboard/AGENTS.md">
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
+</file>
+
+<file path="apps/dashboard/CLAUDE.md">
+@AGENTS.md
+</file>
+
+<file path="apps/dashboard/components.json">
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-nova",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "rtl": false,
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "menuColor": "default",
+  "menuAccent": "subtle",
+  "registries": {}
+}
+</file>
+
+<file path="apps/dashboard/eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="apps/dashboard/next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+</file>
+
+<file path="apps/dashboard/package.json">
+{
+  "name": "dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "@hookform/resolvers": "^5.5.7",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-query-devtools": "^5.101.4",
+    "axios": "^1.19.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.28.0",
+    "next": "16.2.12",
+    "next-themes": "^0.4.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-hook-form": "^7.84.0",
+    "recharts": "^3.10.1",
+    "shadcn": "^4.16.1",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+</file>
+
+<file path="apps/dashboard/postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="apps/dashboard/README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="apps/dashboard/tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+<file path="apps/dashboard/src/app/status/page.tsx">
+import Link from "next/link";
+import {
+  CheckCircle2,
+  Clock3,
+  Globe,
+  LayoutDashboard,
+  ShieldAlert,
+} from "lucide-react";
+
+import { IncidentHistory, type StatusIncident } from "@/components/status/incident-history";
+import { OverallStatus } from "@/components/status/overall-status";
+import { ServiceList, type StatusService } from "@/components/status/service-list";
+import { Card, CardContent } from "@/components/ui/card";
+import { getPublicStatus, type PublicMonitorDto } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
+
+// Wannan shafi mara-auth ne (public), don haka yana amfani da
+// getPublicStatus() kawai — endpoint wanda ke dawo da monitors da aka yiwa
+// alama a matsayin `is_public` KAWAI, ba dukkan monitors na kowa ba.
+async function loadStatusData(): Promise<PublicMonitorDto[]> {
+  return getPublicStatus();
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+export default async function StatusPage() {
+  const data = await loadStatusData();
+
+  const services: StatusService[] = data.map((item) => ({
+    id: item.id,
+    name: item.name,
+    url: item.url,
+    status: item.status ?? "Idle",
+    latency: item.latency_ms,
+    uptime: item.uptime_percentage,
+  }));
+
+  const incidents: StatusIncident[] = data
+    .flatMap((item) =>
+      item.incidents.map((incident) => ({
+        id: incident.id,
+        serviceName: item.name,
+        started_at: incident.started_at,
+        resolved_at: incident.resolved_at,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+    )
+    .slice(0, 10);
+
+  const openIncidents = incidents.filter((incident) => incident.resolved_at === null).length;
+  const downServices = services.filter((service) => service.status === "Down").length;
+  const avgUptime =
+    services.length === 0
+      ? 100
+      : services.reduce((sum, service) => sum + service.uptime, 0) / services.length;
+
+  const variant =
+    openIncidents === 0 && downServices === 0
+      ? "operational"
+      : downServices < services.length
+        ? "degraded"
+        : "outage";
+
+  return (
+    <main className="min-h-screen bg-muted/30">
+      <div className="mx-auto max-w-7xl space-y-8 px-6 py-10">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Public status page</p>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Uptime Monitor Status
+            </h1>
+          </div>
+
+          <Link
+            href="/"
+            className="inline-flex h-10 items-center justify-center rounded-md border bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-muted"
+          >
+            <LayoutDashboard className="mr-2 h-4 w-4" />
+            Dashboard
+          </Link>
+        </div>
+
+        <OverallStatus
+          title={
+            openIncidents === 0 && downServices === 0
+              ? "All Systems Operational"
+              : "Service Degradation Detected"
+          }
+          subtitle="Live status from the Rust worker and monitor checks."
+          variant={variant}
+          uptime={avgUptime}
+          openIncidents={openIncidents}
+        />
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-3 p-5">
+              <Globe className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Services</p>
+                <p className="text-2xl font-bold">{services.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-5">
+              <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Operational</p>
+                <p className="text-2xl font-bold">
+                  {services.filter((service) => service.status === "Up").length}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex items-center gap-3 p-5">
+              <ShieldAlert className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Open incidents</p>
+                <p className="text-2xl font-bold">{openIncidents}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <ServiceList services={services} />
+
+        <IncidentHistory incidents={incidents} />
+
+        <Card>
+          <CardContent className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
+            <Clock3 className="h-4 w-4" />
+            Last refresh: {formatDate(new Date().toISOString())}
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/auth/user-menu.tsx">
+"use client";
+
+import { useRouter } from "next/navigation";
+import {
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  User,
+} from "lucide-react";
+
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import { useAuthContext } from "@/providers/auth-provider";
+
+export function UserMenu() {
+  const router = useRouter();
+  const { logout } = useAuthContext();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="rounded-full outline-none">
+        <Avatar className="h-10 w-10">
+          <AvatarFallback>U</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end" className="w-60">
+        <div className="px-3 py-2">
+          <p className="font-medium">User</p>
+          <p className="text-xs text-muted-foreground">
+            Authenticated
+          </p>
+        </div>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem onClick={() => router.push("/")}>
+          <LayoutDashboard className="mr-2 h-4 w-4" />
+          Dashboard
+        </DropdownMenuItem>
+
+        <DropdownMenuItem onClick={() => router.push("/profile")}>
+          <User className="mr-2 h-4 w-4" />
+          Profile
+        </DropdownMenuItem>
+
+        <DropdownMenuItem onClick={() => router.push("/settings")}>
+          <Settings className="mr-2 h-4 w-4" />
+          Settings
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem
+          onClick={() => {
+            logout();
+            router.replace("/login");
+          }}
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Logout
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/edit-monitor-dialog.tsx">
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { PencilLine } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useUpdateMonitor } from "@/hooks/use-update-monitor";
+import type { MonitorDto } from "@/lib/api";
+
+import { MonitorForm } from "./monitor-form";
+import {
+  createMonitorSchema,
+  type CreateMonitorValues,
+} from "./monitor-schema";
+
+type EditMonitorDialogProps = {
+  monitor: MonitorDto;
+};
+
+export function EditMonitorDialog({ monitor }: EditMonitorDialogProps) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  const defaults = useMemo<CreateMonitorValues>(
+    () => ({
+      user_id: monitor.user_id,
+      name: monitor.name,
+      url: monitor.url,
+      method: monitor.method,
+      expected_status: monitor.expected_status,
+      interval_seconds: monitor.interval_seconds,
+      timeout_seconds: monitor.timeout_seconds,
+      enabled: monitor.enabled,
+      is_public: monitor.is_public,
+    }),
+    [monitor],
+  );
+
+  const form = useForm<CreateMonitorValues>({
+    resolver: zodResolver(createMonitorSchema),
+    defaultValues: defaults,
+  });
+
+  const mutation = useUpdateMonitor(() => {
+    setOpen(false);
+    form.reset(defaults);
+    router.refresh();
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          form.reset(defaults);
+        } else {
+          form.reset(defaults);
+        }
+      }}
+    >
+      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+        <PencilLine className="mr-2 h-4 w-4" />
+        Edit Monitor
+      </Button>
+
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Monitor</DialogTitle>
+          <DialogDescription>
+            Update the endpoint configuration used by the worker.
+          </DialogDescription>
+        </DialogHeader>
+
+        <MonitorForm
+          form={form}
+          onSubmit={(values) =>
+            mutation.mutate({ id: monitor.id, payload: values })
+          }
+          onCancel={() => setOpen(false)}
+          loading={mutation.isPending}
+          submitLabel="Save Changes"
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/monitor-form.tsx">
+"use client";
+
+import type { UseFormReturn } from "react-hook-form";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+
+import type { CreateMonitorValues } from "./monitor-schema";
+
+type MonitorFormProps = {
+  form: UseFormReturn<CreateMonitorValues>;
+  onSubmit: (values: CreateMonitorValues) => void;
+  onCancel: () => void;
+  loading: boolean;
+  submitLabel?: string;
+};
+
+const fieldClassName =
+  "mt-2 h-11 rounded-xl border bg-background px-4 shadow-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+
+  return <p className="mt-2 text-xs text-rose-500">{message}</p>;
+}
+
+export function MonitorForm({
+  form,
+  onSubmit,
+  onCancel,
+  loading,
+  submitLabel = "Create Monitor",
+}: MonitorFormProps) {
+  const { register, formState } = form;
+  const { errors } = formState;
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <input type="hidden" {...register("user_id")} />
+
+      <div className="space-y-2">
+        <Label htmlFor="name">Monitor name</Label>
+        <Input
+          id="name"
+          placeholder="Google Production"
+          className={cn(fieldClassName, errors.name && "border-rose-500")}
+          {...register("name")}
+          disabled={loading}
+        />
+        <FieldError message={errors.name?.message} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="url">URL</Label>
+        <Input
+          id="url"
+          placeholder="https://example.com"
+          className={cn(fieldClassName, errors.url && "border-rose-500")}
+          {...register("url")}
+          disabled={loading}
+        />
+        <FieldError message={errors.url?.message} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="method">HTTP method</Label>
+          <select
+            id="method"
+            className={cn(
+              fieldClassName,
+              "w-full",
+              errors.method && "border-rose-500",
+            )}
+            {...register("method")}
+            disabled={loading}
+          >
+            <option value="GET">GET</option>
+            <option value="HEAD">HEAD</option>
+          </select>
+          <FieldError message={errors.method?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="expected_status">Expected status</Label>
+          <Input
+            id="expected_status"
+            type="number"
+            min={100}
+            max={599}
+            className={cn(
+              fieldClassName,
+              errors.expected_status && "border-rose-500",
+            )}
+            {...register("expected_status", { valueAsNumber: true })}
+            disabled={loading}
+          />
+          <FieldError message={errors.expected_status?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="interval_seconds">Check interval (seconds)</Label>
+          <Input
+            id="interval_seconds"
+            type="number"
+            min={10}
+            className={cn(
+              fieldClassName,
+              errors.interval_seconds && "border-rose-500",
+            )}
+            {...register("interval_seconds", { valueAsNumber: true })}
+            disabled={loading}
+          />
+          <FieldError message={errors.interval_seconds?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="timeout_seconds">Timeout (seconds)</Label>
+          <Input
+            id="timeout_seconds"
+            type="number"
+            min={1}
+            className={cn(
+              fieldClassName,
+              errors.timeout_seconds && "border-rose-500",
+            )}
+            {...register("timeout_seconds", { valueAsNumber: true })}
+            disabled={loading}
+          />
+          <FieldError message={errors.timeout_seconds?.message} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <input
+          id="enabled"
+          type="checkbox"
+          className="h-4 w-4 rounded border-border"
+          {...register("enabled")}
+          disabled={loading}
+        />
+        <Label htmlFor="enabled" className="text-sm font-normal">
+          Enable monitor
+        </Label>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <input
+          id="is_public"
+          type="checkbox"
+          className="h-4 w-4 rounded border-border"
+          {...register("is_public")}
+          disabled={loading}
+        />
+        <Label htmlFor="is_public" className="text-sm font-normal">
+          Show on public status page
+        </Label>
+      </div>
+
+      <div className="flex items-center justify-end gap-3 pt-2">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? "Creating..." : submitLabel}
+        </Button>
+      </div>
+    </form>
+  );
+}
+</file>
+
+<file path="apps/dashboard/src/components/monitors/monitor-schema.ts">
+import { z } from "zod";
+
+export const createMonitorSchema = z.object({
+  user_id: z.string().uuid("User ID must be a valid UUID"),
+  name: z.string().trim().min(1, "Name is required").max(100),
+  url: z.string().trim().url("URL must be a valid URL"),
+  method: z.enum(["GET", "HEAD"]),
+  expected_status: z.number()
+    .int("Expected status must be an integer")
+    .min(100, "Expected status must be at least 100")
+    .max(599, "Expected status must be at most 599"),
+  interval_seconds: z.number()
+    .int("Interval must be an integer")
+    .min(10, "Interval must be at least 10 seconds")
+    .max(86_400, "Interval is too large"),
+  timeout_seconds: z.number()
+    .int("Timeout must be an integer")
+    .min(1, "Timeout must be at least 1 second")
+    .max(300, "Timeout is too large"),
+  enabled: z.boolean(),
+  // Idan wannan gaskiya ne (true), monitor din zai bayyana a /status (public
+  // status page) ba tare da bukatar login ba. Default OFF domin user ya
+  // zabi ta hannu wanda monitor zai fitowa a fili.
+  is_public: z.boolean(),
+});
+
+export type CreateMonitorValues = z.infer<typeof createMonitorSchema>;
+
+export function buildCreateMonitorDefaults(userId: string): CreateMonitorValues {
+  return {
+    user_id: userId,
+    name: "",
+    url: "",
+    method: "GET",
+    expected_status: 200,
+    interval_seconds: 60,
+    timeout_seconds: 10,
+    enabled: true,
+    is_public: false,
+  };
+}
+</file>
+
+<file path="apps/dashboard/src/hooks/use-auth.ts">
+"use client";
+
+import { isMarkedAuthenticated } from "@/lib/auth";
+
+export function useAuth() {
+  const authenticated = isMarkedAuthenticated();
+
+  return {
+    authenticated,
+  };
+}
+</file>
+
+<file path="apps/dashboard/src/lib/auth/index.ts">
+export * from "./token-storage";
+</file>
+
+<file path="apps/dashboard/src/lib/auth/token-storage.ts">
+// Kada a ajiye access_token a localStorage kwata-kwata — token din yanzu
+// httpOnly cookie ne, wanda JavaScript baya iya karantawa (rage hadarin
+// satar token ta XSS). Ana ajiye kawai boolean flag domin UI ta san ko an
+// login, ba ainihin token ba.
+const AUTH_FLAG = "uptime.is_authenticated";
+
+export function markAuthenticated() {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(AUTH_FLAG, "1");
+}
+
+export function isMarkedAuthenticated() {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(AUTH_FLAG) === "1";
+}
+
+export function clearTokens() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(AUTH_FLAG);
+}
+</file>
+
+<file path="apps/dashboard/src/lib/api.ts">
+import axios from "axios";
+
+const baseURL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  process.env.API_URL ??
+  "http://127.0.0.1:3000";
+
+const api = axios.create({
+  baseURL,
+  timeout: 15_000,
+  // Access token yanzu httpOnly cookie ne, don haka muna bukatar wannan
+  // domin browser ya aika ta zuwa authenticated endpoints.
+  withCredentials: true,
+});
+
+export type MonitorDto = {
+  id: string;
+  user_id: string;
+  name: string;
+  url: string;
+  method: "GET" | "HEAD";
+  expected_status: number;
+  interval_seconds: number;
+  timeout_seconds: number;
+  enabled: boolean;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CheckDto = {
+  id: string;
+  monitor_id: string;
+  status: "Up" | "Down";
+  status_code: number | null;
+  latency_ms: number;
+  error_type: string;
+  error_message: string | null;
+  checked_at: string;
+};
+
+export type IncidentDto = {
+  id: string;
+  monitor_id: string;
+  started_at: string;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateMonitorPayload = {
+  user_id: string;
+  name: string;
+  url: string;
+  method: "GET" | "HEAD";
+  expected_status: number;
+  interval_seconds: number;
+  timeout_seconds: number;
+  enabled: boolean;
+  is_public: boolean;
+};
+
+export type PublicIncidentDto = {
+  id: string;
+  started_at: string;
+  resolved_at: string | null;
+};
+
+// Bayanin da endpoint na public (mara-auth) ke dawowa — a hankali, KAWAI
+// fields marasa hadari. Babu user_id ko assertions a nan, domin kowa zai
+// iya ganin wannan bayanin ba tare da login ba.
+export type PublicMonitorDto = {
+  id: string;
+  name: string;
+  url: string;
+  status: "Up" | "Down" | null;
+  latency_ms: number | null;
+  uptime_percentage: number;
+  incidents: PublicIncidentDto[];
+};
+
+export async function getPublicStatus() {
+  const { data } = await api.get<PublicMonitorDto[]>("/public/status");
+  return data;
+}
+
+export async function getMonitors() {
+  const { data } = await api.get<MonitorDto[]>("/monitors");
+  return data;
+}
+
+export async function getMonitor(id: string) {
+  const { data } = await api.get<MonitorDto>(`/monitors/${id}`);
+  return data;
+}
+
+export async function getChecks(monitorId: string) {
+  const { data } = await api.get<CheckDto[]>(`/monitors/${monitorId}/checks`);
+  return data;
+}
+
+export async function getIncidents(monitorId: string) {
+  const { data } = await api.get<IncidentDto[]>(
+    `/monitors/${monitorId}/incidents`,
+  );
+  return data;
+}
+
+export async function createMonitor(payload: CreateMonitorPayload) {
+  const { data } = await api.post<MonitorDto>("/monitors", payload);
+  return data;
+}
+
+export async function updateMonitor(
+  id: string,
+  payload: CreateMonitorPayload,
+) {
+  const { data } = await api.put<MonitorDto>(`/monitors/${id}`, payload);
+  return data;
+}
+
+export async function deleteMonitor(id: string) {
+  await api.delete(`/monitors/${id}`);
+}
+</file>
+
+<file path="apps/dashboard/src/lib/auth-api.ts">
+import { http } from "@/lib/http";
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  username: string;
+  email: string;
+  password: string;
+};
+
+export type AuthResponse = {
+  access_token: string;
+};
+
+export const authApi = http;
+
+export async function login(
+  body: LoginRequest,
+): Promise<AuthResponse> {
+  const response = await authApi.post(
+    "/auth/login",
+    body,
+  );
+
+  return response.data;
+}
+
+export async function register(
+  body: RegisterRequest,
+): Promise<AuthResponse> {
+  const response = await authApi.post(
+    "/auth/register",
+    body,
+  );
+
+  return response.data;
+}
+</file>
+
+<file path="apps/dashboard/src/lib/http.ts">
+import axios from "axios";
+
+import { clearTokens } from "@/lib/auth";
+
+export const http = axios.create({
+  baseURL:
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://localhost:8080/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  // Access token yanzu httpOnly cookie ne (ba JavaScript-readable localStorage
+  // ba), don haka muna bukatar wannan domin browser ya aika/karba cookies a
+  // kowace kira zuwa API.
+  withCredentials: true,
+});
+
+// Ba mu kara amfani da interceptor da ke kara Authorization header daga
+// localStorage — cookie zata tafi ta atomatik godiya ga `withCredentials: true`.
+
+http.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Ba mu da token da za mu share a nan — cookie ta server ce ke
+      // sarrafa ta. Mun share flag ɗin UI kawai.
+      clearTokens();
+    }
+
+    return Promise.reject(error);
+  },
+);
+</file>
+
+<file path="apps/dashboard/src/providers/auth-provider.tsx">
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import type { AuthResponse } from "@/types/auth";
+import {
+  clearTokens,
+  isMarkedAuthenticated,
+  markAuthenticated,
+} from "@/lib/auth";
+
+type AuthContextValue = {
+  session: AuthResponse | null;
+  authenticated: boolean;
+  loading: boolean;
+
+  setSession: (session: AuthResponse | null) => void;
+  logout: () => void;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [session, setSessionState] =
+    useState<AuthResponse | null>(null);
+
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Ba mu iya karanta access_token din kai tsaye (httpOnly cookie ce),
+    // don haka mun dogara ga UI flag kawai domin sanin ko an login. Kiran
+    // authenticated endpoint na farko zai kori user zuwa /login ta hanyar
+    // 401 interceptor idan cookie ba ta wanzu ba ko ta kare.
+    if (isMarkedAuthenticated()) {
+      setSessionState({ access_token: "" });
+    }
+
+    setLoading(false);
+  }, []);
+
+  function setSession(session: AuthResponse | null) {
+    if (!session) {
+      clearTokens();
+      setSessionState(null);
+      return;
+    }
+
+    markAuthenticated();
+    setSessionState(session);
+  }
+
+  function logout() {
+    clearTokens();
+    setSessionState(null);
+  }
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      session,
+      authenticated: !!session,
+      loading,
+      setSession,
+      logout,
+    }),
+    [session, loading],
+  );
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuthContext() {
+  const ctx = useContext(AuthContext);
+
+  if (!ctx) {
+    throw new Error(
+      "useAuthContext must be used inside AuthProvider",
+    );
+  }
+
+  return ctx;
+}
+</file>
+
+<file path="apps/dashboard/src/types/auth.ts">
+export type User = {
+  id: string;
+  email: string;
+  username: string;
+  avatar_url: string | null;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  username: string;
+  email: string;
+  password: string;
+};
+
+export type AuthResponse = {
+  access_token: string;
+};
+</file>
+
+</files>
