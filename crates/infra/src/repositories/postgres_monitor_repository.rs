@@ -516,6 +516,63 @@ impl MonitorRepository for PostgresMonitorRepository {
         Ok(monitors)
     }
 
+    async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
+        let query = format!(
+            "SELECT {MONITOR_COLUMNS} FROM monitors WHERE tenant_id = $1 ORDER BY created_at DESC"
+        );
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>(&query)
+            .bind(tenant_id.0)
+            .fetch_all(&self.pool)
+            .await?;
+
+        if monitor_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let assertion_rows = sqlx::query_as::<_, AssertionRow>(
+            r#"
+            SELECT
+                monitor_assertions.id,
+                monitor_assertions.monitor_id,
+                monitor_assertions.position,
+                monitor_assertions.response_part,
+                monitor_assertions.operator,
+                monitor_assertions.target,
+                monitor_assertions.expected_value,
+                monitor_assertions.created_at,
+                monitor_assertions.updated_at
+            FROM monitor_assertions
+            INNER JOIN monitors ON monitors.id = monitor_assertions.monitor_id
+            WHERE monitors.tenant_id = $1
+            ORDER BY monitor_assertions.monitor_id, monitor_assertions.position
+            "#,
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut assertions_by_monitor: HashMap<Uuid, Vec<Assertion>> = HashMap::new();
+        for row in assertion_rows {
+            let monitor_id = row.monitor_id;
+            let domain_assertion = row.into_domain()?;
+            assertions_by_monitor
+                .entry(monitor_id)
+                .or_default()
+                .push(domain_assertion);
+        }
+
+        let mut monitors = Vec::with_capacity(monitor_rows.len());
+        for row in monitor_rows {
+            let monitor_id = row.id;
+            let assertions = assertions_by_monitor
+                .remove(&monitor_id)
+                .unwrap_or_default();
+            monitors.push(row.into_domain(assertions)?);
+        }
+
+        Ok(monitors)
+    }
+
     async fn find_by_id_for_user(
         &self,
         id: MonitorId,

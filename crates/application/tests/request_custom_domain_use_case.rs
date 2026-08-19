@@ -72,8 +72,9 @@ async fn cannot_request_custom_domain_for_someone_elses_status_page() {
         new_audit_repo(),
     );
     let owner_id = UserId(Uuid::new_v4());
+    let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
-    let tid = tenant_id();
+    let attacker_tenant_id = tenant_id();
 
     let status_page = create_use_case
         .execute(
@@ -82,7 +83,7 @@ async fn cannot_request_custom_domain_for_someone_elses_status_page() {
                 subdomain: "acme".into(),
                 monitor_ids: vec![],
             },
-            auth_user(owner_id, tid),
+            auth_user(owner_id, owner_tenant_id),
         )
         .await
         .unwrap();
@@ -96,7 +97,7 @@ async fn cannot_request_custom_domain_for_someone_elses_status_page() {
                 id: status_page.id,
                 domain: "status.evil.com".into(),
             },
-            auth_user(attacker_id, tid),
+            auth_user(attacker_id, attacker_tenant_id),
         )
         .await
         .unwrap();

@@ -5,7 +5,7 @@ use axum::{
 use tracing::info;
 
 use application::{queries::GetMonitor, use_cases::GetMonitorUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError, handlers::types::MonitorResponse, state::AppState,
@@ -15,7 +15,7 @@ use crate::{
 /// Gets a single monitor through the API.
 pub async fn get_monitor(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<Json<MonitorResponse>, ApiError> {
     info!("API: get_monitor");
@@ -25,7 +25,7 @@ pub async fn get_monitor(
     let use_case = GetMonitorUseCase::new(state.monitor_repository.clone());
 
     let monitor = use_case
-        .execute(GetMonitor { id, user_id })
+        .execute(GetMonitor { id }, authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;

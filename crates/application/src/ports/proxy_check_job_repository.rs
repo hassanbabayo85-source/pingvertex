@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use domain::entities::{ProxyCheckJob, ProxyEntry};
-use domain::shared::ids::{ProxyCheckJobId, UserId};
+use domain::shared::ids::{ProxyCheckJobId, TenantId, UserId};
 
 use crate::ports::monitor_repository::RepoResult;
 
@@ -32,6 +32,13 @@ pub trait ProxyCheckJobRepository: Send + Sync {
     async fn find_job_by_id(&self, id: ProxyCheckJobId) -> RepoResult<Option<ProxyCheckJob>>;
 
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>>;
+
+    /// Tenant-scoped equivalent of `find_jobs_by_user_id`. Returns every
+    /// job belonging to `tenant_id`, regardless of which member of the
+    /// tenant submitted it.
+    async fn find_jobs_by_tenant_id(&self, _tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
+        unimplemented!()
+    }
 
     /// Persists the result of a single checked entry. Called once per
     /// entry by the worker as each proxy finishes being checked.
@@ -63,6 +70,10 @@ where
 
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>> {
         (**self).find_jobs_by_user_id(user_id).await
+    }
+
+    async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
+        (**self).find_jobs_by_tenant_id(tenant_id).await
     }
 
     async fn update_entry(&self, entry: &ProxyEntry) -> RepoResult<()> {

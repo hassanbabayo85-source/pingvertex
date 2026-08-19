@@ -6,7 +6,7 @@ use std::{
 use application::ports::MonitorRepository;
 use async_trait::async_trait;
 use domain::Monitor;
-use domain::shared::ids::{MonitorId, UserId};
+use domain::shared::ids::{MonitorId, TenantId, UserId};
 
 /// Simple in-memory repository for development and tests.
 #[derive(Debug, Clone, Default)]
@@ -71,6 +71,20 @@ impl MonitorRepository for InMemoryMonitorRepository {
             .unwrap()
             .values()
             .filter(|monitor| monitor.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn find_all_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<Vec<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .monitors
+            .read()
+            .unwrap()
+            .values()
+            .filter(|monitor| monitor.tenant_id == tenant_id)
             .cloned()
             .collect())
     }

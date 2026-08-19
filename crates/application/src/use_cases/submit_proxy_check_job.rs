@@ -7,7 +7,7 @@ use crate::{
     dto::CreateProxyCheckJobRequest,
     ports::{AuditLogEntryRepository, IdGenerator, ProxyCheckJobRepository},
 };
-use domain::shared::policies::OwnershipPolicy;
+use domain::shared::policies::AuthorizationPolicy;
 use domain::shared::types::AuthenticatedUser;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, DomainError, ProxyCheckJob, ProxyCredentials,
@@ -112,8 +112,8 @@ where
         let job = ProxyCheckJob::new(job_id, user_id, tenant_id, total_count);
 
         debug_assert!(
-            OwnershipPolicy::can_access(&authenticated_user, &job),
-            "newly created proxy check job must be owned by the authenticated user"
+            AuthorizationPolicy::same_tenant(&authenticated_user.tenant_context(), job.tenant_id()),
+            "newly created proxy check job must belong to the authenticated user's tenant"
         );
 
         let mut entries = Vec::with_capacity(request.entries.len());

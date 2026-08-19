@@ -2,7 +2,9 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::ports::{CheckRepository, MonitorRepository};
 use domain::Check;
-use domain::shared::ids::{MonitorId, UserId};
+use domain::shared::ids::MonitorId;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
+use domain::shared::types::AuthenticatedUser;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -47,14 +49,22 @@ impl ListMonitorChecksUseCase {
     pub async fn execute(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<Vec<Check>, ListMonitorChecksError> {
-        // Tabbatar da cewa user ne ya mallaki monitor
-        self.monitor_repository
-            .find_by_id_for_user(monitor_id, user_id)
+        // Tabbatar da cewa monitor ɗin na tenant ɗin user ne
+        let monitor = self
+            .monitor_repository
+            .find_by_id(monitor_id)
             .await
             .map_err(ListMonitorChecksError::Other)?
             .ok_or(ListMonitorChecksError::NotFound)?;
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
+            return Err(ListMonitorChecksError::NotFound);
+        }
 
         self.check_repository
             .list_by_monitor(monitor_id)

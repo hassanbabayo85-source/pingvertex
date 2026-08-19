@@ -7,7 +7,11 @@ use crate::{
     commands::DeleteApiFlow,
     ports::{ApiFlowRepository, AuditLogEntryRepository, MonitorRepository},
 };
-use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, shared::types::AuthenticatedUser};
+use domain::{
+    AuditAction, AuditLogEntry, AuditLogEntryId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
+    shared::types::AuthenticatedUser,
+};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -42,12 +46,19 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        if self
+        let monitor = match self
             .monitor_repository
-            .find_by_id_for_user(command.monitor_id, user_id)
+            .find_by_id(command.monitor_id)
             .await?
-            .is_none()
         {
+            Some(monitor) => monitor,
+            None => return Ok(false),
+        };
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
             return Ok(false);
         }
 

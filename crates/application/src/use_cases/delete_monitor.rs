@@ -8,7 +8,8 @@ use crate::{
     ports::{AuditLogEntryRepository, MonitorRepository},
 };
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, shared::policies::OwnershipPolicy,
+    AuditAction, AuditLogEntry, AuditLogEntryId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
 
@@ -46,7 +47,10 @@ where
             None => return Ok(false),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
             return Ok(false);
         }
 

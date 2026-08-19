@@ -18,6 +18,7 @@ async fn deletes_monitor_successfully() {
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
         name: "Google".into(),
@@ -39,7 +40,7 @@ async fn deletes_monitor_successfully() {
     };
 
     let monitor = create_use_case
-        .execute(request, auth_user(user_id, tenant_id()))
+        .execute(request, auth_user(user_id, tenant_id))
         .await
         .unwrap();
 
@@ -47,7 +48,7 @@ async fn deletes_monitor_successfully() {
     let deleted = delete_use_case
         .execute(
             DeleteMonitor { id: monitor.id },
-            auth_user(user_id, tenant_id()),
+            auth_user(user_id, tenant_id),
         )
         .await
         .unwrap();
@@ -55,10 +56,7 @@ async fn deletes_monitor_successfully() {
 
     let get_use_case = GetMonitorUseCase::new(repository);
     let result = get_use_case
-        .execute(GetMonitor {
-            id: monitor.id,
-            user_id,
-        })
+        .execute(GetMonitor { id: monitor.id }, auth_user(user_id, tenant_id))
         .await
         .unwrap();
     assert!(result.is_none());

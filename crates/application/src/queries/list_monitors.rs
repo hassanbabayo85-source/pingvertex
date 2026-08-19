@@ -1,7 +1,8 @@
-use domain::shared::ids::UserId;
-
-/// Query for listing all monitors for a specific user.
-#[derive(Debug, Clone, Copy)]
-pub struct ListMonitors {
-    pub user_id: UserId,
-}
+/// Query for listing every monitor visible to the caller.
+///
+/// No `user_id` field anymore — tenant-wide sharing means the use case
+/// lists every monitor belonging to the caller's tenant
+/// (`MonitorRepository::find_all_for_tenant`), not just the ones the
+/// caller personally created.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ListMonitors;

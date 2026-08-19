@@ -9,6 +9,7 @@ use crate::{
     commands::AcknowledgeIncident,
     ports::{AuditLogEntryRepository, IncidentRepository, MonitorRepository},
 };
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 
 /// Error returned by `AcknowledgeIncidentUseCase`.
 #[derive(Debug)]
@@ -70,14 +71,20 @@ impl AcknowledgeIncidentUseCase {
             .map_err(AcknowledgeIncidentError::Other)?
             .ok_or(AcknowledgeIncidentError::NotFound)?;
 
-        // Verify ownership via the monitor repository.
-        // If the monitor doesn't exist or isn't owned by this user,
+        // Verify tenant access via the monitor repository.
+        // If the monitor doesn't exist or belongs to a different tenant,
         // we return NotFound (same outward result as incident not found).
-        self.monitor_repository
-            .find_by_id_for_user(incident.monitor_id, user_id)
+        let monitor = self
+            .monitor_repository
+            .find_by_id(incident.monitor_id)
             .await
             .map_err(AcknowledgeIncidentError::Other)?
             .ok_or(AcknowledgeIncidentError::NotFound)?;
+
+        if !AuthorizationPolicy::same_tenant(&authenticated_user.tenant_context(), monitor.tenant_id())
+        {
+            return Err(AcknowledgeIncidentError::NotFound);
+        }
 
         if incident.resolved_at.is_some() {
             return Err(AcknowledgeIncidentError::AlreadyResolved);

@@ -17,6 +17,7 @@ async fn lists_all_monitors_successfully() {
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
     for i in 1..=3 {
         let request = CreateMonitorRequest {
@@ -39,14 +40,14 @@ async fn lists_all_monitors_successfully() {
         };
 
         create_use_case
-            .execute(request, auth_user(user_id, tenant_id()))
+            .execute(request, auth_user(user_id, tenant_id))
             .await
             .unwrap();
     }
 
     let list_use_case = ListMonitorsUseCase::new(repository);
     let monitors = list_use_case
-        .execute(ListMonitors { user_id })
+        .execute(ListMonitors, auth_user(user_id, tenant_id))
         .await
         .unwrap();
     assert_eq!(monitors.len(), 3);

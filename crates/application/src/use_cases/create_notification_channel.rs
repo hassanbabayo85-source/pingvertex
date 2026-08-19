@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
-use domain::shared::policies::OwnershipPolicy;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::AuthenticatedUser;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
@@ -78,12 +78,15 @@ impl CreateNotificationChannelUseCase {
 
         let monitor = self
             .monitor_repository
-            .find_by_id_for_user(command.monitor_id, user_id)
+            .find_by_id(command.monitor_id)
             .await
             .map_err(CreateNotificationChannelError::Other)?
             .ok_or(CreateNotificationChannelError::MonitorNotFound)?;
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
             return Err(CreateNotificationChannelError::MonitorNotFound);
         }
 

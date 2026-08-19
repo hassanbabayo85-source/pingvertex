@@ -2,7 +2,8 @@ use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, shared::policies::OwnershipPolicy,
+    AuditAction, AuditLogEntry, AuditLogEntryId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
 use serde_json::json;
@@ -16,8 +17,9 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Deletes a notification channel through the application layer.
 ///
-/// Ownership is enforced via `OwnershipPolicy::can_access` after fetching
-/// the entity, then the channel is deleted and an audit entry is written.
+/// Tenant-wide access is enforced via `AuthorizationPolicy::same_tenant`
+/// after fetching the entity, then the channel is deleted and an audit
+/// entry is written.
 pub struct DeleteNotificationChannelUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
@@ -45,20 +47,19 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        let channel = match self
-            .repository
-            .find_by_id_for_user(command.id, user_id)
-            .await?
-        {
+        let channel = match self.repository.find_by_id(command.id).await? {
             Some(channel) => channel,
             None => return Ok(false),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &channel) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            channel.tenant_id(),
+        ) {
             return Ok(false);
         }
 
-        let deleted = self.repository.delete_for_user(command.id, user_id).await?;
+        let deleted = self.repository.delete(command.id).await?;
 
         if deleted {
             let entry = AuditLogEntry {

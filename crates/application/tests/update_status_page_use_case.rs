@@ -87,8 +87,9 @@ async fn cannot_update_status_page_owned_by_another_user() {
         new_audit_repo(),
     );
     let owner_id = UserId(Uuid::new_v4());
+    let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
-    let tid = tenant_id();
+    let attacker_tenant_id = tenant_id();
 
     let status_page = create_use_case
         .execute(
@@ -97,7 +98,7 @@ async fn cannot_update_status_page_owned_by_another_user() {
                 subdomain: "acme".into(),
                 monitor_ids: vec![],
             },
-            auth_user(owner_id, tid),
+            auth_user(owner_id, owner_tenant_id),
         )
         .await
         .unwrap();
@@ -114,7 +115,7 @@ async fn cannot_update_status_page_owned_by_another_user() {
                 logo_url: None,
                 primary_color: None,
             },
-            auth_user(attacker_id, tid),
+            auth_user(attacker_id, attacker_tenant_id),
         )
         .await
         .unwrap();
@@ -128,8 +129,9 @@ async fn rejects_adding_a_monitor_not_owned_by_the_requesting_user() {
     let monitors = InMemoryMonitorRepository::new();
 
     let owner_id = UserId(Uuid::new_v4());
+    let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
-    let tid = tenant_id();
+    let attacker_tenant_id = tenant_id();
 
     let create_use_case = CreateStatusPageUseCase::new(
         repository.clone(),
@@ -145,12 +147,12 @@ async fn rejects_adding_a_monitor_not_owned_by_the_requesting_user() {
                 subdomain: "attacker".into(),
                 monitor_ids: vec![],
             },
-            auth_user(attacker_id, tid),
+            auth_user(attacker_id, attacker_tenant_id),
         )
         .await
         .unwrap();
 
-    let victim_monitor = sample_monitor(owner_id, tid);
+    let victim_monitor = sample_monitor(owner_id, owner_tenant_id);
     monitors.save(&victim_monitor).await.unwrap();
 
     let update_use_case = UpdateStatusPageUseCase::new(repository, monitors, new_audit_repo());
@@ -164,7 +166,7 @@ async fn rejects_adding_a_monitor_not_owned_by_the_requesting_user() {
                 logo_url: None,
                 primary_color: None,
             },
-            auth_user(attacker_id, tid),
+            auth_user(attacker_id, attacker_tenant_id),
         )
         .await;
 

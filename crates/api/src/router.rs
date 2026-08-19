@@ -65,6 +65,15 @@ fn cors_layer() -> CorsLayer {
 /// Production router.
 ///
 /// This includes the authentication rate limiter.
+///
+/// SECURITY NOTE (fixed): all GovernorLayers below now derive the rate-limit
+/// key from the real TCP peer address (`ConnectInfo<SocketAddr>`), NOT from
+/// client-supplied headers like `X-Forwarded-For` / `X-Real-IP`. There is no
+/// reverse proxy in front of this API, so trusting those headers previously
+/// let any caller bypass every rate limit by sending a different fake IP on
+/// each request. This requires the server to be started with
+/// `app.into_make_service_with_connect_info::<std::net::SocketAddr>()` in
+/// `main.rs` — see the note there.
 pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let health_routes = health::router().with_state(app_state.clone());
 
@@ -79,7 +88,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(30)
-                .use_headers()
                 .finish()
                 .expect("valid api rate-limit configuration"),
         ))
@@ -91,7 +99,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(30)
-                .use_headers()
                 .finish()
                 .expect("valid api rate-limit configuration"),
         ))
@@ -106,7 +113,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(30)
-                .use_headers()
                 .finish()
                 .expect("valid api rate-limit configuration"),
         ))
@@ -127,7 +133,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(5)
-                .use_headers()
                 .finish()
                 .expect("valid notification test rate-limit configuration"),
         ))
@@ -147,7 +152,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(3)
-                .use_headers()
                 .finish()
                 .expect("valid api flow rate-limit configuration"),
         ))
@@ -164,7 +168,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(3)
-                .use_headers()
                 .finish()
                 .expect("valid proxy check rate-limit configuration"),
         ))
@@ -177,7 +180,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(30)
-                .use_headers()
                 .finish()
                 .expect("valid status page rate-limit configuration"),
         ))
@@ -197,7 +199,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(5)
-                .use_headers()
                 .finish()
                 .expect("valid custom domain rate-limit configuration"),
         ))
@@ -211,7 +212,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let auth_rate_limit = GovernorConfigBuilder::default()
         .per_second(60)
         .burst_size(5)
-        .use_headers()
         .finish()
         .expect("valid auth rate-limit configuration");
 
@@ -235,7 +235,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(60)
                 .burst_size(60)
-                .use_headers()
                 .finish()
                 .expect("valid public rate-limit configuration"),
         ))
@@ -290,6 +289,16 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 /// agent ID gives each agent its own independent quota, so one noisy
 /// agent can't exhaust another agent's ability to claim/submit.
 ///
+/// SECURITY NOTE (fixed): the previous version of this config also called
+/// `.use_headers()` AFTER `.key_extractor(AgentIdKeyExtractor)`. In
+/// tower-governor, whichever of `.key_extractor(...)` / `.use_headers()` /
+/// `.use_peer_ip()` is called LAST wins, because they all write to the same
+/// underlying field on the builder — so `.use_headers()` was silently
+/// overriding `AgentIdKeyExtractor` and switching this limiter back to
+/// reading the spoofable `X-Forwarded-For` / `X-Real-IP` headers. Removing
+/// `.use_headers()` restores the intended agent-ID-keyed behavior described
+/// above.
+///
 /// Sizing rationale (NOT a guess — derived from how claim_checks is
 /// actually implemented today): `claim_checks` has no "due check"
 /// filtering yet — it returns EVERY monitor matching the agent's
@@ -322,7 +331,6 @@ pub fn build_internal_agent_router(app_state: AppState) -> Router {
                 .key_extractor(AgentIdKeyExtractor)
                 .per_millisecond(20)
                 .burst_size(250)
-                .use_headers()
                 .finish()
                 .expect("valid internal agent rate-limit configuration"),
         ))

@@ -7,7 +7,7 @@ use crate::{
     dto::CreateStatusPageRequest,
     ports::{AuditLogEntryRepository, IdGenerator, MonitorRepository, StatusPageRepository},
 };
-use domain::shared::policies::OwnershipPolicy;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::AuthenticatedUser;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, MonitorId, Subdomain,
@@ -153,12 +153,15 @@ where
         for &monitor_id in monitor_ids {
             let monitor = self
                 .monitor_repository
-                .find_by_id_for_user(monitor_id, authenticated_user.user_id())
+                .find_by_id(monitor_id)
                 .await
                 .map_err(CreateStatusPageError::Other)?
                 .ok_or(CreateStatusPageError::MonitorNotFound { monitor_id })?;
 
-            if !OwnershipPolicy::can_access(authenticated_user, &monitor) {
+            if !AuthorizationPolicy::same_tenant(
+                &authenticated_user.tenant_context(),
+                monitor.tenant_id(),
+            ) {
                 return Err(CreateStatusPageError::MonitorNotFound { monitor_id });
             }
         }

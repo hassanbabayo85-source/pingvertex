@@ -103,35 +103,6 @@ async fn rejects_creation_past_quota() {
 }
 
 #[tokio::test]
-async fn rejects_monitor_not_owned_by_the_requesting_user() {
-    let repository = InMemoryStatusPageRepository::new();
-    let monitors = InMemoryMonitorRepository::new();
-    let owner_id = UserId(Uuid::new_v4());
-    let attacker_id = UserId(Uuid::new_v4());
-    let tid = tenant_id();
-
-    let victim_monitor = sample_monitor(owner_id, tid);
-    monitors.save(&victim_monitor).await.unwrap();
-
-    let use_case = use_case(repository, monitors);
-    let result = use_case
-        .execute(
-            CreateStatusPageRequest {
-                name: "Attacker Status".into(),
-                subdomain: "attacker".into(),
-                monitor_ids: vec![victim_monitor.id],
-            },
-            auth_user(attacker_id, tid),
-        )
-        .await;
-
-    assert!(matches!(
-        result,
-        Err(CreateStatusPageError::MonitorNotFound { .. })
-    ));
-}
-
-#[tokio::test]
 async fn allows_monitor_owned_by_the_requesting_user() {
     let repository = InMemoryStatusPageRepository::new();
     let monitors = InMemoryMonitorRepository::new();
@@ -154,4 +125,62 @@ async fn allows_monitor_owned_by_the_requesting_user() {
         .unwrap();
 
     assert_eq!(status_page.monitor_ids, vec![own_monitor.id]);
+}
+
+#[tokio::test]
+async fn allows_monitor_owned_by_another_tenant_member() {
+    let repository = InMemoryStatusPageRepository::new();
+    let monitors = InMemoryMonitorRepository::new();
+    let owner_id = UserId(Uuid::new_v4());
+    let tenant_mate_id = UserId(Uuid::new_v4());
+    let tid = tenant_id();
+
+    let victim_monitor = sample_monitor(owner_id, tid);
+    monitors.save(&victim_monitor).await.unwrap();
+
+    let use_case = use_case(repository, monitors);
+    let result = use_case
+        .execute(
+            CreateStatusPageRequest {
+                name: "Tenant Mate Status".into(),
+                subdomain: "tenant-mate".into(),
+                monitor_ids: vec![victim_monitor.id],
+            },
+            auth_user(tenant_mate_id, tid),
+        )
+        .await;
+
+    assert!(result.is_ok());
+    let status_page = result.unwrap();
+    assert_eq!(status_page.monitor_ids, vec![victim_monitor.id]);
+}
+
+#[tokio::test]
+async fn rejects_monitor_from_another_tenant() {
+    let repository = InMemoryStatusPageRepository::new();
+    let monitors = InMemoryMonitorRepository::new();
+    let owner_id = UserId(Uuid::new_v4());
+    let other_tenant_id = tenant_id();
+    let attacker_id = UserId(Uuid::new_v4());
+    let attacker_tenant_id = tenant_id();
+
+    let victim_monitor = sample_monitor(owner_id, other_tenant_id);
+    monitors.save(&victim_monitor).await.unwrap();
+
+    let use_case = use_case(repository, monitors);
+    let result = use_case
+        .execute(
+            CreateStatusPageRequest {
+                name: "Cross Tenant Status".into(),
+                subdomain: "cross-tenant".into(),
+                monitor_ids: vec![victim_monitor.id],
+            },
+            auth_user(attacker_id, attacker_tenant_id),
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(CreateStatusPageError::MonitorNotFound { .. })
+    ));
 }

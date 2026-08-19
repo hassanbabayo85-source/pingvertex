@@ -49,7 +49,7 @@ async fn deletes_status_page_successfully() {
 }
 
 #[tokio::test]
-async fn deleting_someone_elses_status_page_returns_false() {
+async fn deleting_status_page_as_another_tenant_member_succeeds() {
     let repository = InMemoryStatusPageRepository::new();
     let monitors = InMemoryMonitorRepository::new();
     let create_use_case = CreateStatusPageUseCase::new(
@@ -59,7 +59,7 @@ async fn deleting_someone_elses_status_page_returns_false() {
         new_audit_repo(),
     );
     let owner_id = UserId(Uuid::new_v4());
-    let attacker_id = UserId(Uuid::new_v4());
+    let tenant_mate_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
     let status_page = create_use_case
@@ -76,9 +76,60 @@ async fn deleting_someone_elses_status_page_returns_false() {
 
     let delete_use_case = DeleteStatusPageUseCase::new(repository.clone(), new_audit_repo());
     let deleted = delete_use_case
-        .execute(status_page.id, auth_user(attacker_id, tid))
+        .execute(status_page.id, auth_user(tenant_mate_id, tid))
+        .await
+        .unwrap();
+
+    assert!(deleted);
+
+    let remaining = repository
+        .find_by_id(status_page.id)
+        .await
+        .unwrap();
+    assert!(remaining.is_none());
+}
+
+#[tokio::test]
+async fn deleting_status_page_from_another_tenant_returns_false() {
+    let repository = InMemoryStatusPageRepository::new();
+    let monitors = InMemoryMonitorRepository::new();
+    let create_use_case = CreateStatusPageUseCase::new(
+        repository.clone(),
+        UuidIdGenerator::new(),
+        monitors.clone(),
+        new_audit_repo(),
+    );
+    let owner_id = UserId(Uuid::new_v4());
+    let owner_tenant_id = tenant_id();
+    let attacker_id = UserId(Uuid::new_v4());
+    let attacker_tenant_id = tenant_id();
+
+    let status_page = create_use_case
+        .execute(
+            CreateStatusPageRequest {
+                name: "Acme Status".into(),
+                subdomain: "acme".into(),
+                monitor_ids: vec![],
+            },
+            auth_user(owner_id, owner_tenant_id),
+        )
+        .await
+        .unwrap();
+
+    let delete_use_case = DeleteStatusPageUseCase::new(repository.clone(), new_audit_repo());
+    let deleted = delete_use_case
+        .execute(
+            status_page.id,
+            auth_user(attacker_id, attacker_tenant_id),
+        )
         .await
         .unwrap();
 
     assert!(!deleted);
+
+    let remaining = repository
+        .find_by_id(status_page.id)
+        .await
+        .unwrap();
+    assert!(remaining.is_some());
 }

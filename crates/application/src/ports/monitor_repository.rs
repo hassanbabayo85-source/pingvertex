@@ -30,6 +30,18 @@ pub trait MonitorRepository: Send + Sync {
     ) -> RepoResult<Vec<Monitor>> {
         unimplemented!()
     }
+
+    /// Tenant-scoped equivalent of `find_all_for_user`. Returns every
+    /// monitor belonging to `tenant_id`, regardless of which member of
+    /// the tenant created it. Used once tenants can have more than one
+    /// member (see the invite flow), so that every member sees the same
+    /// monitors instead of only the ones they personally created.
+    async fn find_all_for_tenant(
+        &self,
+        _tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<Vec<Monitor>> {
+        unimplemented!()
+    }
     async fn delete_for_user(
         &self,
         _id: MonitorId,
@@ -97,6 +109,12 @@ where
         user_id: domain::shared::ids::UserId,
     ) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_user(user_id).await
+    }
+    async fn find_all_for_tenant(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<Vec<Monitor>> {
+        (**self).find_all_for_tenant(tenant_id).await
     }
     async fn delete_for_user(
         &self,

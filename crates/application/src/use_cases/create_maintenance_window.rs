@@ -5,6 +5,7 @@ use serde_json::json;
 
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, MaintenanceWindow,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
 
@@ -62,11 +63,19 @@ impl CreateMaintenanceWindowUseCase {
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        self.monitor_repository
-            .find_by_id_for_user(command.monitor_id, user_id)
+        let monitor = self
+            .monitor_repository
+            .find_by_id(command.monitor_id)
             .await
             .map_err(CreateMaintenanceWindowError::Other)?
             .ok_or(CreateMaintenanceWindowError::MonitorNotFound)?;
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
+            return Err(CreateMaintenanceWindowError::MonitorNotFound);
+        }
 
         let id = self.id_generator.next_maintenance_window_id().await;
 

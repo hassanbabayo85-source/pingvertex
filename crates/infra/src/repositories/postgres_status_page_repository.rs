@@ -234,6 +234,43 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         Ok(())
     }
 
+    async fn find_by_id(&self, id: StatusPageId) -> RepoResult<Option<StatusPage>> {
+        let row = sqlx::query_as::<_, StatusPageRow>(
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
+             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
+             monitor_ids, created_at, updated_at \
+             FROM status_pages WHERE id = $1",
+        )
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(StatusPageRow::into_domain).transpose()
+    }
+
+    async fn delete(&self, id: StatusPageId) -> RepoResult<bool> {
+        let result = sqlx::query("DELETE FROM status_pages WHERE id = $1")
+            .bind(id.0)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
+        let rows = sqlx::query_as::<_, StatusPageRow>(
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
+             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
+             monitor_ids, created_at, updated_at \
+             FROM status_pages WHERE tenant_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(StatusPageRow::into_domain).collect()
+    }
+
     async fn delete_for_user(&self, id: StatusPageId, user_id: UserId) -> RepoResult<bool> {
         let result = sqlx::query("DELETE FROM status_pages WHERE id = $1 AND user_id = $2")
             .bind(id.0)

@@ -182,4 +182,29 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
             .map(EscalationPolicyRow::into_domain)
             .collect()
     }
+
+    async fn find_by_id(&self, id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {
+        let row = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM escalation_policies WHERE id = $1"
+        ))
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(EscalationPolicyRow::into_domain).transpose()
+    }
+
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {
+        let rows = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM escalation_policies \
+             WHERE tenant_id = $1 ORDER BY created_at DESC"
+        ))
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(EscalationPolicyRow::into_domain)
+            .collect()
+    }
 }

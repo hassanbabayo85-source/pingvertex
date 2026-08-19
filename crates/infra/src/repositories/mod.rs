@@ -1,5 +1,7 @@
 pub mod in_memory_api_flow_repository;
 pub mod in_memory_audit_log_entry_repository;
+pub mod in_memory_escalation_policy_repository;
+pub mod in_memory_maintenance_window_repository;
 pub mod in_memory_monitor_repository;
 pub mod in_memory_notification_channel_repository;
 pub mod in_memory_proxy_check_job_repository;
@@ -23,6 +25,8 @@ pub mod postgres_user_repository;
 
 pub use in_memory_api_flow_repository::*;
 pub use in_memory_audit_log_entry_repository::InMemoryAuditLogEntryRepository;
+pub use in_memory_escalation_policy_repository::*;
+pub use in_memory_maintenance_window_repository::*;
 pub use in_memory_monitor_repository::*;
 pub use in_memory_notification_channel_repository::*;
 pub use in_memory_proxy_check_job_repository::*;

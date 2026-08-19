@@ -53,6 +53,7 @@ async fn lists_incidents_for_monitor() {
     );
 
     let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
         name: "Test Monitor".into(),
@@ -74,12 +75,15 @@ async fn lists_incidents_for_monitor() {
     };
 
     let monitor = create_use_case
-        .execute(request, auth_user(user_id, tenant_id()))
+        .execute(request, auth_user(user_id, tenant_id))
         .await
         .unwrap();
 
     let use_case = ListIncidentsUseCase::new(monitor_repository, incident_repository);
 
-    let result = use_case.execute(monitor.id, user_id).await.unwrap();
+    let result = use_case
+        .execute(monitor.id, auth_user(user_id, tenant_id))
+        .await
+        .unwrap();
     assert!(result.is_empty());
 }

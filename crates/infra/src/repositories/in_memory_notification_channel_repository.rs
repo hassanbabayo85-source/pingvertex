@@ -131,4 +131,23 @@ impl NotificationChannelRepository for InMemoryNotificationChannelRepository {
             .cloned()
             .collect())
     }
+
+    async fn find_by_id(&self, id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+        Ok(self.channels.read().unwrap().get(&id).cloned())
+    }
+
+    async fn delete(&self, id: NotificationChannelId) -> RepoResult<bool> {
+        Ok(self.channels.write().unwrap().remove(&id).is_some())
+    }
+
+    async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
+        Ok(self
+            .channels
+            .read()
+            .unwrap()
+            .values()
+            .filter(|channel| channel.monitor_id == monitor_id)
+            .cloned()
+            .collect())
+    }
 }

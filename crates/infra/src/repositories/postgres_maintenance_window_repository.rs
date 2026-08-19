@@ -169,4 +169,39 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
             .map(MaintenanceWindowRow::into_domain)
             .collect())
     }
+
+    async fn find_by_id(&self, id: MaintenanceWindowId) -> RepoResult<Option<MaintenanceWindow>> {
+        let row = sqlx::query_as::<_, MaintenanceWindowRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM maintenance_windows WHERE id = $1"
+        ))
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(MaintenanceWindowRow::into_domain))
+    }
+
+    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool> {
+        let result = sqlx::query("DELETE FROM maintenance_windows WHERE id = $1")
+            .bind(id.0)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {
+        let rows = sqlx::query_as::<_, MaintenanceWindowRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM maintenance_windows \
+             WHERE monitor_id = $1 ORDER BY starts_at DESC"
+        ))
+        .bind(monitor_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(MaintenanceWindowRow::into_domain)
+            .collect())
+    }
 }
