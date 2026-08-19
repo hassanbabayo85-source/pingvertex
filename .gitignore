@@ -47,3 +47,5 @@ certs/
 data/geoip/
 *.mmdb
 *.zip
+# XML audit and status files
+sashi-*.xml
