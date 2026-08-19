@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use domain::entities::Assertion;
 use domain::enums::{AssertionOperator, ResponsePart};
-use domain::shared::ids::{AssertionId, MonitorId, UserId};
+use domain::shared::ids::{AssertionId, MonitorId, TenantId, UserId};
 use domain::{
     CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout, Url,
 };
@@ -44,14 +44,18 @@ async fn spawn_http_server(status: u16) -> String {
 }
 
 fn build_monitor(url: String) -> domain::Monitor {
-    MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
-        .name(MonitorName::new("Test Monitor").unwrap())
-        .url(Url::new(url).unwrap())
-        .method(HttpMethod::Get)
-        .expected_status(ExpectedStatus::new(200).unwrap())
-        .interval(CheckInterval::new(60).unwrap())
-        .timeout(Timeout::new(5).unwrap())
-        .build()
+    MonitorBuilder::new(
+        MonitorId(Uuid::new_v4()),
+        UserId(Uuid::new_v4()),
+        TenantId::new(),
+    )
+    .name(MonitorName::new("Test Monitor").unwrap())
+    .url(Url::new(url).unwrap())
+    .method(HttpMethod::Get)
+    .expected_status(ExpectedStatus::new(200).unwrap())
+    .interval(CheckInterval::new(60).unwrap())
+    .timeout(Timeout::new(5).unwrap())
+    .build()
 }
 
 #[tokio::test]
@@ -180,7 +184,7 @@ mod cert_checking {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
     use std::sync::Arc;
 
-    use domain::shared::ids::{MonitorId, UserId};
+    use domain::shared::ids::{MonitorId, TenantId, UserId};
     use domain::{ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout, Url};
     use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
     use tokio::net::TcpListener;
@@ -190,14 +194,18 @@ mod cert_checking {
     use worker::maybe_fetch_cert_info;
 
     fn build_https_monitor(url: String) -> domain::Monitor {
-        let mut monitor = MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
-            .name(MonitorName::new("Test HTTPS Monitor").unwrap())
-            .url(Url::new(url).unwrap())
-            .method(HttpMethod::Get)
-            .expected_status(ExpectedStatus::new(200).unwrap())
-            .interval(domain::CheckInterval::new(60).unwrap())
-            .timeout(Timeout::new(5).unwrap())
-            .build();
+        let mut monitor = MonitorBuilder::new(
+            MonitorId(Uuid::new_v4()),
+            UserId(Uuid::new_v4()),
+            TenantId::new(),
+        )
+        .name(MonitorName::new("Test HTTPS Monitor").unwrap())
+        .url(Url::new(url).unwrap())
+        .method(HttpMethod::Get)
+        .expected_status(ExpectedStatus::new(200).unwrap())
+        .interval(domain::CheckInterval::new(60).unwrap())
+        .timeout(Timeout::new(5).unwrap())
+        .build();
         monitor.ssl_check_enabled = true;
         monitor
     }

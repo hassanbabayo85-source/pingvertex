@@ -5,24 +5,27 @@ use axum::{
 use tracing::info;
 
 use application::{commands::DeleteMonitor, use_cases::DeleteMonitorUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, state::AppState, validation::parse_monitor_id};
 
 /// Deletes a monitor through the API.
 pub async fn delete_monitor(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     info!("API: delete_monitor");
 
     let id = parse_monitor_id(&id)?;
 
-    let use_case = DeleteMonitorUseCase::new(state.monitor_repository.clone());
+    let use_case = DeleteMonitorUseCase::new(
+        state.monitor_repository.clone(),
+        state.audit_log_entry_repository.clone(),
+    );
 
     let deleted = use_case
-        .execute(DeleteMonitor { id, user_id })
+        .execute(DeleteMonitor { id }, authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to delete monitor", err))?;
 

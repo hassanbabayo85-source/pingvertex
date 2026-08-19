@@ -2,7 +2,8 @@ use axum::extract::{Extension, Json, Path, State};
 use tracing::info;
 
 use application::{commands::UpdateApiFlow, use_cases::UpdateApiFlowUseCase};
-use domain::shared::ids::{ApiFlowId, UserId};
+use domain::shared::ids::ApiFlowId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
@@ -13,7 +14,7 @@ use crate::{
 
 pub async fn update_api_flow(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path((id, flow_id)): Path<(String, String)>,
     Json(payload): Json<CreateApiFlowHttpRequest>,
 ) -> Result<Json<ApiFlowHttpResponse>, ApiError> {
@@ -25,7 +26,7 @@ pub async fn update_api_flow(
     // Authorization check: the monitor must belong to the authenticated user.
     state
         .monitor_repository
-        .find_by_id_for_user(monitor_id, user_id)
+        .find_by_id_for_user(monitor_id, authenticated_user.user_id())
         .await
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
@@ -37,15 +38,18 @@ pub async fn update_api_flow(
     let use_case = UpdateApiFlowUseCase::new(
         state.api_flow_repository.clone(),
         state.monitor_repository.clone(),
+        state.audit_log_entry_repository.clone(),
     );
 
     let flow = use_case
-        .execute(UpdateApiFlow {
-            id: flow_id,
-            monitor_id,
-            user_id,
-            steps: request.steps,
-        })
+        .execute(
+            UpdateApiFlow {
+                id: flow_id,
+                monitor_id,
+                steps: request.steps,
+            },
+            authenticated_user,
+        )
         .await
         .map_err(|err| ApiError::internal_with_source("failed to update api flow", err))?
         .ok_or_else(|| ApiError::not_found("api flow not found"))?;

@@ -12,9 +12,9 @@ use serial_test::serial;
 async fn save_and_find_by_id_round_trips_check() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let check_repository = PostgresCheckRepository::new(pool);
+    let check_repository = PostgresCheckRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     monitor_repository.save(&monitor).await.unwrap();
 
     let check = sample_check(monitor.id);
@@ -40,10 +40,10 @@ async fn save_and_find_by_id_round_trips_check() {
 async fn list_by_monitor_returns_only_matching_checks() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let check_repository = PostgresCheckRepository::new(pool);
+    let check_repository = PostgresCheckRepository::new(pool.clone());
 
-    let monitor_a = sample_monitor("Monitor A", "https://a.example.com");
-    let monitor_b = sample_monitor("Monitor B", "https://b.example.com");
+    let monitor_a = sample_monitor(&pool, "Monitor A", "https://a.example.com").await;
+    let monitor_b = sample_monitor(&pool, "Monitor B", "https://b.example.com").await;
     monitor_repository.save(&monitor_a).await.unwrap();
     monitor_repository.save(&monitor_b).await.unwrap();
 
@@ -67,10 +67,10 @@ async fn list_by_monitor_returns_only_matching_checks() {
 async fn delete_by_monitor_removes_all_checks_for_monitor() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let check_repository = PostgresCheckRepository::new(pool);
+    let check_repository = PostgresCheckRepository::new(pool.clone());
 
-    let monitor_a = sample_monitor("Monitor A", "https://a.example.com");
-    let monitor_b = sample_monitor("Monitor B", "https://b.example.com");
+    let monitor_a = sample_monitor(&pool, "Monitor A", "https://a.example.com").await;
+    let monitor_b = sample_monitor(&pool, "Monitor B", "https://b.example.com").await;
     monitor_repository.save(&monitor_a).await.unwrap();
     monitor_repository.save(&monitor_b).await.unwrap();
 

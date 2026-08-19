@@ -11,7 +11,7 @@ use application::{
     commands::CreateMaintenanceWindow,
     use_cases::{CreateMaintenanceWindowError, CreateMaintenanceWindowUseCase},
 };
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError, handlers::feature_types::CreateMaintenanceWindowRequest, state::AppState,
@@ -19,14 +19,9 @@ use crate::{
 };
 
 /// Creates a maintenance window for a monitor.
-///
-/// `POST /api/v1/monitors/{monitor_id}/maintenance-windows`
-///
-/// Requires the monitor to be owned by the caller — enforced by
-/// `MonitorRepository::find_by_id_for_user` inside the use case.
 pub async fn create_maintenance_window(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(monitor_id): Path<String>,
     Json(payload): Json<CreateMaintenanceWindowRequest>,
 ) -> Result<(StatusCode, Json<domain::MaintenanceWindow>), ApiError> {
@@ -38,16 +33,19 @@ pub async fn create_maintenance_window(
         state.monitor_repository.clone(),
         state.maintenance_window_repository.clone(),
         Arc::new(state.id_generator.clone()),
+        state.audit_log_entry_repository.clone(),
     );
 
     let window = use_case
-        .execute(CreateMaintenanceWindow {
-            monitor_id,
-            user_id,
-            starts_at: payload.starts_at,
-            ends_at: payload.ends_at,
-            reason: payload.reason,
-        })
+        .execute(
+            CreateMaintenanceWindow {
+                monitor_id,
+                starts_at: payload.starts_at,
+                ends_at: payload.ends_at,
+                reason: payload.reason,
+            },
+            authenticated_user,
+        )
         .await
         .map_err(|err| match err {
             CreateMaintenanceWindowError::MonitorNotFound => {

@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use application::ports::{
-    ApiFlowRepository, CheckRepository, CustomDomainVerifier, DiagnosticReportRepository,
-    EscalationPolicyRepository, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
-    MonitorRepository, NotificationChannelRepository, NotificationService, ProxyCheckJobRepository,
-    StatusPageCache, StatusPageRepository,
+    ApiFlowRepository, AuditLogEntryRepository, CheckRepository, CustomDomainVerifier,
+    DiagnosticReportRepository, EscalationPolicyRepository, IncidentRepository, LogoStorage,
+    MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
+    NotificationService, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
+    StatusPageRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -16,6 +19,14 @@ use domain::{EscalationPolicy, MaintenanceWindow};
 use infra::UuidIdGenerator;
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Per-token rate limiter for `GET /public/heartbeat/{token}`. Keyed by the
+/// raw token string; value is `(window_started_at, requests_in_window)`.
+pub type HeartbeatRateLimiter = Arc<tokio::sync::Mutex<HashMap<String, (Instant, u32)>>>;
+
+fn new_heartbeat_rate_limiter() -> HeartbeatRateLimiter {
+    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
+}
 
 /// Shared application state.
 #[derive(Clone)]
@@ -34,7 +45,10 @@ pub struct AppState {
     pub custom_domain_verifier: Arc<dyn CustomDomainVerifier>,
     pub status_page_cache: Arc<dyn StatusPageCache>,
     pub logo_storage: Arc<dyn LogoStorage>,
+    pub secret_cipher: Arc<dyn SecretCipher>,
     pub id_generator: UuidIdGenerator,
+    pub heartbeat_rate_limiter: HeartbeatRateLimiter,
+    pub audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 #[derive(Clone, Default)]
@@ -46,7 +60,11 @@ impl MaintenanceWindowRepository for NoopMaintenanceWindowRepository {
         Ok(())
     }
 
-    async fn delete(&self, _id: MaintenanceWindowId) -> RepoResult<bool> {
+    async fn delete_for_user(
+        &self,
+        _id: MaintenanceWindowId,
+        _user_id: UserId,
+    ) -> RepoResult<bool> {
         Ok(false)
     }
 
@@ -119,10 +137,6 @@ impl EscalationPolicyRepository for NoopEscalationPolicyRepository {
     }
 }
 
-/// No-op status page repository, used by the test/backward-compatible
-/// [`AppState::new`] constructor. Never used in production — see
-/// [`AppState::new_with_feature_repos`], which takes a real
-/// `PostgresStatusPageRepository`.
 #[derive(Clone, Default)]
 pub struct NoopStatusPageRepository;
 
@@ -168,8 +182,6 @@ impl StatusPageRepository for NoopStatusPageRepository {
     }
 }
 
-/// No-op domain verifier. Fails closed: without a real verifier
-/// configured, no domain is ever reported as verified.
 #[derive(Clone, Default)]
 pub struct NoopCustomDomainVerifier;
 
@@ -180,9 +192,6 @@ impl CustomDomainVerifier for NoopCustomDomainVerifier {
     }
 }
 
-/// No-op cache. Always misses, writes are discarded — matches the
-/// `StatusPageCache` port's documented fail-open contract, and is what
-/// `main.rs` wires up when `REDIS_URL` is not configured.
 #[derive(Clone, Default)]
 pub struct NoopStatusPageCache;
 
@@ -202,12 +211,8 @@ impl StatusPageCache for NoopStatusPageCache {
 }
 
 impl AppState {
-    /// Test / backward-compatible constructor.
-    ///
-    /// Uses in-memory no-op maintenance-window, escalation-policy, and
-    /// status-page repositories (plus a no-op domain verifier and cache)
-    /// so existing tests don't need to provide real ones.
-    pub fn new<M, C, D, I, N, S, A, P>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn new<M, C, D, I, N, S, A, P, AL>(
         monitor_repository: M,
         check_repository: C,
         diagnostic_report_repository: D,
@@ -217,6 +222,8 @@ impl AppState {
         api_flow_repository: A,
         proxy_check_job_repository: P,
         id_generator: UuidIdGenerator,
+        secret_cipher: Arc<dyn SecretCipher>,
+        audit_log_entry_repository: AL,
     ) -> Self
     where
         M: MonitorRepository + 'static,
@@ -227,6 +234,7 @@ impl AppState {
         S: NotificationService + 'static,
         A: ApiFlowRepository + 'static,
         P: ProxyCheckJobRepository + 'static,
+        AL: AuditLogEntryRepository + 'static,
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
@@ -243,20 +251,15 @@ impl AppState {
             custom_domain_verifier: Arc::new(NoopCustomDomainVerifier),
             status_page_cache: Arc::new(NoopStatusPageCache),
             logo_storage: Arc::new(NoopLogoStorage),
+            secret_cipher,
             id_generator,
+            heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
+            audit_log_entry_repository: Arc::new(audit_log_entry_repository),
         }
     }
 
-    /// Production constructor with real feature repositories.
-    ///
-    /// `status_page_cache` is taken as an already-constructed
-    /// `Arc<dyn StatusPageCache>` (rather than a generic parameter, like
-    /// every other argument here) because the caller (`main.rs`) needs to
-    /// branch at runtime on whether `REDIS_URL` is configured, choosing
-    /// between `RedisStatusPageCache` and `NoopStatusPageCache` — that
-    /// branch has to happen before this function is called.
     #[allow(clippy::too_many_arguments)]
-    pub fn new_with_feature_repos<M, C, D, I, N, S, A, P, MW, EP, SP, CDV>(
+    pub fn new_with_feature_repos<M, C, D, I, N, S, A, P, MW, EP, SP, CDV, AL>(
         monitor_repository: M,
         check_repository: C,
         diagnostic_report_repository: D,
@@ -272,6 +275,8 @@ impl AppState {
         status_page_cache: Arc<dyn StatusPageCache>,
         logo_storage: Arc<dyn LogoStorage>,
         id_generator: UuidIdGenerator,
+        secret_cipher: Arc<dyn SecretCipher>,
+        audit_log_entry_repository: AL,
     ) -> Self
     where
         M: MonitorRepository + 'static,
@@ -286,6 +291,7 @@ impl AppState {
         EP: EscalationPolicyRepository + 'static,
         SP: StatusPageRepository + 'static,
         CDV: CustomDomainVerifier + 'static,
+        AL: AuditLogEntryRepository + 'static,
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
@@ -302,7 +308,10 @@ impl AppState {
             custom_domain_verifier: Arc::new(custom_domain_verifier),
             status_page_cache,
             logo_storage,
+            secret_cipher,
             id_generator,
+            heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
+            audit_log_entry_repository: Arc::new(audit_log_entry_repository),
         }
     }
 }

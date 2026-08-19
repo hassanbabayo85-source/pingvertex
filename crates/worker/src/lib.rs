@@ -2,11 +2,13 @@ pub mod assertion_evaluator;
 pub mod checker;
 pub mod custom_domain_verification_worker;
 pub mod diagnostics;
+pub mod dns_checker;
 pub mod escalation_worker;
 pub mod flow_executor;
 pub mod incident_manager;
 pub mod placeholder_resolver;
 pub mod scheduler;
+pub mod tcp_checker;
 pub mod tls_cert;
 
 pub use checker::{check_monitor, check_monitor_with_validator, maybe_fetch_cert_info};

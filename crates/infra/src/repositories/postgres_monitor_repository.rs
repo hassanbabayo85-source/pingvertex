@@ -3,14 +3,21 @@ use std::error::Error;
 
 use application::ports::MonitorRepository;
 use async_trait::async_trait;
-use domain::shared::ids::{AssertionId, MonitorId, UserId};
+use domain::shared::ids::{AssertionId, MonitorId, TenantId, UserId};
 use domain::{
-    Assertion, AssertionOperator, HttpMethod, Monitor, MonitorName, RegionCode, ResponsePart, Url,
+    Assertion, AssertionOperator, HttpMethod, Monitor, MonitorKind, MonitorName, RegionCode,
+    ResponsePart, Url,
 };
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+const MONITOR_COLUMNS: &str = "id, user_id, tenant_id, regions, name, url, method, expected_status, \
+    interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, \
+    ssl_expiry_warning_days, kind, tcp_port, dns_record_type, dns_expected_value, \
+    heartbeat_token, heartbeat_interval_seconds, heartbeat_grace_period_seconds, \
+    last_heartbeat_at, created_at, updated_at";
 
 /// PostgreSQL-backed monitor repository.
 #[derive(Debug, Clone)]
@@ -31,6 +38,7 @@ impl PostgresMonitorRepository {
 struct MonitorRow {
     id: Uuid,
     user_id: Uuid,
+    tenant_id: Uuid,
     regions: Vec<String>,
     name: String,
     url: String,
@@ -42,13 +50,18 @@ struct MonitorRow {
     is_public: bool,
     ssl_check_enabled: bool,
     ssl_expiry_warning_days: i32,
+    kind: String,
+    tcp_port: Option<i16>,
+    dns_record_type: Option<String>,
+    dns_expected_value: Option<String>,
+    heartbeat_token: Option<String>,
+    heartbeat_interval_seconds: Option<i32>,
+    heartbeat_grace_period_seconds: Option<i32>,
+    last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-//
-// monitor_assertions table row
-//
 //
 // monitor_assertions table row
 //
@@ -69,10 +82,11 @@ struct AssertionRow {
 }
 
 impl MonitorRow {
-    fn from_domain(monitor: &Monitor) -> Self {
-        Self {
+    fn from_domain(monitor: &Monitor) -> RepoResult<Self> {
+        Ok(Self {
             id: monitor.id.0,
             user_id: monitor.user_id.0,
+            tenant_id: monitor.tenant_id.0,
             regions: monitor.regions.iter().map(|r| r.to_string()).collect(),
             name: monitor.name.as_str().to_owned(),
             url: monitor.url.clone(),
@@ -88,13 +102,31 @@ impl MonitorRow {
             ssl_check_enabled: monitor.ssl_check_enabled,
             ssl_expiry_warning_days: i32::try_from(i64::from(monitor.ssl_expiry_warning_days))
                 .expect("ssl_expiry_warning_days exceeds i32 capacity"),
+            kind: kind_to_db(monitor.kind),
+            tcp_port: monitor
+                .tcp_port
+                .map(|p| i16::try_from(p).expect("tcp_port exceeds i16 capacity")),
+            dns_record_type: monitor.dns_record_type.clone(),
+            dns_expected_value: monitor.dns_expected_value.clone(),
+            heartbeat_token: monitor
+                .heartbeat_token
+                .as_ref()
+                .map(|t| t.as_str().to_owned()),
+            heartbeat_interval_seconds: monitor.heartbeat_interval_seconds.map(|v| {
+                i32::try_from(v).expect("heartbeat_interval_seconds exceeds i32 capacity")
+            }),
+            heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds.map(|v| {
+                i32::try_from(v).expect("heartbeat_grace_period_seconds exceeds i32 capacity")
+            }),
+            last_heartbeat_at: monitor.last_heartbeat_at,
             created_at: monitor.created_at,
             updated_at: monitor.updated_at,
-        }
+        })
     }
 
     fn into_domain(self, assertions: Vec<Assertion>) -> RepoResult<Monitor> {
         let method = method_from_db(&self.method)?;
+        let kind = kind_from_db(&self.kind)?;
 
         let regions = self
             .regions
@@ -102,9 +134,15 @@ impl MonitorRow {
             .map(|r| RegionCode::new(r.clone()))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let heartbeat_token = self
+            .heartbeat_token
+            .map(domain::HeartbeatToken::new)
+            .transpose()?;
+
         Ok(Monitor {
             id: MonitorId(self.id),
             user_id: UserId(self.user_id),
+            tenant_id: TenantId(self.tenant_id),
             regions,
             name: MonitorName::new(self.name)?,
             url: Url::new(self.url)?.as_str().to_owned(),
@@ -116,6 +154,14 @@ impl MonitorRow {
             is_public: self.is_public,
             ssl_check_enabled: self.ssl_check_enabled,
             ssl_expiry_warning_days: self.ssl_expiry_warning_days.try_into()?,
+            kind,
+            tcp_port: self.tcp_port.map(|p| p as u16),
+            dns_record_type: self.dns_record_type,
+            dns_expected_value: self.dns_expected_value,
+            heartbeat_token,
+            heartbeat_interval_seconds: self.heartbeat_interval_seconds.map(|v| v as u32),
+            heartbeat_grace_period_seconds: self.heartbeat_grace_period_seconds.map(|v| v as u32),
+            last_heartbeat_at: self.last_heartbeat_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
             assertions,
@@ -149,6 +195,25 @@ fn method_from_db(value: &str) -> RepoResult<HttpMethod> {
         "GET" => Ok(HttpMethod::Get),
         "HEAD" => Ok(HttpMethod::Head),
         other => Err(format!("unsupported http method in database: {other}").into()),
+    }
+}
+
+fn kind_to_db(kind: MonitorKind) -> String {
+    match kind {
+        MonitorKind::Http => "http".to_string(),
+        MonitorKind::Tcp => "tcp".to_string(),
+        MonitorKind::Dns => "dns".to_string(),
+        MonitorKind::Heartbeat => "heartbeat".to_string(),
+    }
+}
+
+fn kind_from_db(value: &str) -> RepoResult<MonitorKind> {
+    match value {
+        "http" => Ok(MonitorKind::Http),
+        "tcp" => Ok(MonitorKind::Tcp),
+        "dns" => Ok(MonitorKind::Dns),
+        "heartbeat" => Ok(MonitorKind::Heartbeat),
+        other => Err(format!("unsupported monitor kind in database: {other}").into()),
     }
 }
 
@@ -229,7 +294,7 @@ fn operator_from_db(value: &str) -> RepoResult<AssertionOperator> {
 #[async_trait]
 impl MonitorRepository for PostgresMonitorRepository {
     async fn save(&self, monitor: &Monitor) -> RepoResult<()> {
-        let row = MonitorRow::from_domain(monitor);
+        let row = MonitorRow::from_domain(monitor)?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -238,6 +303,7 @@ impl MonitorRepository for PostgresMonitorRepository {
             INSERT INTO monitors (
                 id,
                 user_id,
+                tenant_id,
                 regions,
                 name,
                 url,
@@ -248,12 +314,21 @@ impl MonitorRepository for PostgresMonitorRepository {
                 enabled,
                 ssl_check_enabled,
                 ssl_expiry_warning_days,
+                kind,
+                tcp_port,
+                dns_record_type,
+                dns_expected_value,
+                heartbeat_token,
+                heartbeat_interval_seconds,
+                heartbeat_grace_period_seconds,
+                last_heartbeat_at,
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
             ON CONFLICT (id) DO UPDATE SET
                 user_id = EXCLUDED.user_id,
+                tenant_id = EXCLUDED.tenant_id,
                 regions = EXCLUDED.regions,
                 name = EXCLUDED.name,
                 url = EXCLUDED.url,
@@ -264,11 +339,20 @@ impl MonitorRepository for PostgresMonitorRepository {
                 enabled = EXCLUDED.enabled,
                 ssl_check_enabled = EXCLUDED.ssl_check_enabled,
                 ssl_expiry_warning_days = EXCLUDED.ssl_expiry_warning_days,
+                kind = EXCLUDED.kind,
+                tcp_port = EXCLUDED.tcp_port,
+                dns_record_type = EXCLUDED.dns_record_type,
+                dns_expected_value = EXCLUDED.dns_expected_value,
+                heartbeat_token = EXCLUDED.heartbeat_token,
+                heartbeat_interval_seconds = EXCLUDED.heartbeat_interval_seconds,
+                heartbeat_grace_period_seconds = EXCLUDED.heartbeat_grace_period_seconds,
+                last_heartbeat_at = EXCLUDED.last_heartbeat_at,
                 updated_at = EXCLUDED.updated_at
             "#,
         )
         .bind(row.id)
         .bind(row.user_id)
+        .bind(row.tenant_id)
         .bind(row.regions)
         .bind(row.name)
         .bind(row.url)
@@ -279,6 +363,14 @@ impl MonitorRepository for PostgresMonitorRepository {
         .bind(row.enabled)
         .bind(row.ssl_check_enabled)
         .bind(row.ssl_expiry_warning_days)
+        .bind(row.kind)
+        .bind(row.tcp_port)
+        .bind(row.dns_record_type)
+        .bind(row.dns_expected_value)
+        .bind(row.heartbeat_token)
+        .bind(row.heartbeat_interval_seconds)
+        .bind(row.heartbeat_grace_period_seconds)
+        .bind(row.last_heartbeat_at)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&mut *tx)
@@ -334,31 +426,11 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_by_id(&self, id: MonitorId) -> RepoResult<Option<Monitor>> {
-        let row = sqlx::query_as::<_, MonitorRow>(
-            r#"
-            SELECT
-                id,
-                user_id,
-                regions,
-                name,
-                url,
-                method,
-                expected_status,
-                interval_seconds,
-                timeout_seconds,
-                enabled,
-                is_public,
-                ssl_check_enabled,
-                ssl_expiry_warning_days,
-                created_at,
-                updated_at
-            FROM monitors
-            WHERE id = $1
-            "#,
-        )
-        .bind(id.0)
-        .fetch_optional(&self.pool)
-        .await?;
+        let query = format!("SELECT {MONITOR_COLUMNS} FROM monitors WHERE id = $1");
+        let row = sqlx::query_as::<_, MonitorRow>(&query)
+            .bind(id.0)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let Some(row) = row else {
             return Ok(None);
@@ -394,30 +466,10 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_all(&self) -> RepoResult<Vec<Monitor>> {
-        let monitor_rows = sqlx::query_as::<_, MonitorRow>(
-            r#"
-            SELECT
-                id,
-                user_id,
-                regions,
-                name,
-                url,
-                method,
-                expected_status,
-                interval_seconds,
-                timeout_seconds,
-                enabled,
-                is_public,
-                ssl_check_enabled,
-                ssl_expiry_warning_days,
-                created_at,
-                updated_at
-            FROM monitors
-            ORDER BY created_at DESC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let query = format!("SELECT {MONITOR_COLUMNS} FROM monitors ORDER BY created_at DESC");
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>(&query)
+            .fetch_all(&self.pool)
+            .await?;
 
         if monitor_rows.is_empty() {
             return Ok(Vec::new());
@@ -469,8 +521,13 @@ impl MonitorRepository for PostgresMonitorRepository {
         id: MonitorId,
         user_id: UserId,
     ) -> RepoResult<Option<Monitor>> {
-        let row = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE id = $1 AND user_id = $2")
-            .bind(id.0).bind(user_id.0).fetch_optional(&self.pool).await?;
+        let query =
+            format!("SELECT {MONITOR_COLUMNS} FROM monitors WHERE id = $1 AND user_id = $2");
+        let row = sqlx::query_as::<_, MonitorRow>(&query)
+            .bind(id.0)
+            .bind(user_id.0)
+            .fetch_optional(&self.pool)
+            .await?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -484,8 +541,13 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<Monitor>> {
-        let monitor_rows = sqlx::query_as::<_, MonitorRow>("SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at FROM monitors WHERE user_id = $1 ORDER BY created_at DESC")
-            .bind(user_id.0).fetch_all(&self.pool).await?;
+        let query = format!(
+            "SELECT {MONITOR_COLUMNS} FROM monitors WHERE user_id = $1 ORDER BY created_at DESC"
+        );
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>(&query)
+            .bind(user_id.0)
+            .fetch_all(&self.pool)
+            .await?;
         if monitor_rows.is_empty() {
             return Ok(Vec::new());
         }
@@ -518,13 +580,12 @@ impl MonitorRepository for PostgresMonitorRepository {
         // Yana dawo da monitors da `is_public = true` KAWAI. Ba mu bukatar
         // assertions a nan domin sabis din public baya bukatar bayanan cikin
         // gida na assertion rules.
-        let monitor_rows = sqlx::query_as::<_, MonitorRow>(
-            "SELECT id, user_id, regions, name, url, method, expected_status, interval_seconds, \
-             timeout_seconds, enabled, is_public, ssl_check_enabled, ssl_expiry_warning_days, created_at, updated_at \
-             FROM monitors WHERE is_public = true ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let query = format!(
+            "SELECT {MONITOR_COLUMNS} FROM monitors WHERE is_public = true ORDER BY created_at DESC"
+        );
+        let monitor_rows = sqlx::query_as::<_, MonitorRow>(&query)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut monitors = Vec::with_capacity(monitor_rows.len());
         for row in monitor_rows {
@@ -546,5 +607,59 @@ impl MonitorRepository for PostgresMonitorRepository {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_by_heartbeat_token(&self, token: &str) -> RepoResult<Option<Monitor>> {
+        let query = format!("SELECT {MONITOR_COLUMNS} FROM monitors WHERE heartbeat_token = $1");
+        let row = sqlx::query_as::<_, MonitorRow>(&query)
+            .bind(token)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let assertion_rows = sqlx::query_as::<_, AssertionRow>(
+            r#"
+            SELECT
+                id,
+                monitor_id,
+                position,
+                response_part,
+                operator,
+                target,
+                expected_value,
+                created_at,
+                updated_at
+            FROM monitor_assertions
+            WHERE monitor_id = $1
+            ORDER BY position
+            "#,
+        )
+        .bind(row.id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let assertions = assertion_rows
+            .into_iter()
+            .map(AssertionRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Some(row.into_domain(assertions)?))
+    }
+
+    async fn update_last_heartbeat_at(
+        &self,
+        id: MonitorId,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> RepoResult<()> {
+        sqlx::query("UPDATE monitors SET last_heartbeat_at = $2, updated_at = $2 WHERE id = $1")
+            .bind(id.0)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
     }
 }

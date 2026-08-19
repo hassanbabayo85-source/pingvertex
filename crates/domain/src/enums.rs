@@ -50,3 +50,7 @@ pub mod proxy_scheme;
 pub use proxy_scheme::ProxyScheme;
 pub mod anonymity_level;
 pub use anonymity_level::AnonymityLevel;
+pub mod monitor_kind;
+pub use monitor_kind::MonitorKind;
+pub mod audit_action;
+pub use audit_action::AuditAction;

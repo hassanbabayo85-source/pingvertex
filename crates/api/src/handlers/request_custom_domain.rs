@@ -5,7 +5,7 @@ use axum::{
 use tracing::info;
 
 use application::{commands::RequestCustomDomain, use_cases::RequestCustomDomainUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
@@ -14,14 +14,9 @@ use crate::{
     validation::parse_status_page_id,
 };
 
-/// Begins the custom-domain verification flow for a status page.
-///
-/// Always leaves the domain in a `Pending` state — see
-/// `RequestCustomDomainUseCase` and `StatusPage::request_custom_domain`
-/// for why this handler must never mark a domain verified itself.
 pub async fn request_custom_domain(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
     Json(payload): Json<CustomDomainRequestBody>,
 ) -> Result<Json<StatusPageResponse>, ApiError> {
@@ -31,14 +26,16 @@ pub async fn request_custom_domain(
 
     let command = RequestCustomDomain {
         id,
-        user_id,
         domain: payload.domain,
     };
 
-    let use_case = RequestCustomDomainUseCase::new(state.status_page_repository.clone());
+    let use_case = RequestCustomDomainUseCase::new(
+        state.status_page_repository.clone(),
+        state.audit_log_entry_repository.clone(),
+    );
 
     let status_page = use_case
-        .execute(command)
+        .execute(command, authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to request custom domain", err))?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;

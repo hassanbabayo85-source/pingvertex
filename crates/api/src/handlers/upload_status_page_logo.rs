@@ -8,7 +8,7 @@ use application::{
     commands::UploadStatusPageLogo,
     use_cases::{UploadStatusPageLogoError, UploadStatusPageLogoUseCase},
 };
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError, handlers::types::StatusPageResponse, state::AppState,
@@ -17,7 +17,7 @@ use crate::{
 
 pub async fn upload_status_page_logo(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<Json<StatusPageResponse>, ApiError> {
@@ -43,23 +43,19 @@ pub async fn upload_status_page_logo(
     let use_case = UploadStatusPageLogoUseCase::new(
         state.status_page_repository.clone(),
         state.logo_storage.clone(),
+        state.audit_log_entry_repository.clone(),
     );
 
     let status_page = use_case
-        .execute(UploadStatusPageLogo {
-            id,
-            user_id,
-            data: data.to_vec(),
-        })
+        .execute(
+            UploadStatusPageLogo {
+                id,
+                data: data.to_vec(),
+            },
+            authenticated_user,
+        )
         .await
         .map_err(|err| match err {
-            // The client's fault (wrong file type, too large, empty,
-            // corrupt) — say so plainly instead of a generic 500. Uses
-            // DomainError's own `#[error("...")]` message, which is
-            // already written to be a safe, specific, user-facing string
-            // (e.g. "logo image exceeds the maximum size of 500KB") —
-            // unlike a raw storage/DB error, there's nothing internal to
-            // hide here.
             UploadStatusPageLogoError::InvalidLogo(domain_err) => {
                 ApiError::bad_request(domain_err.to_string())
             }

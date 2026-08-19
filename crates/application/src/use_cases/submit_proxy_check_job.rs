@@ -1,40 +1,26 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
+use serde_json::json;
 
 use crate::{
     dto::CreateProxyCheckJobRequest,
-    ports::{IdGenerator, ProxyCheckJobRepository},
+    ports::{AuditLogEntryRepository, IdGenerator, ProxyCheckJobRepository},
 };
-use domain::{DomainError, ProxyCheckJob, ProxyCredentials, ProxyEntry, ProxyHost};
+use domain::shared::policies::OwnershipPolicy;
+use domain::shared::types::AuthenticatedUser;
+use domain::{
+    AuditAction, AuditLogEntry, AuditLogEntryId, DomainError, ProxyCheckJob, ProxyCredentials,
+    ProxyEntry, ProxyHost,
+};
 
-/// Hard cap on the number of proxy-check jobs a single user may submit
-/// per calendar day (UTC).
-///
-/// Without this limit a single account could submit an unbounded number
-/// of bulk proxy-check jobs — each carrying up to `MAX_ENTRIES_PER_JOB`
-/// (500) entries — causing unbounded worker load. The count resets at
-/// UTC midnight because `ProxyCheckJob::created_at` is stored in UTC and
-/// `ProxyCheckJobRepository::find_jobs_by_user_id` has no date-range
-/// filtering of its own (see `idx_proxy_check_jobs_user_id_created_at`,
-/// which this use case's quota check relies on for performance), so
-/// "today" is computed by comparing each job's `created_at` date against
-/// `Utc::now()`'s date rather than by a dedicated query.
 pub const MAX_JOBS_PER_USER_PER_DAY: usize = 5;
 
 #[derive(Debug)]
 pub enum SubmitProxyCheckJobError {
-    /// The user has already submitted `MAX_JOBS_PER_USER_PER_DAY` jobs
-    /// today (UTC).
     QuotaExceeded { limit: usize },
-    /// The request itself was malformed in a way that never needs to
-    /// reach the domain layer (e.g. an empty entry list).
     InvalidInput(String),
-    /// A domain invariant was violated while constructing the job or one
-    /// of its entries (e.g. too many entries, a disallowed proxy port, a
-    /// private/reserved proxy host).
     DomainError(DomainError),
-    /// The repository failed to read or persist data.
     RepoError(Box<dyn Error + Send + Sync>),
 }
 
@@ -63,25 +49,10 @@ impl Error for SubmitProxyCheckJobError {
     }
 }
 
-/// Submits a new bulk proxy-check job on behalf of a user.
-///
-/// Takes `CreateProxyCheckJobRequest.entries` (already-parsed
-/// `ProxyEntryInput`s — this use case does not parse raw CSV/JSON; that
-/// is an API-layer concern handled by `parsing::proxy_list_parser`
-/// before this use case is ever called), enforces the per-user daily
-/// quota, builds the `ProxyCheckJob` and its `ProxyEntry` children as
-/// domain entities, and persists them together via
-/// `ProxyCheckJobRepository::save_job`.
-///
-/// Credential encryption is NOT performed here: `ProxyEntry` holds
-/// plaintext `ProxyCredentials`, and encryption happens transparently at
-/// the persistence boundary inside `ProxyCheckJobRepository::save_job`
-/// (see `PostgresProxyCheckJobRepository`, which owns a
-/// `ProxyCredentialCipher` for exactly this reason). This use case is
-/// therefore not generic over a cipher and has only two dependencies.
 pub struct SubmitProxyCheckJobUseCase<R, G> {
     repository: R,
     id_generator: G,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl<R, G> SubmitProxyCheckJobUseCase<R, G>
@@ -89,36 +60,35 @@ where
     R: ProxyCheckJobRepository,
     G: IdGenerator,
 {
-    pub fn new(repository: R, id_generator: G) -> Self {
+    pub fn new(
+        repository: R,
+        id_generator: G,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
         Self {
             repository,
             id_generator,
+            audit_log_entry_repository,
         }
     }
 
     pub async fn execute(
         &self,
         request: CreateProxyCheckJobRequest,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<ProxyCheckJob, SubmitProxyCheckJobError> {
-        // Cheap, in-memory check done first — before any repository/database
-        // call — so an empty entries list is rejected without spending a
-        // database round-trip on it. `ProxyCheckJob::new` would also reject
-        // an empty list (as `DomainError::EmptyProxyEntries`), but checking
-        // here up front keeps `InvalidInput` available for request-shape
-        // problems that never need to reach the domain layer at all.
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
         if request.entries.is_empty() {
             return Err(SubmitProxyCheckJobError::InvalidInput(
                 "at least one proxy entry is required".to_string(),
             ));
         }
 
-        // Per-user daily quota check. `find_jobs_by_user_id` has no
-        // date-range filtering of its own, so "today" is computed here by
-        // comparing each returned job's `created_at` date (UTC) against
-        // today's date (UTC).
         let existing_jobs = self
             .repository
-            .find_jobs_by_user_id(request.user_id)
+            .find_jobs_by_user_id(user_id)
             .await
             .map_err(SubmitProxyCheckJobError::RepoError)?;
 
@@ -136,11 +106,15 @@ where
 
         let job_id = self.id_generator.next_proxy_check_job_id().await;
 
-        // `ProxyCheckJob::new` enforces the remaining invariants
-        // (non-zero entry count, `MAX_ENTRIES_PER_JOB` upper bound) that
-        // are not already covered by the `InvalidInput` check above.
-        let job = ProxyCheckJob::new(job_id, request.user_id, request.entries.len())
-            .map_err(SubmitProxyCheckJobError::DomainError)?;
+        let total_count = u32::try_from(request.entries.len())
+            .map_err(|_| SubmitProxyCheckJobError::InvalidInput("too many entries".to_string()))?;
+
+        let job = ProxyCheckJob::new(job_id, user_id, tenant_id, total_count);
+
+        debug_assert!(
+            OwnershipPolicy::can_access(&authenticated_user, &job),
+            "newly created proxy check job must be owned by the authenticated user"
+        );
 
         let mut entries = Vec::with_capacity(request.entries.len());
         for input in &request.entries {
@@ -149,9 +123,6 @@ where
             let host = ProxyHost::new(input.host.clone())
                 .map_err(SubmitProxyCheckJobError::DomainError)?;
 
-            // `ProxyCredentials::new` rejects a username/password pair
-            // that are both empty, so only construct it when at least one
-            // of the two was actually supplied.
             let credentials = match (&input.username, &input.password) {
                 (None, None) => None,
                 (username, password) => Some(
@@ -178,6 +149,22 @@ where
 
         self.repository
             .save_job(&job, &entries)
+            .await
+            .map_err(SubmitProxyCheckJobError::RepoError)?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::ProxyCheckJobCreated,
+            target_id: job.id().0.to_string(),
+            metadata: json!({
+                "total_count": job.total_count(),
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository
+            .create(&entry)
             .await
             .map_err(SubmitProxyCheckJobError::RepoError)?;
 

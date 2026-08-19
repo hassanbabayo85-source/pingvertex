@@ -11,35 +11,25 @@ use application::{
     commands::CreateEscalationPolicy,
     use_cases::{CreateEscalationPolicyError, CreateEscalationPolicyUseCase},
 };
-use domain::{shared::ids::UserId, EscalationStep};
+use domain::{shared::types::AuthenticatedUser, EscalationStep};
 
 use crate::{
     error::ApiError, handlers::feature_types::CreateEscalationPolicyRequest, state::AppState,
     validation::parse_notification_channel_id,
 };
 
-/// Creates an escalation policy.
-///
-/// `POST /api/v1/escalation-policies`
-///
-/// The request may include `monitor_id` to create a monitor-specific
-/// policy, or omit it to create a global policy for the user. All
-/// channels referenced in the steps must exist and belong to the user
-/// (and, for monitor-specific policies, to that monitor).
 pub async fn create_escalation_policy(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(payload): Json<CreateEscalationPolicyRequest>,
 ) -> Result<(StatusCode, Json<domain::EscalationPolicy>), ApiError> {
     info!("API: create_escalation_policy");
 
-    // Parse optional monitor id
     let monitor_id = match payload.monitor_id {
         Some(raw) => Some(crate::validation::parse_monitor_id(&raw)?),
         None => None,
     };
 
-    // Parse steps
     let mut steps = Vec::with_capacity(payload.steps.len());
     for step_input in payload.steps {
         let channel_id = parse_notification_channel_id(&step_input.channel_id)?;
@@ -54,14 +44,14 @@ pub async fn create_escalation_policy(
         state.notification_channel_repository.clone(),
         state.escalation_policy_repository.clone(),
         Arc::new(state.id_generator.clone()),
+        state.audit_log_entry_repository.clone(),
     );
 
     let policy = use_case
-        .execute(CreateEscalationPolicy {
-            user_id,
-            monitor_id,
-            steps,
-        })
+        .execute(
+            CreateEscalationPolicy { monitor_id, steps },
+            authenticated_user,
+        )
         .await
         .map_err(|err| match err {
             CreateEscalationPolicyError::MonitorNotFound => {

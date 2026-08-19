@@ -1,3 +1,6 @@
+mod common;
+use common::*;
+
 use application::{
     commands::UploadStatusPageLogo, ports::StatusPageRepository,
     use_cases::UploadStatusPageLogoUseCase,
@@ -9,10 +12,11 @@ use domain::{
 };
 use infra::{InMemoryLogoStorage, InMemoryStatusPageRepository};
 
-fn sample_page(user_id: UserId) -> StatusPage {
+fn sample_page(user_id: UserId, tenant_id: domain::TenantId) -> StatusPage {
     StatusPage::create(CreateStatusPage {
         id: StatusPageId::new(),
         user_id,
+        tenant_id,
         name: "Acme Status".to_string(),
         subdomain: Subdomain::new("acme").unwrap(),
         monitor_ids: vec![],
@@ -25,18 +29,22 @@ async fn uploads_valid_png_and_updates_status_page() {
     let repo = InMemoryStatusPageRepository::new();
     let storage = InMemoryLogoStorage::new();
     let user_id = UserId::new();
-    let page = sample_page(user_id);
+    let tid = tenant_id();
+    let page = sample_page(user_id, tid);
     repo.save(&page).await.unwrap();
 
-    let use_case = UploadStatusPageLogoUseCase::new(repo.clone(), storage.clone());
+    let use_case =
+        UploadStatusPageLogoUseCase::new(repo.clone(), storage.clone(), new_audit_repo());
     let png = b"\x89PNG\r\n\x1a\n".to_vec();
 
     let updated = use_case
-        .execute(UploadStatusPageLogo {
-            id: page.id,
-            user_id,
-            data: png,
-        })
+        .execute(
+            UploadStatusPageLogo {
+                id: page.id,
+                data: png,
+            },
+            auth_user(user_id, tid),
+        )
         .await
         .unwrap()
         .expect("status page should exist and logo should upload");
@@ -59,17 +67,21 @@ async fn returns_none_when_caller_does_not_own_status_page() {
     let storage = InMemoryLogoStorage::new();
     let owner = UserId::new();
     let attacker = UserId::new();
-    let page = sample_page(owner);
+    let tid = tenant_id();
+    let page = sample_page(owner, tid);
     repo.save(&page).await.unwrap();
 
-    let use_case = UploadStatusPageLogoUseCase::new(repo.clone(), storage.clone());
+    let use_case =
+        UploadStatusPageLogoUseCase::new(repo.clone(), storage.clone(), new_audit_repo());
 
     let result = use_case
-        .execute(UploadStatusPageLogo {
-            id: page.id,
-            user_id: attacker,
-            data: b"\x89PNG\r\n\x1a\n".to_vec(),
-        })
+        .execute(
+            UploadStatusPageLogo {
+                id: page.id,
+                data: b"\x89PNG\r\n\x1a\n".to_vec(),
+            },
+            auth_user(attacker, tid),
+        )
         .await
         .unwrap();
 

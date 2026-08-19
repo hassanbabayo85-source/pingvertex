@@ -3,7 +3,7 @@ use std::error::Error;
 use application::ports::StatusPageRepository;
 use async_trait::async_trait;
 use domain::entities::{CreateStatusPage, CustomDomainVerification, StatusPage};
-use domain::shared::ids::{MonitorId, StatusPageId, UserId};
+use domain::shared::ids::{MonitorId, StatusPageId, TenantId, UserId};
 use domain::value_objects::{CustomDomain, HexColor, Subdomain};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
@@ -26,6 +26,7 @@ impl PostgresStatusPageRepository {
 struct StatusPageRow {
     id: Uuid,
     user_id: Uuid,
+    tenant_id: Uuid,
     name: String,
     subdomain: String,
     custom_domain: Option<String>,
@@ -78,6 +79,7 @@ impl StatusPageRow {
         Ok(Self {
             id: page.id.0,
             user_id: page.user_id.0,
+            tenant_id: page.tenant_id.0,
             name: page.name.clone(),
             subdomain: page.subdomain.as_str().to_owned(),
             custom_domain,
@@ -130,6 +132,7 @@ impl StatusPageRow {
         let mut page = StatusPage::create(CreateStatusPage {
             id: StatusPageId(self.id),
             user_id: UserId(self.user_id),
+            tenant_id: TenantId(self.tenant_id),
             name: self.name,
             subdomain,
             monitor_ids,
@@ -159,6 +162,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
             INSERT INTO status_pages (
                 id,
                 user_id,
+                tenant_id,
                 name,
                 subdomain,
                 custom_domain,
@@ -171,11 +175,12 @@ impl StatusPageRepository for PostgresStatusPageRepository {
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             "#,
         )
         .bind(row.id)
         .bind(row.user_id)
+        .bind(row.tenant_id)
         .bind(row.name)
         .bind(row.subdomain)
         .bind(row.custom_domain)
@@ -245,7 +250,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         user_id: UserId,
     ) -> RepoResult<Option<StatusPage>> {
         let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, name, subdomain, custom_domain, custom_domain_token, \
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
              custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
              monitor_ids, created_at, updated_at \
              FROM status_pages WHERE id = $1 AND user_id = $2",
@@ -260,7 +265,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>> {
         let rows = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, name, subdomain, custom_domain, custom_domain_token, \
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
              custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
              monitor_ids, created_at, updated_at \
              FROM status_pages WHERE user_id = $1 ORDER BY created_at DESC",
@@ -277,7 +282,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     /// more than the single intended status page.
     async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {
         let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, name, subdomain, custom_domain, custom_domain_token, \
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
              custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
              monitor_ids, created_at, updated_at \
              FROM status_pages WHERE subdomain = $1",
@@ -299,7 +304,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         custom_domain: &str,
     ) -> RepoResult<Option<StatusPage>> {
         let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, name, subdomain, custom_domain, custom_domain_token, \
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
              custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
              monitor_ids, created_at, updated_at \
              FROM status_pages \
@@ -317,7 +322,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     /// of the whole deployment, not any single caller.
     async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
         let rows = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, name, subdomain, custom_domain, custom_domain_token, \
+            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
              custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
              monitor_ids, created_at, updated_at \
              FROM status_pages \

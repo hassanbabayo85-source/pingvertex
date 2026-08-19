@@ -39,3 +39,6 @@ pub use maintenance_window_id::MaintenanceWindowId;
 
 pub mod status_page_id;
 pub use status_page_id::StatusPageId;
+
+pub mod audit_log_entry_id;
+pub use audit_log_entry_id::AuditLogEntryId;

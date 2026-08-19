@@ -39,3 +39,12 @@ pub use maintenance_window::MaintenanceWindow;
 
 mod status_page;
 pub use status_page::*;
+
+mod tenant;
+pub use tenant::Tenant;
+
+mod tenant_membership;
+pub use tenant_membership::TenantMembership;
+
+mod audit_log_entry;
+pub use audit_log_entry::AuditLogEntry;

@@ -16,3 +16,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 uuid.workspace = true
 shared = { path = "../shared" }
 domain = { path = "../domain" }
+maxminddb = "0.30.0"

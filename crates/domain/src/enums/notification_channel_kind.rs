@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 pub enum NotificationChannelKind {
     Email,
     Webhook,
+    Slack,
+    Discord,
+    Telegram,
+    Sms,
 }
 
 impl std::fmt::Display for NotificationChannelKind {
@@ -18,6 +22,10 @@ impl std::fmt::Display for NotificationChannelKind {
         match self {
             Self::Email => write!(f, "email"),
             Self::Webhook => write!(f, "webhook"),
+            Self::Slack => write!(f, "slack"),
+            Self::Discord => write!(f, "discord"),
+            Self::Telegram => write!(f, "telegram"),
+            Self::Sms => write!(f, "sms"),
         }
     }
 }

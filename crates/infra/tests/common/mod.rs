@@ -1,6 +1,6 @@
 use std::env;
 
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId, UserId};
 use domain::{
     Check, CheckInterval, CheckStatus, ErrorType, ExpectedStatus, HttpMethod, Incident, Monitor,
     MonitorBuilder, MonitorName, RegionCode, Timeout, Url,
@@ -37,22 +37,30 @@ async fn reset_database(pool: &PgPool) {
 
 pub async fn clear_tables(pool: &PgPool) {
     query(
-        "TRUNCATE TABLE status_pages, notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
+        "TRUNCATE TABLE audit_log, tenant_memberships, tenants, status_pages, notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
     )
     .execute(pool)
     .await
     .unwrap();
 }
 
-pub fn sample_monitor(name: &str, url: &str) -> Monitor {
-    MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
-        .name(MonitorName::new(name).unwrap())
-        .url(Url::new(url).unwrap())
-        .method(HttpMethod::Get)
-        .expected_status(ExpectedStatus::new(200).unwrap())
-        .interval(CheckInterval::new(60).unwrap())
-        .timeout(Timeout::new(10).unwrap())
-        .build()
+pub async fn sample_monitor(pool: &PgPool, name: &str, url: &str) -> Monitor {
+    let mut monitor = MonitorBuilder::new(
+        MonitorId(Uuid::new_v4()),
+        UserId(Uuid::new_v4()),
+        TenantId::new(),
+    )
+    .name(MonitorName::new(name).unwrap())
+    .url(Url::new(url).unwrap())
+    .method(HttpMethod::Get)
+    .expected_status(ExpectedStatus::new(200).unwrap())
+    .interval(CheckInterval::new(60).unwrap())
+    .timeout(Timeout::new(10).unwrap())
+    .build();
+
+    let tenant_id = insert_user(pool, monitor.user_id).await;
+    monitor.tenant_id = tenant_id;
+    monitor
 }
 
 /// Inserts a minimal, valid row into `users` for `user_id`.
@@ -67,7 +75,42 @@ pub fn sample_monitor(name: &str, url: &str) -> Monitor {
 /// `email` is derived from `user_id` so it's unique per call even when a
 /// test creates more than one user (e.g. an "owner" and an "attacker").
 #[allow(dead_code)]
-pub async fn insert_user(pool: &PgPool, user_id: UserId) {
+pub async fn insert_tenant_for_user(pool: &PgPool, user_id: UserId) -> TenantId {
+    let tenant_id = TenantId::new();
+    let name = format!("Tenant {}", user_id.0);
+
+    query(
+        r#"
+        INSERT INTO tenants (id, name, owner_user_id, created_at)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(tenant_id.0)
+    .bind(name)
+    .bind(user_id.0)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    query(
+        r#"
+        INSERT INTO tenant_memberships (tenant_id, user_id, role, invited_at, joined_at)
+        VALUES ($1, $2, 'Owner', NOW(), NOW())
+        ON CONFLICT (tenant_id, user_id) DO NOTHING
+        "#,
+    )
+    .bind(tenant_id.0)
+    .bind(user_id.0)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    tenant_id
+}
+
+#[allow(dead_code)]
+pub async fn insert_user(pool: &PgPool, user_id: UserId) -> TenantId {
     let email = format!("{}@example.test", user_id.0);
 
     query(
@@ -82,6 +125,8 @@ pub async fn insert_user(pool: &PgPool, user_id: UserId) {
     .execute(pool)
     .await
     .unwrap();
+
+    insert_tenant_for_user(pool, user_id).await
 }
 
 /// Convenience: builds a monitor AND inserts the matching `users` row for
@@ -89,9 +134,7 @@ pub async fn insert_user(pool: &PgPool, user_id: UserId) {
 /// separately every time.
 #[allow(dead_code)]
 pub async fn sample_monitor_with_user(pool: &PgPool, name: &str, url: &str) -> Monitor {
-    let monitor = sample_monitor(name, url);
-    insert_user(pool, monitor.user_id).await;
-    monitor
+    sample_monitor(pool, name, url).await
 }
 
 #[allow(dead_code)]
@@ -122,6 +165,7 @@ pub fn sample_status_page(
     domain::entities::StatusPage::create(domain::entities::CreateStatusPage {
         id: domain::shared::ids::StatusPageId::new(),
         user_id: pool_user_id,
+        tenant_id: TenantId::new(),
         name: name.to_string(),
         subdomain: domain::value_objects::Subdomain::new(subdomain).unwrap(),
         monitor_ids: vec![],
@@ -140,5 +184,8 @@ pub async fn sample_status_page_with_user(
 ) -> domain::entities::StatusPage {
     let user_id = UserId(Uuid::new_v4());
     insert_user(pool, user_id).await;
-    sample_status_page(user_id, name, subdomain)
+    let tenant_id = insert_tenant_for_user(pool, user_id).await;
+    let mut page = sample_status_page(user_id, name, subdomain);
+    page.tenant_id = tenant_id;
+    page
 }

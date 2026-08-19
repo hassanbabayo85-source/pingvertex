@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { AuthResponse } from "@/types/auth";
+import { logout as logoutRequest } from "@/lib/auth-api";
 import {
   clearTokens,
   isMarkedAuthenticated,
@@ -60,8 +61,17 @@ export function AuthProvider({
   }
 
   function logout() {
+    // Clear local UI state immediately so the user is kicked back to the
+    // login screen right away, then ask the server to clear the httpOnly
+    // access_token cookie. Previously this only cleared a localStorage
+    // flag — the cookie (and the JWT inside it) stayed valid until its
+    // 24h expiry, so "logout" on a shared machine didn't actually log
+    // anyone out. Errors here are swallowed on purpose: even if the
+    // network call fails, the user must not be left stuck on a "logout"
+    // action that appears to do nothing.
     clearTokens();
     setSessionState(null);
+    void logoutRequest().catch(() => {});
   }
 
   const value = useMemo<AuthContextValue>(

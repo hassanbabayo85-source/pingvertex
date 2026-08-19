@@ -12,7 +12,19 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub trait MaintenanceWindowRepository: Send + Sync {
     async fn create(&self, window: &MaintenanceWindow) -> RepoResult<()>;
 
-    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool>;
+    /// Deletes a maintenance window, but only if it belongs (via its
+    /// monitor) to `user_id`. Mirrors the `delete_for_user` pattern used
+    /// everywhere else in this codebase (see
+    /// `NotificationChannelRepository::delete_for_user`,
+    /// `MonitorRepository::delete`) — ownership is enforced in the SQL
+    /// `WHERE` clause itself, not left to callers to check first, so a
+    /// future handler built on top of this can't accidentally introduce
+    /// an IDOR by forgetting an ownership check. Returns `false` (not an
+    /// error) both when the window doesn't exist AND when it exists but
+    /// belongs to someone else — the two cases are indistinguishable to
+    /// the caller on purpose, so a 404 never confirms "that id belongs to
+    /// another user".
+    async fn delete_for_user(&self, id: MaintenanceWindowId, user_id: UserId) -> RepoResult<bool>;
 
     async fn find_by_id_for_user(
         &self,
@@ -44,8 +56,8 @@ where
         (**self).create(window).await
     }
 
-    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool> {
-        (**self).delete(id).await
+    async fn delete_for_user(&self, id: MaintenanceWindowId, user_id: UserId) -> RepoResult<bool> {
+        (**self).delete_for_user(id, user_id).await
     }
 
     async fn find_by_id_for_user(

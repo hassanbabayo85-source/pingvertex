@@ -37,6 +37,7 @@ struct SubmitResultRequest {
     status_code: Option<u16>,
     latency_ms: u128,
     error: Option<String>,
+    country_code: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -103,7 +104,8 @@ async fn submit_result(
             ErrorType::Unknown
         },
         payload.error,
-    );
+    )
+    .with_country_code(payload.country_code);
 
     state.check_repository.save(&check).await.map_err(|err| {
         ApiError::internal_with_source("failed to persist agent check result", err)

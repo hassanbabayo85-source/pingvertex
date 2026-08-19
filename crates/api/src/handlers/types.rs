@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use domain::entities::NotificationChannel;
 use domain::enums::NotificationChannelKind;
 use domain::shared::ids::UserId;
-use domain::{Check, CheckStatus, ErrorType, HttpMethod, Incident, Monitor};
+use domain::{Check, CheckStatus, ErrorType, HttpMethod, Incident, Monitor, MonitorKind};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,6 +22,13 @@ pub struct MonitorResponse {
     pub is_public: bool,
     pub ssl_check_enabled: bool,
     pub ssl_expiry_warning_days: u32,
+    pub kind: MonitorKind,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -41,8 +48,43 @@ impl From<Monitor> for MonitorResponse {
             is_public: monitor.is_public,
             ssl_check_enabled: monitor.ssl_check_enabled,
             ssl_expiry_warning_days: monitor.ssl_expiry_warning_days,
+            kind: monitor.kind,
+            tcp_port: monitor.tcp_port,
+            dns_record_type: monitor.dns_record_type,
+            dns_expected_value: monitor.dns_expected_value,
+            heartbeat_interval_seconds: monitor.heartbeat_interval_seconds,
+            heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds,
+            last_heartbeat_at: monitor.last_heartbeat_at,
             created_at: monitor.created_at,
             updated_at: monitor.updated_at,
+        }
+    }
+}
+
+/// Returned ONLY by `POST /monitors` (create).
+///
+/// Carries the plaintext `heartbeat_token` for `MonitorKind::Heartbeat`
+/// monitors exactly once — same convention as
+/// `NotificationChannelCreateResponse`'s `signing_secret`. No other
+/// endpoint (list, get) ever returns it again; the caller must save it now.
+/// `None` for every monitor kind other than `Heartbeat`.
+#[derive(Debug, Clone, Serialize)]
+pub struct MonitorCreateResponse {
+    #[serde(flatten)]
+    pub monitor: MonitorResponse,
+    pub heartbeat_token: Option<String>,
+}
+
+impl MonitorCreateResponse {
+    pub fn from_created(monitor: Monitor) -> Self {
+        let heartbeat_token = monitor
+            .heartbeat_token
+            .as_ref()
+            .map(|token| token.as_str().to_owned());
+
+        Self {
+            monitor: MonitorResponse::from(monitor),
+            heartbeat_token,
         }
     }
 }
@@ -71,6 +113,26 @@ pub struct MonitorWriteRequest {
     /// be raised. Defaults to `14` if the client omits it.
     #[serde(default = "default_ssl_expiry_warning_days")]
     pub ssl_expiry_warning_days: u32,
+    /// The kind of check this monitor performs. Defaults to `Http` if the
+    /// client omits it, preserving backward compatibility with clients
+    /// written before `Tcp`/`Dns`/`Heartbeat` existed.
+    #[serde(default)]
+    pub kind: MonitorKind,
+    /// Required (and only meaningful) when `kind` is `Tcp`.
+    #[serde(default)]
+    pub tcp_port: Option<u16>,
+    /// Required (and only meaningful) when `kind` is `Dns`.
+    #[serde(default)]
+    pub dns_record_type: Option<String>,
+    /// Optional; only meaningful when `kind` is `Dns`.
+    #[serde(default)]
+    pub dns_expected_value: Option<String>,
+    /// Required (and only meaningful) when `kind` is `Heartbeat`.
+    #[serde(default)]
+    pub heartbeat_interval_seconds: Option<u32>,
+    /// Required (and only meaningful) when `kind` is `Heartbeat`.
+    #[serde(default)]
+    pub heartbeat_grace_period_seconds: Option<u32>,
 }
 
 fn default_ssl_check_enabled() -> bool {
@@ -165,6 +227,9 @@ impl PublicMonitorResponse {
 pub struct CreateNotificationChannelRequest {
     pub kind: NotificationChannelKind,
     pub target: String,
+    /// Required when `kind` is `telegram`; ignored for every other kind.
+    #[serde(default)]
+    pub chat_id: Option<String>,
 }
 
 /// JSON representation of a notification channel, as returned by the list
@@ -181,9 +246,12 @@ pub struct NotificationChannelResponse {
     pub kind: NotificationChannelKind,
     pub target: String,
     pub enabled: bool,
-    /// `true` for webhook channels (which always have a signing secret),
-    /// `false` for email channels. Lets a client show "signing secret
-    /// configured" in a UI without ever re-exposing the value itself.
+    /// `true` for webhook channels (which always have a signing secret,
+    /// held either encrypted in `encrypted_secret` for newer channels or,
+    /// for channels created before encryption-at-rest was added, in the
+    /// legacy plaintext `signing_secret` column), `false` for email
+    /// channels. Lets a client show "signing secret configured" in a UI
+    /// without ever re-exposing the value itself.
     pub has_signing_secret: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -197,7 +265,8 @@ impl From<NotificationChannel> for NotificationChannelResponse {
             kind: channel.kind,
             target: channel.target,
             enabled: channel.enabled,
-            has_signing_secret: channel.signing_secret.is_some(),
+            has_signing_secret: matches!(channel.kind, NotificationChannelKind::Webhook)
+                && (channel.signing_secret.is_some() || channel.encrypted_secret.is_some()),
             created_at: channel.created_at,
             updated_at: channel.updated_at,
         }

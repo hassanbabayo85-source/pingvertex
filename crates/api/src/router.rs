@@ -14,7 +14,8 @@ use crate::{
     auth_state::AuthState,
     metrics::metrics_handler,
     middleware::{
-        agent_auth::agent_auth, custom_domain_routing::custom_domain_routing, jwt_auth::jwt_auth,
+        agent_auth::agent_auth, agent_id_key_extractor::AgentIdKeyExtractor,
+        custom_domain_routing::custom_domain_routing, jwt_auth::jwt_auth,
         metrics::record_http_metrics,
     },
     routes::{
@@ -240,16 +241,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
-    // Internal agent routes: agent auth (not JWT), strict rate limit,
-    // and NO CORS layer because agents talk server-to-server.
-    // TODO: rate-limit internal agent routes separately, but for now
-    // leave them unthrottled. Agents poll every 5s and submit one result
-    // per monitor, so a generic IP-based GovernorLayer caused 429s under
-    // normal Docker networking conditions.
-    let internal_agent_routes = internal_agents::router()
-        .route_layer(axum::middleware::from_fn(agent_auth))
-        .with_state(app_state.clone());
-
     Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
@@ -263,7 +254,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/public", public_routes)
-        .nest("/internal/v1", internal_agent_routes)
         .layer(from_fn(record_http_metrics))
         .layer(
             TraceLayer::new_for_http()
@@ -278,6 +268,80 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .layer(cors_layer())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_SIZE))
         .layer(from_fn_with_state(app_state.clone(), custom_domain_routing))
+}
+
+/// Internal-agent mTLS router.
+///
+/// Serves ONLY `/internal/v1` (agent claim/submit endpoints), bound to a
+/// separate `axum_server::bind_rustls` + `MtlsAcceptor` listener (see
+/// `main.rs`), NOT the plain-HTTP `axum::serve` listener used by
+/// `build_router()`. This split exists because `axum_server` does not
+/// expose `ConnectInfo<SocketAddr>` (confirmed via source inspection of
+/// axum-server 0.8.0), which the OTHER routes' IP-keyed GovernorLayers
+/// depend on — migrating the whole server to `axum_server` would have
+/// broken those.
+///
+/// No CORS layer (agents talk server-to-server, not from a browser).
+///
+/// Rate limit is keyed by *agent ID* (AgentIdKeyExtractor), not peer
+/// IP — a generic IP-based GovernorLayer previously caused 429s under
+/// normal Docker networking conditions, because all agents ended up
+/// sharing the same (or an unstable) IP-derived bucket. Keying on
+/// agent ID gives each agent its own independent quota, so one noisy
+/// agent can't exhaust another agent's ability to claim/submit.
+///
+/// Sizing rationale (NOT a guess — derived from how claim_checks is
+/// actually implemented today): `claim_checks` has no "due check"
+/// filtering yet — it returns EVERY monitor matching the agent's
+/// region on EVERY poll (see routes/internal_agents.rs). At a
+/// realistic worst case of ~200 monitors in one region, one 5-second
+/// poll cycle = 1 claim + up to 200 submit_result calls = ~201
+/// requests / 5s ≈ 40 req/s sustained, per agent.
+///
+/// - burst_size 250: absorbs one full worst-case poll cycle (201
+///   requests) plus headroom, even if the previous cycle's tokens
+///   haven't fully replenished yet.
+/// - per_millisecond(20): refills 1 token every 20ms = 50 tokens/sec
+///   sustained, comfortably above the ~40 req/s worst case.
+///
+/// NOTE: if claim_checks later gains due-check filtering (returning
+/// only monitors actually due for a check, not every matching
+/// monitor every 5s), this quota can — and should — be tightened
+/// significantly, since the worst case computed above will shrink.
+///
+/// TraceLayer / record_http_metrics are re-applied here (deliberately,
+/// per explicit confirmation — this listener is on a separate `Router`
+/// from `build_router()`'s, so it does NOT inherit those layers
+/// automatically) to keep observability parity with the plain-HTTP
+/// listener: agent traffic should show up in the same request logs and
+/// `/metrics` counters as everything else.
+pub fn build_internal_agent_router(app_state: AppState) -> Router {
+    let internal_agent_routes = internal_agents::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .key_extractor(AgentIdKeyExtractor)
+                .per_millisecond(20)
+                .burst_size(250)
+                .use_headers()
+                .finish()
+                .expect("valid internal agent rate-limit configuration"),
+        ))
+        .route_layer(axum::middleware::from_fn(agent_auth))
+        .with_state(app_state.clone());
+
+    Router::new()
+        .nest("/internal/v1", internal_agent_routes)
+        .layer(from_fn(record_http_metrics))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_request(DefaultOnRequest::new().level(Level::INFO))
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Millis),
+                ),
+        )
 }
 
 /// Test router.

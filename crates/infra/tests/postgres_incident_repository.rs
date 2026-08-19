@@ -11,9 +11,9 @@ use serial_test::serial;
 async fn save_and_find_by_id_round_trips_incident() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let incident_repository = PostgresIncidentRepository::new(pool);
+    let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     monitor_repository.save(&monitor).await.unwrap();
 
     let incident = sample_incident(monitor.id);
@@ -41,9 +41,14 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
     // CONFLICT DO NOTHING) maimakon ya jefar da error ko ya ƙirƙiri kwafi.
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let incident_repository = PostgresIncidentRepository::new(pool);
+    let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Duplicate Guard", "https://duplicate-guard.example.com");
+    let monitor = sample_monitor(
+        &pool,
+        "Duplicate Guard",
+        "https://duplicate-guard.example.com",
+    )
+    .await;
     monitor_repository.save(&monitor).await.unwrap();
 
     let first_open = sample_incident(monitor.id);
@@ -82,9 +87,9 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
 async fn find_open_by_monitor_returns_only_unresolved_incident() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let incident_repository = PostgresIncidentRepository::new(pool);
+    let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     monitor_repository.save(&monitor).await.unwrap();
 
     let open = sample_incident(monitor.id);
@@ -109,9 +114,9 @@ async fn find_open_by_monitor_returns_only_unresolved_incident() {
 async fn update_persists_resolution() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let incident_repository = PostgresIncidentRepository::new(pool);
+    let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     monitor_repository.save(&monitor).await.unwrap();
 
     let mut incident = sample_incident(monitor.id);
@@ -135,10 +140,10 @@ async fn update_persists_resolution() {
 async fn list_by_monitor_returns_incidents_for_monitor() {
     let pool = setup_pool().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
-    let incident_repository = PostgresIncidentRepository::new(pool);
+    let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
-    let monitor_a = sample_monitor("Monitor A", "https://a.example.com");
-    let monitor_b = sample_monitor("Monitor B", "https://b.example.com");
+    let monitor_a = sample_monitor(&pool, "Monitor A", "https://a.example.com").await;
+    let monitor_b = sample_monitor(&pool, "Monitor B", "https://b.example.com").await;
     monitor_repository.save(&monitor_a).await.unwrap();
     monitor_repository.save(&monitor_b).await.unwrap();
 

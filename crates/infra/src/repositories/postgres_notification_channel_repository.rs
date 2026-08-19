@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use domain::{
     entities::NotificationChannel,
     enums::NotificationChannelKind,
-    shared::ids::{MonitorId, NotificationChannelId, UserId},
+    shared::ids::{MonitorId, NotificationChannelId, TenantId, UserId},
 };
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
@@ -34,9 +34,11 @@ struct NotificationChannelRow {
     id: Uuid,
     monitor_id: Uuid,
     user_id: Uuid,
+    tenant_id: Uuid,
     kind: String,
     target: String,
     signing_secret: Option<String>,
+    encrypted_secret: Option<Vec<u8>>,
     enabled: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -48,9 +50,11 @@ impl NotificationChannelRow {
             id: channel.id.0,
             monitor_id: channel.monitor_id.0,
             user_id: channel.user_id.0,
+            tenant_id: channel.tenant_id.0,
             kind: channel.kind.to_string(),
             target: channel.target.clone(),
             signing_secret: channel.signing_secret.clone(),
+            encrypted_secret: channel.encrypted_secret.clone(),
             enabled: channel.enabled,
             created_at: channel.created_at,
             updated_at: channel.updated_at,
@@ -61,6 +65,10 @@ impl NotificationChannelRow {
         let kind = match self.kind.as_str() {
             "email" => NotificationChannelKind::Email,
             "webhook" => NotificationChannelKind::Webhook,
+            "slack" => NotificationChannelKind::Slack,
+            "discord" => NotificationChannelKind::Discord,
+            "telegram" => NotificationChannelKind::Telegram,
+            "sms" => NotificationChannelKind::Sms,
             other => {
                 return Err(
                     format!("unknown notification_channels.kind '{other}' in database").into(),
@@ -72,9 +80,11 @@ impl NotificationChannelRow {
             id: NotificationChannelId(self.id),
             monitor_id: MonitorId(self.monitor_id),
             user_id: UserId(self.user_id),
+            tenant_id: TenantId(self.tenant_id),
             kind,
             target: self.target,
             signing_secret: self.signing_secret,
+            encrypted_secret: self.encrypted_secret,
             enabled: self.enabled,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -82,8 +92,7 @@ impl NotificationChannelRow {
     }
 }
 
-const SELECT_COLUMNS: &str =
-    "id, monitor_id, user_id, kind, target, signing_secret, enabled, created_at, updated_at";
+const SELECT_COLUMNS: &str = "id, monitor_id, user_id, tenant_id, kind, target, signing_secret, encrypted_secret, enabled, created_at, updated_at";
 
 #[async_trait]
 impl NotificationChannelRepository for PostgresNotificationChannelRepository {
@@ -93,17 +102,19 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
         sqlx::query(
             r#"
             INSERT INTO notification_channels (
-                id, monitor_id, user_id, kind, target, signing_secret, enabled, created_at, updated_at
+                id, monitor_id, user_id, tenant_id, kind, target, signing_secret, encrypted_secret, enabled, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(row.id)
         .bind(row.monitor_id)
         .bind(row.user_id)
+        .bind(row.tenant_id)
         .bind(row.kind)
         .bind(row.target)
         .bind(row.signing_secret)
+        .bind(row.encrypted_secret)
         .bind(row.enabled)
         .bind(row.created_at)
         .bind(row.updated_at)

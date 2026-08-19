@@ -9,9 +9,9 @@ use serial_test::serial;
 #[tokio::test]
 async fn save_and_find_by_id_round_trips_monitor() {
     let pool = setup_pool().await;
-    let repository = PostgresMonitorRepository::new(pool);
+    let repository = PostgresMonitorRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     repository.save(&monitor).await.unwrap();
 
     let found = repository.find_by_id(monitor.id).await.unwrap().unwrap();
@@ -31,9 +31,9 @@ async fn save_and_find_by_id_round_trips_monitor() {
 #[tokio::test]
 async fn update_persists_changes() {
     let pool = setup_pool().await;
-    let repository = PostgresMonitorRepository::new(pool);
+    let repository = PostgresMonitorRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Google", "https://google.com");
+    let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
     repository.save(&monitor).await.unwrap();
 
     let mut updated = monitor.clone();
@@ -59,10 +59,10 @@ async fn update_persists_changes() {
 #[tokio::test]
 async fn find_all_returns_saved_monitors() {
     let pool = setup_pool().await;
-    let repository = PostgresMonitorRepository::new(pool);
+    let repository = PostgresMonitorRepository::new(pool.clone());
 
-    let first = sample_monitor("Monitor 1", "https://example1.com");
-    let second = sample_monitor("Monitor 2", "https://example2.com");
+    let first = sample_monitor(&pool, "Monitor 1", "https://example1.com").await;
+    let second = sample_monitor(&pool, "Monitor 2", "https://example2.com").await;
 
     repository.save(&first).await.unwrap();
     repository.save(&second).await.unwrap();
@@ -82,9 +82,9 @@ async fn find_all_returns_saved_monitors() {
 #[tokio::test]
 async fn delete_removes_monitor() {
     let pool = setup_pool().await;
-    let repository = PostgresMonitorRepository::new(pool);
+    let repository = PostgresMonitorRepository::new(pool.clone());
 
-    let monitor = sample_monitor("Delete Me", "https://deleteme.com");
+    let monitor = sample_monitor(&pool, "Delete Me", "https://deleteme.com").await;
     repository.save(&monitor).await.unwrap();
 
     let deleted = repository.delete(monitor.id).await.unwrap();

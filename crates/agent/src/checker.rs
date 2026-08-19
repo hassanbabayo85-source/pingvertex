@@ -1,7 +1,9 @@
 use domain::{HttpMethod, Monitor, RegionCode};
+use maxminddb::{PathElement, Reader};
 use reqwest::Client;
 use serde::Serialize;
 use shared::ssrf::resolve_and_validate_destination;
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize)]
@@ -11,6 +13,21 @@ pub struct CheckOutcome {
     pub latency_ms: u128,
     pub error: Option<String>,
     pub region: String,
+    pub country_code: Option<String>,
+}
+
+/// Looks up the ISO country code for `ip` in the offline GeoIP database.
+/// Any failure (IP not found, decode error, etc.) degrades gracefully to `None`.
+fn lookup_country_code(geoip_reader: &Reader<Vec<u8>>, ip: IpAddr) -> Option<String> {
+    geoip_reader
+        .lookup(ip)
+        .ok()
+        .and_then(|result| {
+            result
+                .decode_path::<String>(&[PathElement::Key("country"), PathElement::Key("iso_code")])
+                .ok()
+        })
+        .flatten()
 }
 
 /// Executes a single HTTP check for a monitor from the given region.
@@ -18,7 +35,11 @@ pub struct CheckOutcome {
 /// SSRF protection uses `shared::ssrf::resolve_and_validate_destination`
 /// — the SAME validator worker uses — before every request. The returned
 /// `CheckOutcome` is serialized and submitted to the central API.
-pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutcome {
+pub async fn check_monitor(
+    monitor: &Monitor,
+    region: &RegionCode,
+    geoip_reader: &Reader<Vec<u8>>,
+) -> CheckOutcome {
     if !monitor.enabled {
         return CheckOutcome {
             success: false,
@@ -26,6 +47,7 @@ pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutco
             latency_ms: 0,
             error: Some("monitor is disabled".to_string()),
             region: region.to_string(),
+            country_code: None,
         };
     }
 
@@ -46,9 +68,12 @@ pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutco
                 latency_ms: latency,
                 error: Some(err),
                 region: region.to_string(),
+                country_code: None,
             };
         }
     };
+
+    let country_code = lookup_country_code(geoip_reader, destination.socket_addr.ip());
 
     let client = match Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -64,6 +89,7 @@ pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutco
                 latency_ms: latency,
                 error: Some(err.to_string()),
                 region: region.to_string(),
+                country_code,
             };
         }
     };
@@ -94,6 +120,7 @@ pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutco
                     ))
                 },
                 region: region.to_string(),
+                country_code,
             }
         }
         Err(err) => CheckOutcome {
@@ -102,6 +129,7 @@ pub async fn check_monitor(monitor: &Monitor, region: &RegionCode) -> CheckOutco
             latency_ms: latency,
             error: Some(err.to_string()),
             region: region.to_string(),
+            country_code,
         },
     }
 }

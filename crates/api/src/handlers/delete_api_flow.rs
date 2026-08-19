@@ -5,7 +5,8 @@ use axum::{
 use tracing::info;
 
 use application::{commands::DeleteApiFlow, use_cases::DeleteApiFlowUseCase};
-use domain::shared::ids::{ApiFlowId, UserId};
+use domain::shared::ids::ApiFlowId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
@@ -15,7 +16,7 @@ use crate::{
 
 pub async fn delete_api_flow(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path((id, flow_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     info!("API: delete_api_flow");
@@ -26,7 +27,7 @@ pub async fn delete_api_flow(
     // Authorization check: the monitor must belong to the authenticated user.
     state
         .monitor_repository
-        .find_by_id_for_user(monitor_id, user_id)
+        .find_by_id_for_user(monitor_id, authenticated_user.user_id())
         .await
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
@@ -34,14 +35,17 @@ pub async fn delete_api_flow(
     let use_case = DeleteApiFlowUseCase::new(
         state.api_flow_repository.clone(),
         state.monitor_repository.clone(),
+        state.audit_log_entry_repository.clone(),
     );
 
     let deleted = use_case
-        .execute(DeleteApiFlow {
-            id: flow_id,
-            monitor_id,
-            user_id,
-        })
+        .execute(
+            DeleteApiFlow {
+                id: flow_id,
+                monitor_id,
+            },
+            authenticated_user,
+        )
         .await
         .map_err(|err| ApiError::internal_with_source("failed to delete api flow", err))?;
 

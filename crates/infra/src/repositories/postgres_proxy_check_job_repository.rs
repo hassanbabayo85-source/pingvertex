@@ -7,7 +7,7 @@ use application::ports::{
 use async_trait::async_trait;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
 use domain::enums::{ProxyCheckJobStatus, ProxyScheme};
-use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, UserId};
+use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, TenantId, UserId};
 use domain::value_objects::ProxyHost;
 use domain::value_objects::ProxyResult;
 use sqlx::{FromRow, PgPool};
@@ -58,6 +58,7 @@ fn proxy_scheme_from_db(value: &str) -> RepoResult<ProxyScheme> {
 struct ProxyCheckJobRow {
     id: Uuid,
     user_id: Uuid,
+    tenant_id: Uuid,
     status: String,
     created_at: chrono::DateTime<chrono::Utc>,
     completed_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -74,6 +75,7 @@ impl ProxyCheckJobRow {
         Ok(ProxyCheckJob::from_persisted(
             ProxyCheckJobId(self.id),
             UserId(self.user_id),
+            TenantId(self.tenant_id),
             status,
             self.created_at,
             self.completed_at,
@@ -199,18 +201,20 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             INSERT INTO proxy_check_jobs (
                 id,
                 user_id,
+                tenant_id,
                 status,
                 created_at,
                 completed_at,
                 total_count,
                 checked_count
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
         )
         .bind(job.id().0)
         .bind(job.user_id().0)
-        .bind(job_status_to_db(job.status()))
+        .bind(job.tenant_id().0)
+        .bind(job_status_to_db(&job.status()))
         .bind(job.created_at())
         .bind(job.completed_at())
         .bind(total_count)
@@ -245,7 +249,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
                     encrypted_credentials,
                     result_json
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 "#,
             )
             .bind(entry.id().0)
@@ -280,7 +284,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             WHERE id = $4
             "#,
         )
-        .bind(job_status_to_db(job.status()))
+        .bind(job_status_to_db(&job.status()))
         .bind(job.completed_at())
         .bind(checked_count)
         .bind(job.id().0)
@@ -299,7 +303,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
     async fn find_job_by_id(&self, id: ProxyCheckJobId) -> RepoResult<Option<ProxyCheckJob>> {
         let row = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
             FROM proxy_check_jobs
             WHERE id = $1
             "#,
@@ -323,7 +327,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>> {
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
             FROM proxy_check_jobs
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -387,7 +391,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
 
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
             FROM proxy_check_jobs
             WHERE status = 'pending'
             ORDER BY created_at ASC

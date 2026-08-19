@@ -3,6 +3,7 @@ use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, NotificationService,
     NotifyResult, PasswordHasher, TokenService, UserRepository,
 };
+use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
@@ -10,11 +11,14 @@ use domain::entities::NotificationChannel;
 use domain::notification::NotificationEvent;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{Check, DiagnosticReport, HttpMethod, Incident, User};
+use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryTenantMembershipRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -23,6 +27,16 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
+struct NoopSecretCipher;
+
+impl SecretCipher for NoopSecretCipher {
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(plaintext.to_vec())
+    }
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(ciphertext.to_vec())
+    }
+}
 struct NoopCheckRepository;
 
 #[async_trait]
@@ -232,6 +246,8 @@ where
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -239,6 +255,7 @@ where
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     build_test_router(state, auth_state)

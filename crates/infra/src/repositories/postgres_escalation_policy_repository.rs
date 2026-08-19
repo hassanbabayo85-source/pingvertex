@@ -3,7 +3,7 @@ use std::error::Error;
 use application::ports::EscalationPolicyRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::shared::ids::{EscalationPolicyId, MonitorId, UserId};
+use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId, UserId};
 use domain::{EscalationPolicy, EscalationStep};
 use serde_json;
 use sqlx::{FromRow, PgPool};
@@ -26,6 +26,7 @@ impl PostgresEscalationPolicyRepository {
 struct EscalationPolicyRow {
     id: Uuid,
     user_id: Uuid,
+    tenant_id: Uuid,
     monitor_id: Option<Uuid>,
     steps: serde_json::Value,
     created_at: DateTime<Utc>,
@@ -38,6 +39,7 @@ impl EscalationPolicyRow {
         Self {
             id: policy.id.0,
             user_id: policy.user_id.0,
+            tenant_id: policy.tenant_id.0,
             monitor_id: policy.monitor_id.map(|m| m.0),
             steps: steps_json,
             created_at: policy.created_at,
@@ -52,6 +54,7 @@ impl EscalationPolicyRow {
         Ok(EscalationPolicy {
             id: EscalationPolicyId(self.id),
             user_id: UserId(self.user_id),
+            tenant_id: TenantId(self.tenant_id),
             monitor_id: self.monitor_id.map(MonitorId),
             steps,
             created_at: self.created_at,
@@ -60,7 +63,7 @@ impl EscalationPolicyRow {
     }
 }
 
-const SELECT_COLUMNS: &str = "id, user_id, monitor_id, steps, created_at, updated_at";
+const SELECT_COLUMNS: &str = "id, user_id, tenant_id, monitor_id, steps, created_at, updated_at";
 
 #[async_trait]
 impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
@@ -70,13 +73,14 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         sqlx::query(
             r#"
             INSERT INTO escalation_policies (
-                id, user_id, monitor_id, steps, created_at, updated_at
+                id, user_id, tenant_id, monitor_id, steps, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(row.id)
         .bind(row.user_id)
+        .bind(row.tenant_id)
         .bind(row.monitor_id)
         .bind(row.steps)
         .bind(row.created_at)
@@ -104,6 +108,7 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         )
         .bind(row.id)
         .bind(row.user_id)
+        .bind(row.tenant_id)
         .bind(row.monitor_id)
         .bind(row.steps)
         .bind(row.created_at)

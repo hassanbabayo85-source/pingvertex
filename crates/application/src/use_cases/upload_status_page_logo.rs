@@ -1,21 +1,19 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, sync::Arc};
+
+use chrono::Utc;
+use serde_json::json;
 
 use crate::{
     commands::UploadStatusPageLogo,
-    ports::{LogoStorage, StatusPageRepository},
+    ports::{AuditLogEntryRepository, LogoStorage, StatusPageRepository},
 };
-use domain::{entities::StatusPage, errors::DomainError, value_objects::LogoImage};
+use domain::{
+    AuditAction, AuditLogEntry, AuditLogEntryId, entities::StatusPage, errors::DomainError,
+    shared::policies::OwnershipPolicy, shared::types::AuthenticatedUser, value_objects::LogoImage,
+};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Errors from uploading a status page logo.
-///
-/// Distinguishes client-fixable input problems (`InvalidLogo` — wrong
-/// file, too large, corrupt) from everything else (storage/database
-/// failures), the same way `CreateStatusPageError` separates
-/// `QuotaExceeded`/`SubdomainTaken` from `Other` — so the API layer can
-/// return a `400 Bad Request` with a helpful message for the former
-/// instead of an opaque `500` that hides what the caller needs to fix.
 #[derive(Debug)]
 pub enum UploadStatusPageLogoError {
     InvalidLogo(DomainError),
@@ -43,6 +41,7 @@ impl Error for UploadStatusPageLogoError {
 pub struct UploadStatusPageLogoUseCase<R, S> {
     repository: R,
     logo_storage: S,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl<R, S> UploadStatusPageLogoUseCase<R, S>
@@ -50,20 +49,29 @@ where
     R: StatusPageRepository,
     S: LogoStorage,
 {
-    pub fn new(repository: R, logo_storage: S) -> Self {
+    pub fn new(
+        repository: R,
+        logo_storage: S,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
         Self {
             repository,
             logo_storage,
+            audit_log_entry_repository,
         }
     }
 
     pub async fn execute(
         &self,
         command: UploadStatusPageLogo,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<Option<StatusPage>, UploadStatusPageLogoError> {
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
         let mut status_page = match self
             .repository
-            .find_by_id_for_user(command.id, command.user_id)
+            .find_by_id_for_user(command.id, user_id)
             .await
             .map_err(UploadStatusPageLogoError::Other)?
         {
@@ -71,13 +79,29 @@ where
             None => return Ok(None),
         };
 
-        // Validate BEFORE touching storage — no point uploading bytes to
-        // S3 for an image we're about to reject anyway. This is also the
-        // one call in this method whose failure is the client's fault,
-        // not ours, so it gets its own error variant.
+        if !OwnershipPolicy::can_access(&authenticated_user, &status_page) {
+            return Ok(None);
+        }
+
         let logo = LogoImage::new(command.data).map_err(UploadStatusPageLogoError::InvalidLogo)?;
 
         self.finish_upload(&mut status_page, &logo)
+            .await
+            .map_err(UploadStatusPageLogoError::Other)?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::StatusPageUpdated,
+            target_id: status_page.id.0.to_string(),
+            metadata: json!({
+                "has_logo": true,
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository
+            .create(&entry)
             .await
             .map_err(UploadStatusPageLogoError::Other)?;
 
@@ -90,11 +114,8 @@ where
         logo: &LogoImage,
     ) -> UseCaseResult<()> {
         let logo_url = self.logo_storage.store_logo(logo).await?;
-
         status_page.set_logo_url(Some(logo_url))?;
-
         self.repository.update(status_page).await?;
-
         Ok(())
     }
 }

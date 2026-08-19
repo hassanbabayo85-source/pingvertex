@@ -10,7 +10,7 @@ use application::{
     commands::CreateNotificationChannel,
     use_cases::{CreateNotificationChannelError, CreateNotificationChannelUseCase},
 };
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
@@ -19,20 +19,9 @@ use crate::{
     validation::parse_monitor_id,
 };
 
-/// Creates a notification channel on a monitor.
-///
-/// `POST /api/v1/monitors/{monitor_id}/notifications`
-///
-/// Requires the monitor to be owned by the caller — enforced twice: once
-/// here (via `MonitorRepository::find_by_id_for_user` inside the use
-/// case) and again at the SQL level by
-/// `NotificationChannelRepository::create` writing a row whose
-/// `notification_channels.user_id` matches, so an attacker can never
-/// attach a channel to a monitor they don't own even if one of the two
-/// checks had a bug.
 pub async fn create_notification_channel(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(monitor_id): Path<String>,
     Json(payload): Json<CreateNotificationChannelRequest>,
 ) -> Result<(StatusCode, Json<NotificationChannelCreateResponse>), ApiError> {
@@ -44,15 +33,20 @@ pub async fn create_notification_channel(
         state.monitor_repository.clone(),
         state.notification_channel_repository.clone(),
         Arc::new(state.id_generator.clone()),
+        state.secret_cipher.clone(),
+        state.audit_log_entry_repository.clone(),
     );
 
     let channel = use_case
-        .execute(CreateNotificationChannel {
-            monitor_id,
-            user_id,
-            kind: payload.kind,
-            target: payload.target,
-        })
+        .execute(
+            CreateNotificationChannel {
+                monitor_id,
+                kind: payload.kind,
+                target: payload.target,
+                chat_id: payload.chat_id,
+            },
+            authenticated_user,
+        )
         .await
         .map_err(|err| match err {
             CreateNotificationChannelError::MonitorNotFound => {

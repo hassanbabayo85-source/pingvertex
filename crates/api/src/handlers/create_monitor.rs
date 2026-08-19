@@ -5,24 +5,23 @@ use axum::{
 use tracing::info;
 
 use application::{dto::CreateMonitorRequest, use_cases::CreateMonitorUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
-    handlers::types::{MonitorResponse, MonitorWriteRequest},
+    handlers::types::{MonitorCreateResponse, MonitorWriteRequest},
     state::AppState,
 };
 
 /// Creates a monitor through the API.
 pub async fn create_monitor(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(payload): Json<MonitorWriteRequest>,
-) -> Result<(StatusCode, Json<MonitorResponse>), ApiError> {
+) -> Result<(StatusCode, Json<MonitorCreateResponse>), ApiError> {
     info!("API: create_monitor");
 
     let request = CreateMonitorRequest {
-        user_id,
         name: payload.name,
         url: payload.url,
         method: payload.method,
@@ -33,14 +32,27 @@ pub async fn create_monitor(
         is_public: payload.is_public,
         ssl_check_enabled: payload.ssl_check_enabled,
         ssl_expiry_warning_days: payload.ssl_expiry_warning_days,
+        kind: payload.kind,
+        tcp_port: payload.tcp_port,
+        dns_record_type: payload.dns_record_type,
+        dns_expected_value: payload.dns_expected_value,
+        heartbeat_interval_seconds: payload.heartbeat_interval_seconds,
+        heartbeat_grace_period_seconds: payload.heartbeat_grace_period_seconds,
     };
 
-    let use_case = CreateMonitorUseCase::new(state.monitor_repository.clone(), state.id_generator);
+    let use_case = CreateMonitorUseCase::new(
+        state.monitor_repository.clone(),
+        state.id_generator,
+        state.audit_log_entry_repository.clone(),
+    );
 
     let monitor = use_case
-        .execute(request)
+        .execute(request, authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to create monitor", err))?;
 
-    Ok((StatusCode::CREATED, Json(MonitorResponse::from(monitor))))
+    Ok((
+        StatusCode::CREATED,
+        Json(MonitorCreateResponse::from_created(monitor)),
+    ))
 }

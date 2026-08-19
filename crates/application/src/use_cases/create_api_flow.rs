@@ -1,12 +1,16 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, sync::Arc};
+
+use chrono::Utc;
+use serde_json::json;
 
 use crate::{
     dto::{CreateApiFlowRequest, ExtractSourceInput},
-    ports::{ApiFlowRepository, IdGenerator},
+    ports::{ApiFlowRepository, AuditLogEntryRepository, IdGenerator},
 };
 use domain::{
-    ExtractSource,
+    AuditAction, AuditLogEntry, AuditLogEntryId, ExtractSource,
     entities::{ApiFlow, ApiFlowStep, Assertion},
+    shared::types::AuthenticatedUser,
     value_objects::{FlowStepName, VariableExtraction},
 };
 
@@ -14,8 +18,6 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug)]
 pub enum CreateApiFlowError {
-    /// A monitor may have at most one API flow (1-to-1 relationship). Returned
-    /// when `ApiFlowRepository::find_by_monitor_id` already finds one.
     FlowAlreadyExists,
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -23,9 +25,7 @@ pub enum CreateApiFlowError {
 impl fmt::Display for CreateApiFlowError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::FlowAlreadyExists => {
-                write!(f, "an api flow already exists for this monitor")
-            }
+            Self::FlowAlreadyExists => write!(f, "an api flow already exists for this monitor"),
             Self::Other(err) => write!(f, "{err}"),
         }
     }
@@ -43,6 +43,7 @@ impl Error for CreateApiFlowError {
 pub struct CreateApiFlowUseCase<R, G> {
     repository: R,
     id_generator: G,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl<R, G> CreateApiFlowUseCase<R, G>
@@ -50,16 +51,22 @@ where
     R: ApiFlowRepository,
     G: IdGenerator,
 {
-    pub fn new(repository: R, id_generator: G) -> Self {
+    pub fn new(
+        repository: R,
+        id_generator: G,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
         Self {
             repository,
             id_generator,
+            audit_log_entry_repository,
         }
     }
 
     pub async fn execute(
         &self,
         request: CreateApiFlowRequest,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<ApiFlow, CreateApiFlowError> {
         let existing = self
             .repository
@@ -71,12 +78,19 @@ where
             return Err(CreateApiFlowError::FlowAlreadyExists);
         }
 
-        self.build_and_save(request)
+        self.build_and_save(request, authenticated_user)
             .await
             .map_err(CreateApiFlowError::Other)
     }
 
-    async fn build_and_save(&self, request: CreateApiFlowRequest) -> UseCaseResult<ApiFlow> {
+    async fn build_and_save(
+        &self,
+        request: CreateApiFlowRequest,
+        authenticated_user: AuthenticatedUser,
+    ) -> UseCaseResult<ApiFlow> {
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
         let mut steps = Vec::with_capacity(request.steps.len());
 
         for step_input in request.steps {
@@ -128,10 +142,24 @@ where
 
         let id = self.id_generator.next_api_flow_id().await;
 
-        let flow = ApiFlow::new(id, request.monitor_id, steps)
+        let flow = ApiFlow::new(id, request.monitor_id, tenant_id, steps)
             .map_err(Box::<dyn Error + Send + Sync>::from)?;
 
         self.repository.save(&flow).await?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::ApiFlowCreated,
+            target_id: flow.id.0.to_string(),
+            metadata: json!({
+                "monitor_id": flow.monitor_id.0.to_string(),
+                "steps": flow.steps.len(),
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository.create(&entry).await?;
 
         Ok(flow)
     }

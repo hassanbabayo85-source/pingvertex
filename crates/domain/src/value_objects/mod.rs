@@ -46,3 +46,21 @@ pub use logo_image::{LogoImage, LogoImageType, MAX_LOGO_IMAGE_SIZE};
 
 pub mod region_code;
 pub use region_code::RegionCode;
+
+pub mod slack_webhook_url;
+pub use slack_webhook_url::SlackWebhookUrl;
+
+pub mod discord_webhook_url;
+pub use discord_webhook_url::DiscordWebhookUrl;
+
+pub mod telegram_bot_token;
+pub use telegram_bot_token::TelegramBotToken;
+
+pub mod telegram_chat_id;
+pub use telegram_chat_id::TelegramChatId;
+
+pub mod phone_number;
+pub use phone_number::PhoneNumber;
+
+pub mod heartbeat_token;
+pub use heartbeat_token::HeartbeatToken;

@@ -43,6 +43,21 @@ pub trait MonitorRepository: Send + Sync {
     async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
         unimplemented!()
     }
+
+    /// Finds the monitor whose `heartbeat_token` matches `token`, used by
+    /// the unauthenticated `GET /heartbeat/{token}` endpoint.
+    async fn find_by_heartbeat_token(&self, _token: &str) -> RepoResult<Option<Monitor>> {
+        unimplemented!()
+    }
+
+    /// Updates `last_heartbeat_at` for the given monitor to `now`.
+    async fn update_last_heartbeat_at(
+        &self,
+        _id: MonitorId,
+        _now: chrono::DateTime<chrono::Utc>,
+    ) -> RepoResult<()> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -93,5 +108,17 @@ where
 
     async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
         (**self).find_public().await
+    }
+
+    async fn find_by_heartbeat_token(&self, token: &str) -> RepoResult<Option<Monitor>> {
+        (**self).find_by_heartbeat_token(token).await
+    }
+
+    async fn update_last_heartbeat_at(
+        &self,
+        id: MonitorId,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> RepoResult<()> {
+        (**self).update_last_heartbeat_at(id, now).await
     }
 }

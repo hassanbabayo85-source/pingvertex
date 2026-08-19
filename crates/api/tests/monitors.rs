@@ -1,21 +1,35 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
+use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
 use domain::{Check, DiagnosticReport, HttpMethod, Incident};
+use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryTenantMembershipRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
+struct NoopSecretCipher;
+
+impl SecretCipher for NoopSecretCipher {
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(plaintext.to_vec())
+    }
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(ciphertext.to_vec())
+    }
+}
 struct NoopCheckRepository;
 
 #[async_trait]
@@ -123,6 +137,8 @@ fn build_test_app() -> axum::Router {
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -130,6 +146,7 @@ fn build_test_app() -> axum::Router {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
     build_test_router(state, auth_state)
 }
@@ -448,4 +465,340 @@ impl TokenService for NoopTokenService {
         let user_id = uuid::Uuid::parse_str(token)?;
         Ok(domain::UserId(user_id))
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn monitor_payload_with_kind(
+    user_id: Uuid,
+    name: &str,
+    url: &str,
+    method: HttpMethod,
+    kind: &str,
+    tcp_port: Option<u16>,
+    dns_record_type: Option<&str>,
+    dns_expected_value: Option<&str>,
+    heartbeat_interval_seconds: Option<u32>,
+    heartbeat_grace_period_seconds: Option<u32>,
+) -> Value {
+    json!({
+        "user_id": user_id.to_string(),
+        "name": name,
+        "url": url,
+        "method": method,
+        "expected_status": 200,
+        "interval_seconds": 60,
+        "timeout_seconds": 10,
+        "assertions": [],
+        "kind": kind,
+        "tcp_port": tcp_port,
+        "dns_record_type": dns_record_type,
+        "dns_expected_value": dns_expected_value,
+        "heartbeat_interval_seconds": heartbeat_interval_seconds,
+        "heartbeat_grace_period_seconds": heartbeat_grace_period_seconds
+    })
+}
+
+#[tokio::test]
+async fn update_monitor_endpoint_switches_kind_from_http_to_tcp_and_persists_tcp_port() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload(user_id, "Db Server", "https://example.com", HttpMethod::Get)
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = read_json(create_response).await;
+    let monitor_id = created["id"].as_str().unwrap();
+    assert_eq!(created["kind"], "Http");
+
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Db Server",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Tcp",
+                        Some(5432),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let updated = read_json(put_response).await;
+    assert_eq!(updated["kind"], "Tcp");
+    assert_eq!(updated["tcp_port"], 5432);
+
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let fetched = read_json(get_response).await;
+    assert_eq!(
+        fetched["kind"], "Tcp",
+        "the kind switch must survive a fresh GET, not just the PUT response body"
+    );
+    assert_eq!(fetched["tcp_port"], 5432);
+}
+
+#[tokio::test]
+async fn update_monitor_endpoint_switching_kind_clears_stale_fields_from_previous_kind() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Db Server",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Tcp",
+                        Some(5432),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = read_json(create_response).await;
+    let monitor_id = created["id"].as_str().unwrap();
+    assert_eq!(created["tcp_port"], 5432);
+
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Db Server",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Dns",
+                        None,
+                        Some("A"),
+                        Some("1.2.3.4"),
+                        None,
+                        None,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let updated = read_json(put_response).await;
+    assert_eq!(updated["kind"], "Dns");
+    assert_eq!(updated["dns_record_type"], "A");
+    assert_eq!(updated["dns_expected_value"], "1.2.3.4");
+    assert!(
+        updated["tcp_port"].is_null(),
+        "switching away from Tcp must clear the stale tcp_port, not leave 5432 dangling"
+    );
+}
+
+#[tokio::test]
+async fn update_monitor_endpoint_switching_to_tcp_without_tcp_port_is_rejected() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload(user_id, "Db Server", "https://example.com", HttpMethod::Get)
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = read_json(create_response).await;
+    let monitor_id = created["id"].as_str().unwrap();
+
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Db Server",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Tcp",
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // NOTE: the API currently maps every domain validation error in
+    // update_monitor through ApiError::internal_with_source, which returns
+    // 500 (see crates/api/src/handlers/update_monitor.rs). This test
+    // documents that EXISTING behavior for a missing tcp_port on kind
+    // switch; it is not asserting that 500 is the ideal status code for a
+    // client validation error, only that the request is rejected and the
+    // monitor is not silently left in a broken kind=Tcp/tcp_port=null state.
+    assert_eq!(put_response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let fetched = read_json(get_response).await;
+    assert_eq!(
+        fetched["kind"], "Http",
+        "a rejected kind switch must not partially persist — the monitor must stay Http"
+    );
+}
+
+#[tokio::test]
+async fn update_monitor_endpoint_switching_to_heartbeat_sets_kind_and_never_exposes_token() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload(
+                        user_id,
+                        "Nightly Job",
+                        "https://example.com",
+                        HttpMethod::Get,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let created = read_json(create_response).await;
+    let monitor_id = created["id"].as_str().unwrap();
+
+    let put_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Nightly Job",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Heartbeat",
+                        None,
+                        None,
+                        None,
+                        Some(300),
+                        Some(60),
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(put_response.status(), StatusCode::OK);
+    let updated = read_json(put_response).await;
+    assert_eq!(updated["kind"], "Heartbeat");
+    assert_eq!(updated["heartbeat_interval_seconds"], 300);
+    assert_eq!(updated["heartbeat_grace_period_seconds"], 60);
+    assert!(
+        updated.get("heartbeat_token").is_none(),
+        "PUT must never expose heartbeat_token, same as GET/list"
+    );
 }

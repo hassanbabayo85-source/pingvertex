@@ -1,7 +1,6 @@
-use domain::shared::ids::{NotificationChannelId, UserId};
+use domain::shared::ids::NotificationChannelId;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DeleteNotificationChannel {
     pub id: NotificationChannelId,
-    pub user_id: UserId,
 }

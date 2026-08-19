@@ -4,7 +4,7 @@ use application::ports::MaintenanceWindowRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::MaintenanceWindow;
-use domain::shared::ids::{MaintenanceWindowId, MonitorId, UserId};
+use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId, UserId};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -25,6 +25,7 @@ impl PostgresMaintenanceWindowRepository {
 struct MaintenanceWindowRow {
     id: Uuid,
     monitor_id: Uuid,
+    tenant_id: Uuid,
     starts_at: DateTime<Utc>,
     ends_at: DateTime<Utc>,
     reason: String,
@@ -36,6 +37,7 @@ impl MaintenanceWindowRow {
         Self {
             id: window.id.0,
             monitor_id: window.monitor_id.0,
+            tenant_id: window.tenant_id.0,
             starts_at: window.starts_at,
             ends_at: window.ends_at,
             reason: window.reason.clone(),
@@ -47,6 +49,7 @@ impl MaintenanceWindowRow {
         MaintenanceWindow {
             id: MaintenanceWindowId(self.id),
             monitor_id: MonitorId(self.monitor_id),
+            tenant_id: TenantId(self.tenant_id),
             starts_at: self.starts_at,
             ends_at: self.ends_at,
             reason: self.reason,
@@ -55,7 +58,7 @@ impl MaintenanceWindowRow {
     }
 }
 
-const SELECT_COLUMNS: &str = "id, monitor_id, starts_at, ends_at, reason, created_at";
+const SELECT_COLUMNS: &str = "id, monitor_id, tenant_id, starts_at, ends_at, reason, created_at";
 
 #[async_trait]
 impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
@@ -65,13 +68,14 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
         sqlx::query(
             r#"
             INSERT INTO maintenance_windows (
-                id, monitor_id, starts_at, ends_at, reason, created_at
+                id, monitor_id, tenant_id, starts_at, ends_at, reason, created_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(row.id)
         .bind(row.monitor_id)
+        .bind(row.tenant_id)
         .bind(row.starts_at)
         .bind(row.ends_at)
         .bind(row.reason)
@@ -82,11 +86,15 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
         Ok(())
     }
 
-    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool> {
-        let result = sqlx::query("DELETE FROM maintenance_windows WHERE id = $1")
-            .bind(id.0)
-            .execute(&self.pool)
-            .await?;
+    async fn delete_for_user(&self, id: MaintenanceWindowId, user_id: UserId) -> RepoResult<bool> {
+        let result = sqlx::query(
+            "DELETE FROM maintenance_windows \
+             WHERE id = $1 AND monitor_id IN (SELECT id FROM monitors WHERE user_id = $2)",
+        )
+        .bind(id.0)
+        .bind(user_id.0)
+        .execute(&self.pool)
+        .await?;
 
         Ok(result.rows_affected() > 0)
     }

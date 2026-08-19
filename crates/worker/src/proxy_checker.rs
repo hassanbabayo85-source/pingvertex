@@ -263,7 +263,7 @@ where
 mod tests {
     use super::*;
     use application::ports::IdGenerator;
-    use domain::shared::ids::UserId;
+    use domain::shared::ids::{TenantId, UserId};
     use domain::value_objects::ProxyHost;
     use infra::{InMemoryProxyCheckJobRepository, UuidIdGenerator};
 
@@ -274,7 +274,7 @@ mod tests {
 
         let user_id = UserId::new();
         let job_id = id_generator.next_proxy_check_job_id().await;
-        let job = ProxyCheckJob::new(job_id, user_id, 1).unwrap();
+        let job = ProxyCheckJob::new(job_id, user_id, TenantId::new(), 1);
 
         let entry_id = id_generator.next_proxy_entry_id().await;
         let host = ProxyHost::new("localhost").unwrap();
@@ -289,7 +289,7 @@ mod tests {
             .unwrap();
 
         let job_after = repo.find_job_by_id(job_id).await.unwrap().unwrap();
-        assert_eq!(job_after.status(), &domain::ProxyCheckJobStatus::Completed);
+        assert_eq!(job_after.status(), domain::ProxyCheckJobStatus::Completed);
         assert_eq!(job_after.checked_count(), 1);
 
         let entries_after = repo.find_entries_by_job_id(job_id).await.unwrap();

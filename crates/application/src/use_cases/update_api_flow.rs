@@ -1,15 +1,17 @@
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
+use serde_json::json;
 
 use crate::{
     commands::UpdateApiFlow,
     dto::{ApiFlowStepInput, ExtractSourceInput},
-    ports::{ApiFlowRepository, MonitorRepository},
+    ports::{ApiFlowRepository, AuditLogEntryRepository, MonitorRepository},
 };
 use domain::{
-    ExtractSource,
+    AuditAction, AuditLogEntry, AuditLogEntryId, ExtractSource,
     entities::{ApiFlow, ApiFlowStep, Assertion},
+    shared::types::AuthenticatedUser,
     value_objects::{FlowStepName, VariableExtraction},
 };
 
@@ -18,6 +20,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct UpdateApiFlowUseCase<R, M> {
     api_flow_repository: R,
     monitor_repository: M,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl<R, M> UpdateApiFlowUseCase<R, M>
@@ -25,17 +28,29 @@ where
     R: ApiFlowRepository,
     M: MonitorRepository,
 {
-    pub fn new(api_flow_repository: R, monitor_repository: M) -> Self {
+    pub fn new(
+        api_flow_repository: R,
+        monitor_repository: M,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
         Self {
             api_flow_repository,
             monitor_repository,
+            audit_log_entry_repository,
         }
     }
 
-    pub async fn execute(&self, command: UpdateApiFlow) -> UseCaseResult<Option<ApiFlow>> {
+    pub async fn execute(
+        &self,
+        command: UpdateApiFlow,
+        authenticated_user: AuthenticatedUser,
+    ) -> UseCaseResult<Option<ApiFlow>> {
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
         if self
             .monitor_repository
-            .find_by_id_for_user(command.monitor_id, command.user_id)
+            .find_by_id_for_user(command.monitor_id, user_id)
             .await?
             .is_none()
         {
@@ -53,13 +68,27 @@ where
 
         let steps = build_steps(command.steps)?;
 
-        let mut flow = ApiFlow::new(command.id, command.monitor_id, steps)
+        let mut flow = ApiFlow::new(command.id, command.monitor_id, tenant_id, steps)
             .map_err(Box::<dyn Error + Send + Sync>::from)?;
 
         flow.created_at = existing.created_at;
         flow.updated_at = Utc::now();
 
         self.api_flow_repository.update(&flow).await?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::ApiFlowUpdated,
+            target_id: flow.id.0.to_string(),
+            metadata: json!({
+                "monitor_id": flow.monitor_id.0.to_string(),
+                "steps": flow.steps.len(),
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository.create(&entry).await?;
 
         Ok(Some(flow))
     }

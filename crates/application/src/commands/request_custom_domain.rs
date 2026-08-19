@@ -1,4 +1,4 @@
-use domain::{StatusPageId, UserId};
+use domain::StatusPageId;
 
 /// Command for attaching (or re-attaching) a custom domain to a status
 /// page. `domain` is the raw string as submitted — validated into a
@@ -6,6 +6,5 @@ use domain::{StatusPageId, UserId};
 #[derive(Debug, Clone)]
 pub struct RequestCustomDomain {
     pub id: StatusPageId,
-    pub user_id: UserId,
     pub domain: String,
 }

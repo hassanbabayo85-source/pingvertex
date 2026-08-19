@@ -64,10 +64,279 @@ migrations/
   0020_create_proxy_entries.sql
   0021_add_monitor_regions.sql
   0022_add_check_region.sql
+  0023_add_check_country_code.sql
+  0024_alter_notification_channels_add_encrypted_secret.sql
+  0025_webhook_signing_secret_encrypted_at_rest.sql
+  0026_alter_monitors_add_kind_and_type_fields.sql
+  0027_create_tenants.sql
+  0028_create_tenant_memberships.sql
+  0029_create_audit_log.sql
+  0030_add_tenant_id_to_resources.sql
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="migrations/0023_add_check_country_code.sql">
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);
+</file>
+
+<file path="migrations/0024_alter_notification_channels_add_encrypted_secret.sql">
+-- Add encrypted_secret column for storing encrypted bot tokens / SMS credentials.
+ALTER TABLE notification_channels
+    ADD COLUMN IF NOT EXISTS encrypted_secret BYTEA;
+
+-- Update kind CHECK constraint to include new channel kinds.
+ALTER TABLE notification_channels
+    DROP CONSTRAINT IF EXISTS chk_notification_channels_kind;
+
+ALTER TABLE notification_channels
+    ADD CONSTRAINT chk_notification_channels_kind
+        CHECK (kind IN ('email', 'webhook', 'slack', 'discord', 'telegram', 'sms'));
+
+-- Update signing_secret constraint: only webhook has signing_secret; all other kinds NULL.
+ALTER TABLE notification_channels
+    DROP CONSTRAINT IF EXISTS chk_notification_channels_signing_secret_webhook_only;
+
+ALTER TABLE notification_channels
+    ADD CONSTRAINT chk_notification_channels_signing_secret_webhook_only
+        CHECK (
+            (kind = 'webhook' AND signing_secret IS NOT NULL)
+            OR (kind IN ('email', 'slack', 'discord', 'telegram', 'sms') AND signing_secret IS NULL)
+        );
+</file>
+
+<file path="migrations/0025_webhook_signing_secret_encrypted_at_rest.sql">
+-- Webhook HMAC signing secrets are now encrypted at rest (AES-256-GCM, the
+-- same cipher already used for Telegram bot tokens / SMS credentials) —
+-- see CreateNotificationChannelUseCase and WebhookNotificationService.
+-- New webhook channels persist the secret in `encrypted_secret` with the
+-- legacy plaintext `signing_secret` column left NULL. Channels created
+-- before this migration keep their plaintext `signing_secret` until
+-- rotated (delete + recreate the channel), so existing webhook
+-- integrations don't break the moment this ships.
+--
+-- The CHECK constraint is relaxed accordingly: a webhook channel must have
+-- AT LEAST ONE of `signing_secret` / `encrypted_secret` populated, instead
+-- of requiring `signing_secret` specifically. Every non-webhook kind is
+-- unchanged — signing_secret must still be NULL for them (they use
+-- encrypted_secret exclusively, as already enforced).
+ALTER TABLE notification_channels
+    DROP CONSTRAINT IF EXISTS chk_notification_channels_signing_secret_webhook_only;
+
+ALTER TABLE notification_channels
+    ADD CONSTRAINT chk_notification_channels_signing_secret_webhook_only
+        CHECK (
+            (kind = 'webhook' AND (signing_secret IS NOT NULL OR encrypted_secret IS NOT NULL))
+            OR (kind IN ('email', 'slack', 'discord', 'telegram', 'sms') AND signing_secret IS NULL)
+        );
+</file>
+
+<file path="migrations/0026_alter_monitors_add_kind_and_type_fields.sql">
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'http';
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS tcp_port SMALLINT;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS dns_record_type TEXT;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS dns_expected_value TEXT;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS heartbeat_token TEXT UNIQUE;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS heartbeat_interval_seconds INTEGER;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS heartbeat_grace_period_seconds INTEGER;
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_monitors_heartbeat_token ON monitors (heartbeat_token) WHERE heartbeat_token IS NOT NULL;
+</file>
+
+<file path="migrations/0027_create_tenants.sql">
+-- Tenants are the top-level isolation boundary for multi-user resources.
+-- Every existing user will receive exactly one tenant during the backfill
+-- in 0030; new tenants are created explicitly by the application layer.
+CREATE TABLE tenants (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner_user_id UUID NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</file>
+
+<file path="migrations/0028_create_tenant_memberships.sql">
+-- Maps users into tenants with an explicit role string.
+-- The PRIMARY KEY enforces that a user can be in a given tenant only once.
+CREATE TABLE tenant_memberships (
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    role TEXT NOT NULL,
+    invited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    joined_at TIMESTAMPTZ,
+    PRIMARY KEY (tenant_id, user_id)
+);
+</file>
+
+<file path="migrations/0029_create_audit_log.sql">
+-- Append-only audit log for tenant/user actions.
+--
+-- We deliberately do NOT add `REVOKE UPDATE, DELETE` on this table.
+-- Reason: docker-compose.yml connects as the `postgres` superuser only,
+-- with no separate least-privileged application DB role. Because a
+-- superuser can bypass `REVOKE` anyway, append-only enforcement currently
+-- lives exclusively in the application/domain layer.
+--
+-- If a distinct least-privileged DB role is introduced in the future,
+-- `REVOKE UPDATE, DELETE ON audit_log FROM <app_role>;` should be added
+-- here immediately, so the database also enforces append-only behavior.
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY,
+    actor_user_id UUID NOT NULL REFERENCES users(id),
+    tenant_id UUID REFERENCES tenants(id),
+    action TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+</file>
+
+<file path="migrations/0030_add_tenant_id_to_resources.sql">
+-- Add tenant_id to every tenant-isolated resource table.
+--
+-- gen_random_uuid() is built into PostgreSQL 16 core, so no
+-- CREATE EXTENSION pgcrypto is needed here.
+
+-- ---------------------------------------------------------------------
+-- 1. Add nullable tenant_id columns first, so all tables can be
+--    backfilled before the NOT NULL constraints are applied.
+-- ---------------------------------------------------------------------
+ALTER TABLE monitors
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE api_flows
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE proxy_check_jobs
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE notification_channels
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE status_pages
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE escalation_policies
+    ADD COLUMN tenant_id UUID;
+
+ALTER TABLE maintenance_windows
+    ADD COLUMN tenant_id UUID;
+
+-- ---------------------------------------------------------------------
+-- 2. Create one default tenant for every existing user.
+--    `username` is nullable, so fall back to `email` for the tenant name.
+-- ---------------------------------------------------------------------
+INSERT INTO tenants (id, name, owner_user_id, created_at)
+SELECT
+    gen_random_uuid(),
+    COALESCE(users.username, users.email),
+    users.id,
+    users.created_at
+FROM users;
+
+-- ---------------------------------------------------------------------
+-- 3. Make each user the Owner of their default tenant.
+-- ---------------------------------------------------------------------
+INSERT INTO tenant_memberships (tenant_id, user_id, role, invited_at, joined_at)
+SELECT
+    tenants.id,
+    tenants.owner_user_id,
+    'Owner',
+    tenants.created_at,
+    tenants.created_at
+FROM tenants;
+
+-- ---------------------------------------------------------------------
+-- 4. Backfill tenant_id for resources that already carry user_id.
+-- ---------------------------------------------------------------------
+UPDATE monitors m
+SET tenant_id = t.id
+FROM tenants t
+WHERE t.owner_user_id = m.user_id;
+
+UPDATE proxy_check_jobs pcj
+SET tenant_id = t.id
+FROM tenants t
+WHERE t.owner_user_id = pcj.user_id;
+
+UPDATE notification_channels nc
+SET tenant_id = t.id
+FROM tenants t
+WHERE t.owner_user_id = nc.user_id;
+
+UPDATE status_pages sp
+SET tenant_id = t.id
+FROM tenants t
+WHERE t.owner_user_id = sp.user_id;
+
+UPDATE escalation_policies ep
+SET tenant_id = t.id
+FROM tenants t
+WHERE t.owner_user_id = ep.user_id;
+
+-- ---------------------------------------------------------------------
+-- 5. Backfill tenant_id for resources that only carry monitor_id.
+--    They are resolved through monitors.user_id -> tenants.owner_user_id.
+-- ---------------------------------------------------------------------
+UPDATE api_flows af
+SET tenant_id = t.id
+FROM tenants t
+JOIN monitors m ON m.user_id = t.owner_user_id
+WHERE af.monitor_id = m.id;
+
+UPDATE maintenance_windows mw
+SET tenant_id = t.id
+FROM tenants t
+JOIN monitors m ON m.user_id = t.owner_user_id
+WHERE mw.monitor_id = m.id;
+
+-- ---------------------------------------------------------------------
+-- 6. Now enforce NOT NULL, FK, and indexes on all seven tables.
+-- ---------------------------------------------------------------------
+ALTER TABLE monitors ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE monitors
+    ADD CONSTRAINT fk_monitors_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_monitors_tenant_id ON monitors (tenant_id);
+
+ALTER TABLE api_flows ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE api_flows
+    ADD CONSTRAINT fk_api_flows_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_api_flows_tenant_id ON api_flows (tenant_id);
+
+ALTER TABLE proxy_check_jobs ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE proxy_check_jobs
+    ADD CONSTRAINT fk_proxy_check_jobs_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_proxy_check_jobs_tenant_id ON proxy_check_jobs (tenant_id);
+
+ALTER TABLE notification_channels ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE notification_channels
+    ADD CONSTRAINT fk_notification_channels_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_notification_channels_tenant_id ON notification_channels (tenant_id);
+
+ALTER TABLE status_pages ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE status_pages
+    ADD CONSTRAINT fk_status_pages_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_status_pages_tenant_id ON status_pages (tenant_id);
+
+ALTER TABLE escalation_policies ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE escalation_policies
+    ADD CONSTRAINT fk_escalation_policies_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_escalation_policies_tenant_id ON escalation_policies (tenant_id);
+
+ALTER TABLE maintenance_windows ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE maintenance_windows
+    ADD CONSTRAINT fk_maintenance_windows_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+CREATE INDEX idx_maintenance_windows_tenant_id ON maintenance_windows (tenant_id);
+</file>
 
 <file path="migrations/0001_create_monitors.sql">
 CREATE TABLE IF NOT EXISTS monitors (

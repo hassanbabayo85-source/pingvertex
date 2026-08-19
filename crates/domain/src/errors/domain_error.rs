@@ -173,4 +173,31 @@ pub enum DomainError {
 
     #[error("logo image must be a PNG, JPEG, GIF, or WebP file")]
     UnsupportedLogoImageType,
+
+    #[error("invalid slack webhook URL; must be https://hooks.slack.com/...")]
+    InvalidSlackWebhookUrl,
+
+    #[error("invalid discord webhook URL; must be https://discord.com/api/webhooks/...")]
+    InvalidDiscordWebhookUrl,
+
+    #[error("invalid telegram bot token")]
+    InvalidTelegramBotToken,
+
+    #[error("invalid phone number; must be E.164 format, e.g. +2348012345678")]
+    InvalidPhoneNumber,
+
+    #[error("invalid telegram chat id; must be a numeric id, e.g. 123456789 or -1001234567890")]
+    InvalidTelegramChatId,
+
+    #[error("invalid monitor kind fields: {0}")]
+    InvalidMonitorKindFields(String),
+
+    #[error("invalid heartbeat token")]
+    InvalidHeartbeatToken,
+
+    #[error("tenant name cannot be empty")]
+    EmptyTenantName,
+
+    #[error("tenant name cannot exceed 100 characters")]
+    TenantNameTooLong,
 }

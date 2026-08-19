@@ -1,3 +1,6 @@
+mod common;
+use common::*;
+
 use std::sync::Arc;
 
 use application::{
@@ -43,13 +46,15 @@ async fn lists_incidents_for_monitor() {
     let monitor_repository = Arc::new(InMemoryMonitorRepository::new());
     let incident_repository = Arc::new(NoopIncidentRepository);
 
-    let create_use_case =
-        CreateMonitorUseCase::new(monitor_repository.clone(), UuidIdGenerator::new());
+    let create_use_case = CreateMonitorUseCase::new(
+        monitor_repository.clone(),
+        UuidIdGenerator::new(),
+        new_audit_repo(),
+    );
 
     let user_id = UserId(Uuid::new_v4());
 
     let request = CreateMonitorRequest {
-        user_id,
         name: "Test Monitor".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,
@@ -60,13 +65,21 @@ async fn lists_incidents_for_monitor() {
         is_public: false,
         ssl_check_enabled: true,
         ssl_expiry_warning_days: 14,
+        kind: domain::MonitorKind::Http,
+        tcp_port: None,
+        dns_record_type: None,
+        dns_expected_value: None,
+        heartbeat_interval_seconds: None,
+        heartbeat_grace_period_seconds: None,
     };
 
-    let monitor = create_use_case.execute(request).await.unwrap();
+    let monitor = create_use_case
+        .execute(request, auth_user(user_id, tenant_id()))
+        .await
+        .unwrap();
 
     let use_case = ListIncidentsUseCase::new(monitor_repository, incident_repository);
 
     let result = use_case.execute(monitor.id, user_id).await.unwrap();
-
     assert!(result.is_empty());
 }

@@ -2,7 +2,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::DomainError;
-use crate::shared::ids::{MaintenanceWindowId, MonitorId};
+use crate::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
+use crate::shared::policies::TenantOwned;
 
 /// Tsawon lokaci inda monitor zai iya kasawa ba tare da an tura
 /// notification ba (amma har yanzu ana rubuta incident a database).
@@ -10,6 +11,7 @@ use crate::shared::ids::{MaintenanceWindowId, MonitorId};
 pub struct MaintenanceWindow {
     pub id: MaintenanceWindowId,
     pub monitor_id: MonitorId,
+    pub tenant_id: TenantId,
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub reason: String,
@@ -24,6 +26,7 @@ impl MaintenanceWindow {
     pub fn new(
         id: MaintenanceWindowId,
         monitor_id: MonitorId,
+        tenant_id: TenantId,
         starts_at: DateTime<Utc>,
         ends_at: DateTime<Utc>,
         reason: String,
@@ -55,6 +58,7 @@ impl MaintenanceWindow {
         Ok(Self {
             id,
             monitor_id,
+            tenant_id,
             starts_at,
             ends_at,
             reason,
@@ -65,5 +69,11 @@ impl MaintenanceWindow {
     /// Idan lokacin yanzu yana cikin wannan window.
     pub fn is_active_at(&self, now: DateTime<Utc>) -> bool {
         now >= self.starts_at && now <= self.ends_at
+    }
+}
+
+impl TenantOwned for MaintenanceWindow {
+    fn tenant_id(&self) -> TenantId {
+        self.tenant_id
     }
 }

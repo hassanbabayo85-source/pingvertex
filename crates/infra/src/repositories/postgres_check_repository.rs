@@ -34,6 +34,7 @@ struct CheckRow {
     checked_at: DateTime<Utc>,
     cert_expires_at: Option<DateTime<Utc>>,
     cert_days_remaining: Option<i64>,
+    country_code: Option<String>,
 }
 
 impl CheckRow {
@@ -54,6 +55,7 @@ impl CheckRow {
             checked_at: check.checked_at,
             cert_expires_at: check.cert_expires_at,
             cert_days_remaining: check.cert_days_remaining,
+            country_code: check.country_code.clone(),
         }
     }
 
@@ -89,8 +91,10 @@ impl CheckRow {
             checked_at: self.checked_at,
             cert_expires_at: None,
             cert_days_remaining: None,
+            country_code: None,
         }
-        .with_cert_info(self.cert_expires_at, self.cert_days_remaining))
+        .with_cert_info(self.cert_expires_at, self.cert_days_remaining)
+        .with_country_code(self.country_code))
     }
 }
 
@@ -112,9 +116,10 @@ impl CheckRepository for PostgresCheckRepository {
                 error_message,
                 checked_at,
                 cert_expires_at,
-                cert_days_remaining
+                cert_days_remaining,
+                country_code
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             "#,
         )
         .bind(row.id)
@@ -128,6 +133,7 @@ impl CheckRepository for PostgresCheckRepository {
         .bind(row.checked_at)
         .bind(row.cert_expires_at)
         .bind(row.cert_days_remaining)
+        .bind(row.country_code)
         .execute(&self.pool)
         .await?;
 
@@ -148,7 +154,8 @@ impl CheckRepository for PostgresCheckRepository {
                 error_message,
                 checked_at,
                 cert_expires_at,
-                cert_days_remaining
+                cert_days_remaining,
+                country_code
             FROM checks
             WHERE id = $1
             "#,
@@ -177,7 +184,8 @@ impl CheckRepository for PostgresCheckRepository {
                 error_message,
                 checked_at,
                 cert_expires_at,
-                cert_days_remaining
+                cert_days_remaining,
+                country_code
             FROM checks
             WHERE monitor_id = $1
             ORDER BY checked_at DESC
@@ -209,7 +217,8 @@ impl CheckRepository for PostgresCheckRepository {
                 c.error_message,
                 c.checked_at,
                 c.cert_expires_at,
-                c.cert_days_remaining
+                c.cert_days_remaining,
+                c.country_code
             FROM checks c
             JOIN monitors m ON c.monitor_id = m.id
             WHERE m.user_id = $3

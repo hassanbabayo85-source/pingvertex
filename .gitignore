@@ -39,3 +39,10 @@ cors.txt
 build-errors.txt
 clippy-output.txt
 test-output.txt
+
+# mTLS certificates (private keys must never be committed)
+certs/
+
+# GeoIP database (proprietary MaxMind data — requires license, must never be committed)
+data/geoip/
+*.mmdb

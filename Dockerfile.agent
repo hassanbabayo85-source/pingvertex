@@ -25,6 +25,17 @@ WORKDIR /app
 COPY --from=builder /app/target/release/agent /usr/local/bin/agent
 
 RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+
+# mTLS client identity: this agent's own client cert/key and the CA
+# cert are copied here so it can authenticate to the API over mTLS.
+#
+# --chown so appuser (not root) can read these at runtime; client-key.pem
+# is chmod 600 so it is readable only by appuser, not world-readable.
+COPY --chown=appuser:app certs/ca/ca-cert.pem certs/ca/ca-cert.pem
+COPY --chown=appuser:app certs/agents/agent-us-east-1/client-cert.pem certs/agents/agent-us-east-1/client-cert.pem
+COPY --chown=appuser:app certs/agents/agent-us-east-1/client-key.pem certs/agents/agent-us-east-1/client-key.pem
+RUN chmod 600 certs/agents/agent-us-east-1/client-key.pem
+COPY --chown=appuser:app data/geoip/GeoLite2-Country.mmdb data/geoip/GeoLite2-Country.mmdb
 USER appuser
 
 CMD ["agent"]
