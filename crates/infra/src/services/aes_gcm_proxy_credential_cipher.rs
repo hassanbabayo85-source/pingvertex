@@ -65,7 +65,7 @@ fn non_empty_env(key: &str) -> Option<String> {
 /// character or odd length, rather than panicking — the caller treats
 /// that as "not hex, try base64 next".
 fn decode_hex(input: &str) -> Option<Vec<u8>> {
-    if input.len() % 2 != 0 {
+    if !input.len().is_multiple_of(2) {
         return None;
     }
 
@@ -184,6 +184,35 @@ impl AesGcmProxyCredentialCipher {
         let key = load_encryption_key()?;
         Ok(Self::new(key))
     }
+
+    /// Encrypts arbitrary plaintext bytes.
+    pub fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, ProxyCredentialCipherError> {
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = self.cipher.encrypt(&nonce, plaintext).map_err(|_| {
+            ProxyCredentialCipherError::EncryptionFailed("AES-GCM encryption failed".to_string())
+        })?;
+        let mut out = Vec::with_capacity(NONCE_LEN_BYTES + ciphertext.len());
+        out.extend_from_slice(nonce.as_slice());
+        out.extend_from_slice(&ciphertext);
+        Ok(out)
+    }
+
+    /// Decrypts ciphertext produced by `encrypt_bytes`.
+    pub fn decrypt_bytes(&self, encrypted: &[u8]) -> Result<Vec<u8>, ProxyCredentialCipherError> {
+        if encrypted.len() < NONCE_LEN_BYTES {
+            return Err(ProxyCredentialCipherError::DecryptionFailed(
+                "ciphertext shorter than nonce prefix".to_string(),
+            ));
+        }
+        let (nonce_bytes, ciphertext) = encrypted.split_at(NONCE_LEN_BYTES);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        self.cipher.decrypt(nonce, ciphertext).map_err(|_| {
+            ProxyCredentialCipherError::DecryptionFailed(
+                "AES-GCM decryption failed (wrong key or corrupted/tampered ciphertext)"
+                    .to_string(),
+            )
+        })
+    }
 }
 
 impl std::fmt::Debug for AesGcmProxyCredentialCipher {
@@ -292,6 +321,24 @@ impl ProxyCredentialCipher for AesGcmProxyCredentialCipher {
                 "decrypted credentials failed domain validation: {err}"
             ))
         })
+    }
+}
+
+impl application::ports::SecretCipher for AesGcmProxyCredentialCipher {
+    fn encrypt_bytes(
+        &self,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, application::ports::SecretCipherError> {
+        self.encrypt_bytes(plaintext)
+            .map_err(|err| application::ports::SecretCipherError::EncryptionFailed(err.to_string()))
+    }
+
+    fn decrypt_bytes(
+        &self,
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, application::ports::SecretCipherError> {
+        self.decrypt_bytes(ciphertext)
+            .map_err(|err| application::ports::SecretCipherError::DecryptionFailed(err.to_string()))
     }
 }
 

@@ -60,7 +60,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         proxy_credential_cipher,
     ));
 
-    let notification_service = Arc::new(NotificationDispatcher::from_env());
+    let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
+    let notification_service = Arc::new(NotificationDispatcher::from_env(secret_cipher));
 
     let incident_manager = IncidentManager::new_with_maintenance_window(
         incident_repository.clone(),

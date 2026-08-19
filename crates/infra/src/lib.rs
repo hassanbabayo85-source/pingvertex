@@ -11,7 +11,9 @@ pub use repositories::*;
 pub use s3_config::{S3Config, S3ConfigError};
 pub use services::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, Claims, DisabledEmailNotificationService,
-    HickoryCustomDomainVerifier, InMemoryLogoStorage, JsonWebTokenService, NoopNotificationService,
-    NotificationDispatcher, ProxyCredentialEncryptionKeyError, RedisStatusPageCache, S3LogoStorage,
-    SmtpEmailNotificationService, UuidIdGenerator, WebhookNotificationService,
+    DiscordNotificationService, HickoryCustomDomainVerifier, InMemoryLogoStorage,
+    JsonWebTokenService, NoopNotificationService, NotificationDispatcher,
+    ProxyCredentialEncryptionKeyError, RedisStatusPageCache, S3LogoStorage,
+    SlackNotificationService, SmsNotificationService, SmtpEmailNotificationService,
+    TelegramNotificationService, UuidIdGenerator, WebhookNotificationService,
 };

@@ -24,6 +24,7 @@ async fn create_and_find_by_id_for_user_round_trips_email_channel() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("alerts@example.com").unwrap(),
     });
 
@@ -55,6 +56,7 @@ async fn create_webhook_channel_round_trips_with_signing_secret() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         url: Url::new("https://hooks.example.com/alert").unwrap(),
         signing_secret: "whsec_test_secret".to_string(),
     });
@@ -85,6 +87,7 @@ async fn find_by_id_for_user_returns_none_for_wrong_user() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("owner@example.com").unwrap(),
     });
     repo.create(&channel).await.unwrap();
@@ -145,12 +148,14 @@ async fn list_by_monitor_for_user_returns_only_the_owners_channels() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("one@example.com").unwrap(),
     });
     let webhook_channel = NotificationChannel::create_webhook(CreateWebhookChannel {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         url: Url::new("https://hooks.example.com/two").unwrap(),
         signing_secret: "whsec_two".to_string(),
     });
@@ -180,6 +185,7 @@ async fn delete_for_user_removes_channel_only_for_owner() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("owner@example.com").unwrap(),
     });
     repo.create(&channel).await.unwrap();
@@ -245,6 +251,7 @@ async fn deleting_monitor_cascades_to_notification_channels() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("owner@example.com").unwrap(),
     });
     repo.create(&channel).await.unwrap();
@@ -272,6 +279,7 @@ async fn list_enabled_by_monitor_returns_channels_without_ownership_check() {
         id: NotificationChannelId::new(),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("owner@example.com").unwrap(),
     });
     repo.create(&channel).await.unwrap();

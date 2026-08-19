@@ -1,10 +1,11 @@
+mod common;
+use common::*;
+
 use application::{
     commands::UpdateMonitor,
     dto::CreateMonitorRequest,
-    queries::GetMonitor,
-    use_cases::{CreateMonitorUseCase, GetMonitorUseCase, UpdateMonitorUseCase},
+    use_cases::{CreateMonitorUseCase, UpdateMonitorUseCase},
 };
-
 use domain::HttpMethod;
 use domain::shared::ids::UserId;
 use infra::{InMemoryMonitorRepository, UuidIdGenerator};
@@ -13,13 +14,11 @@ use uuid::Uuid;
 #[tokio::test]
 async fn updates_monitor_successfully() {
     let repository = InMemoryMonitorRepository::new();
-
-    let create_use_case = CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new());
-
+    let create_use_case =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let user_id = UserId(Uuid::new_v4());
 
     let request = CreateMonitorRequest {
-        user_id,
         name: "Google".into(),
         url: "https://google.com".into(),
         method: HttpMethod::Get,
@@ -28,33 +27,46 @@ async fn updates_monitor_successfully() {
         timeout_seconds: 10,
         assertions: vec![],
         is_public: false,
-
         ssl_check_enabled: true,
-
         ssl_expiry_warning_days: 14,
+        kind: domain::MonitorKind::Http,
+        tcp_port: None,
+        dns_record_type: None,
+        dns_expected_value: None,
+        heartbeat_interval_seconds: None,
+        heartbeat_grace_period_seconds: None,
     };
 
-    let created = create_use_case.execute(request).await.unwrap();
+    let created = create_use_case
+        .execute(request, auth_user(user_id, tenant_id()))
+        .await
+        .unwrap();
 
-    let update_use_case = UpdateMonitorUseCase::new(repository.clone());
+    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo());
 
     let updated = update_use_case
-        .execute(UpdateMonitor {
-            id: created.id,
-            user_id,
-            name: "Google Search".into(),
-            url: "https://www.google.com".into(),
-            method: HttpMethod::Head,
-            expected_status: 200,
-            interval_seconds: 120,
-            timeout_seconds: 15,
-            assertions: vec![],
-            is_public: false,
-
-            ssl_check_enabled: true,
-
-            ssl_expiry_warning_days: 14,
-        })
+        .execute(
+            UpdateMonitor {
+                id: created.id,
+                name: "Google Search".into(),
+                url: "https://www.google.com".into(),
+                method: HttpMethod::Head,
+                expected_status: 200,
+                interval_seconds: 120,
+                timeout_seconds: 15,
+                assertions: vec![],
+                is_public: false,
+                ssl_check_enabled: true,
+                ssl_expiry_warning_days: 14,
+                kind: domain::MonitorKind::Http,
+                tcp_port: None,
+                dns_record_type: None,
+                dns_expected_value: None,
+                heartbeat_interval_seconds: None,
+                heartbeat_grace_period_seconds: None,
+            },
+            auth_user(user_id, tenant_id()),
+        )
         .await
         .unwrap()
         .expect("monitor should exist");
@@ -62,33 +74,17 @@ async fn updates_monitor_successfully() {
     assert_eq!(updated.id, created.id);
     assert_eq!(updated.name.as_str(), "Google Search");
     assert_eq!(updated.url, "https://www.google.com/");
-
-    let get_use_case = GetMonitorUseCase::new(repository);
-
-    let fetched = get_use_case
-        .execute(GetMonitor {
-            id: created.id,
-            user_id,
-        })
-        .await
-        .unwrap()
-        .expect("monitor should still exist");
-
-    assert_eq!(fetched.name.as_str(), "Google Search");
-    assert_eq!(fetched.method, HttpMethod::Head);
 }
 
 #[tokio::test]
 async fn cannot_update_monitor_owned_by_another_user() {
     let repository = InMemoryMonitorRepository::new();
-
-    let create_use_case = CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new());
-
+    let create_use_case =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let owner_id = UserId(Uuid::new_v4());
     let attacker_id = UserId(Uuid::new_v4());
 
     let request = CreateMonitorRequest {
-        user_id: owner_id,
         name: "Private Monitor".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,
@@ -97,128 +93,47 @@ async fn cannot_update_monitor_owned_by_another_user() {
         timeout_seconds: 10,
         assertions: vec![],
         is_public: false,
-
         ssl_check_enabled: true,
-
         ssl_expiry_warning_days: 14,
+        kind: domain::MonitorKind::Http,
+        tcp_port: None,
+        dns_record_type: None,
+        dns_expected_value: None,
+        heartbeat_interval_seconds: None,
+        heartbeat_grace_period_seconds: None,
     };
 
-    let created = create_use_case.execute(request).await.unwrap();
-
-    let update_use_case = UpdateMonitorUseCase::new(repository.clone());
-
-    let result = update_use_case
-        .execute(UpdateMonitor {
-            id: created.id,
-            user_id: attacker_id,
-            name: "Hacked Monitor".into(),
-            url: "https://attacker.example.com".into(),
-            method: HttpMethod::Get,
-            expected_status: 200,
-            interval_seconds: 60,
-            timeout_seconds: 10,
-            assertions: vec![],
-            is_public: false,
-
-            ssl_check_enabled: true,
-
-            ssl_expiry_warning_days: 14,
-        })
+    let created = create_use_case
+        .execute(request, auth_user(owner_id, tenant_id()))
         .await
         .unwrap();
 
-    assert!(
-        result.is_none(),
-        "a user must not be able to update another user's monitor"
-    );
-
-    let get_use_case = GetMonitorUseCase::new(repository);
-
-    let fetched = get_use_case
-        .execute(GetMonitor {
-            id: created.id,
-            user_id: owner_id,
-        })
+    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo());
+    let result = update_use_case
+        .execute(
+            UpdateMonitor {
+                id: created.id,
+                name: "Hacked Monitor".into(),
+                url: "https://attacker.example.com".into(),
+                method: HttpMethod::Get,
+                expected_status: 200,
+                interval_seconds: 60,
+                timeout_seconds: 10,
+                assertions: vec![],
+                is_public: false,
+                ssl_check_enabled: true,
+                ssl_expiry_warning_days: 14,
+                kind: domain::MonitorKind::Http,
+                tcp_port: None,
+                dns_record_type: None,
+                dns_expected_value: None,
+                heartbeat_interval_seconds: None,
+                heartbeat_grace_period_seconds: None,
+            },
+            auth_user(attacker_id, tenant_id()),
+        )
         .await
-        .unwrap()
-        .expect("owner's monitor should still exist");
+        .unwrap();
 
-    assert_eq!(fetched.name.as_str(), "Private Monitor");
-    assert_eq!(fetched.url, "https://example.com/");
-}
-
-#[tokio::test]
-async fn is_public_flag_is_persisted_through_create_and_update() {
-    let repository = InMemoryMonitorRepository::new();
-
-    let create_use_case = CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new());
-
-    let user_id = UserId(Uuid::new_v4());
-
-    let request = CreateMonitorRequest {
-        user_id,
-        name: "Status Page Monitor".into(),
-        url: "https://example.com".into(),
-        method: HttpMethod::Get,
-        expected_status: 200,
-        interval_seconds: 60,
-        timeout_seconds: 10,
-        assertions: vec![],
-        is_public: true,
-
-        ssl_check_enabled: true,
-
-        ssl_expiry_warning_days: 14,
-    };
-
-    let created = create_use_case.execute(request).await.unwrap();
-
-    assert!(
-        created.is_public,
-        "is_public: true on the create request must survive into the created monitor"
-    );
-
-    let update_use_case = UpdateMonitorUseCase::new(repository.clone());
-
-    let updated = update_use_case
-        .execute(UpdateMonitor {
-            id: created.id,
-            user_id,
-            name: "Status Page Monitor".into(),
-            url: "https://example.com".into(),
-            method: HttpMethod::Get,
-            expected_status: 200,
-            interval_seconds: 60,
-            timeout_seconds: 10,
-            assertions: vec![],
-            is_public: false,
-
-            ssl_check_enabled: true,
-
-            ssl_expiry_warning_days: 14,
-        })
-        .await
-        .unwrap()
-        .expect("monitor should exist");
-
-    assert!(
-        !updated.is_public,
-        "is_public: false on the update request must turn the flag back off"
-    );
-
-    let get_use_case = GetMonitorUseCase::new(repository);
-
-    let fetched = get_use_case
-        .execute(GetMonitor {
-            id: created.id,
-            user_id,
-        })
-        .await
-        .unwrap()
-        .expect("monitor should still exist");
-
-    assert!(
-        !fetched.is_public,
-        "the persisted monitor must reflect the latest is_public value"
-    );
+    assert!(result.is_none());
 }

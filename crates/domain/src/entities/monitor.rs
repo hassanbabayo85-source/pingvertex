@@ -1,11 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::shared::ids::{MonitorId, UserId};
+use crate::shared::ids::{MonitorId, TenantId, UserId};
+use crate::shared::policies::{Ownable, TenantOwned};
 
 use crate::{
-    enums::HttpMethod,
-    value_objects::{CheckInterval, ExpectedStatus, MonitorName, RegionCode, Timeout, Url},
+    enums::{HttpMethod, MonitorKind},
+    errors::DomainError,
+    value_objects::{
+        CheckInterval, ExpectedStatus, HeartbeatToken, MonitorName, RegionCode, Timeout, Url,
+    },
 };
 
 /// Data required to create a monitor.
@@ -13,6 +17,7 @@ use crate::{
 pub struct CreateMonitor {
     pub id: MonitorId,
     pub user_id: UserId,
+    pub tenant_id: TenantId,
     pub name: MonitorName,
     pub url: String,
     pub method: HttpMethod,
@@ -22,6 +27,17 @@ pub struct CreateMonitor {
     /// Regions this monitor should be checked from.
     /// Empty means "use the default single region" (`us-east`).
     pub regions: Vec<RegionCode>,
+    /// The kind of check this monitor performs. Defaults to `Http` for
+    /// backward compatibility — same pattern as `regions` defaulting to
+    /// the single default region when empty.
+    pub kind: MonitorKind,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_token: Option<HeartbeatToken>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
 }
 
 /// A monitor configured by a user.
@@ -30,6 +46,7 @@ pub struct Monitor {
     pub assertions: Vec<crate::entities::Assertion>,
     pub id: MonitorId,
     pub user_id: UserId,
+    pub tenant_id: TenantId,
     pub name: MonitorName,
     pub url: String,
     pub method: HttpMethod,
@@ -45,6 +62,16 @@ pub struct Monitor {
     pub regions: Vec<RegionCode>,
     pub ssl_check_enabled: bool,
     pub ssl_expiry_warning_days: u32,
+    /// The kind of check this monitor performs. Defaults to `Http` for
+    /// every monitor created before this field existed.
+    pub kind: MonitorKind,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_token: Option<HeartbeatToken>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -53,12 +80,28 @@ impl Monitor {
     pub const MAX_ASSERTIONS: usize = 20;
 
     /// Creates a new monitor.
-    pub fn create(input: CreateMonitor) -> Self {
+    ///
+    /// Validates that the fields required by `input.kind` are present
+    /// (e.g. a `Tcp` monitor must have `tcp_port` set). `Http` monitors
+    /// have no kind-specific required fields, so existing callers that
+    /// never set `kind` (it defaults to `Http`) always succeed here —
+    /// this preserves full backward compatibility.
+    pub fn create(input: CreateMonitor) -> Result<Self, DomainError> {
+        Self::validate_kind_fields(
+            input.kind,
+            input.tcp_port,
+            input.dns_record_type.as_deref(),
+            input.heartbeat_token.as_ref(),
+            input.heartbeat_interval_seconds,
+            input.heartbeat_grace_period_seconds,
+        )?;
+
         let now = Utc::now();
 
-        Self {
+        Ok(Self {
             id: input.id,
             user_id: input.user_id,
+            tenant_id: input.tenant_id,
             name: input.name,
             url: input.url,
             method: input.method,
@@ -74,9 +117,65 @@ impl Monitor {
             },
             ssl_check_enabled: true,
             ssl_expiry_warning_days: 14,
+            kind: input.kind,
+            tcp_port: input.tcp_port,
+            dns_record_type: input.dns_record_type,
+            dns_expected_value: input.dns_expected_value,
+            heartbeat_token: input.heartbeat_token,
+            heartbeat_interval_seconds: input.heartbeat_interval_seconds,
+            heartbeat_grace_period_seconds: input.heartbeat_grace_period_seconds,
+            last_heartbeat_at: input.last_heartbeat_at,
             created_at: now,
             assertions: Vec::new(),
             updated_at: now,
+        })
+    }
+
+    /// Validates that the fields required by `kind` are present.
+    fn validate_kind_fields(
+        kind: MonitorKind,
+        tcp_port: Option<u16>,
+        dns_record_type: Option<&str>,
+        heartbeat_token: Option<&HeartbeatToken>,
+        heartbeat_interval_seconds: Option<u32>,
+        heartbeat_grace_period_seconds: Option<u32>,
+    ) -> Result<(), DomainError> {
+        match kind {
+            MonitorKind::Http => Ok(()),
+            MonitorKind::Tcp => {
+                if tcp_port.is_none() {
+                    return Err(DomainError::InvalidMonitorKindFields(
+                        "tcp_port is required for a Tcp monitor".into(),
+                    ));
+                }
+                Ok(())
+            }
+            MonitorKind::Dns => {
+                if dns_record_type.is_none() {
+                    return Err(DomainError::InvalidMonitorKindFields(
+                        "dns_record_type is required for a Dns monitor".into(),
+                    ));
+                }
+                Ok(())
+            }
+            MonitorKind::Heartbeat => {
+                if heartbeat_token.is_none() {
+                    return Err(DomainError::InvalidMonitorKindFields(
+                        "heartbeat_token is required for a Heartbeat monitor".into(),
+                    ));
+                }
+                if heartbeat_interval_seconds.is_none() {
+                    return Err(DomainError::InvalidMonitorKindFields(
+                        "heartbeat_interval_seconds is required for a Heartbeat monitor".into(),
+                    ));
+                }
+                if heartbeat_grace_period_seconds.is_none() {
+                    return Err(DomainError::InvalidMonitorKindFields(
+                        "heartbeat_grace_period_seconds is required for a Heartbeat monitor".into(),
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -99,6 +198,56 @@ impl Monitor {
         self.updated_at = Utc::now();
     }
 
+    /// Updates the kind-specific configuration of a monitor (e.g. switching
+    /// a monitor from `Http` to `Tcp`, or changing its `tcp_port`).
+    ///
+    /// Validates that the fields required by `kind` are present, mirroring
+    /// `Monitor::create`'s validation. If `kind` is `Heartbeat` and the
+    /// monitor does not already have a `heartbeat_token` (e.g. it is being
+    /// switched to `Heartbeat` for the first time), a new token is
+    /// generated. An existing heartbeat token is always preserved so a
+    /// monitor that stays `Heartbeat` keeps the same ping URL the user
+    /// already configured elsewhere.
+    pub fn update_kind_fields(
+        &mut self,
+        kind: MonitorKind,
+        tcp_port: Option<u16>,
+        dns_record_type: Option<String>,
+        dns_expected_value: Option<String>,
+        heartbeat_interval_seconds: Option<u32>,
+        heartbeat_grace_period_seconds: Option<u32>,
+    ) -> Result<(), DomainError> {
+        let heartbeat_token = if kind == MonitorKind::Heartbeat {
+            Some(
+                self.heartbeat_token
+                    .clone()
+                    .unwrap_or_else(HeartbeatToken::generate),
+            )
+        } else {
+            self.heartbeat_token.clone()
+        };
+
+        Self::validate_kind_fields(
+            kind,
+            tcp_port,
+            dns_record_type.as_deref(),
+            heartbeat_token.as_ref(),
+            heartbeat_interval_seconds,
+            heartbeat_grace_period_seconds,
+        )?;
+
+        self.kind = kind;
+        self.tcp_port = tcp_port;
+        self.dns_record_type = dns_record_type;
+        self.dns_expected_value = dns_expected_value;
+        self.heartbeat_token = heartbeat_token;
+        self.heartbeat_interval_seconds = heartbeat_interval_seconds;
+        self.heartbeat_grace_period_seconds = heartbeat_grace_period_seconds;
+        self.updated_at = Utc::now();
+
+        Ok(())
+    }
+
     pub fn enable(&mut self) {
         self.enabled = true;
         self.updated_at = Utc::now();
@@ -107,6 +256,13 @@ impl Monitor {
     pub fn disable(&mut self) {
         self.enabled = false;
         self.updated_at = Utc::now();
+    }
+
+    /// Records a heartbeat ping, updating `last_heartbeat_at` to now.
+    pub fn record_heartbeat(&mut self) {
+        let now = Utc::now();
+        self.last_heartbeat_at = Some(now);
+        self.updated_at = now;
     }
 
     /// Returns all assertions as a read-only slice.
@@ -183,5 +339,17 @@ impl Monitor {
         self.updated_at = Utc::now();
 
         Ok(())
+    }
+}
+
+impl TenantOwned for Monitor {
+    fn tenant_id(&self) -> TenantId {
+        self.tenant_id
+    }
+}
+
+impl Ownable for Monitor {
+    fn owner_id(&self) -> UserId {
+        self.user_id
     }
 }

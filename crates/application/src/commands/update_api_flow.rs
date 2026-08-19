@@ -1,4 +1,4 @@
-use domain::shared::ids::{ApiFlowId, MonitorId, UserId};
+use domain::shared::ids::{ApiFlowId, MonitorId};
 
 use crate::dto::ApiFlowStepInput;
 
@@ -6,6 +6,5 @@ use crate::dto::ApiFlowStepInput;
 pub struct UpdateApiFlow {
     pub id: ApiFlowId,
     pub monitor_id: MonitorId,
-    pub user_id: UserId,
     pub steps: Vec<ApiFlowStepInput>,
 }

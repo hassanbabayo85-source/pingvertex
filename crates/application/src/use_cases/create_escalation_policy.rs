@@ -1,24 +1,24 @@
 use std::{error::Error, fmt, sync::Arc};
 
-use domain::EscalationPolicy;
+use chrono::Utc;
+use domain::shared::policies::OwnershipPolicy;
+use domain::shared::types::AuthenticatedUser;
+use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, EscalationPolicy};
+use serde_json::json;
 
 use crate::{
     commands::CreateEscalationPolicy,
     ports::{
-        EscalationPolicyRepository, IdGenerator, MonitorRepository, NotificationChannelRepository,
+        AuditLogEntryRepository, EscalationPolicyRepository, IdGenerator, MonitorRepository,
+        NotificationChannelRepository,
     },
 };
 
 /// Error returned by `CreateEscalationPolicyUseCase`.
 #[derive(Debug)]
 pub enum CreateEscalationPolicyError {
-    /// Monitor doesn't exist, or exists but isn't owned by this user.
     MonitorNotFound,
-    /// A notification channel in the steps doesn't exist, isn't owned by
-    /// this user, or (for monitor-specific policies) doesn't belong to
-    /// the specified monitor.
     ChannelNotFound,
-    /// Escalation step validation failed.
     InvalidSteps(String),
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -36,15 +36,12 @@ impl fmt::Display for CreateEscalationPolicyError {
 
 impl Error for CreateEscalationPolicyError {}
 
-/// Creates an escalation policy, verifying that:
-/// - the monitor (if specified) belongs to the user;
-/// - every channel in the steps belongs to the user and, for monitor-specific
-///   policies, belongs to that exact monitor.
 pub struct CreateEscalationPolicyUseCase {
     monitor_repository: Arc<dyn MonitorRepository>,
     notification_channel_repository: Arc<dyn NotificationChannelRepository>,
     escalation_policy_repository: Arc<dyn EscalationPolicyRepository>,
     id_generator: Arc<dyn IdGenerator>,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl CreateEscalationPolicyUseCase {
@@ -53,39 +50,50 @@ impl CreateEscalationPolicyUseCase {
         notification_channel_repository: Arc<dyn NotificationChannelRepository>,
         escalation_policy_repository: Arc<dyn EscalationPolicyRepository>,
         id_generator: Arc<dyn IdGenerator>,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     ) -> Self {
         Self {
             monitor_repository,
             notification_channel_repository,
             escalation_policy_repository,
             id_generator,
+            audit_log_entry_repository,
         }
     }
 
     pub async fn execute(
         &self,
         command: CreateEscalationPolicy,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<EscalationPolicy, CreateEscalationPolicyError> {
-        // Idan monitor_id ya kasance Some, dole mu tabbatar mallaka.
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
         if let Some(monitor_id) = command.monitor_id {
-            self.monitor_repository
-                .find_by_id_for_user(monitor_id, command.user_id)
+            let monitor = self
+                .monitor_repository
+                .find_by_id_for_user(monitor_id, user_id)
                 .await
                 .map_err(CreateEscalationPolicyError::Other)?
                 .ok_or(CreateEscalationPolicyError::MonitorNotFound)?;
+
+            if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+                return Err(CreateEscalationPolicyError::MonitorNotFound);
+            }
         }
 
-        // Tabbatar da kowanne channel a cikin steps.
         for step in &command.steps {
             let channel = self
                 .notification_channel_repository
-                .find_by_id_for_user(step.channel_id, command.user_id)
+                .find_by_id_for_user(step.channel_id, user_id)
                 .await
                 .map_err(CreateEscalationPolicyError::Other)?
                 .ok_or(CreateEscalationPolicyError::ChannelNotFound)?;
 
-            // Idan policy ɗin monitor-specific ne, channel dole ya kasance
-            // na wannan monitor.
+            if !OwnershipPolicy::can_access(&authenticated_user, &channel) {
+                return Err(CreateEscalationPolicyError::ChannelNotFound);
+            }
+
             if let Some(monitor_id) = command.monitor_id {
                 if channel.monitor_id != monitor_id {
                     return Err(CreateEscalationPolicyError::ChannelNotFound);
@@ -95,11 +103,29 @@ impl CreateEscalationPolicyUseCase {
 
         let id = self.id_generator.next_escalation_policy_id().await;
 
-        let policy = EscalationPolicy::new(id, command.user_id, command.monitor_id, command.steps)
-            .map_err(|err| CreateEscalationPolicyError::InvalidSteps(err.to_string()))?;
+        let policy =
+            EscalationPolicy::new(id, user_id, tenant_id, command.monitor_id, command.steps)
+                .map_err(|err| CreateEscalationPolicyError::InvalidSteps(err.to_string()))?;
 
         self.escalation_policy_repository
             .create(&policy)
+            .await
+            .map_err(CreateEscalationPolicyError::Other)?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::EscalationPolicyCreated,
+            target_id: policy.id.0.to_string(),
+            metadata: json!({
+                "has_monitor": policy.monitor_id.is_some(),
+                "steps": policy.steps.len(),
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository
+            .create(&entry)
             .await
             .map_err(CreateEscalationPolicyError::Other)?;
 

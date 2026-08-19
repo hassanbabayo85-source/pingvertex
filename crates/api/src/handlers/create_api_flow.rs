@@ -5,7 +5,7 @@ use axum::{
 use tracing::info;
 
 use application::use_cases::{CreateApiFlowError, CreateApiFlowUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError,
@@ -16,7 +16,7 @@ use crate::{
 
 pub async fn create_api_flow(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
     Json(payload): Json<CreateApiFlowHttpRequest>,
 ) -> Result<(StatusCode, Json<ApiFlowHttpResponse>), ApiError> {
@@ -27,7 +27,7 @@ pub async fn create_api_flow(
     // Authorization check: the monitor must belong to the authenticated user.
     state
         .monitor_repository
-        .find_by_id_for_user(monitor_id, user_id)
+        .find_by_id_for_user(monitor_id, authenticated_user.user_id())
         .await
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
@@ -36,16 +36,23 @@ pub async fn create_api_flow(
         .try_into_request(monitor_id)
         .map_err(ApiError::bad_request)?;
 
-    let use_case = CreateApiFlowUseCase::new(state.api_flow_repository.clone(), state.id_generator);
+    let use_case = CreateApiFlowUseCase::new(
+        state.api_flow_repository.clone(),
+        state.id_generator,
+        state.audit_log_entry_repository.clone(),
+    );
 
-    let flow = use_case.execute(request).await.map_err(|err| match err {
-        CreateApiFlowError::FlowAlreadyExists => {
-            ApiError::conflict("an api flow already exists for this monitor")
-        }
-        CreateApiFlowError::Other(err) => {
-            ApiError::internal_with_source("failed to create api flow", err)
-        }
-    })?;
+    let flow = use_case
+        .execute(request, authenticated_user)
+        .await
+        .map_err(|err| match err {
+            CreateApiFlowError::FlowAlreadyExists => {
+                ApiError::conflict("an api flow already exists for this monitor")
+            }
+            CreateApiFlowError::Other(err) => {
+                ApiError::internal_with_source("failed to create api flow", err)
+            }
+        })?;
 
     Ok((StatusCode::CREATED, Json(ApiFlowHttpResponse::from(flow))))
 }

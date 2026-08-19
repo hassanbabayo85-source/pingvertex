@@ -1,31 +1,32 @@
 use std::{error::Error, fmt, sync::Arc};
 
+use chrono::Utc;
+use domain::shared::policies::OwnershipPolicy;
+use domain::shared::types::AuthenticatedUser;
 use domain::{
+    AuditAction, AuditLogEntry, AuditLogEntryId,
     entities::{CreateEmailChannel, CreateWebhookChannel, NotificationChannel},
     enums::NotificationChannelKind,
-    value_objects::{Email, Url},
+    value_objects::{
+        DiscordWebhookUrl, Email, PhoneNumber, SlackWebhookUrl, TelegramBotToken, TelegramChatId,
+        Url,
+    },
 };
+use serde_json::json;
 
 use crate::{
     commands::CreateNotificationChannel,
-    ports::{IdGenerator, MonitorRepository, NotificationChannelRepository},
+    ports::{
+        AuditLogEntryRepository, IdGenerator, MonitorRepository, NotificationChannelRepository,
+        SecretCipher,
+    },
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Error returned by `CreateNotificationChannelUseCase`. Kept distinct from
-/// a generic boxed error so the HTTP handler can map each case to the
-/// right status code (404 vs 422 vs 500) instead of guessing from a string.
 #[derive(Debug)]
 pub enum CreateNotificationChannelError {
-    /// The monitor doesn't exist, or exists but isn't owned by this user.
-    /// Deliberately the same outward result either way — see
-    /// `NotificationChannelRepository`'s doc comment on IDOR.
     MonitorNotFound,
-    /// `target` failed validation for the given `kind` (bad email address,
-    /// bad URL, unsupported scheme, ...). Held as a message rather than a
-    /// shared error type because `Email::new` and `Url::new` return two
-    /// different, unrelated error enums (`EmailError` / `DomainError`).
     InvalidTarget(String),
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -42,23 +43,12 @@ impl fmt::Display for CreateNotificationChannelError {
 
 impl Error for CreateNotificationChannelError {}
 
-/// Creates a notification channel on a monitor, after verifying the
-/// monitor is owned by the requesting user.
-///
-/// Deliberately does NOT perform an SSRF/DNS check on webhook URLs at
-/// creation time. That check requires a real DNS lookup (I/O), which this
-/// application-layer use case avoids doing directly, and — more
-/// importantly — it would only prove the URL was safe *at creation time*.
-/// Because DNS answers can change later (DNS rebinding), the ONLY
-/// trustworthy place to enforce SSRF protection is immediately before each
-/// actual send, which is exactly what `WebhookNotificationService` does on
-/// every attempt (including retries) in `crates/infra`. A create-time
-/// check here would be redundant at best and give false confidence at
-/// worst.
 pub struct CreateNotificationChannelUseCase {
     monitor_repository: Arc<dyn MonitorRepository>,
     notification_channel_repository: Arc<dyn NotificationChannelRepository>,
     id_generator: Arc<dyn IdGenerator>,
+    secret_cipher: Arc<dyn SecretCipher>,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl CreateNotificationChannelUseCase {
@@ -66,23 +56,36 @@ impl CreateNotificationChannelUseCase {
         monitor_repository: Arc<dyn MonitorRepository>,
         notification_channel_repository: Arc<dyn NotificationChannelRepository>,
         id_generator: Arc<dyn IdGenerator>,
+        secret_cipher: Arc<dyn SecretCipher>,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     ) -> Self {
         Self {
             monitor_repository,
             notification_channel_repository,
             id_generator,
+            secret_cipher,
+            audit_log_entry_repository,
         }
     }
 
     pub async fn execute(
         &self,
         command: CreateNotificationChannel,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<NotificationChannel, CreateNotificationChannelError> {
-        self.monitor_repository
-            .find_by_id_for_user(command.monitor_id, command.user_id)
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
+        let monitor = self
+            .monitor_repository
+            .find_by_id_for_user(command.monitor_id, user_id)
             .await
             .map_err(CreateNotificationChannelError::Other)?
             .ok_or(CreateNotificationChannelError::MonitorNotFound)?;
+
+        if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+            return Err(CreateNotificationChannelError::MonitorNotFound);
+        }
 
         let id = self.id_generator.next_notification_channel_id().await;
 
@@ -95,7 +98,8 @@ impl CreateNotificationChannelUseCase {
                 NotificationChannel::create_email(CreateEmailChannel {
                     id,
                     monitor_id: command.monitor_id,
-                    user_id: command.user_id,
+                    user_id,
+                    tenant_id,
                     email,
                 })
             }
@@ -106,18 +110,111 @@ impl CreateNotificationChannelUseCase {
 
                 let signing_secret = self.id_generator.next_webhook_signing_secret().await;
 
-                NotificationChannel::create_webhook(CreateWebhookChannel {
+                let mut channel = NotificationChannel::create_webhook(CreateWebhookChannel {
                     id,
                     monitor_id: command.monitor_id,
-                    user_id: command.user_id,
+                    user_id,
+                    tenant_id,
                     url,
-                    signing_secret,
-                })
+                    signing_secret: signing_secret.clone(),
+                });
+
+                let encrypted = self
+                    .secret_cipher
+                    .encrypt_bytes(signing_secret.as_bytes())
+                    .map_err(|err| CreateNotificationChannelError::Other(Box::new(err)))?;
+                channel.encrypted_secret = Some(encrypted);
+
+                channel
+            }
+            NotificationChannelKind::Slack => {
+                let url = SlackWebhookUrl::new(command.target).map_err(|err| {
+                    CreateNotificationChannelError::InvalidTarget(err.to_string())
+                })?;
+                NotificationChannel::create_slack(id, command.monitor_id, user_id, tenant_id, &url)
+            }
+            NotificationChannelKind::Discord => {
+                let url = DiscordWebhookUrl::new(command.target).map_err(|err| {
+                    CreateNotificationChannelError::InvalidTarget(err.to_string())
+                })?;
+                NotificationChannel::create_discord(
+                    id,
+                    command.monitor_id,
+                    user_id,
+                    tenant_id,
+                    &url,
+                )
+            }
+            NotificationChannelKind::Telegram => {
+                let token = TelegramBotToken::new(command.target).map_err(|err| {
+                    CreateNotificationChannelError::InvalidTarget(err.to_string())
+                })?;
+                let chat_id_raw = command.chat_id.clone().ok_or_else(|| {
+                    CreateNotificationChannelError::InvalidTarget(
+                        "chat_id is required for telegram notification channels".to_string(),
+                    )
+                })?;
+                let chat_id = TelegramChatId::new(chat_id_raw).map_err(|err| {
+                    CreateNotificationChannelError::InvalidTarget(err.to_string())
+                })?;
+                let encrypted = self
+                    .secret_cipher
+                    .encrypt_bytes(token.as_str().as_bytes())
+                    .map_err(|err| CreateNotificationChannelError::Other(Box::new(err)))?;
+                let mut channel = NotificationChannel::create_telegram(
+                    id,
+                    command.monitor_id,
+                    user_id,
+                    tenant_id,
+                    &chat_id,
+                );
+                channel.encrypted_secret = Some(encrypted);
+                channel
+            }
+            NotificationChannelKind::Sms => {
+                let phone = PhoneNumber::new(command.target).map_err(|err| {
+                    CreateNotificationChannelError::InvalidTarget(err.to_string())
+                })?;
+                let encrypted = self
+                    .secret_cipher
+                    .encrypt_bytes(phone.as_str().as_bytes())
+                    .map_err(|err| CreateNotificationChannelError::Other(Box::new(err)))?;
+                let mut channel = NotificationChannel::create_sms(
+                    id,
+                    command.monitor_id,
+                    user_id,
+                    tenant_id,
+                    &phone,
+                );
+                channel.target = "sms".to_string();
+                channel.encrypted_secret = Some(encrypted);
+                channel
             }
         };
 
+        let mut to_persist = channel.clone();
+        if to_persist.kind == NotificationChannelKind::Webhook {
+            to_persist.signing_secret = None;
+        }
+
         self.notification_channel_repository
-            .create(&channel)
+            .create(&to_persist)
+            .await
+            .map_err(CreateNotificationChannelError::Other)?;
+
+        let entry = AuditLogEntry {
+            id: AuditLogEntryId::new(),
+            actor_user_id: user_id,
+            tenant_id: Some(tenant_id),
+            action: AuditAction::NotificationChannelCreated,
+            target_id: channel.id.0.to_string(),
+            metadata: json!({
+                "monitor_id": channel.monitor_id.0.to_string(),
+            }),
+            created_at: Utc::now(),
+        };
+        self.audit_log_entry_repository
+            .create(&entry)
             .await
             .map_err(CreateNotificationChannelError::Other)?;
 

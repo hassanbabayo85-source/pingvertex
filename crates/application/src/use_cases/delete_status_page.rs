@@ -1,28 +1,72 @@
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
-use crate::ports::StatusPageRepository;
-use domain::{StatusPageId, UserId};
+use chrono::Utc;
+use serde_json::json;
+
+use crate::ports::{AuditLogEntryRepository, StatusPageRepository};
+use domain::{
+    AuditAction, AuditLogEntry, AuditLogEntryId, StatusPageId, shared::policies::OwnershipPolicy,
+    shared::types::AuthenticatedUser,
+};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 pub struct DeleteStatusPageUseCase<R> {
     repository: R,
+    audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
 }
 
 impl<R> DeleteStatusPageUseCase<R>
 where
     R: StatusPageRepository,
 {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+    pub fn new(
+        repository: R,
+        audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
+        Self {
+            repository,
+            audit_log_entry_repository,
+        }
     }
 
-    /// Returns `true` if a status page owned by `user_id` was deleted,
-    /// `false` if no such status page existed (whether because it was
-    /// never created or because it belongs to someone else — the
-    /// repository's ownership-scoped query makes those indistinguishable
-    /// by design, see the codebase's authorization rule).
-    pub async fn execute(&self, id: StatusPageId, user_id: UserId) -> UseCaseResult<bool> {
-        self.repository.delete_for_user(id, user_id).await
+    /// Returns `true` if a status page owned by the authenticated user was
+    /// deleted, `false` if no such status page existed (whether because it
+    /// was never created or because it belongs to someone else).
+    pub async fn execute(
+        &self,
+        id: StatusPageId,
+        authenticated_user: AuthenticatedUser,
+    ) -> UseCaseResult<bool> {
+        let user_id = authenticated_user.user_id();
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
+        let status_page = match self.repository.find_by_id_for_user(id, user_id).await? {
+            Some(status_page) => status_page,
+            None => return Ok(false),
+        };
+
+        if !OwnershipPolicy::can_access(&authenticated_user, &status_page) {
+            return Ok(false);
+        }
+
+        let deleted = self.repository.delete_for_user(id, user_id).await?;
+
+        if deleted {
+            let entry = AuditLogEntry {
+                id: AuditLogEntryId::new(),
+                actor_user_id: user_id,
+                tenant_id: Some(tenant_id),
+                action: AuditAction::StatusPageDeleted,
+                target_id: status_page.id.0.to_string(),
+                metadata: json!({
+                    "subdomain": status_page.subdomain.as_str(),
+                }),
+                created_at: Utc::now(),
+            };
+            self.audit_log_entry_repository.create(&entry).await?;
+        }
+
+        Ok(deleted)
     }
 }

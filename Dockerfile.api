@@ -28,8 +28,21 @@ COPY --from=builder /app/target/release/api /usr/local/bin/api
 # non-root user domin rage blast radius idan aka sami wata
 # container-escape vulnerability.
 RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+
+# mTLS internal-CA / server identity: only the server's own cert/key and
+# the CA cert are copied here. Agent client certs belong only in the
+# agent image (Dockerfile.agent), never here.
+#
+# --chown so appuser (not root) can read these at runtime; server-key.pem
+# is chmod 600 so it is readable only by appuser, not world-readable.
+COPY --chown=appuser:app certs/ca/ca-cert.pem certs/ca/ca-cert.pem
+COPY --chown=appuser:app certs/api/server-cert.pem certs/api/server-cert.pem
+COPY --chown=appuser:app certs/api/server-key.pem certs/api/server-key.pem
+RUN chmod 600 certs/api/server-key.pem
+
 USER appuser
 
 EXPOSE 3000
+EXPOSE 3443
 
 CMD ["api"]

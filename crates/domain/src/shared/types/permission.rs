@@ -27,4 +27,7 @@ pub enum Permission {
     ManageUsers,
     ManageApiKeys,
     ManageBilling,
+
+    // Audit log actions
+    ViewAuditLog,
 }

@@ -1,16 +1,20 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
 use application::ports::{PasswordHasher, TokenService, UserRepository};
+use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
 use domain::{Check, DiagnosticReport, Incident};
+use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryTenantMembershipRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
+use std::sync::Arc;
 use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
@@ -18,6 +22,16 @@ use tower::ServiceExt;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
+struct NoopSecretCipher;
+
+impl SecretCipher for NoopSecretCipher {
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(plaintext.to_vec())
+    }
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(ciphertext.to_vec())
+    }
+}
 struct MockCheckRepository;
 
 #[async_trait]
@@ -221,6 +235,8 @@ fn build_test_app() -> axum::Router {
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -228,6 +244,7 @@ fn build_test_app() -> axum::Router {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     build_test_router(state, auth_state)

@@ -8,7 +8,7 @@ use application::{
     commands::AcknowledgeIncident,
     use_cases::{AcknowledgeIncidentError, AcknowledgeIncidentUseCase},
 };
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, state::AppState, validation::parse_incident_id};
 
@@ -19,7 +19,7 @@ use crate::{error::ApiError, state::AppState, validation::parse_incident_id};
 /// The caller must own the monitor associated with the incident.
 pub async fn acknowledge_incident(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(incident_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     info!("API: acknowledge_incident");
@@ -29,13 +29,11 @@ pub async fn acknowledge_incident(
     let use_case = AcknowledgeIncidentUseCase::new(
         state.monitor_repository.clone(),
         state.incident_repository.clone(),
+        state.audit_log_entry_repository.clone(),
     );
 
     use_case
-        .execute(AcknowledgeIncident {
-            incident_id,
-            user_id,
-        })
+        .execute(AcknowledgeIncident { incident_id }, authenticated_user)
         .await
         .map_err(|err| match err {
             AcknowledgeIncidentError::NotFound => ApiError::not_found("incident not found"),

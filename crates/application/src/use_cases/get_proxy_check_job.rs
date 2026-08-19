@@ -24,7 +24,7 @@ where
         let job = self.repository.find_job_by_id(id).await?;
 
         match job {
-            Some(job) if *job.user_id() == user_id => {
+            Some(job) if job.user_id() == user_id => {
                 let entries = self.repository.find_entries_by_job_id(id).await?;
                 Ok(Some((job, entries)))
             }

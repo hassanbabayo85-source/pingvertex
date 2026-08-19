@@ -38,3 +38,7 @@ export async function register(
 
   return response.data;
 }
+
+export async function logout(): Promise<void> {
+  await authApi.post("/auth/logout");
+}

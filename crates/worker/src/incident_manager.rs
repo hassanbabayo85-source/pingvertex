@@ -31,7 +31,7 @@ impl MaintenanceWindowRepository for NoopMaintenanceWindowRepository {
         Ok(())
     }
 
-    async fn delete(&self, _id: MaintenanceWindowId) -> Result<bool> {
+    async fn delete_for_user(&self, _id: MaintenanceWindowId, _user_id: UserId) -> Result<bool> {
         Ok(false)
     }
 

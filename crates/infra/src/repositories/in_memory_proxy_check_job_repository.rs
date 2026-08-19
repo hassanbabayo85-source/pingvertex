@@ -95,7 +95,7 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
             .read()
             .unwrap()
             .values()
-            .filter(|job| *job.user_id() == user_id)
+            .filter(|job| job.user_id() == user_id)
             .cloned()
             .collect())
     }
@@ -140,7 +140,7 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
             .read()
             .unwrap()
             .values()
-            .filter(|job| *job.status() == ProxyCheckJobStatus::Pending)
+            .filter(|job| job.status() == ProxyCheckJobStatus::Pending)
             .take(limit)
             .cloned()
             .collect())

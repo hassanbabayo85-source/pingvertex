@@ -9,21 +9,25 @@ use domain::{
     Timeout, Url,
     entities::NotificationChannel,
     notification::NotificationEvent,
-    shared::ids::{IncidentId, MonitorId, NotificationChannelId, UserId},
+    shared::ids::{IncidentId, MonitorId, NotificationChannelId, TenantId, UserId},
 };
 use uuid::Uuid;
 
 use worker::IncidentManager;
 
 fn build_monitor() -> Monitor {
-    MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
-        .name(MonitorName::new("Test Monitor").unwrap())
-        .url(Url::new("http://example.com".to_string()).unwrap())
-        .method(HttpMethod::Get)
-        .expected_status(ExpectedStatus::new(200).unwrap())
-        .interval(CheckInterval::new(60).unwrap())
-        .timeout(Timeout::new(5).unwrap())
-        .build()
+    MonitorBuilder::new(
+        MonitorId(Uuid::new_v4()),
+        UserId(Uuid::new_v4()),
+        TenantId::new(),
+    )
+    .name(MonitorName::new("Test Monitor").unwrap())
+    .url(Url::new("http://example.com".to_string()).unwrap())
+    .method(HttpMethod::Get)
+    .expected_status(ExpectedStatus::new(200).unwrap())
+    .interval(CheckInterval::new(60).unwrap())
+    .timeout(Timeout::new(5).unwrap())
+    .build()
 }
 
 #[derive(Default)]
@@ -223,6 +227,7 @@ fn sample_email_channel(monitor: &Monitor) -> NotificationChannel {
         id: NotificationChannelId(Uuid::new_v4()),
         monitor_id: monitor.id,
         user_id: monitor.user_id,
+        tenant_id: monitor.tenant_id,
         email: Email::new("owner@example.com").unwrap(),
     })
 }

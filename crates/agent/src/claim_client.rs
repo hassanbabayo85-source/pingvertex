@@ -25,20 +25,19 @@ struct SubmitResultRequest {
     status_code: Option<u16>,
     latency_ms: u128,
     error: Option<String>,
+    country_code: Option<String>,
 }
 
 pub async fn claim_checks(
     client: &Client,
     api_base: &str,
     agent_id: &str,
-    agent_secret: &str,
     agent_region: &str,
 ) -> anyhow::Result<Vec<ClaimedCheck>> {
     let url = format!("{api_base}/agents/{agent_id}/checks/claim");
 
     let resp = client
         .post(url)
-        .header("Authorization", format!("Bearer {agent_secret}"))
         .header("X-Agent-Region", agent_region)
         .send()
         .await?
@@ -52,7 +51,6 @@ pub async fn submit_result(
     client: &Client,
     api_base: &str,
     agent_id: &str,
-    agent_secret: &str,
     agent_region: &str,
     check_id: Uuid,
     monitor_id: Uuid,
@@ -68,11 +66,11 @@ pub async fn submit_result(
         status_code: result.status_code,
         latency_ms: result.latency_ms,
         error: result.error,
+        country_code: result.country_code,
     };
 
     client
         .post(url)
-        .header("Authorization", format!("Bearer {agent_secret}"))
         .header("X-Agent-Region", agent_region)
         .json(&payload)
         .send()

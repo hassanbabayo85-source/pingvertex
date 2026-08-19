@@ -51,7 +51,7 @@ pub use create_status_page::{CreateStatusPageError, CreateStatusPageUseCase};
 pub use delete_status_page::DeleteStatusPageUseCase;
 pub use list_status_pages::ListStatusPagesUseCase;
 pub use request_custom_domain::RequestCustomDomainUseCase;
-pub use update_status_page::UpdateStatusPageUseCase;
+pub use update_status_page::{UpdateStatusPageError, UpdateStatusPageUseCase};
 pub mod upload_status_page_logo;
 pub use upload_status_page_logo::{UploadStatusPageLogoError, UploadStatusPageLogoUseCase};
 pub mod submit_proxy_check_job;

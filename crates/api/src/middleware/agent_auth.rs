@@ -1,10 +1,11 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
 };
+use axum_server_mtls::PeerCertificates;
 use domain::RegionCode;
 
 #[derive(Clone, Debug)]
@@ -15,28 +16,63 @@ pub struct AgentRegion(pub RegionCode);
 
 /// Middleware that authenticates internal agent endpoints.
 ///
-/// This is deliberately separate from `jwt_auth`: agents do NOT present
-/// user JWTs. They use a single shared `AGENT_SECRET` (server-to-server)
-/// and must also declare their region via `X-Agent-Region` on every
-/// claim/submit request.
+/// SEC: this used to also accept a shared `AGENT_SECRET` Bearer token as a
+/// fallback whenever `PeerCertificates` was absent, described in a comment
+/// as "for tests/legacy". That fallback has been REMOVED ENTIRELY — it was
+/// a fully-functional authentication bypass with no cross-check against the
+/// requested `{agent_id}` (unlike the mTLS path below), reachable by anyone
+/// who obtained the `AGENT_SECRET` value. Even though the specific
+/// `main.rs`/`router.rs` wiring at the time meant it wasn't reachable via
+/// the plain HTTP listener, "unreachable today because of how three
+/// separate things happen to be wired" is not the same guarantee as
+/// "cannot happen" — a single future refactor (merging routers, adding a
+/// reverse proxy in front of the mTLS port, etc.) would have silently
+/// reactivated it. Authentication code should never contain a bypass whose
+/// safety depends on infrastructure staying exactly as configured today.
+///
+/// Identity now comes EXCLUSIVELY from the client certificate's Common Name
+/// (CN), injected as a `PeerCertificates` extension by `axum-server-mtls`'s
+/// `MtlsAcceptor` after a real mTLS handshake (see `mtls.rs` / the mTLS
+/// `axum_server` bound in `main.rs`, which requires every connecting client
+/// to present a certificate signed by our internal CA *before* any
+/// application code — including this middleware — ever runs). If
+/// `PeerCertificates` is missing, this is a hard `UNAUTHORIZED`, full stop
+/// — there is no other way to authenticate as an agent.
+///
+/// Defense-in-depth: the CN is also required to match the `{agent_id}`
+/// URL path segment exactly. This isn't needed to establish *whose*
+/// certificate was presented — the CN already proves that — but it stops
+/// an agent with a valid certificate from acting on another agent's
+/// behalf by pointing its URL at a different `{agent_id}`, and it keeps
+/// every existing route/handler that reads `AgentId` from the path
+/// unchanged.
 pub async fn agent_auth(
     headers: HeaderMap,
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let secret = std::env::var("AGENT_SECRET").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-
-    let authorization = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
+    let path = request.uri().path().to_string();
+    let segments: Vec<&str> = path.split('/').collect();
+    let path_agent_id = segments
+        .iter()
+        .position(|segment| *segment == "agents")
+        .and_then(|idx| segments.get(idx + 1))
+        .map(|s| s.to_string())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let token = authorization
-        .strip_prefix("Bearer ")
+    // mTLS only — no fallback. See doc comment above for why.
+    let peer_certs = request
+        .extensions()
+        .get::<PeerCertificates>()
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if token != secret {
-        return Err(StatusCode::UNAUTHORIZED);
+    let agent_id = peer_certs
+        .leaf_cn()
+        .filter(|_| peer_certs.is_present())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    if agent_id != path_agent_id {
+        return Err(StatusCode::FORBIDDEN);
     }
 
     let region_str = headers
@@ -45,17 +81,6 @@ pub async fn agent_auth(
         .ok_or(StatusCode::BAD_REQUEST)?;
 
     let region = RegionCode::new(region_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    // Agent ID is taken from the URL path (`/internal/v1/agents/{agent_id}/...`).
-    let path = request.uri().path();
-    let segments: Vec<&str> = path.split('/').collect();
-
-    let agent_id = segments
-        .iter()
-        .position(|segment| *segment == "agents")
-        .and_then(|idx| segments.get(idx + 1))
-        .map(|s| s.to_string())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     request.extensions_mut().insert(AgentId(agent_id));
     request.extensions_mut().insert(AgentRegion(region));

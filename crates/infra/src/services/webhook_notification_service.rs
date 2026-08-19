@@ -27,15 +27,43 @@ const WEBHOOK_BACKOFF_BASE_MS: u64 = 500;
 /// user-supplied URL — the mechanism that lets someone wire this project up
 /// to Slack/Discord/PagerDuty/their own endpoint via an incoming webhook.
 ///
-/// Holds no per-instance state (no config needed — target URL and signing
-/// secret live on each `NotificationChannel`), so it's cheap to construct
-/// and safe to share across the whole app behind one `Arc`.
-#[derive(Debug, Clone, Default)]
-pub struct WebhookNotificationService;
+/// Holds the shared `SecretCipher` (same AES-256-GCM cipher used for
+/// Telegram bot tokens / SMS credentials) so it can decrypt
+/// `channel.encrypted_secret` at send time — new channels persist the HMAC
+/// signing secret encrypted at rest rather than in the plaintext
+/// `signing_secret` column (see `CreateNotificationChannelUseCase`). Cheap
+/// to construct and safe to share across the whole app behind one `Arc`.
+#[derive(Clone)]
+pub struct WebhookNotificationService {
+    cipher: std::sync::Arc<dyn application::ports::SecretCipher>,
+}
 
 impl WebhookNotificationService {
-    pub fn new() -> Self {
-        Self
+    pub fn new(cipher: std::sync::Arc<dyn application::ports::SecretCipher>) -> Self {
+        Self { cipher }
+    }
+
+    /// Resolves the plaintext HMAC signing secret for a webhook channel.
+    ///
+    /// Prefers the encrypted secret (new channels, and any legacy channel
+    /// that has since been rotated). Falls back to the legacy plaintext
+    /// `signing_secret` column so channels created before encryption was
+    /// added keep working without a forced migration — rotating a channel
+    /// (delete + recreate) moves it onto encrypted storage.
+    fn resolve_secret(&self, channel: &NotificationChannel) -> Result<String, String> {
+        if let Some(encrypted) = channel.encrypted_secret.as_ref() {
+            let bytes = self
+                .cipher
+                .decrypt_bytes(encrypted)
+                .map_err(|err| format!("failed to decrypt webhook signing secret: {err}"))?;
+            return String::from_utf8(bytes)
+                .map_err(|_| "decrypted webhook signing secret is not valid UTF-8".to_string());
+        }
+
+        channel
+            .signing_secret
+            .clone()
+            .ok_or_else(|| "webhook channel is missing a signing secret".to_string())
     }
 }
 
@@ -89,10 +117,7 @@ impl NotificationService for WebhookNotificationService {
             .into());
         }
 
-        let secret = channel
-            .signing_secret
-            .as_deref()
-            .ok_or("webhook channel is missing a signing secret")?;
+        let secret = self.resolve_secret(channel)?;
 
         let payload = payload_for(event);
         let body = serde_json::to_vec(&payload)?;

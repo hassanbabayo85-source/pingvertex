@@ -1,5 +1,5 @@
 use domain::EscalationStep;
-use domain::shared::ids::{MonitorId, UserId};
+use domain::shared::ids::MonitorId;
 
 /// Command to create an escalation policy.
 ///
@@ -7,7 +7,6 @@ use domain::shared::ids::{MonitorId, UserId};
 /// Idan `None`, yana aiki ga dukkan monitors na wannan user.
 #[derive(Debug, Clone)]
 pub struct CreateEscalationPolicy {
-    pub user_id: UserId,
     pub monitor_id: Option<MonitorId>,
     pub steps: Vec<EscalationStep>,
 }

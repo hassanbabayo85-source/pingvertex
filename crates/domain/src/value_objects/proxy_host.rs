@@ -96,10 +96,10 @@ impl ProxyHost {
         // territory — reject it outright if it's private/reserved. See
         // the type-level doc comment for why hostnames are NOT resolved
         // (and therefore not checked against `is_private_ip`) here.
-        if let Ok(ip) = value.parse::<IpAddr>() {
-            if shared::ssrf::is_private_ip(ip) {
-                return Err(DomainError::ProxyHostIsPrivateOrReserved);
-            }
+        if let Ok(ip) = value.parse::<IpAddr>()
+            && shared::ssrf::is_private_ip(ip)
+        {
+            return Err(DomainError::ProxyHostIsPrivateOrReserved);
         }
 
         Ok(Self(value.to_string()))

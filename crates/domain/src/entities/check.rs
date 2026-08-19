@@ -26,6 +26,8 @@ pub struct Check {
 
     pub cert_expires_at: Option<DateTime<Utc>>,
     pub cert_days_remaining: Option<i64>,
+
+    pub country_code: Option<String>,
 }
 
 impl Check {
@@ -52,6 +54,7 @@ impl Check {
             checked_at: Utc::now(),
             cert_expires_at: None,
             cert_days_remaining: None,
+            country_code: None,
         }
     }
 
@@ -65,6 +68,13 @@ impl Check {
     ) -> Self {
         self.cert_expires_at = cert_expires_at;
         self.cert_days_remaining = cert_days_remaining;
+        self
+    }
+
+    /// Attaches the GeoIP country code (ISO 3166-1 alpha-2) resolved for the
+    /// target monitor's IP address. `None` if the lookup found no match.
+    pub fn with_country_code(mut self, country_code: Option<String>) -> Self {
+        self.country_code = country_code;
         self
     }
 }

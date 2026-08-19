@@ -5,19 +5,22 @@ use api::{
     auth_state::AuthState,
     config::Config,
     metrics::init_metrics,
-    router::build_router,
+    mtls::{build_mtls_config, MtlsPaths},
+    router::{build_internal_agent_router, build_router},
     state::{AppState, NoopLogoStorage, NoopStatusPageCache},
 };
 use application::ports::StatusPageCache;
+use axum_server::tls_rustls::RustlsAcceptor;
+use axum_server_mtls::MtlsAcceptor;
 use infra::{
     create_pool, AesGcmProxyCredentialCipher, Argon2PasswordHasher, HickoryCustomDomainVerifier,
     JsonWebTokenService, NotificationDispatcher, PostgresApiFlowRepository,
-    PostgresCheckRepository, PostgresDiagnosticReportRepository,
+    PostgresAuditLogEntryRepository, PostgresCheckRepository, PostgresDiagnosticReportRepository,
     PostgresEscalationPolicyRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresProxyCheckJobRepository,
-    PostgresStatusPageRepository, PostgresUserRepository, RedisStatusPageCache, S3LogoStorage,
-    UuidIdGenerator,
+    PostgresStatusPageRepository, PostgresTenantMembershipRepository, PostgresUserRepository,
+    RedisStatusPageCache, S3LogoStorage, UuidIdGenerator,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -30,6 +33,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(filter)
         .json()
         .init();
+
+    // Must run before any `rustls::ServerConfig` is built (i.e. before
+    // `build_mtls_config` below) — rustls 0.23 requires a process-wide
+    // default `CryptoProvider` to be installed exactly once. We use
+    // `aws_lc_rs` (rustls's default feature), matching the crypto
+    // provider `mtls.rs` and the rest of the `rustls`/`rustls-pki-types`
+    // dependency chain are built against.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls default crypto provider");
 
     init_metrics();
 
@@ -55,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // silently falling back to "no encryption" (see
     // AesGcmProxyCredentialCipher::try_from_env's own doc comment).
     let proxy_credential_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
+    let secret_cipher: Arc<dyn application::ports::SecretCipher> = proxy_credential_cipher.clone();
     let proxy_check_job_repository =
         PostgresProxyCheckJobRepository::new(pool.clone(), proxy_credential_cipher);
 
@@ -74,13 +88,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let audit_log_entry_repository = PostgresAuditLogEntryRepository::new(pool.clone());
+
     let app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
         PostgresCheckRepository::new(pool.clone()),
         PostgresDiagnosticReportRepository::new(pool.clone()),
         PostgresIncidentRepository::new(pool.clone()),
         PostgresNotificationChannelRepository::new(pool.clone()),
-        NotificationDispatcher::from_env(),
+        NotificationDispatcher::from_env(secret_cipher.clone()),
         PostgresApiFlowRepository::new(pool.clone()),
         proxy_check_job_repository,
         PostgresMaintenanceWindowRepository::new(pool.clone()),
@@ -90,28 +106,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         status_page_cache,
         logo_storage,
         UuidIdGenerator::new(),
+        secret_cipher,
+        audit_log_entry_repository,
     );
+
+    let tenant_membership_repository = PostgresTenantMembershipRepository::new(pool.clone());
 
     let auth_state = AuthState::new(
         PostgresUserRepository::new(pool.clone()),
         Argon2PasswordHasher,
         JsonWebTokenService::new(config.jwt_secret.clone()),
         UuidIdGenerator::new(),
+        tenant_membership_repository,
     );
 
-    let app = build_router(app_state, auth_state);
+    // Two independent servers share `app_state` (Clone, cheap — just Arc
+    // clones of the repos/services underneath):
+    //
+    // 1. Plain HTTP on port 3000 — every route EXCEPT `/internal/v1`.
+    // 2. mTLS on `config.mtls_port` — ONLY `/internal/v1` (agent
+    //    claim/submit endpoints), requiring every client to present a
+    //    certificate signed by our internal CA before any application
+    //    code runs. See `router::build_internal_agent_router` and
+    //    `mtls::build_mtls_config` for the full rationale.
+    //
+    // This split (rather than migrating the whole server to
+    // `axum_server`) exists because `axum_server` does not expose
+    // `ConnectInfo<SocketAddr>`, which the OTHER routes' IP-keyed
+    // GovernorLayers depend on.
+    let plain_app = build_router(app_state.clone(), auth_state);
+    let internal_agent_app = build_internal_agent_router(app_state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let plain_addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let mtls_addr = SocketAddr::from(([0, 0, 0, 0], config.mtls_port));
 
-    tracing::info!("Listening on http://{}", addr);
+    let mtls_config = build_mtls_config(MtlsPaths {
+        ca_cert: &config.mtls_ca_cert_path,
+        server_cert: &config.mtls_server_cert_path,
+        server_key: &config.mtls_server_key_path,
+    })?;
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("Listening on http://{}", plain_addr);
+    tracing::info!(
+        "Listening (mTLS, internal agents only) on https://{}",
+        mtls_addr
+    );
 
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    let plain_listener = tokio::net::TcpListener::bind(plain_addr).await?;
+
+    let plain_server = axum::serve(
+        plain_listener,
+        plain_app.into_make_service_with_connect_info::<SocketAddr>(),
+    );
+
+    let mtls_acceptor = MtlsAcceptor::new(RustlsAcceptor::new(mtls_config));
+
+    let mtls_server = axum_server::bind(mtls_addr)
+        .acceptor(mtls_acceptor)
+        .serve(internal_agent_app.into_make_service());
+
+    // Run both servers concurrently for the lifetime of the process. If
+    // either one exits (normally only on an unrecoverable bind/accept
+    // error, since neither loop returns on its own otherwise), the whole
+    // process exits — a half-running API (only plain HTTP working, or
+    // only mTLS working) is worse than a clean crash-and-restart under
+    // Docker/orchestrator supervision.
+    tokio::try_join!(
+        async {
+            plain_server
+                .await
+                .map_err(Box::<dyn std::error::Error>::from)
+        },
+        async {
+            mtls_server
+                .await
+                .map_err(Box::<dyn std::error::Error>::from)
+        },
+    )?;
 
     Ok(())
 }

@@ -6,6 +6,20 @@ use std::env;
 /// signing ya kasance mai wuyar ƙeta (brute-force resistant).
 const MIN_JWT_SECRET_LEN: usize = 32;
 
+/// Default TCP port for the internal-agent mTLS listener. Overridable via
+/// `MTLS_PORT`. Kept separate from the main HTTP port (3000) since the
+/// mTLS listener is a second, independent server (see `main.rs`).
+const DEFAULT_MTLS_PORT: u16 = 3443;
+
+/// Default filesystem paths for the mTLS CA/server identity, relative to
+/// the process's working directory (`/app` in the container — see
+/// `Dockerfile.api`, which COPYs `certs/` alongside the binary).
+/// Overridable via `MTLS_CA_CERT_PATH`, `MTLS_SERVER_CERT_PATH`,
+/// `MTLS_SERVER_KEY_PATH`.
+const DEFAULT_MTLS_CA_CERT_PATH: &str = "certs/ca/ca-cert.pem";
+const DEFAULT_MTLS_SERVER_CERT_PATH: &str = "certs/api/server-cert.pem";
+const DEFAULT_MTLS_SERVER_KEY_PATH: &str = "certs/api/server-key.pem";
+
 /// Jerin sanannun sirrin da AKA TAɓA turo su a bayyane (leaked) ko wanda
 /// aka sani a matsayin placeholder/example. Ba a taɓa yarda a yi amfani
 /// da su a runtime, koda sun cika tsayin da ake bukata.
@@ -39,6 +53,20 @@ pub struct Config {
     /// shouldn't be forced to stand up Redis just to boot. When absent,
     /// `main.rs` wires a no-op cache instead.
     pub redis_url: Option<String>,
+    /// TCP port for the internal-agent mTLS listener (see `api::mtls` and
+    /// `router::build_internal_agent_router`). Separate from the main
+    /// plain-HTTP port (3000, hardcoded in `main.rs`) because the two
+    /// listeners run as two independent `axum`/`axum_server` servers.
+    pub mtls_port: u16,
+    /// Path to the internal CA certificate that signs both the server's
+    /// own mTLS identity and every agent's client certificate. Client
+    /// certs presented to the mTLS listener must chain up to this CA.
+    pub mtls_ca_cert_path: String,
+    /// Path to this server's own certificate, presented to connecting
+    /// agents during the mTLS handshake.
+    pub mtls_server_cert_path: String,
+    /// Path to this server's own private key, matching `mtls_server_cert_path`.
+    pub mtls_server_key_path: String,
 }
 
 /// Kurakuran da za a iya samu wajen loda/tabbatar da configuration.
@@ -48,6 +76,7 @@ pub enum ConfigError {
     MissingJwtSecret,
     JwtSecretTooShort { actual_len: usize, min_len: usize },
     JwtSecretIsKnownWeakOrLeaked,
+    InvalidMtlsPort { value: String },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -68,6 +97,10 @@ impl std::fmt::Display for ConfigError {
                 f,
                 "JWT_SECRET matches a known example/placeholder value or a previously leaked secret. \
                  Generate a fresh one with: openssl rand -hex 64"
+            ),
+            Self::InvalidMtlsPort { value } => write!(
+                f,
+                "MTLS_PORT is not a valid TCP port number: '{value}'"
             ),
         }
     }
@@ -134,10 +167,28 @@ impl Config {
 
         let redis_url = non_empty_env("REDIS_URL");
 
+        let mtls_port = match non_empty_env("MTLS_PORT") {
+            Some(raw) => raw
+                .parse::<u16>()
+                .map_err(|_| ConfigError::InvalidMtlsPort { value: raw })?,
+            None => DEFAULT_MTLS_PORT,
+        };
+
+        let mtls_ca_cert_path = non_empty_env("MTLS_CA_CERT_PATH")
+            .unwrap_or_else(|| DEFAULT_MTLS_CA_CERT_PATH.to_string());
+        let mtls_server_cert_path = non_empty_env("MTLS_SERVER_CERT_PATH")
+            .unwrap_or_else(|| DEFAULT_MTLS_SERVER_CERT_PATH.to_string());
+        let mtls_server_key_path = non_empty_env("MTLS_SERVER_KEY_PATH")
+            .unwrap_or_else(|| DEFAULT_MTLS_SERVER_KEY_PATH.to_string());
+
         Ok(Self {
             database_url,
             jwt_secret,
             redis_url,
+            mtls_port,
+            mtls_ca_cert_path,
+            mtls_server_cert_path,
+            mtls_server_key_path,
         })
     }
 }

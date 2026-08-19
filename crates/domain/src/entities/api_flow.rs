@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::entities::ApiFlowStep;
 use crate::errors::DomainError;
-use crate::shared::ids::{ApiFlowId, MonitorId};
+use crate::shared::ids::{ApiFlowId, MonitorId, TenantId};
+use crate::shared::policies::TenantOwned;
 
 /// Hard cap on the number of steps a single API flow may contain.
 ///
@@ -18,6 +19,7 @@ pub const MAX_STEPS: usize = 10;
 pub struct ApiFlow {
     pub id: ApiFlowId,
     pub monitor_id: MonitorId,
+    pub tenant_id: TenantId,
     pub steps: Vec<ApiFlowStep>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -27,6 +29,7 @@ impl ApiFlow {
     pub fn new(
         id: ApiFlowId,
         monitor_id: MonitorId,
+        tenant_id: TenantId,
         steps: Vec<ApiFlowStep>,
     ) -> Result<Self, DomainError> {
         if steps.is_empty() {
@@ -51,6 +54,7 @@ impl ApiFlow {
         Ok(Self {
             id,
             monitor_id,
+            tenant_id,
             steps,
             created_at: now,
             updated_at: now,
@@ -89,6 +93,7 @@ mod tests {
         let flow = ApiFlow::new(
             ApiFlowId::new(),
             MonitorId::new(),
+            TenantId::new(),
             vec![step(1), step(2), step(3)],
         )
         .unwrap();
@@ -98,7 +103,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_steps() {
-        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), vec![]);
+        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), TenantId::new(), vec![]);
 
         assert_eq!(result, Err(DomainError::EmptyFlowSteps));
     }
@@ -107,29 +112,50 @@ mod tests {
     fn rejects_too_many_steps() {
         let steps = (1..=(MAX_STEPS as u16 + 1)).map(step).collect();
 
-        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), steps);
+        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), TenantId::new(), steps);
 
         assert_eq!(result, Err(DomainError::TooManyFlowSteps));
     }
 
     #[test]
     fn rejects_duplicate_order() {
-        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), vec![step(1), step(1)]);
+        let result = ApiFlow::new(
+            ApiFlowId::new(),
+            MonitorId::new(),
+            TenantId::new(),
+            vec![step(1), step(1)],
+        );
 
         assert_eq!(result, Err(DomainError::InvalidStepOrder));
     }
 
     #[test]
     fn rejects_gap_in_order() {
-        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), vec![step(1), step(3)]);
+        let result = ApiFlow::new(
+            ApiFlowId::new(),
+            MonitorId::new(),
+            TenantId::new(),
+            vec![step(1), step(3)],
+        );
 
         assert_eq!(result, Err(DomainError::InvalidStepOrder));
     }
 
     #[test]
     fn rejects_order_not_starting_at_one() {
-        let result = ApiFlow::new(ApiFlowId::new(), MonitorId::new(), vec![step(2), step(3)]);
+        let result = ApiFlow::new(
+            ApiFlowId::new(),
+            MonitorId::new(),
+            TenantId::new(),
+            vec![step(2), step(3)],
+        );
 
         assert_eq!(result, Err(DomainError::InvalidStepOrder));
+    }
+}
+
+impl TenantOwned for ApiFlow {
+    fn tenant_id(&self) -> TenantId {
+        self.tenant_id
     }
 }

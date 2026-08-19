@@ -3,15 +3,19 @@ use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, MonitorRepository,
     PasswordHasher, TokenService, UserRepository,
 };
+use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{Check, DiagnosticReport, Incident, Monitor, User};
+use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryTenantMembershipRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
+use std::sync::Arc;
 use tower::util::ServiceExt;
 
 // ---------------------------------------------------------------------------
@@ -19,6 +23,16 @@ use tower::util::ServiceExt;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Default)]
+struct NoopSecretCipher;
+
+impl SecretCipher for NoopSecretCipher {
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(plaintext.to_vec())
+    }
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(ciphertext.to_vec())
+    }
+}
 struct NoopMonitorRepository;
 
 #[async_trait]
@@ -252,6 +266,8 @@ async fn health_endpoint_returns_ok() {
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -259,6 +275,7 @@ async fn health_endpoint_returns_ok() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     let app = build_test_router(state, auth_state);
@@ -288,6 +305,8 @@ async fn register_rejects_weak_password() {
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -295,6 +314,7 @@ async fn register_rejects_weak_password() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     let app = build_test_router(state, auth_state);
@@ -338,6 +358,8 @@ async fn register_accepts_strong_password() {
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     let auth_state = AuthState::new(
@@ -345,6 +367,7 @@ async fn register_accepts_strong_password() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     let app = build_test_router(state, auth_state);

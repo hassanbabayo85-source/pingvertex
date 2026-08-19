@@ -2,7 +2,7 @@ use std::error::Error;
 
 use application::ports::ApiFlowRepository;
 use async_trait::async_trait;
-use domain::shared::ids::{ApiFlowId, ApiFlowStepId, AssertionId, MonitorId};
+use domain::shared::ids::{ApiFlowId, ApiFlowStepId, AssertionId, MonitorId, TenantId};
 use domain::{
     ApiFlow, ApiFlowStep, Assertion, AssertionOperator, FlowStepName, HttpMethod, ResponsePart,
     VariableExtraction,
@@ -90,6 +90,7 @@ impl PostgresApiFlowRepository {
 struct ApiFlowRow {
     id: Uuid,
     monitor_id: Uuid,
+    tenant_id: Uuid,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -99,6 +100,7 @@ impl ApiFlowRow {
         Ok(ApiFlow {
             id: ApiFlowId(self.id),
             monitor_id: MonitorId(self.monitor_id),
+            tenant_id: TenantId(self.tenant_id),
             steps,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -279,12 +281,13 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
 
         sqlx::query(
             r#"
-            INSERT INTO api_flows (id, monitor_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO api_flows (id, monitor_id, tenant_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(flow.id.0)
         .bind(flow.monitor_id.0)
+        .bind(flow.tenant_id.0)
         .bind(flow.created_at)
         .bind(flow.updated_at)
         .execute(&mut *tx)
@@ -479,7 +482,7 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
     async fn find_by_id(&self, id: ApiFlowId) -> RepoResult<Option<ApiFlow>> {
         let row = sqlx::query_as::<_, ApiFlowRow>(
             r#"
-            SELECT id, monitor_id, created_at, updated_at
+            SELECT id, monitor_id, tenant_id, created_at, updated_at
             FROM api_flows
             WHERE id = $1
             "#,
@@ -498,7 +501,7 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
     async fn find_by_monitor_id(&self, monitor_id: MonitorId) -> RepoResult<Option<ApiFlow>> {
         let row = sqlx::query_as::<_, ApiFlowRow>(
             r#"
-            SELECT id, monitor_id, created_at, updated_at
+            SELECT id, monitor_id, tenant_id, created_at, updated_at
             FROM api_flows
             WHERE monitor_id = $1
             "#,

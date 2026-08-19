@@ -8,9 +8,10 @@ use std::{
 use application::ports::{
     CheckRepository, DiagnosticReportRepository, IdGenerator, MonitorRepository,
 };
-use chrono::Utc;
-use domain::shared::ids::MonitorId;
-use domain::{Check, CheckStatus, DiagnosticReport, ErrorType};
+use chrono::{Duration as ChronoDuration, Utc};
+#[allow(unused_imports)]
+use domain::shared::ids::{MonitorId, TenantId};
+use domain::{Check, CheckStatus, DiagnosticReport, ErrorType, MonitorKind};
 use metrics::{counter, histogram};
 use reqwest::Client;
 use tokio::{task::JoinSet, time};
@@ -71,7 +72,22 @@ fn run_check<'a>(
     client: &'a reqwest::Client,
     monitor: &'a domain::Monitor,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<domain::CheckResult>> + Send + 'a>> {
-    Box::pin(check_monitor(client, monitor))
+    match monitor.kind {
+        MonitorKind::Http => Box::pin(check_monitor(client, monitor)),
+        MonitorKind::Tcp => Box::pin(crate::tcp_checker::check_tcp(monitor)),
+        MonitorKind::Dns => Box::pin(crate::dns_checker::check_dns(monitor)),
+        // Heartbeat monitors are filtered out of the check_fn sweep path in
+        // `process_sweep` (they are evaluated separately, without ever
+        // producing a Check/CheckResult). This arm exists only so the match
+        // is exhaustive; reaching it is a bug elsewhere in the dispatch.
+        MonitorKind::Heartbeat => Box::pin(async {
+            Err(
+                "heartbeat monitors must not go through the active check_fn path"
+                    .to_string()
+                    .into(),
+            )
+        }),
+    }
 }
 
 async fn evaluate_monitor_incident<C: CheckRepository + ?Sized>(
@@ -85,6 +101,45 @@ async fn evaluate_monitor_incident<C: CheckRepository + ?Sized>(
     match status {
         CheckStatus::Down => incident_manager.open_if_needed(monitor).await?,
         CheckStatus::Up => incident_manager.resolve_if_needed(monitor).await?,
+    }
+
+    Ok(())
+}
+
+/// Evaluates a `MonitorKind::Heartbeat` monitor's up/down status WITHOUT
+/// performing any active network check and WITHOUT saving a `Check`/
+/// `CheckResult` — heartbeat monitors are passive; the "check" is the
+/// external ping to `GET /heartbeat/{token}` which updates
+/// `last_heartbeat_at`. Here we only decide whether the monitor is overdue
+/// and, if so, mirror what `evaluate_monitor_incident` does for the other
+/// kinds by opening/resolving an incident.
+async fn evaluate_heartbeat_monitor(
+    incident_manager: &IncidentManager,
+    monitor: &domain::Monitor,
+) -> Result<()> {
+    let interval_seconds = monitor
+        .heartbeat_interval_seconds
+        .ok_or("heartbeat_interval_seconds is missing for a Heartbeat monitor")?;
+    let grace_period_seconds = monitor
+        .heartbeat_grace_period_seconds
+        .ok_or("heartbeat_grace_period_seconds is missing for a Heartbeat monitor")?;
+
+    let overdue = match monitor.last_heartbeat_at {
+        // No heartbeat received yet: treat as immediately overdue.
+        None => true,
+        Some(last_heartbeat_at) => {
+            let deadline = last_heartbeat_at
+                + ChronoDuration::seconds(
+                    i64::from(interval_seconds) + i64::from(grace_period_seconds),
+                );
+            Utc::now() > deadline
+        }
+    };
+
+    if overdue {
+        incident_manager.open_if_needed(monitor).await?;
+    } else {
+        incident_manager.resolve_if_needed(monitor).await?;
     }
 
     Ok(())
@@ -126,6 +181,20 @@ where
 
     for monitor in monitors {
         if !monitor.enabled {
+            continue;
+        }
+
+        // Heartbeat monitors are never actively checked on the normal
+        // interval/JoinSet path below: they are evaluated every sweep for
+        // overdue-ness, and no Check/CheckResult is ever produced for them.
+        if monitor.kind == MonitorKind::Heartbeat {
+            if let Err(err) = evaluate_heartbeat_monitor(incident_manager, &monitor).await {
+                error!(
+                    monitor_id = %monitor.id.0,
+                    error = %err,
+                    "failed to evaluate heartbeat monitor"
+                );
+            }
             continue;
         }
 
@@ -530,14 +599,18 @@ mod tests {
     }
 
     fn build_monitor(url: String) -> Monitor {
-        MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()))
-            .name(MonitorName::new("Test Monitor").unwrap())
-            .url(Url::new(url).unwrap())
-            .method(HttpMethod::Get)
-            .expected_status(ExpectedStatus::new(200).unwrap())
-            .interval(CheckInterval::new(60).unwrap())
-            .timeout(Timeout::new(5).unwrap())
-            .build()
+        MonitorBuilder::new(
+            MonitorId(Uuid::new_v4()),
+            UserId(Uuid::new_v4()),
+            TenantId::new(),
+        )
+        .name(MonitorName::new("Test Monitor").unwrap())
+        .url(Url::new(url).unwrap())
+        .method(HttpMethod::Get)
+        .expected_status(ExpectedStatus::new(200).unwrap())
+        .interval(CheckInterval::new(60).unwrap())
+        .timeout(Timeout::new(5).unwrap())
+        .build()
     }
 
     fn mock_success<'a>(

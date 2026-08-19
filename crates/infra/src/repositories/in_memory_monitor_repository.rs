@@ -112,4 +112,35 @@ impl MonitorRepository for InMemoryMonitorRepository {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.monitors.write().unwrap().remove(&id).is_some())
     }
+
+    async fn find_by_heartbeat_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<Monitor>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .monitors
+            .read()
+            .unwrap()
+            .values()
+            .find(|monitor| {
+                monitor
+                    .heartbeat_token
+                    .as_ref()
+                    .map(|t| t.as_str() == token)
+                    .unwrap_or(false)
+            })
+            .cloned())
+    }
+
+    async fn update_last_heartbeat_at(
+        &self,
+        id: MonitorId,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(monitor) = self.monitors.write().unwrap().get_mut(&id) {
+            monitor.last_heartbeat_at = Some(now);
+            monitor.updated_at = now;
+        }
+        Ok(())
+    }
 }

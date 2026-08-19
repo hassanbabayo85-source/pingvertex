@@ -259,6 +259,46 @@ pub async fn validate_destination(url: &str) -> Result<(), String> {
     resolve_and_validate_destination(url).await.map(|_| ())
 }
 
+/// Resolve a raw `host`/`port` pair (not a full URL) and validate that every
+/// resolved address is public, returning the first pinned `SocketAddr`.
+///
+/// This is the TCP-checker equivalent of `resolve_and_validate_destination`
+/// for endpoints that are not expressed as a URL (e.g. `host:port` monitor
+/// targets). It follows the EXACT same DNS-rebinding-safe pattern: resolve
+/// once, validate every resolved address, then pin the connection to the
+/// validated address rather than resolving again at connect time.
+pub async fn resolve_and_validate_host_port(host: &str, port: u16) -> Result<SocketAddr, String> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_ip(ip) {
+            return Err(format!(
+                "SSRF blocked: private/internal IP address supplied directly: {ip}"
+            ));
+        }
+
+        return Ok(SocketAddr::new(ip, port));
+    }
+
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|err| format!("failed to resolve host '{host}': {err}"))?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(format!("host '{host}' did not resolve to any IP addresses"));
+    }
+
+    for addr in &addrs {
+        if is_private_ip(addr.ip()) {
+            return Err(format!(
+                "SSRF blocked: host '{host}' resolves to private/internal address {}",
+                addr.ip()
+            ));
+        }
+    }
+
+    Ok(addrs[0])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

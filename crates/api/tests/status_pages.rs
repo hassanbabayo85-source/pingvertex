@@ -3,13 +3,17 @@ use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, PasswordHasher,
     StatusPageRepository, TokenService, UserRepository,
 };
+use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use domain::entities::{CreateStatusPage, StatusPage};
+use domain::shared::ids::TenantId;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, StatusPageId, UserId};
 use domain::value_objects::{CustomDomain, Subdomain};
 use domain::{Check, DiagnosticReport, Incident, User};
+use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryTenantMembershipRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryLogoStorage, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
@@ -21,6 +25,16 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
+struct NoopSecretCipher;
+
+impl SecretCipher for NoopSecretCipher {
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(plaintext.to_vec())
+    }
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        Ok(ciphertext.to_vec())
+    }
+}
 struct NoopCheckRepository;
 
 #[async_trait]
@@ -220,6 +234,8 @@ fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepositor
         InMemoryApiFlowRepository::new(),
         InMemoryProxyCheckJobRepository::new(),
         UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
     );
 
     // AppState::new installs a NoopStatusPageRepository. Replace it with a
@@ -233,6 +249,7 @@ fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepositor
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantMembershipRepository::new(),
     );
 
     build_test_router(state, auth_state)
@@ -487,6 +504,7 @@ async fn custom_domain_routing_serves_verified_domain_without_auth() {
     let mut page = StatusPage::create(CreateStatusPage {
         id: StatusPageId::new(),
         user_id: UserId::new(),
+        tenant_id: TenantId::new(),
         name: "Custom Domain Page".to_string(),
         subdomain: Subdomain::new("custom").unwrap(),
         monitor_ids: vec![],
@@ -528,6 +546,7 @@ async fn custom_domain_routing_does_not_serve_pending_domain() {
     let mut page = StatusPage::create(CreateStatusPage {
         id: StatusPageId::new(),
         user_id: UserId::new(),
+        tenant_id: TenantId::new(),
         name: "Pending Domain Page".to_string(),
         subdomain: Subdomain::new("pending").unwrap(),
         monitor_ids: vec![],
