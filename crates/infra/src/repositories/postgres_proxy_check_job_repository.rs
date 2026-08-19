@@ -342,6 +342,27 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             .collect()
     }
 
+    /// Tenant-scoped equivalent of `find_jobs_by_user_id`. Returns every
+    /// job belonging to `tenant_id`, regardless of which member of the
+    /// tenant submitted it.
+    async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
+        let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
+            r#"
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
+            FROM proxy_check_jobs
+            WHERE tenant_id = $1
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect()
+    }
+
     /// Persists the result of a single checked entry. Only `result_json`
     /// is written — `host`/`port`/`scheme`/`encrypted_credentials` never
     /// change after `save_job` first inserts an entry, so there is

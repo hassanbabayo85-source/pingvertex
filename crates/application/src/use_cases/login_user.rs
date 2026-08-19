@@ -21,7 +21,29 @@ const MAX_PASSWORD_LENGTH: usize = 128;
 /// verification. This keeps response time roughly constant whether or not
 /// the account exists, closing a timing side-channel that could otherwise
 /// be used to enumerate registered emails.
-const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$dummysaltdummysalt$dummyhash";
+///
+/// SEC (fixed): the previous value here — "...$dummysaltdummysalt$dummyhash"
+/// — was NOT a well-formed Argon2 PHC string (the salt/hash segments were
+/// plain ASCII, not valid Base64 of the expected byte length). That made
+/// `PasswordHash::new()` in `Argon2PasswordHasher::verify` fail to PARSE
+/// this constant, returning `Err("invalid password hash: invalid Base64
+/// encoding")` — which `?` then propagated all the way out of `execute()`
+/// as a distinct error BEFORE any Argon2 computation ever ran. In practice
+/// this meant a login attempt for a non-existent email returned quickly
+/// with a different, more specific error than a login attempt for a real
+/// account with the wrong password (which does run the full Argon2
+/// verification and returns the generic "invalid email or password").
+/// That is exactly the user-enumeration oracle this constant exists to
+/// prevent — worse than a timing side-channel, since it was distinguishable
+/// by response content/status alone, with no timing analysis required.
+///
+/// This value below IS a real, validly-formatted Argon2id hash (generated
+/// with the same parameters used elsewhere in this file: m=19456, t=2,
+/// p=1) of an unguessable, never-typed string, so `PasswordHash::new()`
+/// parses it successfully and the full Argon2 computation actually runs —
+/// restoring both the constant-time behavior and the constant response
+/// shape this mitigation is meant to provide.
+const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$wYo4u5354twxR/K/HWCW7g$3Zmj6/MSGlMa/2QpgFadVgV73QxWzpuOBzsGK9Fpyug";
 
 pub struct LoginUserUseCase<R, H, T> {
     repository: R,
@@ -67,10 +89,18 @@ where
             .map(|u| u.password_hash().as_str().to_string())
             .unwrap_or_else(|| DUMMY_PASSWORD_HASH.to_string());
 
+        // SEC (defense-in-depth): match on the Result explicitly rather than
+        // propagating a verify() error with `?`. A hasher error (malformed
+        // stored hash, unexpected parameters, etc.) must fail CLOSED as
+        // "invalid email or password" — the same generic response as a
+        // wrong password — never as a distinct error type/message/status.
+        // Anything else re-opens the exact user-enumeration oracle the
+        // DUMMY_PASSWORD_HASH mechanism above exists to close.
         let valid = self
             .password_hasher
             .verify(&request.password, &password_hash)
-            .await?;
+            .await
+            .unwrap_or(false);
 
         if !valid || user.is_none() {
             return Err("invalid email or password".into());

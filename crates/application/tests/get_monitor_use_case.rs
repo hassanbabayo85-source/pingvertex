@@ -17,6 +17,7 @@ async fn gets_monitor_by_id_successfully() {
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
         name: "Google".into(),
@@ -38,15 +39,12 @@ async fn gets_monitor_by_id_successfully() {
     };
 
     let created = create_use_case
-        .execute(request, auth_user(user_id, tenant_id()))
+        .execute(request, auth_user(user_id, tenant_id))
         .await
         .unwrap();
     let get_use_case = GetMonitorUseCase::new(repository);
     let monitor = get_use_case
-        .execute(GetMonitor {
-            id: created.id,
-            user_id,
-        })
+        .execute(GetMonitor { id: created.id }, auth_user(user_id, tenant_id))
         .await
         .unwrap()
         .expect("monitor should exist");

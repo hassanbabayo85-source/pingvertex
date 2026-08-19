@@ -7,7 +7,7 @@ use application::ports::ProxyCheckJobRepository;
 use async_trait::async_trait;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
 use domain::enums::{ProxyCheckJobStatus, ProxyScheme};
-use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, UserId};
+use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, TenantId, UserId};
 use domain::value_objects::{ProxyCredentials, ProxyHost, ProxyResult};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -96,6 +96,17 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
             .unwrap()
             .values()
             .filter(|job| job.user_id() == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
+        Ok(self
+            .jobs
+            .read()
+            .unwrap()
+            .values()
+            .filter(|job| job.tenant_id() == tenant_id)
             .cloned()
             .collect())
     }

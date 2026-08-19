@@ -62,13 +62,14 @@ async fn uploads_valid_png_and_updates_status_page() {
 }
 
 #[tokio::test]
-async fn returns_none_when_caller_does_not_own_status_page() {
+async fn returns_none_when_caller_is_from_another_tenant() {
     let repo = InMemoryStatusPageRepository::new();
     let storage = InMemoryLogoStorage::new();
     let owner = UserId::new();
+    let owner_tid = tenant_id();
     let attacker = UserId::new();
-    let tid = tenant_id();
-    let page = sample_page(owner, tid);
+    let attacker_tid = tenant_id();
+    let page = sample_page(owner, owner_tid);
     repo.save(&page).await.unwrap();
 
     let use_case =
@@ -80,7 +81,7 @@ async fn returns_none_when_caller_does_not_own_status_page() {
                 id: page.id,
                 data: b"\x89PNG\r\n\x1a\n".to_vec(),
             },
-            auth_user(attacker, tid),
+            auth_user(attacker, attacker_tid),
         )
         .await
         .unwrap();

@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
-use domain::{entities::StatusPage, shared::ids::StatusPageId, shared::ids::UserId};
+use domain::{
+    entities::StatusPage,
+    shared::ids::{StatusPageId, TenantId, UserId},
+};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -20,6 +23,30 @@ pub trait StatusPageRepository: Send + Sync {
     ) -> RepoResult<Option<StatusPage>>;
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>>;
+
+    /// Fetches a status page by id with NO ownership filtering. Callers
+    /// that need to authorize the result themselves (e.g. via
+    /// `domain::shared::policies::AuthorizationPolicy::same_tenant`)
+    /// should use this instead of `find_by_id_for_user`, which only
+    /// recognizes the single-owner relationship and not shared tenant
+    /// membership.
+    async fn find_by_id(&self, _id: StatusPageId) -> RepoResult<Option<StatusPage>> {
+        unimplemented!()
+    }
+
+    /// Deletes a status page by id with NO ownership filtering. Callers
+    /// must authorize the deletion themselves before calling this (see
+    /// `find_by_id` above).
+    async fn delete(&self, _id: StatusPageId) -> RepoResult<bool> {
+        unimplemented!()
+    }
+
+    /// Tenant-scoped equivalent of `find_all_for_user`. Returns every
+    /// status page belonging to `tenant_id`, regardless of which member
+    /// of the tenant created it.
+    async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
+        unimplemented!()
+    }
 
     /// Looks up a status page by its `pingvertex.com` subdomain, e.g.
     /// `"acme"` for `acme.pingvertex.com`. Used by the unauthenticated
@@ -84,6 +111,18 @@ where
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>> {
         (**self).find_all_for_user(user_id).await
+    }
+
+    async fn find_by_id(&self, id: StatusPageId) -> RepoResult<Option<StatusPage>> {
+        (**self).find_by_id(id).await
+    }
+
+    async fn delete(&self, id: StatusPageId) -> RepoResult<bool> {
+        (**self).delete(id).await
+    }
+
+    async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
+        (**self).find_all_for_tenant(tenant_id).await
     }
 
     async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {

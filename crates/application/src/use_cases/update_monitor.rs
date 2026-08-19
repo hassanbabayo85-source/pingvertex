@@ -9,7 +9,8 @@ use crate::{
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Monitor,
-    MonitorName, Timeout, Url, entities::Assertion, shared::policies::OwnershipPolicy,
+    MonitorName, Timeout, Url, entities::Assertion,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
 
@@ -47,7 +48,10 @@ where
             None => return Ok(None),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
             return Ok(None);
         }
 

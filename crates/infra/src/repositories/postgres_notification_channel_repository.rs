@@ -209,4 +209,51 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
             .map(NotificationChannelRow::into_domain)
             .collect()
     }
+
+    /// Fetches a channel with NO ownership filtering. Callers must have
+    /// already verified access (e.g. via `AuthorizationPolicy::same_tenant`
+    /// against the channel's `tenant_id`) before trusting this result.
+    async fn find_by_id(
+        &self,
+        id: NotificationChannelId,
+    ) -> RepoResult<Option<NotificationChannel>> {
+        let row = sqlx::query_as::<_, NotificationChannelRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM notification_channels WHERE id = $1"
+        ))
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(NotificationChannelRow::into_domain).transpose()
+    }
+
+    /// Deletes a channel by id with NO ownership filtering. Callers must
+    /// authorize the deletion themselves before calling this.
+    async fn delete(&self, id: NotificationChannelId) -> RepoResult<bool> {
+        let result = sqlx::query("DELETE FROM notification_channels WHERE id = $1")
+            .bind(id.0)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Lists every channel for a monitor with NO ownership filtering. Safe
+    /// once the caller has verified `monitor_id` belongs to their tenant.
+    async fn list_by_monitor(
+        &self,
+        monitor_id: MonitorId,
+    ) -> RepoResult<Vec<NotificationChannel>> {
+        let rows = sqlx::query_as::<_, NotificationChannelRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM notification_channels \
+             WHERE monitor_id = $1 ORDER BY created_at ASC"
+        ))
+        .bind(monitor_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(NotificationChannelRow::into_domain)
+            .collect()
+    }
 }

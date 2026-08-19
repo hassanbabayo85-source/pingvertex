@@ -7,7 +7,7 @@ use crate::{
     commands::RequestCustomDomain,
     ports::{AuditLogEntryRepository, StatusPageRepository},
 };
-use domain::shared::policies::OwnershipPolicy;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::AuthenticatedUser;
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, CustomDomain, entities::StatusPage};
 
@@ -40,16 +40,15 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        let mut status_page = match self
-            .repository
-            .find_by_id_for_user(command.id, user_id)
-            .await?
-        {
+        let mut status_page = match self.repository.find_by_id(command.id).await? {
             Some(status_page) => status_page,
             None => return Ok(None),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &status_page) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            status_page.tenant_id(),
+        ) {
             return Ok(None);
         }
 

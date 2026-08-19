@@ -1,7 +1,7 @@
 use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
-use domain::shared::policies::OwnershipPolicy;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::AuthenticatedUser;
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, EscalationPolicy};
 use serde_json::json;
@@ -72,12 +72,15 @@ impl CreateEscalationPolicyUseCase {
         if let Some(monitor_id) = command.monitor_id {
             let monitor = self
                 .monitor_repository
-                .find_by_id_for_user(monitor_id, user_id)
+                .find_by_id(monitor_id)
                 .await
                 .map_err(CreateEscalationPolicyError::Other)?
                 .ok_or(CreateEscalationPolicyError::MonitorNotFound)?;
 
-            if !OwnershipPolicy::can_access(&authenticated_user, &monitor) {
+            if !AuthorizationPolicy::same_tenant(
+                &authenticated_user.tenant_context(),
+                monitor.tenant_id(),
+            ) {
                 return Err(CreateEscalationPolicyError::MonitorNotFound);
             }
         }
@@ -85,12 +88,15 @@ impl CreateEscalationPolicyUseCase {
         for step in &command.steps {
             let channel = self
                 .notification_channel_repository
-                .find_by_id_for_user(step.channel_id, user_id)
+                .find_by_id(step.channel_id)
                 .await
                 .map_err(CreateEscalationPolicyError::Other)?
                 .ok_or(CreateEscalationPolicyError::ChannelNotFound)?;
 
-            if !OwnershipPolicy::can_access(&authenticated_user, &channel) {
+            if !AuthorizationPolicy::same_tenant(
+                &authenticated_user.tenant_context(),
+                channel.tenant_id(),
+            ) {
                 return Err(CreateEscalationPolicyError::ChannelNotFound);
             }
 

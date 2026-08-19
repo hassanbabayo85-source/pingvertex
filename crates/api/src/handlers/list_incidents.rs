@@ -7,14 +7,14 @@ use axum::{
 use tracing::info;
 
 use application::use_cases::{ListIncidentsError, ListIncidentsUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, state::AppState, validation::parse_monitor_id};
 
-/// Lists all incidents for a monitor (owner only).
+/// Lists all incidents for a monitor (any user in the monitor's tenant).
 pub async fn list_incidents(
     Path(id): Path<String>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("API: list_incidents");
@@ -29,7 +29,7 @@ pub async fn list_incidents(
         state.incident_repository.clone(),
     );
 
-    match use_case.execute(monitor_id, user_id).await {
+    match use_case.execute(monitor_id, authenticated_user).await {
         Ok(incidents) => (StatusCode::OK, Json(incidents)).into_response(),
         Err(ListIncidentsError::NotFound) => {
             ApiError::not_found("monitor not found").into_response()

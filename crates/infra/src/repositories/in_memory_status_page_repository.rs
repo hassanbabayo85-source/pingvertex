@@ -6,7 +6,7 @@ use std::{
 use application::ports::StatusPageRepository;
 use async_trait::async_trait;
 use domain::entities::StatusPage;
-use domain::shared::ids::{StatusPageId, UserId};
+use domain::shared::ids::{StatusPageId, TenantId, UserId};
 
 /// Simple in-memory repository for development and tests.
 #[derive(Debug, Clone, Default)]
@@ -87,6 +87,34 @@ impl StatusPageRepository for InMemoryStatusPageRepository {
             .unwrap()
             .values()
             .filter(|status_page| status_page.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn find_by_id(
+        &self,
+        id: StatusPageId,
+    ) -> Result<Option<StatusPage>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.status_pages.read().unwrap().get(&id).cloned())
+    }
+
+    async fn delete(
+        &self,
+        id: StatusPageId,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.status_pages.write().unwrap().remove(&id).is_some())
+    }
+
+    async fn find_all_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<Vec<StatusPage>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .status_pages
+            .read()
+            .unwrap()
+            .values()
+            .filter(|status_page| status_page.tenant_id == tenant_id)
             .cloned()
             .collect())
     }

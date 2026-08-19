@@ -11,6 +11,7 @@ use crate::{
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, ExtractSource,
     entities::{ApiFlow, ApiFlowStep, Assertion},
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
     value_objects::{FlowStepName, VariableExtraction},
 };
@@ -48,12 +49,19 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        if self
+        let monitor = match self
             .monitor_repository
-            .find_by_id_for_user(command.monitor_id, user_id)
+            .find_by_id(command.monitor_id)
             .await?
-            .is_none()
         {
+            Some(monitor) => monitor,
+            None => return Ok(None),
+        };
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
             return Ok(None);
         }
 

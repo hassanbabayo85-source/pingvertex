@@ -17,6 +17,7 @@ async fn updates_monitor_successfully() {
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
     let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
         name: "Google".into(),
@@ -38,7 +39,7 @@ async fn updates_monitor_successfully() {
     };
 
     let created = create_use_case
-        .execute(request, auth_user(user_id, tenant_id()))
+        .execute(request, auth_user(user_id, tenant_id))
         .await
         .unwrap();
 
@@ -65,7 +66,7 @@ async fn updates_monitor_successfully() {
                 heartbeat_interval_seconds: None,
                 heartbeat_grace_period_seconds: None,
             },
-            auth_user(user_id, tenant_id()),
+            auth_user(user_id, tenant_id),
         )
         .await
         .unwrap()

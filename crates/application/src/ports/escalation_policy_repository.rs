@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use domain::EscalationPolicy;
-use domain::shared::ids::{EscalationPolicyId, MonitorId, UserId};
+use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId, UserId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -28,6 +28,21 @@ pub trait EscalationPolicyRepository: Send + Sync {
     ) -> RepoResult<Option<EscalationPolicy>>;
 
     async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>>;
+
+    /// Fetches a single policy with NO ownership filtering. For callers
+    /// that authorize the result themselves against the caller's tenant
+    /// (e.g. via `AuthorizationPolicy::same_tenant`) instead of the
+    /// single-owner `find_by_id_for_user` check.
+    async fn find_by_id(&self, _id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {
+        unimplemented!()
+    }
+
+    /// Tenant-scoped equivalent of `list_for_user`. Returns every policy
+    /// belonging to `tenant_id`, regardless of which member of the
+    /// tenant created it.
+    async fn list_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -61,5 +76,13 @@ where
 
     async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>> {
         (**self).list_for_user(user_id).await
+    }
+
+    async fn find_by_id(&self, id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {
+        (**self).find_by_id(id).await
+    }
+
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {
+        (**self).list_for_tenant(tenant_id).await
     }
 }

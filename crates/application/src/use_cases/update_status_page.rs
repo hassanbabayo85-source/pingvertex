@@ -9,7 +9,7 @@ use crate::{
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, HexColor, MonitorId, entities::StatusPage,
-    shared::policies::OwnershipPolicy, shared::types::AuthenticatedUser,
+    shared::policies::{AuthorizationPolicy, TenantOwned}, shared::types::AuthenticatedUser,
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -83,20 +83,19 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        let mut status_page = match self
-            .repository
-            .find_by_id_for_user(command.id, user_id)
-            .await?
-        {
+        let mut status_page = match self.repository.find_by_id(command.id).await? {
             Some(status_page) => status_page,
             None => return Ok(None),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &status_page) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            status_page.tenant_id(),
+        ) {
             return Ok(None);
         }
 
-        self.assert_monitors_owned(user_id, &command.monitor_ids)
+        self.assert_monitors_owned(&authenticated_user, &command.monitor_ids)
             .await?;
 
         status_page.rename(command.name)?;
@@ -126,15 +125,23 @@ where
 
     async fn assert_monitors_owned(
         &self,
-        user_id: domain::UserId,
+        authenticated_user: &AuthenticatedUser,
         monitor_ids: &[MonitorId],
     ) -> Result<(), UpdateStatusPageError> {
         for &monitor_id in monitor_ids {
-            self.monitor_repository
-                .find_by_id_for_user(monitor_id, user_id)
+            let monitor = self
+                .monitor_repository
+                .find_by_id(monitor_id)
                 .await
                 .map_err(UpdateStatusPageError::Other)?
                 .ok_or(UpdateStatusPageError::MonitorNotFound { monitor_id })?;
+
+            if !AuthorizationPolicy::same_tenant(
+                &authenticated_user.tenant_context(),
+                monitor.tenant_id(),
+            ) {
+                return Err(UpdateStatusPageError::MonitorNotFound { monitor_id });
+            }
         }
         Ok(())
     }

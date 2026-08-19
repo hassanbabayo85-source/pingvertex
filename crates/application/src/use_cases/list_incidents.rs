@@ -2,7 +2,9 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::ports::{IncidentRepository, MonitorRepository};
 use domain::Incident;
-use domain::shared::ids::{MonitorId, UserId};
+use domain::shared::ids::MonitorId;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
+use domain::shared::types::AuthenticatedUser;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -47,13 +49,21 @@ impl ListIncidentsUseCase {
     pub async fn execute(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<Vec<Incident>, ListIncidentsError> {
-        self.monitor_repository
-            .find_by_id_for_user(monitor_id, user_id)
+        let monitor = self
+            .monitor_repository
+            .find_by_id(monitor_id)
             .await
             .map_err(ListIncidentsError::Other)?
             .ok_or(ListIncidentsError::NotFound)?;
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
+            return Err(ListIncidentsError::NotFound);
+        }
 
         self.incident_repository
             .list_by_monitor(monitor_id)

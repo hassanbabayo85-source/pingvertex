@@ -62,6 +62,34 @@ pub trait NotificationChannelRepository: Send + Sync {
         &self,
         monitor_id: MonitorId,
     ) -> RepoResult<Vec<NotificationChannel>>;
+
+    /// Fetches a single channel with NO ownership filtering. For callers
+    /// that authorize the result themselves against the caller's tenant
+    /// (e.g. via `AuthorizationPolicy::same_tenant`) instead of the
+    /// single-owner `find_by_id_for_user` check.
+    async fn find_by_id(&self, _id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+        unimplemented!()
+    }
+
+    /// Deletes a channel by id with NO ownership filtering. Callers must
+    /// authorize the deletion themselves before calling this (see
+    /// `find_by_id` above).
+    async fn delete(&self, _id: NotificationChannelId) -> RepoResult<bool> {
+        unimplemented!()
+    }
+
+    /// Lists every channel configured for `monitor_id`, with no
+    /// ownership check. Safe to use once the caller has already verified
+    /// `monitor_id` belongs to their tenant (e.g. via
+    /// `MonitorRepository::find_by_id` + `AuthorizationPolicy::same_tenant`),
+    /// which makes a further per-row ownership check redundant. Unlike
+    /// `list_by_monitor_for_user`, this returns a plain `Vec` (not
+    /// `Option<Vec<_>>`) — the monitor-existence check happens before
+    /// this is called.
+    #[allow(unused_variables)]
+    async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -102,5 +130,17 @@ where
         monitor_id: MonitorId,
     ) -> RepoResult<Vec<NotificationChannel>> {
         (**self).list_enabled_by_monitor(monitor_id).await
+    }
+
+    async fn find_by_id(&self, id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+        (**self).find_by_id(id).await
+    }
+
+    async fn delete(&self, id: NotificationChannelId) -> RepoResult<bool> {
+        (**self).delete(id).await
+    }
+
+    async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
+        (**self).list_by_monitor(monitor_id).await
     }
 }

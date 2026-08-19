@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::{Arc, Mutex};
 
 use application::ports::TenantMembershipRepository;
 use async_trait::async_trait;
@@ -8,11 +10,15 @@ use domain::shared::ids::{TenantId, UserId};
 use domain::shared::types::Role;
 
 #[derive(Debug, Clone, Default)]
-pub struct InMemoryTenantMembershipRepository;
+pub struct InMemoryTenantMembershipRepository {
+    tenant_cache: Arc<Mutex<HashMap<UserId, TenantId>>>,
+}
 
 impl InMemoryTenantMembershipRepository {
     pub fn new() -> Self {
-        Self
+        Self {
+            tenant_cache: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 
@@ -51,9 +57,12 @@ impl TenantMembershipRepository for InMemoryTenantMembershipRepository {
         &self,
         user_id: UserId,
     ) -> Result<Vec<TenantMembership>, Box<dyn Error + Send + Sync>> {
+        let mut cache = self.tenant_cache.lock().unwrap();
+        let tenant_id = *cache.entry(user_id).or_insert_with(TenantId::new);
+
         let now = Utc::now();
         Ok(vec![TenantMembership {
-            tenant_id: TenantId::new(),
+            tenant_id,
             user_id,
             role: Role::Owner,
             invited_at: now,

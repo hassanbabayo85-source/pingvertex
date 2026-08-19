@@ -5,7 +5,8 @@ use serde_json::json;
 
 use crate::ports::{AuditLogEntryRepository, StatusPageRepository};
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, StatusPageId, shared::policies::OwnershipPolicy,
+    AuditAction, AuditLogEntry, AuditLogEntryId, StatusPageId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
 
@@ -30,9 +31,9 @@ where
         }
     }
 
-    /// Returns `true` if a status page owned by the authenticated user was
-    /// deleted, `false` if no such status page existed (whether because it
-    /// was never created or because it belongs to someone else).
+    /// Returns `true` if a status page belonging to the authenticated
+    /// user's tenant was deleted, `false` if no such status page existed
+    /// or if it belongs to a different tenant.
     pub async fn execute(
         &self,
         id: StatusPageId,
@@ -41,16 +42,19 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        let status_page = match self.repository.find_by_id_for_user(id, user_id).await? {
+        let status_page = match self.repository.find_by_id(id).await? {
             Some(status_page) => status_page,
             None => return Ok(false),
         };
 
-        if !OwnershipPolicy::can_access(&authenticated_user, &status_page) {
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            status_page.tenant_id(),
+        ) {
             return Ok(false);
         }
 
-        let deleted = self.repository.delete_for_user(id, user_id).await?;
+        let deleted = self.repository.delete(id).await?;
 
         if deleted {
             let entry = AuditLogEntry {
