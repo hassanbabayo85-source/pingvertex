@@ -46,3 +46,4 @@ certs/
 # GeoIP database (proprietary MaxMind data — requires license, must never be committed)
 data/geoip/
 *.mmdb
+*.zip
