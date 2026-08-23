@@ -6,7 +6,7 @@ use application::ports::{
 use async_trait::async_trait;
 use domain::{
     CheckInterval, ExpectedStatus, HttpMethod, Incident, Monitor, MonitorBuilder, MonitorName,
-    Timeout, Url,
+    Timeout,
     entities::NotificationChannel,
     notification::NotificationEvent,
     shared::ids::{IncidentId, MonitorId, NotificationChannelId, TenantId, UserId},
@@ -22,7 +22,7 @@ fn build_monitor() -> Monitor {
         TenantId::new(),
     )
     .name(MonitorName::new("Test Monitor").unwrap())
-    .url(Url::new("http://example.com".to_string()).unwrap())
+    .target("http://example.com".to_string())
     .method(HttpMethod::Get)
     .expected_status(ExpectedStatus::new(200).unwrap())
     .interval(CheckInterval::new(60).unwrap())

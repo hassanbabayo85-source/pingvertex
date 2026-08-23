@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
-    Json,
 };
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::state::{AppState, HeartbeatRateLimiter};

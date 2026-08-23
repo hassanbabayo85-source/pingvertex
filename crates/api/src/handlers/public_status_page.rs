@@ -2,6 +2,7 @@ use axum::{
     http::header,
     response::{IntoResponse, Response},
 };
+use chrono::Utc;
 
 use crate::{error::ApiError, handlers::types::PublicStatusPageResponse, state::AppState};
 use domain::entities::StatusPage;
@@ -26,6 +27,7 @@ pub async fn render_public_status_page(
     }
 
     let mut monitors_out = Vec::with_capacity(status_page.monitor_ids.len());
+    let now = Utc::now();
 
     for monitor_id in &status_page.monitor_ids {
         let Ok(Some(monitor)) = state.monitor_repository.find_by_id(*monitor_id).await else {
@@ -44,8 +46,17 @@ pub async fn render_public_status_page(
             .await
             .unwrap_or_default();
 
+        let maintenance_windows = state
+            .maintenance_window_repository
+            .list_active_by_monitor(monitor.id, now)
+            .await
+            .unwrap_or_default();
+
         monitors_out.push(crate::handlers::types::PublicMonitorResponse::from_parts(
-            monitor, &checks, &incidents,
+            monitor,
+            &checks,
+            &incidents,
+            &maintenance_windows,
         ));
     }
 

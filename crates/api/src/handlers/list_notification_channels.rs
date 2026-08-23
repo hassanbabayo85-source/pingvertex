@@ -1,13 +1,13 @@
 use axum::{
+    Json,
     extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use tracing::info;
 
 use application::use_cases::{ListNotificationChannelsError, ListNotificationChannelsUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError, handlers::types::NotificationChannelResponse, state::AppState,
@@ -19,7 +19,7 @@ use crate::{
 /// `GET /api/v1/monitors/{monitor_id}/notifications`
 pub async fn list_notification_channels(
     Path(monitor_id): Path<String>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     info!("API: list_notification_channels");
@@ -34,7 +34,7 @@ pub async fn list_notification_channels(
         state.notification_channel_repository.clone(),
     );
 
-    match use_case.execute(monitor_id, user_id).await {
+    match use_case.execute(monitor_id, authenticated_user).await {
         Ok(channels) => {
             let response: Vec<NotificationChannelResponse> = channels
                 .into_iter()

@@ -2,7 +2,9 @@ use std::{error::Error, fmt, sync::Arc};
 
 use domain::{
     notification::NotificationEvent,
-    shared::ids::{NotificationChannelId, UserId},
+    shared::ids::NotificationChannelId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
+    shared::types::AuthenticatedUser,
 };
 
 use crate::ports::{MonitorRepository, NotificationChannelRepository, NotificationService};
@@ -65,21 +67,35 @@ impl SendTestNotificationUseCase {
     pub async fn execute(
         &self,
         id: NotificationChannelId,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<(), SendTestNotificationError> {
         let channel = self
             .notification_channel_repository
-            .find_by_id_for_user(id, user_id)
+            .find_by_id(id)
             .await
             .map_err(SendTestNotificationError::Other)?
             .ok_or(SendTestNotificationError::ChannelNotFound)?;
 
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            channel.tenant_id(),
+        ) {
+            return Err(SendTestNotificationError::ChannelNotFound);
+        }
+
         let monitor = self
             .monitor_repository
-            .find_by_id_for_user(channel.monitor_id, user_id)
+            .find_by_id(channel.monitor_id)
             .await
             .map_err(SendTestNotificationError::Other)?
             .ok_or(SendTestNotificationError::MonitorNotFound)?;
+
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
+            return Err(SendTestNotificationError::MonitorNotFound);
+        }
 
         let event = NotificationEvent::Test(monitor);
 

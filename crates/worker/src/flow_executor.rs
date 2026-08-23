@@ -9,8 +9,17 @@
 //! ainihin abinda zai iya ɗauke da wani internal URL, misali idan wata
 //! external API ta dawo da redirect zuwa `http://169.254.169.254/`).
 //! Babu wani "fast path" da ke tsallake wannan.
+//!
+//! B29: `execute_flow` (the production entry point) always uses the real
+//! SSRF resolver. `execute_flow_with_resolver` is a generalized version
+//! that accepts an injected `DestinationResolverFn`, used ONLY by this
+//! crate's own tests to pin steps to a local mock HTTP server without
+//! weakening the production path — the exact same test-seam pattern
+//! `checker.rs` already established with `check_http_with_validator`.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
@@ -29,6 +38,33 @@ use crate::placeholder_resolver::{StepResult, resolve_template};
 /// iyakarsa) tare da toshe worker resources ba tare da wani dalili na
 /// gaskiya ba.
 pub const FLOW_TOTAL_TIMEOUT_SECS: u64 = 60;
+
+/// Bound on a single step's response body, mirroring
+/// `checker::MAX_HTTP_RESPONSE_BODY_BYTES`. A flow step must never read an
+/// unbounded response body into memory. Exceeding this cap fails the step
+/// (and therefore, via fail-fast, the whole flow) rather than silently
+/// truncating, so assertions/extracted variables never operate on partial
+/// data.
+const MAX_STEP_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
+
+/// Alias for a boxed future that is `Send` and borrows data with lifetime
+/// `'a`. This avoids the malformed multi-line `Pin<Box<dyn Future…>>`
+/// return-type syntax that previously broke this file.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Signature for a resolved SSRF-safe destination lookup, generalized so
+/// tests can inject a fake resolver. See module docs.
+pub type DestinationResolverFn = dyn for<'a> Fn(
+        &'a str,
+    ) -> BoxFuture<'a, std::result::Result<shared::ssrf::ResolvedDestination, String>>
+    + Send
+    + Sync;
+
+fn real_ssrf_resolver(
+    url: &str,
+) -> BoxFuture<'_, std::result::Result<shared::ssrf::ResolvedDestination, String>> {
+    Box::pin(crate::ssrf::resolve_and_validate_destination(url))
+}
 
 #[derive(Debug)]
 pub struct FlowStepOutcome {
@@ -49,15 +85,31 @@ pub struct FlowExecutionResult {
     pub total_duration_ms: u128,
 }
 
+/// Gudanar da DUK steps ɗin `flow`, ta amfani da REAL SSRF resolver ɗin
+/// production (`crate::ssrf::resolve_and_validate_destination`). Wannan
+/// shi ne KAWAI entry point da wani kira na waje (misali
+/// `FlowCheckExecutor`) ya kamata ya yi amfani da shi.
+pub async fn execute_flow(
+    flow: &domain::entities::ApiFlow,
+    http_client: &reqwest::Client,
+) -> FlowExecutionResult {
+    execute_flow_with_resolver(flow, http_client, &real_ssrf_resolver).await
+}
+
 /// Gudanar da DUK steps ɗin `flow`, ɗaya-bayan-ɗaya, FAIL-FAST akan step na
 /// farko da ya kasa (ko dai domin placeholder resolution ya kasa, SSRF
 /// guard ya toshe destination, HTTP request ɗin ya kasa, ko wani assertion
 /// ya gaza) — babu wani step da zai gudana bayan wani step ya kasa, domin
 /// steps na gaba na iya dogaro da "stale/empty variables" daga step da ya
 /// gagara.
-pub async fn execute_flow(
+///
+/// `resolver` is injectable ONLY so tests can pin steps to a local mock
+/// server (see module docs). `execute_flow` above is the production entry
+/// point and always passes the real SSRF resolver.
+pub async fn execute_flow_with_resolver(
     flow: &domain::entities::ApiFlow,
     http_client: &reqwest::Client,
+    resolver: &DestinationResolverFn,
 ) -> FlowExecutionResult {
     // `http_client` ba a amfani da shi kai-tsaye a nan: bin salon
     // `checker.rs::check_monitor` A-DAIDAI (wanda shi ma yana da
@@ -83,6 +135,7 @@ pub async fn execute_flow(
 
     let run = run_all_steps(
         flow,
+        resolver,
         Arc::clone(&outcomes_so_far),
         Arc::clone(&in_flight_step),
     );
@@ -146,14 +199,15 @@ pub async fn execute_flow(
 /// Aiwatar da DUK steps na `flow` ɗaya-bayan-ɗaya (ORDER ASC, kamar yadda
 /// `flow.steps()` ya dawo da su), FAIL-FAST akan step na farko mai gaza.
 ///
-/// Ana kiran wannan a CIKIN `tokio::time::timeout` daga `execute_flow` —
+/// Ana kiran wannan a CIKIN `tokio::time::timeout` daga `execute_flow_with_resolver` —
 /// don haka wannan aikin BAI KAMATA ya yi nasa timeout na jimlar lokaci
-/// ba, domin `execute_flow` ke da alhakin hakan. Kowanne outcome ana
+/// ba, domin `execute_flow_with_resolver` ke da alhakin hakan. Kowanne outcome ana
 /// turashi zuwa `outcomes_so_far` nan take bayan an gama shi, domin idan
 /// aka soke wannan future daga waje (timeout), ci gaban da aka riga aka
 /// samu bai ɓace ba.
 async fn run_all_steps(
     flow: &domain::entities::ApiFlow,
+    resolver: &DestinationResolverFn,
     outcomes_so_far: Arc<Mutex<Vec<FlowStepOutcome>>>,
     in_flight_step: Arc<AtomicU16>,
 ) {
@@ -162,7 +216,7 @@ async fn run_all_steps(
     for step in flow.steps() {
         in_flight_step.store(step.order, Ordering::SeqCst);
 
-        let (outcome, step_result) = execute_step(step, &results).await;
+        let (outcome, step_result) = execute_step(step, &results, resolver).await;
 
         if let Some(step_result) = step_result {
             results.insert(step.order, step_result);
@@ -194,6 +248,7 @@ async fn run_all_steps(
 async fn execute_step(
     step: &domain::entities::ApiFlowStep,
     results: &HashMap<u16, StepResult>,
+    resolver: &DestinationResolverFn,
 ) -> (FlowStepOutcome, Option<StepResult>) {
     let step_name = step.name.as_str().to_string();
 
@@ -235,7 +290,7 @@ async fn execute_step(
     // internal address idan mai amfani ya rubuta ta da gangan, KUMA
     // musamman koda url_template ta samu wani ɓangare daga extracted
     // variable na wani step na baya.
-    let destination = match crate::ssrf::resolve_and_validate_destination(&resolved_url).await {
+    let destination = match resolver(&resolved_url).await {
         Ok(d) => d,
         Err(err) => return (failed_outcome(err), None),
     };
@@ -290,7 +345,21 @@ async fn execute_step(
         })
         .collect();
 
-    let body_bytes = response.bytes().await.unwrap_or_default().to_vec();
+    // Bounded body read — never reads more than
+    // MAX_STEP_RESPONSE_BODY_BYTES into memory. Exceeding the cap fails
+    // this step (and, via fail-fast, the whole flow) instead of silently
+    // truncating.
+    let body_bytes = match read_body_bounded(response).await {
+        Ok(bytes) => bytes,
+        Err(()) => {
+            return (
+                failed_outcome(
+                    "HTTP response body exceeded the maximum permitted size".to_string(),
+                ),
+                None,
+            );
+        }
+    };
     let body_string = String::from_utf8_lossy(&body_bytes).into_owned();
 
     // e. Ajiye StepResult domin steps na gaba su iya amfani dashi.
@@ -334,4 +403,26 @@ async fn execute_step(
         },
         Some(step_result),
     )
+}
+
+/// Reads a response body up to `MAX_STEP_RESPONSE_BODY_BYTES`. Never reads
+/// unbounded and never accepts more than the configured cap. Mirrors
+/// `checker::read_body_bounded`.
+async fn read_body_bounded(mut response: reqwest::Response) -> std::result::Result<Vec<u8>, ()> {
+    let mut body = Vec::new();
+
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if body.len() + chunk.len() > MAX_STEP_RESPONSE_BODY_BYTES {
+                    return Err(());
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(_) => return Err(()),
+        }
+    }
+
+    Ok(body)
 }

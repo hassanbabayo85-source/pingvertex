@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Extension, Path, State},
     Json,
+    extract::{Extension, Path, State},
 };
 use tracing::info;
 
-use domain::shared::ids::UserId;
+use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{
     error::ApiError, handlers::flow_types::ApiFlowHttpResponse, state::AppState,
@@ -13,20 +14,25 @@ use crate::{
 
 pub async fn get_api_flows(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<ApiFlowHttpResponse>>, ApiError> {
     info!("API: get_api_flows");
 
     let monitor_id = parse_monitor_id(&id)?;
 
-    // Authorization check: the monitor must belong to the authenticated user.
-    state
+    // Authorization check: the monitor must belong to the authenticated user's tenant.
+    let monitor = state
         .monitor_repository
-        .find_by_id_for_user(monitor_id, user_id)
+        .find_by_id(monitor_id)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
+
+    if !AuthorizationPolicy::same_tenant(&authenticated_user.tenant_context(), monitor.tenant_id())
+    {
+        return Err(ApiError::not_found("monitor not found"));
+    }
 
     let flow = state
         .api_flow_repository

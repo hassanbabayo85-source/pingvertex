@@ -16,7 +16,7 @@ pub struct MonitorBuilder {
     tenant_id: TenantId,
 
     name: Option<MonitorName>,
-    url: Option<Url>,
+    target: Option<String>,
     method: HttpMethod,
     expected_status: Option<ExpectedStatus>,
     interval: Option<CheckInterval>,
@@ -39,7 +39,7 @@ impl MonitorBuilder {
             user_id,
             tenant_id,
             name: None,
-            url: None,
+            target: None,
             method: HttpMethod::Get,
             expected_status: None,
             interval: None,
@@ -60,8 +60,18 @@ impl MonitorBuilder {
         self
     }
 
+    /// Backward-compatible setter for HTTP/HTTPS URL targets. Accepts a
+    /// validated `Url` and stores its string representation.
     pub fn url(mut self, value: Url) -> Self {
-        self.url = Some(value);
+        self.target = Some(value.as_str().to_owned());
+        self
+    }
+
+    /// Sets the already-validated target string. The caller must have
+    /// already validated it as a `Url` (for HTTP/HTTPS) or `Host` (for
+    /// TCP/DNS) before calling this method.
+    pub fn target(mut self, value: String) -> Self {
+        self.target = Some(value);
         self
     }
 
@@ -131,7 +141,7 @@ impl MonitorBuilder {
             user_id: self.user_id,
             tenant_id: self.tenant_id,
             name: self.name.expect("Monitor name is required"),
-            url: self.url.expect("URL is required").as_str().to_owned(),
+            url: self.target.expect("Target is required"),
             method: self.method,
             expected_status: self
                 .expected_status

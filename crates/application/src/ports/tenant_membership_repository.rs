@@ -1,6 +1,7 @@
-use async_trait::async_trait;
-use std::{error::Error, sync::Arc};
+use std::error::Error;
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use domain::{
     TenantMembership,
     shared::{
@@ -9,12 +10,12 @@ use domain::{
     },
 };
 
-pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Persistence port for `TenantMembership`.
 ///
 /// `find_by_tenant_and_user` is deliberately first-class here because
-/// `jwt_auth` (a later worker) will use it to build the request-scoped
+/// it is used by the authorization middleware to resolve a user's
 /// `TenantContext` and `Role` from the authenticated `UserId`.
 ///
 /// `update_role` exists now even if this feature does not call it yet,
@@ -35,6 +36,11 @@ pub trait TenantMembershipRepository: Send + Sync {
 
     async fn update_role(&self, tenant_id: TenantId, user_id: UserId, role: Role)
     -> RepoResult<()>;
+
+    /// Deletes a membership row. Returns an error if the row does not exist
+    /// is left to the caller; this method performs a `DELETE ... WHERE ...`
+    /// and does not error when 0 rows were affected.
+    async fn delete(&self, tenant_id: TenantId, user_id: UserId) -> RepoResult<()>;
 }
 
 #[async_trait]
@@ -69,5 +75,9 @@ where
         role: Role,
     ) -> RepoResult<()> {
         (**self).update_role(tenant_id, user_id, role).await
+    }
+
+    async fn delete(&self, tenant_id: TenantId, user_id: UserId) -> RepoResult<()> {
+        (**self).delete(tenant_id, user_id).await
     }
 }

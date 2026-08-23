@@ -4,7 +4,9 @@ use std::{
 };
 
 use application::ports::ProxyCheckJobRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use async_trait::async_trait;
+use chrono::Utc;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
 use domain::enums::{ProxyCheckJobStatus, ProxyScheme};
 use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, TenantId, UserId};
@@ -38,10 +40,11 @@ struct StoredProxyEntry {
 
 /// In-memory `ProxyCheckJobRepository`, for tests only (mirrors
 /// `InMemoryApiFlowRepository`'s role and shape).
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct InMemoryProxyCheckJobRepository {
     jobs: Arc<RwLock<HashMap<ProxyCheckJobId, ProxyCheckJob>>>,
     entries: Arc<RwLock<HashMap<ProxyEntryId, StoredProxyEntry>>>,
+    quota_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl InMemoryProxyCheckJobRepository {
@@ -49,7 +52,14 @@ impl InMemoryProxyCheckJobRepository {
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             entries: Arc::new(RwLock::new(HashMap::new())),
+            quota_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+}
+
+impl Default for InMemoryProxyCheckJobRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -78,6 +88,33 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
         }
 
         Ok(())
+    }
+
+    async fn save_job_if_within_quota(
+        &self,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+        user_id: UserId,
+        limit: usize,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let _guard = self.quota_lock.lock().await;
+
+        let today = Utc::now().date_naive();
+        let count = self
+            .jobs
+            .read()
+            .unwrap()
+            .values()
+            .filter(|j| j.user_id() == user_id && j.created_at().date_naive() == today)
+            .count();
+
+        if count >= limit {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        self.save_job(job, entries).await?;
+
+        Ok(QuotaCheckOutcome::Saved)
     }
 
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {

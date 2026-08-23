@@ -87,6 +87,17 @@ fn run_check<'a>(
                     .into(),
             )
         }),
+        // Flow monitors are handled by the durable scheduler's
+        // `FlowCheckExecutor` (B29), not this legacy active-sweep path.
+        // This arm exists only for exhaustiveness; reaching it is a
+        // dispatch bug.
+        MonitorKind::Flow => Box::pin(async {
+            Err(
+                "flow monitors must not go through the legacy active check_fn path"
+                    .to_string()
+                    .into(),
+            )
+        }),
     }
 }
 
@@ -486,7 +497,7 @@ mod tests {
             &self,
             _limit: u32,
             _offset: u32,
-            _user_id: UserId,
+            _tenant_id: TenantId,
         ) -> std::result::Result<Vec<Check>, Box<dyn Error + Send + Sync>> {
             Ok(vec![])
         }

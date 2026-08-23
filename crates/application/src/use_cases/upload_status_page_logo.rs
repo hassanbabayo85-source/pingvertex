@@ -8,8 +8,11 @@ use crate::{
     ports::{AuditLogEntryRepository, LogoStorage, StatusPageRepository},
 };
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, entities::StatusPage, errors::DomainError,
-    shared::policies::{AuthorizationPolicy, TenantOwned}, shared::types::AuthenticatedUser,
+    AuditAction, AuditLogEntry, AuditLogEntryId,
+    entities::StatusPage,
+    errors::DomainError,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
+    shared::types::AuthenticatedUser,
     value_objects::LogoImage,
 };
 

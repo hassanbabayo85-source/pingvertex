@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use domain::EscalationPolicy;
-use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId, UserId};
+use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -13,21 +13,13 @@ pub trait EscalationPolicyRepository: Send + Sync {
 
     async fn update(&self, policy: &EscalationPolicy) -> RepoResult<()>;
 
-    async fn find_by_id_for_user(
-        &self,
-        id: EscalationPolicyId,
-        user_id: UserId,
-    ) -> RepoResult<Option<EscalationPolicy>>;
-
     /// Returns the effective policy for a monitor: monitor-specific first,
     /// then the user's global policy (monitor_id IS NULL).
     async fn find_effective(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Option<EscalationPolicy>>;
-
-    async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>>;
 
     /// Fetches a single policy with NO ownership filtering. For callers
     /// that authorize the result themselves against the caller's tenant
@@ -58,24 +50,12 @@ where
         (**self).update(policy).await
     }
 
-    async fn find_by_id_for_user(
-        &self,
-        id: EscalationPolicyId,
-        user_id: UserId,
-    ) -> RepoResult<Option<EscalationPolicy>> {
-        (**self).find_by_id_for_user(id, user_id).await
-    }
-
     async fn find_effective(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Option<EscalationPolicy>> {
-        (**self).find_effective(monitor_id, user_id).await
-    }
-
-    async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>> {
-        (**self).list_for_user(user_id).await
+        (**self).find_effective(monitor_id, tenant_id).await
     }
 
     async fn find_by_id(&self, id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {

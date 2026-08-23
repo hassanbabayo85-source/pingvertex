@@ -2,25 +2,35 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use api::{
-    auth_state::AuthState,
+    auth_state::{AuthState, NoopPendingAuthCache},
     config::Config,
     metrics::init_metrics,
-    mtls::{build_mtls_config, MtlsPaths},
+    mtls::{MtlsPaths, build_mtls_config},
     router::{build_internal_agent_router, build_router},
     state::{AppState, NoopLogoStorage, NoopStatusPageCache},
 };
-use application::ports::StatusPageCache;
+use application::ports::{
+    EmailVerificationMailer, PasswordResetMailer, PaymentProvider, StatusPageCache,
+};
 use axum_server::tls_rustls::RustlsAcceptor;
 use axum_server_mtls::MtlsAcceptor;
 use infra::{
-    create_pool, AesGcmProxyCredentialCipher, Argon2PasswordHasher, HickoryCustomDomainVerifier,
-    JsonWebTokenService, NotificationDispatcher, PostgresApiFlowRepository,
-    PostgresAuditLogEntryRepository, PostgresCheckRepository, PostgresDiagnosticReportRepository,
-    PostgresEscalationPolicyRepository, PostgresIncidentRepository,
-    PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
+    AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
+    DisabledEmailVerificationMailer, DisabledPasswordResetMailer, FakeBillingProvider,
+    HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
+    PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
+    PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
+    PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
+    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDiagnosticReportRepository,
+    PostgresEmailVerificationTokenRepository, PostgresEscalationPolicyRepository,
+    PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresProxyCheckJobRepository,
-    PostgresStatusPageRepository, PostgresTenantMembershipRepository, PostgresUserRepository,
-    RedisStatusPageCache, S3LogoStorage, UuidIdGenerator,
+    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisStatusPageCache,
+    S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
+    UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -34,12 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    // Must run before any `rustls::ServerConfig` is built (i.e. before
-    // `build_mtls_config` below) — rustls 0.23 requires a process-wide
-    // default `CryptoProvider` to be installed exactly once. We use
-    // `aws_lc_rs` (rustls's default feature), matching the crypto
-    // provider `mtls.rs` and the rest of the `rustls`/`rustls-pki-types`
-    // dependency chain are built against.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to install rustls default crypto provider");
@@ -50,11 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pool = create_pool(&config.database_url).await?;
 
-    // Status-page response cache: real Redis-backed cache if REDIS_URL is
-    // configured, otherwise a no-op cache (fail-open — see NoopStatusPageCache
-    // and the StatusPageCache port's doc comment). Self-hosted deployments
-    // that don't run Redis still boot fine; public status-page requests
-    // just always hit Postgres directly instead of a cache.
+    let billing_config = BillingConfig::try_from_env()?;
+    let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
+        "fake" => Arc::new(FakeBillingProvider),
+        "disabled" => Arc::new(DisabledBillingProvider),
+        other => panic!("unsupported billing provider: {other}"),
+    };
+
     let status_page_cache: Arc<dyn StatusPageCache> = match &config.redis_url {
         Some(redis_url) => Arc::new(RedisStatusPageCache::new(redis_url)?),
         None => {
@@ -63,19 +69,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Proxy-check credential cipher: fails loudly at startup if
-    // PROXY_CREDENTIAL_ENCRYPTION_KEY is missing/invalid, rather than
-    // silently falling back to "no encryption" (see
-    // AesGcmProxyCredentialCipher::try_from_env's own doc comment).
     let proxy_credential_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let secret_cipher: Arc<dyn application::ports::SecretCipher> = proxy_credential_cipher.clone();
     let proxy_check_job_repository =
         PostgresProxyCheckJobRepository::new(pool.clone(), proxy_credential_cipher);
 
-    // Logo storage: status-page logo uploads are OPTIONAL. If S3 settings
-    // are missing/invalid, fail open and run without logo-upload support
-    // (the endpoint will return an error at request time), exactly like
-    // Redis/SMTP optional integrations.
+    let pending_auth_cache: Arc<dyn application::ports::PendingAuthCache> = match &config.redis_url
+    {
+        Some(redis_url) => Arc::new(RedisPendingAuthCache::new(redis_url)?),
+        None => {
+            tracing::warn!(
+                "REDIS_URL not configured — TOTP 2FA enrollment/login AND B6 password-reset \
+                 session invalidation will not work (pending secrets/tokens and session-\
+                 invalidation markers have nowhere to be stored)"
+            );
+            Arc::new(NoopPendingAuthCache)
+        }
+    };
+
     let logo_storage: Arc<dyn application::ports::LogoStorage> = match S3LogoStorage::try_from_env()
     {
         Ok(storage) => Arc::new(storage),
@@ -89,6 +100,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let audit_log_entry_repository = PostgresAuditLogEntryRepository::new(pool.clone());
+
+    let secret_cipher_for_auth = secret_cipher.clone();
 
     let app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
@@ -108,32 +121,103 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         UuidIdGenerator::new(),
         secret_cipher,
         audit_log_entry_repository,
-    );
+    )
+    .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
+    // B13 — Atomic Quota Enforcement: real subscription lookups instead of
+    // the `NoopSubscriptionRepository` default, so `CreateMonitorUseCase`
+    // resolves each tenant's actual plan (via `.with_entitlements(...)`,
+    // wired in `crates/api/src/handlers/create_monitor.rs`) rather than
+    // always falling back to the legacy per-user hardcoded limit.
+    .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
+    // B14 — Billing Provider Abstraction & Checkout:
+    .with_checkout_session_repository(PostgresCheckoutSessionRepository::new(pool.clone()))
+    .with_payment_provider(billing_provider)
+    .with_billing_webhook_idempotency_repository(PostgresBillingWebhookIdempotencyRepository::new(
+        pool.clone(),
+    ))
+    .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
+    .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()));
 
+    let app_state = match billing_config.webhook_secret {
+        Some(secret) => app_state.with_billing_webhook_secret(secret),
+        None => app_state,
+    };
+
+    let tenant_repository = PostgresTenantRepository::new(pool.clone());
     let tenant_membership_repository = PostgresTenantMembershipRepository::new(pool.clone());
+    let registration_transaction = PostgresRegistrationTransaction::new(pool.clone());
+
+    let email_verification_token_repository =
+        PostgresEmailVerificationTokenRepository::new(pool.clone());
+
+    let email_verification_mailer: Arc<dyn EmailVerificationMailer> = match SmtpConfig::try_from_env(
+    ) {
+        Ok(smtp_config) => match SmtpEmailVerificationMailer::new(smtp_config) {
+            Ok(mailer) => Arc::new(mailer),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to build verification email mailer; verification emails will be disabled"
+                );
+                Arc::new(DisabledEmailVerificationMailer::new(err.to_string()))
+            }
+        },
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "SMTP not configured; verification emails will be disabled"
+            );
+            Arc::new(DisabledEmailVerificationMailer::new(err.to_string()))
+        }
+    };
+
+    // B6 — Password reset:
+    let reset_password_token_repository = PostgresResetPasswordTokenRepository::new(pool.clone());
+
+    let password_reset_mailer: Arc<dyn PasswordResetMailer> = match SmtpConfig::try_from_env() {
+        Ok(smtp_config) => match SmtpPasswordResetMailer::new(smtp_config) {
+            Ok(mailer) => Arc::new(mailer),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to build password reset mailer; password reset emails will be disabled"
+                );
+                Arc::new(DisabledPasswordResetMailer::new(err.to_string()))
+            }
+        },
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "SMTP not configured; password reset emails will be disabled"
+            );
+            Arc::new(DisabledPasswordResetMailer::new(err.to_string()))
+        }
+    };
+
+    // B9 — Tenant invitations:
+    let invitation_repository = PostgresTenantInvitationRepository::new(pool.clone());
 
     let auth_state = AuthState::new(
         PostgresUserRepository::new(pool.clone()),
         Argon2PasswordHasher,
         JsonWebTokenService::new(config.jwt_secret.clone()),
         UuidIdGenerator::new(),
+        tenant_repository,
         tenant_membership_repository,
-    );
+        registration_transaction,
+    )
+    .with_totp_support(
+        secret_cipher_for_auth,
+        pending_auth_cache,
+        PostgresBackupCodeRepository::new(pool.clone()),
+    )
+    .with_email_verification(
+        email_verification_token_repository,
+        email_verification_mailer,
+    )
+    .with_password_reset(reset_password_token_repository, password_reset_mailer)
+    .with_invitation_repository(invitation_repository);
 
-    // Two independent servers share `app_state` (Clone, cheap — just Arc
-    // clones of the repos/services underneath):
-    //
-    // 1. Plain HTTP on port 3000 — every route EXCEPT `/internal/v1`.
-    // 2. mTLS on `config.mtls_port` — ONLY `/internal/v1` (agent
-    //    claim/submit endpoints), requiring every client to present a
-    //    certificate signed by our internal CA before any application
-    //    code runs. See `router::build_internal_agent_router` and
-    //    `mtls::build_mtls_config` for the full rationale.
-    //
-    // This split (rather than migrating the whole server to
-    // `axum_server`) exists because `axum_server` does not expose
-    // `ConnectInfo<SocketAddr>`, which the OTHER routes' IP-keyed
-    // GovernorLayers depend on.
     let plain_app = build_router(app_state.clone(), auth_state);
     let internal_agent_app = build_internal_agent_router(app_state);
 
@@ -165,12 +249,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .acceptor(mtls_acceptor)
         .serve(internal_agent_app.into_make_service());
 
-    // Run both servers concurrently for the lifetime of the process. If
-    // either one exits (normally only on an unrecoverable bind/accept
-    // error, since neither loop returns on its own otherwise), the whole
-    // process exits — a half-running API (only plain HTTP working, or
-    // only mTLS working) is worse than a clean crash-and-restart under
-    // Docker/orchestrator supervision.
     tokio::try_join!(
         async {
             plain_server

@@ -2,7 +2,9 @@ use std::{error::Error, fmt, sync::Arc};
 
 use domain::{
     entities::NotificationChannel,
-    shared::ids::{MonitorId, UserId},
+    shared::ids::MonitorId,
+    shared::policies::{AuthorizationPolicy, TenantOwned},
+    shared::types::AuthenticatedUser,
 };
 
 use crate::ports::{MonitorRepository, NotificationChannelRepository};
@@ -52,23 +54,25 @@ impl ListNotificationChannelsUseCase {
     pub async fn execute(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<Vec<NotificationChannel>, ListNotificationChannelsError> {
-        // Belt-and-suspenders: confirm the monitor is owned by this user
-        // even though `list_by_monitor_for_user` re-checks the same thing
-        // at the SQL level. Two independent checks (application + infra)
-        // means a bug in either layer alone still can't leak another
-        // user's channels.
-        self.monitor_repository
-            .find_by_id_for_user(monitor_id, user_id)
+        let monitor = self
+            .monitor_repository
+            .find_by_id(monitor_id)
             .await
             .map_err(ListNotificationChannelsError::Other)?
             .ok_or(ListNotificationChannelsError::NotFound)?;
 
+        if !AuthorizationPolicy::same_tenant(
+            &authenticated_user.tenant_context(),
+            monitor.tenant_id(),
+        ) {
+            return Err(ListNotificationChannelsError::NotFound);
+        }
+
         self.notification_channel_repository
-            .list_by_monitor_for_user(monitor_id, user_id)
+            .list_by_monitor(monitor_id)
             .await
-            .map_err(ListNotificationChannelsError::Other)?
-            .ok_or(ListNotificationChannelsError::NotFound)
+            .map_err(ListNotificationChannelsError::Other)
     }
 }

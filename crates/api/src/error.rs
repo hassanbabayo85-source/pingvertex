@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use tracing::error;
@@ -17,6 +17,8 @@ pub enum ApiError {
     BadRequest(String),
     Conflict(String),
     NotFound(String),
+    Forbidden(String),
+    Unauthorized(String),
     TooManyRequests(String),
     Internal(String),
 }
@@ -24,6 +26,25 @@ pub enum ApiError {
 impl ApiError {
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest(message.into())
+    }
+
+    /// 403 Forbidden — the caller is authenticated but their role lacks
+    /// the permission required for this action (e.g. `Role::Auditor`
+    /// calling an endpoint gated on `Permission::ManageApiKeys`).
+    /// Distinct from `UNAUTHORIZED`, which means "not authenticated at
+    /// all" and is handled upstream by the auth middleware.
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::Forbidden(message.into())
+    }
+
+    /// 401 Unauthorized — used for auth-flow failures that are NOT about
+    /// missing/invalid session tokens (that case is handled upstream by
+    /// `jwt_auth` returning a bare `StatusCode`, before an `ApiError` is
+    /// ever constructed). This variant covers e.g. an invalid/expired
+    /// pending 2FA token, an invalid TOTP/backup code, or a failed
+    /// password step-up re-authentication check.
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
@@ -74,6 +95,8 @@ impl ApiError {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -84,6 +107,8 @@ impl ApiError {
             Self::BadRequest(message)
             | Self::Conflict(message)
             | Self::NotFound(message)
+            | Self::Forbidden(message)
+            | Self::Unauthorized(message)
             | Self::TooManyRequests(message)
             | Self::Internal(message) => message.clone(),
         }
@@ -177,6 +202,18 @@ mod tests {
         assert_eq!(
             ApiError::not_found("x").status_code(),
             StatusCode::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn forbidden_carries_its_own_message_and_status() {
+        assert_eq!(
+            ApiError::forbidden("you do not have permission to do this").message(),
+            "you do not have permission to do this"
+        );
+        assert_eq!(
+            ApiError::forbidden("x").status_code(),
+            StatusCode::FORBIDDEN
         );
     }
 

@@ -1,9 +1,8 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use application::ports::MonitorRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use async_trait::async_trait;
 use domain::Monitor;
 use domain::shared::ids::{MonitorId, TenantId, UserId};
@@ -156,5 +155,30 @@ impl MonitorRepository for InMemoryMonitorRepository {
             monitor.updated_at = now;
         }
         Ok(())
+    }
+
+    /// In-process equivalent of the Postgres advisory-lock pattern: a
+    /// single `write()` lock guard is held across BOTH the count and the
+    /// insert, so no other `save`/`save_if_within_quota` call (which all
+    /// go through the same `RwLock`) can interleave between them.
+    async fn save_if_within_quota(
+        &self,
+        monitor: &Monitor,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> Result<QuotaCheckOutcome, Box<dyn std::error::Error + Send + Sync>> {
+        let mut monitors = self.monitors.write().unwrap();
+
+        let current_count = monitors
+            .values()
+            .filter(|existing| existing.tenant_id == tenant_id)
+            .count() as u32;
+
+        if current_count >= limit {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        monitors.insert(monitor.id, monitor.clone());
+        Ok(QuotaCheckOutcome::Saved)
     }
 }

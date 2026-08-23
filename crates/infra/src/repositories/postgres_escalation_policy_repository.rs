@@ -119,36 +119,19 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         Ok(())
     }
 
-    async fn find_by_id_for_user(
-        &self,
-        id: EscalationPolicyId,
-        user_id: UserId,
-    ) -> RepoResult<Option<EscalationPolicy>> {
-        let row = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM escalation_policies \
-             WHERE id = $1 AND user_id = $2"
-        ))
-        .bind(id.0)
-        .bind(user_id.0)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        row.map(EscalationPolicyRow::into_domain).transpose()
-    }
-
     async fn find_effective(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Option<EscalationPolicy>> {
         // Try monitor-specific first
         let row = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM escalation_policies \
-             WHERE monitor_id = $1 AND user_id = $2 \
+             WHERE monitor_id = $1 AND tenant_id = $2 \
              ORDER BY created_at DESC LIMIT 1"
         ))
         .bind(monitor_id.0)
-        .bind(user_id.0)
+        .bind(tenant_id.0)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -159,28 +142,14 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         // Fall back to global (monitor_id IS NULL)
         let row = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM escalation_policies \
-             WHERE monitor_id IS NULL AND user_id = $1 \
+             WHERE monitor_id IS NULL AND tenant_id = $1 \
              ORDER BY created_at DESC LIMIT 1"
         ))
-        .bind(user_id.0)
+        .bind(tenant_id.0)
         .fetch_optional(&self.pool)
         .await?;
 
         row.map(EscalationPolicyRow::into_domain).transpose()
-    }
-
-    async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>> {
-        let rows = sqlx::query_as::<_, EscalationPolicyRow>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM escalation_policies \
-             WHERE user_id = $1 ORDER BY created_at DESC"
-        ))
-        .bind(user_id.0)
-        .fetch_all(&self.pool)
-        .await?;
-
-        rows.into_iter()
-            .map(EscalationPolicyRow::into_domain)
-            .collect()
     }
 
     async fn find_by_id(&self, id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {

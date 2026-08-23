@@ -240,10 +240,7 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
 
     /// Lists every channel for a monitor with NO ownership filtering. Safe
     /// once the caller has verified `monitor_id` belongs to their tenant.
-    async fn list_by_monitor(
-        &self,
-        monitor_id: MonitorId,
-    ) -> RepoResult<Vec<NotificationChannel>> {
+    async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
         let rows = sqlx::query_as::<_, NotificationChannelRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM notification_channels \
              WHERE monitor_id = $1 ORDER BY created_at ASC"

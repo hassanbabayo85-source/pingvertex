@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::ports::{IncidentRepository, MonitorRepository};
 use domain::Incident;
-use domain::shared::ids::MonitorId;
+use domain::shared::ids::{MonitorId, TenantId};
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::AuthenticatedUser;
 
@@ -62,6 +62,36 @@ impl ListIncidentsUseCase {
             &authenticated_user.tenant_context(),
             monitor.tenant_id(),
         ) {
+            return Err(ListIncidentsError::NotFound);
+        }
+
+        self.incident_repository
+            .list_by_monitor(monitor_id)
+            .await
+            .map_err(ListIncidentsError::Other)
+    }
+
+    /// Tenant-scoped variant of `execute` that takes a `TenantId`
+    /// directly instead of an `AuthenticatedUser`.
+    ///
+    /// Added for the API-key-authenticated public surface
+    /// (`GET /api/v1/external/incidents/{monitor_id}`, B31) — see the
+    /// doc comment on `ListChecksUseCase::execute_for_tenant` for why a
+    /// separate method exists instead of synthesizing an
+    /// `AuthenticatedUser` from an `ApiKeyPrincipal`.
+    pub async fn execute_for_tenant(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: TenantId,
+    ) -> Result<Vec<Incident>, ListIncidentsError> {
+        let monitor = self
+            .monitor_repository
+            .find_by_id(monitor_id)
+            .await
+            .map_err(ListIncidentsError::Other)?
+            .ok_or(ListIncidentsError::NotFound)?;
+
+        if monitor.tenant_id() != tenant_id {
             return Err(ListIncidentsError::NotFound);
         }
 

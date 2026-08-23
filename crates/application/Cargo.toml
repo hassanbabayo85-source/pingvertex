@@ -16,5 +16,8 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 
+totp-rs = { version = "5", features = ["otpauth", "gen_secret"] }
+base64 = "0.22"
+
 [dev-dependencies]
 infra = { path = "../infra" }

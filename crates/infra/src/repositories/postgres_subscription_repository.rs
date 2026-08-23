@@ -1,0 +1,146 @@
+use std::error::Error;
+
+use application::ports::SubscriptionRepository;
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use domain::{
+    Subscription,
+    enums::{PlanTier, SubscriptionStatus},
+    shared::ids::{SubscriptionId, TenantId},
+};
+use sqlx::{FromRow, PgPool};
+use uuid::Uuid;
+
+type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+#[derive(Debug, Clone)]
+pub struct PostgresSubscriptionRepository {
+    pool: PgPool,
+}
+
+impl PostgresSubscriptionRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct SubscriptionRow {
+    id: Uuid,
+    tenant_id: Uuid,
+    plan_tier: String,
+    status: String,
+    trial_ends_at: Option<DateTime<Utc>>,
+    grace_period_ends_at: Option<DateTime<Utc>>,
+    current_period_ends_at: Option<DateTime<Utc>>,
+    canceled_at: Option<DateTime<Utc>>,
+    cancel_at_period_end: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl SubscriptionRow {
+    fn from_domain(subscription: &Subscription) -> Self {
+        Self {
+            id: subscription.id.0,
+            tenant_id: subscription.tenant_id.0,
+            plan_tier: subscription.plan_tier.as_str().to_owned(),
+            status: subscription.status.as_str().to_owned(),
+            trial_ends_at: subscription.trial_ends_at,
+            grace_period_ends_at: subscription.grace_period_ends_at,
+            current_period_ends_at: subscription.current_period_ends_at,
+            canceled_at: subscription.canceled_at,
+            cancel_at_period_end: subscription.cancel_at_period_end,
+            created_at: subscription.created_at,
+            updated_at: subscription.updated_at,
+        }
+    }
+
+    fn into_domain(self) -> Result<Subscription, Box<dyn Error + Send + Sync>> {
+        let plan_tier: PlanTier = self
+            .plan_tier
+            .parse()
+            .map_err(|err: domain::DomainError| Box::new(err) as Box<dyn Error + Send + Sync>)?;
+        let status: SubscriptionStatus = self
+            .status
+            .parse()
+            .map_err(|err: domain::DomainError| Box::new(err) as Box<dyn Error + Send + Sync>)?;
+
+        Ok(Subscription {
+            id: SubscriptionId(self.id),
+            tenant_id: TenantId(self.tenant_id),
+            plan_tier,
+            status,
+            trial_ends_at: self.trial_ends_at,
+            grace_period_ends_at: self.grace_period_ends_at,
+            current_period_ends_at: self.current_period_ends_at,
+            canceled_at: self.canceled_at,
+            cancel_at_period_end: self.cancel_at_period_end,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
+    }
+}
+
+#[async_trait]
+impl SubscriptionRepository for PostgresSubscriptionRepository {
+    async fn create(&self, subscription: &Subscription) -> RepoResult<()> {
+        let row = SubscriptionRow::from_domain(subscription);
+        sqlx::query(
+            "INSERT INTO subscriptions \
+             (id, tenant_id, plan_tier, status, trial_ends_at, grace_period_ends_at, \
+              current_period_ends_at, canceled_at, cancel_at_period_end, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        )
+        .bind(row.id)
+        .bind(row.tenant_id)
+        .bind(row.plan_tier)
+        .bind(row.status)
+        .bind(row.trial_ends_at)
+        .bind(row.grace_period_ends_at)
+        .bind(row.current_period_ends_at)
+        .bind(row.canceled_at)
+        .bind(row.cancel_at_period_end)
+        .bind(row.created_at)
+        .bind(row.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn find_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Option<Subscription>> {
+        let row = sqlx::query_as::<_, SubscriptionRow>(
+            "SELECT id, tenant_id, plan_tier, status, trial_ends_at, grace_period_ends_at, \
+             current_period_ends_at, canceled_at, cancel_at_period_end, created_at, updated_at \
+             FROM subscriptions WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(SubscriptionRow::into_domain).transpose()
+    }
+
+    async fn update(&self, subscription: &Subscription) -> RepoResult<()> {
+        let row = SubscriptionRow::from_domain(subscription);
+        sqlx::query(
+            "UPDATE subscriptions SET \
+             plan_tier = $2, status = $3, trial_ends_at = $4, grace_period_ends_at = $5, \
+             current_period_ends_at = $6, canceled_at = $7, cancel_at_period_end = $8, \
+             updated_at = $9 \
+             WHERE id = $1",
+        )
+        .bind(row.id)
+        .bind(row.plan_tier)
+        .bind(row.status)
+        .bind(row.trial_ends_at)
+        .bind(row.grace_period_ends_at)
+        .bind(row.current_period_ends_at)
+        .bind(row.canceled_at)
+        .bind(row.cancel_at_period_end)
+        .bind(row.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}

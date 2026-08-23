@@ -1,7 +1,7 @@
 use axum::{
-    extract::{Extension, State},
-    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     Json,
+    extract::{Extension, State},
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
 };
 use tracing::info;
 

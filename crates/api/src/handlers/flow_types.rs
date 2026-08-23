@@ -13,8 +13,8 @@ use application::dto::{
     ApiFlowStepInput, AssertionInput, CreateApiFlowRequest, ExtractSourceInput,
     VariableExtractionInput,
 };
-use domain::shared::ids::MonitorId;
 use domain::HttpMethod;
+use domain::shared::ids::MonitorId;
 use serde::{Deserialize, Serialize};
 
 // ============================= Request side =============================

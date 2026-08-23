@@ -5,19 +5,21 @@ use application::ports::{
 };
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use domain::entities::NotificationChannel;
 use domain::notification::NotificationEvent;
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, HttpMethod, Incident, User};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -60,7 +62,7 @@ impl CheckRepository for NoopCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -203,9 +205,12 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         token: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         let user_id = uuid::Uuid::parse_str(token)?;
-        Ok(domain::UserId(user_id))
+        Ok(application::ports::VerifiedToken {
+            user_id: domain::UserId(user_id),
+            issued_at: 0,
+        })
     }
 }
 
@@ -255,7 +260,9 @@ where
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)
@@ -276,7 +283,7 @@ fn monitor_payload(user_id: Uuid) -> Value {
         "url": "https://example.com",
         "method": HttpMethod::Get,
         "expected_status": 200,
-        "interval_seconds": 60,
+        "interval_seconds": 120,
         "timeout_seconds": 10,
         "assertions": []
     })

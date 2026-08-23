@@ -27,6 +27,7 @@ struct IncidentRow {
     monitor_id: Uuid,
     started_at: DateTime<Utc>,
     resolved_at: Option<DateTime<Utc>>,
+    last_seen_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     acknowledged_at: Option<DateTime<Utc>>,
@@ -43,6 +44,7 @@ impl IncidentRow {
             monitor_id: incident.monitor_id.0,
             started_at: incident.started_at,
             resolved_at: incident.resolved_at,
+            last_seen_at: incident.last_seen_at,
             created_at: incident.created_at,
             updated_at: incident.updated_at,
             acknowledged_at: incident.acknowledged_at,
@@ -59,6 +61,7 @@ impl IncidentRow {
             monitor_id: MonitorId(self.monitor_id),
             started_at: self.started_at,
             resolved_at: self.resolved_at,
+            last_seen_at: self.last_seen_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
             acknowledged_at: self.acknowledged_at,
@@ -70,20 +73,26 @@ impl IncidentRow {
     }
 }
 
-const SELECT_COLUMNS: &str = "id, monitor_id, started_at, resolved_at, created_at, updated_at, acknowledged_at, acknowledged_by, occurred_during_maintenance, escalation_step_index, last_escalation_at";
+const SELECT_COLUMNS: &str = "id, monitor_id, started_at, resolved_at, last_seen_at, created_at, updated_at, acknowledged_at, acknowledged_by, occurred_during_maintenance, escalation_step_index, last_escalation_at";
 
 #[async_trait]
 impl IncidentRepository for PostgresIncidentRepository {
     async fn save(&self, incident: &Incident) -> RepoResult<()> {
+        let _ = self.save_and_report(incident).await?;
+        Ok(())
+    }
+
+    async fn save_and_report(&self, incident: &Incident) -> RepoResult<bool> {
         let row = IncidentRow::from_domain(incident);
 
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO incidents (
                 id,
                 monitor_id,
                 started_at,
                 resolved_at,
+                last_seen_at,
                 created_at,
                 updated_at,
                 acknowledged_at,
@@ -92,7 +101,7 @@ impl IncidentRepository for PostgresIncidentRepository {
                 escalation_step_index,
                 last_escalation_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (monitor_id) WHERE resolved_at IS NULL DO NOTHING
             "#,
         )
@@ -100,6 +109,7 @@ impl IncidentRepository for PostgresIncidentRepository {
         .bind(row.monitor_id)
         .bind(row.started_at)
         .bind(row.resolved_at)
+        .bind(row.last_seen_at)
         .bind(row.created_at)
         .bind(row.updated_at)
         .bind(row.acknowledged_at)
@@ -110,7 +120,7 @@ impl IncidentRepository for PostgresIncidentRepository {
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     async fn update(&self, incident: &Incident) -> RepoResult<()> {
@@ -123,13 +133,14 @@ impl IncidentRepository for PostgresIncidentRepository {
                 monitor_id = $2,
                 started_at = $3,
                 resolved_at = $4,
-                created_at = $5,
-                updated_at = $6,
-                acknowledged_at = $7,
-                acknowledged_by = $8,
-                occurred_during_maintenance = $9,
-                escalation_step_index = $10,
-                last_escalation_at = $11
+                last_seen_at = $5,
+                created_at = $6,
+                updated_at = $7,
+                acknowledged_at = $8,
+                acknowledged_by = $9,
+                occurred_during_maintenance = $10,
+                escalation_step_index = $11,
+                last_escalation_at = $12
             WHERE id = $1
             "#,
         )
@@ -137,6 +148,7 @@ impl IncidentRepository for PostgresIncidentRepository {
         .bind(row.monitor_id)
         .bind(row.started_at)
         .bind(row.resolved_at)
+        .bind(row.last_seen_at)
         .bind(row.created_at)
         .bind(row.updated_at)
         .bind(row.acknowledged_at)
@@ -148,6 +160,72 @@ impl IncidentRepository for PostgresIncidentRepository {
         .await?;
 
         Ok(())
+    }
+
+    async fn resolve_if_open(&self, incident: &Incident) -> RepoResult<bool> {
+        // Conditional update: only resolves if still open.
+        let resolved_at = incident.resolved_at.unwrap_or_else(Utc::now);
+        let updated_at = incident.updated_at;
+
+        let result = sqlx::query(
+            r#"
+            UPDATE incidents
+            SET resolved_at = $2, updated_at = $3
+            WHERE id = $1 AND resolved_at IS NULL
+            "#,
+        )
+        .bind(incident.id.0)
+        .bind(resolved_at)
+        .bind(updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// B28 — atomic escalation-step claim. Only advances the row (and
+    /// only reports success) if `escalation_step_index` in the database
+    /// still equals the value the caller last observed AND the incident
+    /// is still open and unacknowledged. This is the compare-and-swap
+    /// that makes `EscalationWorker` safe under concurrent sweeps: two
+    /// racing sweeps that both observed `escalation_step_index = N` can
+    /// each attempt this UPDATE, but only one `WHERE` clause can match
+    /// (the loser's `escalation_step_index = N` predicate no longer
+    /// holds once the winner's UPDATE has committed), so only the winner
+    /// proceeds to actually send the notification.
+    async fn try_claim_escalation_step(
+        &self,
+        incident: &mut Incident,
+        now: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        let expected_step_index = incident.escalation_step_index as i32;
+
+        let result = sqlx::query(
+            r#"
+            UPDATE incidents
+            SET escalation_step_index = escalation_step_index + 1,
+                last_escalation_at = $3,
+                updated_at = $3
+            WHERE id = $1
+              AND escalation_step_index = $2
+              AND resolved_at IS NULL
+              AND acknowledged_at IS NULL
+            "#,
+        )
+        .bind(incident.id.0)
+        .bind(expected_step_index)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        let claimed = result.rows_affected() > 0;
+        if claimed {
+            incident.escalation_step_index += 1;
+            incident.last_escalation_at = Some(now);
+            incident.updated_at = now;
+        }
+
+        Ok(claimed)
     }
 
     async fn find_by_id(&self, id: IncidentId) -> RepoResult<Option<Incident>> {
@@ -196,5 +274,21 @@ impl IncidentRepository for PostgresIncidentRepository {
         .await?;
 
         Ok(rows.into_iter().map(IncidentRow::into_domain).collect())
+    }
+
+    async fn touch_last_seen(&self, monitor_id: MonitorId, now: DateTime<Utc>) -> RepoResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE incidents
+            SET last_seen_at = $2, updated_at = $2
+            WHERE monitor_id = $1 AND resolved_at IS NULL
+            "#,
+        )
+        .bind(monitor_id.0)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }

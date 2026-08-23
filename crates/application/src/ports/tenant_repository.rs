@@ -10,9 +10,9 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Persistence port for `Tenant`.
 ///
-/// Deliberately limited to create and read by id/owner. There is no
-/// `update` or `delete` here because tenant deletion is a much larger
-/// lifecycle operation that does not belong on this first port.
+/// Deliberately limited to create/read plus `list_all` for background
+/// workers like B22. There is still no `update` or `delete` here because
+/// tenant deletion is a much larger lifecycle operation.
 #[async_trait]
 pub trait TenantRepository: Send + Sync {
     async fn create(&self, tenant: &Tenant) -> RepoResult<()>;
@@ -20,6 +20,8 @@ pub trait TenantRepository: Send + Sync {
     async fn find_by_id(&self, id: TenantId) -> RepoResult<Option<Tenant>>;
 
     async fn find_by_owner_user_id(&self, owner_user_id: UserId) -> RepoResult<Option<Tenant>>;
+
+    async fn list_all(&self) -> RepoResult<Vec<Tenant>>;
 }
 
 #[async_trait]
@@ -37,5 +39,9 @@ where
 
     async fn find_by_owner_user_id(&self, owner_user_id: UserId) -> RepoResult<Option<Tenant>> {
         (**self).find_by_owner_user_id(owner_user_id).await
+    }
+
+    async fn list_all(&self) -> RepoResult<Vec<Tenant>> {
+        (**self).list_all().await
     }
 }

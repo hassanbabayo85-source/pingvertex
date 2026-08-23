@@ -1,19 +1,65 @@
 use std::{
     collections::HashMap,
-    error::Error,
+    error::Error as StdError,
     net::SocketAddr,
     time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Utc};
-use domain::{CheckResult, HttpMethod, Monitor, RegionCode};
+use domain::{CheckErrorKind, CheckResult, HttpMethod, Monitor, RegionCode};
 use reqwest::Client;
-use tracing::{info, warn};
+use shared::ssrf::ResolvedDestination;
+use tracing::warn;
 
 use crate::assertion_evaluator::{EvalContext, evaluate_assertions};
-use crate::diagnostics;
+use crate::diagnostics::run_diagnostics;
 
-type Result = std::result::Result<CheckResult, Box<dyn Error + Send + Sync>>;
+type Result = std::result::Result<CheckResult, Box<dyn StdError + Send + Sync>>;
+
+/// Maximum number of response-body bytes an HTTP check will ever read.
+/// The checker never reads an unbounded response body; if a response is
+/// larger than this, the check fails with `CheckErrorKind::HttpError`.
+const MAX_HTTP_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
+
+/// The result of an HTTP/HTTPS check execution plus its canonical error
+/// classification. `CheckErrorKind` is the shared taxonomy from B18 and
+/// is the field every active check worker must populate.
+#[derive(Debug, Clone)]
+pub struct HttpCheckOutcome {
+    pub result: CheckResult,
+    pub error_kind: CheckErrorKind,
+}
+
+impl HttpCheckOutcome {
+    fn new(result: CheckResult, error_kind: CheckErrorKind) -> Self {
+        Self { result, error_kind }
+    }
+
+    fn failure(
+        region: RegionCode,
+        latency_ms: u128,
+        error_kind: CheckErrorKind,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            result: CheckResult::failure(region, latency_ms, error),
+            error_kind,
+        }
+    }
+
+    fn failure_with_status(
+        region: RegionCode,
+        status: u16,
+        latency_ms: u128,
+        error_kind: CheckErrorKind,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            result: CheckResult::failure_with_status(region, status, latency_ms, error),
+            error_kind,
+        }
+    }
+}
 
 /// Fetches TLS certificate expiry info for `monitor`'s endpoint, if
 /// `monitor.ssl_check_enabled` is set and `monitor.url` is `https://`.
@@ -59,55 +105,66 @@ pub async fn maybe_fetch_cert_info(
     }
 }
 
-/// Send a single HTTP request for a monitor and return the check result.
-pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
+/// Performs a real HTTP/HTTPS check with SSRF-safe DNS pinning and a
+/// total-timeout budget. This is the production path used by
+/// `HttpCheckExecutor`.
+pub async fn check_http(monitor: &Monitor) -> HttpCheckOutcome {
     if !monitor.enabled {
-        return Ok(CheckResult::failure(
+        return HttpCheckOutcome::failure(
             RegionCode::default_region(),
             0,
+            CheckErrorKind::Unknown,
             "monitor is disabled",
-        ));
+        );
     }
 
-    let method = match monitor.method {
-        HttpMethod::Get => reqwest::Method::GET,
-        HttpMethod::Head => reqwest::Method::HEAD,
-    };
-
+    let timeout_duration = Duration::from_secs(monitor.timeout_seconds.into());
     let overall_started = Instant::now();
 
-    // Resolve DNS + validate IP exactly once.
-    //
-    // IMPORTANT: this is intentionally NOT propagated via `?` anymore. A
-    // DNS/SSRF failure here IS a real "Down" result for this monitor
-    // (ErrorType::Dns territory) and must be persisted as a Check like
-    // any other failure — including a diagnostic report explaining that
-    // DNS resolution failed. Silently short-circuiting via `?` would skip
-    // saving a Check entirely (see `scheduler.rs`'s `Ok((monitor, Err(_)))`
-    // branch, which only logs, it never calls `check_repository.save`).
-    let destination =
-        match crate::ssrf::resolve_and_validate_destination(monitor.url.as_str()).await {
-            Ok(destination) => destination,
-            Err(err) => {
-                let latency = overall_started.elapsed().as_millis();
-                let diag = diagnostics::run_diagnostics(monitor, None).await;
+    match tokio::time::timeout(timeout_duration, check_http_real(monitor)).await {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            let mut outcome = HttpCheckOutcome::failure(
+                RegionCode::default_region(),
+                overall_started.elapsed().as_millis(),
+                CheckErrorKind::Timeout,
+                "HTTP check timed out",
+            );
 
-                warn!(
-                    monitor_id = %monitor.id.0,
-                    name = %monitor.name.as_str(),
-                    error = %err,
-                    "failed to resolve/validate monitor destination"
-                );
+            let diag = run_diagnostics(monitor, None, CheckErrorKind::Timeout).await;
+            outcome.result = outcome
+                .result
+                .with_diagnostics(diag.steps, diag.root_cause_summary);
+            outcome
+        }
+    }
+}
 
-                return Ok(
-                    CheckResult::failure(RegionCode::default_region(), latency, err)
-                        .with_diagnostics(diag.steps, diag.root_cause_summary),
-                );
-            }
-        };
+/// SSRF-safe, DNS-pinned HTTP/HTTPS check body. The caller wraps this in
+/// `tokio::time::timeout` so DNS + TCP + TLS + response are all bounded
+/// by the monitor's single timeout budget.
+async fn check_http_real(monitor: &Monitor) -> HttpCheckOutcome {
+    let started = Instant::now();
 
-    // Keep the original hostname in the URL so HTTPS certificate validation
-    // and SNI continue to use the real hostname.
+    let destination = match crate::ssrf::resolve_and_validate_destination(&monitor.url).await {
+        Ok(destination) => destination,
+        Err(err) => {
+            let latency_ms = started.elapsed().as_millis();
+            let mut outcome = HttpCheckOutcome::failure(
+                RegionCode::default_region(),
+                latency_ms,
+                CheckErrorKind::DnsError,
+                err,
+            );
+
+            let diag = run_diagnostics(monitor, None, CheckErrorKind::DnsError).await;
+            outcome.result = outcome
+                .result
+                .with_diagnostics(diag.steps, diag.root_cause_summary);
+            return outcome;
+        }
+    };
+
     let pinned_client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
@@ -115,161 +172,111 @@ pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
     {
         Ok(client) => client,
         Err(err) => {
-            let latency = overall_started.elapsed().as_millis();
-            let diag = diagnostics::run_diagnostics(monitor, Some(&destination)).await;
-
-            return Ok(CheckResult::failure(
+            let latency_ms = started.elapsed().as_millis();
+            let mut outcome = HttpCheckOutcome::failure(
                 RegionCode::default_region(),
-                latency,
+                latency_ms,
+                CheckErrorKind::InternalError,
                 err.to_string(),
-            )
-            .with_diagnostics(diag.steps, diag.root_cause_summary));
+            );
+
+            let diag =
+                run_diagnostics(monitor, Some(&destination), CheckErrorKind::InternalError).await;
+            outcome.result = outcome
+                .result
+                .with_diagnostics(diag.steps, diag.root_cause_summary);
+            return outcome;
         }
     };
 
-    let started = Instant::now();
+    let method = match monitor.method {
+        HttpMethod::Get => reqwest::Method::GET,
+        HttpMethod::Head => reqwest::Method::HEAD,
+    };
 
-    let response = pinned_client
+    let request_started = Instant::now();
+    let response_result = pinned_client
         .request(method, destination.url.clone())
+        .send()
+        .await;
+
+    let mut outcome = handle_http_response(
+        response_result,
+        request_started.elapsed().as_millis(),
+        monitor,
+        true,
+        Some(&destination),
+    )
+    .await;
+
+    if !outcome.result.success {
+        let failure_kind = outcome.error_kind;
+        let diag = run_diagnostics(monitor, Some(&destination), failure_kind).await;
+        outcome.result = outcome
+            .result
+            .with_diagnostics(diag.steps, diag.root_cause_summary);
+    }
+
+    outcome
+}
+
+/// Backwards-compatible HTTP check entry point used by the legacy
+/// sweep scheduler (`scheduler.rs`).
+pub async fn check_monitor(_client: &Client, monitor: &Monitor) -> Result {
+    Ok(check_http(monitor).await.result)
+}
+
+/// Test-friendly HTTP check that performs the actual HTTP/HTTPS request,
+/// but uses an injected destination validator instead of the real SSRF
+/// resolver. The response is read with the same bounded-body guard as the
+/// production path.
+pub async fn check_http_with_validator<F, Fut>(
+    client: &Client,
+    monitor: &Monitor,
+    validate_destination: F,
+) -> std::result::Result<HttpCheckOutcome, Box<dyn StdError + Send + Sync>>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = std::result::Result<(), Box<dyn StdError + Send + Sync>>>,
+{
+    if !monitor.enabled {
+        return Ok(HttpCheckOutcome::failure(
+            RegionCode::default_region(),
+            0,
+            CheckErrorKind::Unknown,
+            "monitor is disabled",
+        ));
+    }
+
+    validate_destination(monitor.url.as_str().to_string()).await?;
+
+    let method = match monitor.method {
+        HttpMethod::Get => reqwest::Method::GET,
+        HttpMethod::Head => reqwest::Method::HEAD,
+    };
+
+    let started = Instant::now();
+    let response_result = client
+        .request(method, monitor.url.as_str())
         .timeout(Duration::from_secs(monitor.timeout_seconds.into()))
         .send()
         .await;
 
-    let latency = started.elapsed().as_millis();
-
-    match response {
-        Ok(response) => {
-            let status = response.status().as_u16();
-
-            if status == monitor.expected_status {
-                // Evaluate assertions if present
-                if !monitor.assertions.is_empty() {
-                    let headers: HashMap<String, String> = response
-                        .headers()
-                        .iter()
-                        .map(|(k, v)| {
-                            (
-                                k.as_str().to_lowercase(),
-                                v.to_str().unwrap_or("").to_string(),
-                            )
-                        })
-                        .collect();
-
-                    let body_bytes = response.bytes().await.unwrap_or_default().to_vec();
-
-                    let ctx = EvalContext {
-                        status_code: status,
-                        headers,
-                        body_bytes,
-                        latency_ms: latency,
-                    };
-
-                    let (all_passed, results) = evaluate_assertions(&monitor.assertions, &ctx);
-
-                    if !all_passed {
-                        let errors: Vec<String> =
-                            results.iter().filter_map(|r| r.message.clone()).collect();
-
-                        let error_msg = format!("assertions sun gaza: {}", errors.join("; "));
-
-                        warn!(
-                            monitor_id = %monitor.id.0,
-                            name = %monitor.name.as_str(),
-                            latency_ms = latency,
-                            "assertion failure: {}",
-                            error_msg
-                        );
-
-                        // Assertion failures are NOT connectivity problems —
-                        // the server responded correctly at the HTTP level,
-                        // so no diagnostic run (DNS/TCP/TLS/HTTP) is needed
-                        // here; the assertion message already explains why.
-                        return Ok(CheckResult::failure_with_status(
-                            RegionCode::default_region(),
-                            status,
-                            latency,
-                            error_msg,
-                        ));
-                    }
-
-                    info!(
-                        monitor_id = %monitor.id.0,
-                        name = %monitor.name.as_str(),
-                        status = status,
-                        latency_ms = latency,
-                        "monitor healthy (all assertions passed)"
-                    );
-                } else {
-                    info!(
-                        monitor_id = %monitor.id.0,
-                        name = %monitor.name.as_str(),
-                        status = status,
-                        latency_ms = latency,
-                        "monitor healthy"
-                    );
-                }
-
-                let (cert_expires_at, cert_days_remaining) =
-                    maybe_fetch_cert_info(monitor, &destination.host, destination.socket_addr)
-                        .await;
-
-                Ok(
-                    CheckResult::success(RegionCode::default_region(), status, latency)
-                        .with_cert_info(cert_expires_at, cert_days_remaining),
-                )
-            } else {
-                warn!(
-                    monitor_id = %monitor.id.0,
-                    name = %monitor.name.as_str(),
-                    expected = monitor.expected_status,
-                    actual = status,
-                    latency_ms = latency,
-                    "unexpected status code"
-                );
-
-                Ok(CheckResult::failure(
-                    RegionCode::default_region(),
-                    latency,
-                    format!("expected {}, got {}", monitor.expected_status, status),
-                ))
-            }
-        }
-
-        Err(err) => {
-            warn!(
-                monitor_id = %monitor.id.0,
-                name = %monitor.name.as_str(),
-                latency_ms = latency,
-                error = %err,
-                "monitor request failed"
-            );
-
-            // DNS/SSRF already succeeded (we have `destination`) but the
-            // actual HTTP request failed — this is TCP/TLS/HTTP territory,
-            // so run diagnostics reusing the already-validated destination
-            // (no second DNS lookup).
-            let diag = diagnostics::run_diagnostics(monitor, Some(&destination)).await;
-
-            Ok(
-                CheckResult::failure(RegionCode::default_region(), latency, err.to_string())
-                    .with_diagnostics(diag.steps, diag.root_cause_summary),
-            )
-        }
-    }
+    Ok(handle_http_response(
+        response_result,
+        started.elapsed().as_millis(),
+        monitor,
+        true,
+        None,
+    )
+    .await)
 }
 
-/// Send a single HTTP request for a monitor using an injected destination
-/// validator.
-///
-/// Production code should normally call `check_monitor`, which uses the real
-/// SSRF validator. Tests can inject a validator so they can use a local HTTP
-/// server without weakening the production SSRF protection.
-///
-/// NOTE: this test-only path does not run diagnostics — it has no
-/// `ResolvedDestination` to work with (the injected validator only
-/// validates, it doesn't resolve/pin), so it is out of scope for the
-/// diagnostics feature. Production traffic always goes through
-/// `check_monitor` above.
+/// Backwards-compatible validator path used by existing tests in
+/// `crates/worker/tests/checker.rs`. Unlike `check_http_with_validator`,
+/// an unexpected HTTP status is represented without a `status_code` on the
+/// legacy `CheckResult` (preserving pre-B18 test expectations). All other
+/// behavior, including bounded body reading, is identical.
 pub async fn check_monitor_with_validator<F, Fut>(
     client: &Client,
     monitor: &Monitor,
@@ -277,7 +284,7 @@ pub async fn check_monitor_with_validator<F, Fut>(
 ) -> Result
 where
     F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = std::result::Result<(), Box<dyn Error + Send + Sync>>>,
+    Fut: std::future::Future<Output = std::result::Result<(), Box<dyn StdError + Send + Sync>>>,
 {
     if !monitor.enabled {
         return Ok(CheckResult::failure(
@@ -287,127 +294,201 @@ where
         ));
     }
 
+    validate_destination(monitor.url.as_str().to_string()).await?;
+
     let method = match monitor.method {
         HttpMethod::Get => reqwest::Method::GET,
         HttpMethod::Head => reqwest::Method::HEAD,
     };
 
-    validate_destination(monitor.url.as_str().to_string()).await?;
-
     let started = Instant::now();
-
-    let response = client
+    let response_result = client
         .request(method, monitor.url.as_str())
         .timeout(Duration::from_secs(monitor.timeout_seconds.into()))
         .send()
         .await;
 
-    let latency = started.elapsed().as_millis();
+    Ok(handle_http_response(
+        response_result,
+        started.elapsed().as_millis(),
+        monitor,
+        false,
+        None,
+    )
+    .await
+    .result)
+}
 
-    match response {
+/// Shared response evaluation for both the production and validator paths.
+///
+/// `include_status_on_mismatch` controls whether a wrong HTTP status is
+/// persisted on `CheckResult.status_code`. The B18 production path always
+/// captures the actual status (even when the check fails), while the legacy
+/// validator path keeps its historical shape for existing tests.
+async fn handle_http_response(
+    response_result: reqwest::Result<reqwest::Response>,
+    latency_ms: u128,
+    monitor: &Monitor,
+    include_status_on_mismatch: bool,
+    destination: Option<&ResolvedDestination>,
+) -> HttpCheckOutcome {
+    match response_result {
         Ok(response) => {
             let status = response.status().as_u16();
 
-            if status == monitor.expected_status {
-                if !monitor.assertions.is_empty() {
-                    let headers: HashMap<String, String> = response
-                        .headers()
-                        .iter()
-                        .map(|(k, v)| {
-                            (
-                                k.as_str().to_lowercase(),
-                                v.to_str().unwrap_or("").to_string(),
-                            )
-                        })
-                        .collect();
+            if status != monitor.expected_status {
+                let error_msg = format!("expected {}, got {}", monitor.expected_status, status);
+                let result = if include_status_on_mismatch {
+                    CheckResult::failure_with_status(
+                        RegionCode::default_region(),
+                        status,
+                        latency_ms,
+                        error_msg,
+                    )
+                } else {
+                    CheckResult::failure(RegionCode::default_region(), latency_ms, error_msg)
+                };
 
-                    let body_bytes = response.bytes().await.unwrap_or_default().to_vec();
+                return HttpCheckOutcome::new(result, CheckErrorKind::HttpError);
+            }
 
-                    let ctx = EvalContext {
-                        status_code: status,
-                        headers,
-                        body_bytes,
-                        latency_ms: latency,
-                    };
-
-                    let (all_passed, results) = evaluate_assertions(&monitor.assertions, &ctx);
-
-                    if !all_passed {
-                        let errors: Vec<String> =
-                            results.iter().filter_map(|r| r.message.clone()).collect();
-
-                        let error_msg = format!("assertions sun gaza: {}", errors.join("; "));
-
-                        warn!(
-                            monitor_id = %monitor.id.0,
-                            name = %monitor.name.as_str(),
-                            latency_ms = latency,
-                            "assertion failure: {}",
-                            error_msg
-                        );
-
-                        return Ok(CheckResult::failure_with_status(
+            let (headers, body_bytes) = if monitor.assertions.is_empty() {
+                (HashMap::new(), Vec::new())
+            } else {
+                let headers = collect_headers(&response);
+                match read_body_bounded(response).await {
+                    Ok(body) => (headers, body),
+                    Err(error_kind) => {
+                        return HttpCheckOutcome::failure_with_status(
                             RegionCode::default_region(),
                             status,
-                            latency,
-                            error_msg,
-                        ));
+                            latency_ms,
+                            error_kind,
+                            "HTTP response body exceeded the maximum permitted size",
+                        );
                     }
+                }
+            };
 
-                    info!(
-                        monitor_id = %monitor.id.0,
-                        name = %monitor.name.as_str(),
-                        status = status,
-                        latency_ms = latency,
-                        "monitor healthy (all assertions passed)"
-                    );
-                } else {
-                    info!(
-                        monitor_id = %monitor.id.0,
-                        name = %monitor.name.as_str(),
-                        status = status,
-                        latency_ms = latency,
-                        "monitor healthy"
+            if !monitor.assertions.is_empty() {
+                let ctx = EvalContext {
+                    status_code: status,
+                    headers,
+                    body_bytes,
+                    latency_ms,
+                };
+
+                let (all_passed, results) = evaluate_assertions(&monitor.assertions, &ctx);
+
+                if !all_passed {
+                    let errors: Vec<String> =
+                        results.iter().filter_map(|r| r.message.clone()).collect();
+                    let error_msg = format!("assertions sun gaza: {}", errors.join("; "));
+
+                    return HttpCheckOutcome::failure_with_status(
+                        RegionCode::default_region(),
+                        status,
+                        latency_ms,
+                        CheckErrorKind::AssertionFailed,
+                        error_msg,
                     );
                 }
-
-                Ok(CheckResult::success(
-                    RegionCode::default_region(),
-                    status,
-                    latency,
-                ))
-            } else {
-                warn!(
-                    monitor_id = %monitor.id.0,
-                    name = %monitor.name.as_str(),
-                    expected = monitor.expected_status,
-                    actual = status,
-                    latency_ms = latency,
-                    "unexpected status code"
-                );
-
-                Ok(CheckResult::failure(
-                    RegionCode::default_region(),
-                    latency,
-                    format!("expected {}, got {}", monitor.expected_status, status),
-                ))
             }
+
+            let (cert_expires_at, cert_days_remaining) = match destination {
+                Some(destination) => {
+                    maybe_fetch_cert_info(monitor, &destination.host, destination.socket_addr).await
+                }
+                None => (None, None),
+            };
+
+            HttpCheckOutcome::new(
+                CheckResult::success(RegionCode::default_region(), status, latency_ms)
+                    .with_cert_info(cert_expires_at, cert_days_remaining),
+                CheckErrorKind::Unknown,
+            )
         }
 
         Err(err) => {
-            warn!(
-                monitor_id = %monitor.id.0,
-                name = %monitor.name.as_str(),
-                latency_ms = latency,
-                error = %err,
-                "monitor request failed"
-            );
-
-            Ok(CheckResult::failure(
+            let error_kind = classify_reqwest_error(&err);
+            HttpCheckOutcome::failure(
                 RegionCode::default_region(),
-                latency,
+                latency_ms,
+                error_kind,
                 err.to_string(),
-            ))
+            )
         }
     }
+}
+
+fn collect_headers(response: &reqwest::Response) -> HashMap<String, String> {
+    response
+        .headers()
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_lowercase(),
+                v.to_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Reads the response body up to `MAX_HTTP_RESPONSE_BODY_BYTES`. Never
+/// reads unbounded and never accepts more than the configured cap.
+async fn read_body_bounded(
+    mut response: reqwest::Response,
+) -> std::result::Result<Vec<u8>, CheckErrorKind> {
+    let mut body = Vec::new();
+
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if body.len() + chunk.len() > MAX_HTTP_RESPONSE_BODY_BYTES {
+                    return Err(CheckErrorKind::HttpError);
+                }
+
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(err) => return Err(classify_reqwest_error(&err)),
+        }
+    }
+
+    Ok(body)
+}
+
+fn classify_reqwest_error(err: &reqwest::Error) -> CheckErrorKind {
+    if err.is_timeout() {
+        CheckErrorKind::Timeout
+    } else if is_tls_error(err) {
+        CheckErrorKind::TlsError
+    } else if err.is_connect() {
+        CheckErrorKind::ConnectionError
+    } else if err.is_body() {
+        CheckErrorKind::HttpError
+    } else {
+        CheckErrorKind::Unknown
+    }
+}
+
+fn is_tls_error(err: &reqwest::Error) -> bool {
+    let mut source = StdError::source(err);
+
+    while let Some(err) = source {
+        let msg = err.to_string();
+
+        if msg.contains("tls")
+            || msg.contains("TLS")
+            || msg.contains("ssl")
+            || msg.contains("SSL")
+            || msg.contains("certificate")
+        {
+            return true;
+        }
+
+        source = err.source();
+    }
+
+    false
 }

@@ -5,11 +5,13 @@ use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, Incident};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
@@ -58,7 +60,7 @@ impl CheckRepository for MockCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -208,11 +210,14 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         _: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         // FIX: Tsayayyen UserId (nil UUID) don kowane buƙata ya kasance iri ɗaya.
         // Wannan yana tabbatar da cewa POST da GET a gwaji suna da mai amfani iri ɗaya,
         // don haka monitor ɗin da aka ƙirƙira zai kasance mallakar wannan mai amfanin.
-        Ok(domain::UserId::from_uuid(uuid::Uuid::nil()))
+        Ok(application::ports::VerifiedToken {
+            user_id: domain::UserId::from_uuid(uuid::Uuid::nil()),
+            issued_at: 0,
+        })
     }
 }
 
@@ -244,7 +249,9 @@ fn build_test_app() -> axum::Router {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)
@@ -291,7 +298,7 @@ async fn list_monitor_checks_returns_ok() {
                         "url": "https://example.com",
                         "method": "GET",
                         "expected_status": 200,
-                        "interval_seconds": 60,
+                        "interval_seconds": 120,
                         "timeout_seconds": 10,
                         "assertions": []
                     }"#,

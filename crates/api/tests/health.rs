@@ -5,12 +5,14 @@ use application::ports::{
 };
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, Incident, Monitor, User};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
@@ -88,7 +90,7 @@ impl CheckRepository for NoopCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -245,7 +247,7 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         _: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         unimplemented!()
     }
 }
@@ -275,7 +277,9 @@ async fn health_endpoint_returns_ok() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     let app = build_test_router(state, auth_state);
@@ -314,7 +318,9 @@ async fn register_rejects_weak_password() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     let app = build_test_router(state, auth_state);
@@ -367,7 +373,9 @@ async fn register_accepts_strong_password() {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     let app = build_test_router(state, auth_state);

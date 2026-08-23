@@ -22,7 +22,9 @@ pub enum AuditAction {
     MaintenanceWindowCreated,
     IncidentAcknowledged,
     CustomDomainRequested,
+    CustomDomainRemoved,
     MemberInvited,
     RoleChanged,
     ApiKeyCreated,
+    ApiKeyDeleted,
 }

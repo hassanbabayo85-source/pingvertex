@@ -7,7 +7,7 @@ use std::{
 use application::ports::EscalationPolicyRepository;
 use async_trait::async_trait;
 use domain::EscalationPolicy;
-use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId, UserId};
+use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -44,31 +44,17 @@ impl EscalationPolicyRepository for InMemoryEscalationPolicyRepository {
         Ok(())
     }
 
-    async fn find_by_id_for_user(
-        &self,
-        id: EscalationPolicyId,
-        user_id: UserId,
-    ) -> RepoResult<Option<EscalationPolicy>> {
-        Ok(self
-            .policies
-            .read()
-            .unwrap()
-            .get(&id)
-            .filter(|policy| policy.user_id == user_id)
-            .cloned())
-    }
-
     async fn find_effective(
         &self,
         monitor_id: MonitorId,
-        user_id: UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Option<EscalationPolicy>> {
         let policies = self.policies.read().unwrap();
 
         // Try monitor-specific first, newest wins.
         let monitor_specific = policies
             .values()
-            .filter(|policy| policy.monitor_id == Some(monitor_id) && policy.user_id == user_id)
+            .filter(|policy| policy.monitor_id == Some(monitor_id) && policy.tenant_id == tenant_id)
             .max_by_key(|policy| policy.created_at);
 
         if let Some(policy) = monitor_specific {
@@ -78,23 +64,9 @@ impl EscalationPolicyRepository for InMemoryEscalationPolicyRepository {
         // Fall back to the user's global policy (monitor_id IS NULL).
         Ok(policies
             .values()
-            .filter(|policy| policy.monitor_id.is_none() && policy.user_id == user_id)
+            .filter(|policy| policy.monitor_id.is_none() && policy.tenant_id == tenant_id)
             .max_by_key(|policy| policy.created_at)
             .cloned())
-    }
-
-    async fn list_for_user(&self, user_id: UserId) -> RepoResult<Vec<EscalationPolicy>> {
-        let mut result: Vec<EscalationPolicy> = self
-            .policies
-            .read()
-            .unwrap()
-            .values()
-            .filter(|policy| policy.user_id == user_id)
-            .cloned()
-            .collect();
-
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        Ok(result)
     }
 
     async fn find_by_id(&self, id: EscalationPolicyId) -> RepoResult<Option<EscalationPolicy>> {

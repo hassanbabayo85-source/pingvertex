@@ -34,6 +34,7 @@ tmp/
 
 # Local/generated data
 cors.txt
+cookies*.txt
 
 # Development command outputs
 build-errors.txt

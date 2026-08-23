@@ -1,7 +1,9 @@
 [package]
 name = "api"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 application = { path = "../application" }
@@ -35,7 +37,12 @@ rustls = "0.23.43"
 rustls-pki-types = "1.15.1"
 anyhow.workspace = true
 
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 async-trait = "0.1"
 rcgen = "0.14.9"
+

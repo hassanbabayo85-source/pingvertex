@@ -4,12 +4,13 @@ use std::sync::Arc;
 use application::{
     ports::{
         CheckRepository, DiagnosticReportRepository,
-        check_repository::RepoResult as CheckRepoResult,
+        check_repository::{CheckFilters, RepoResult as CheckRepoResult},
     },
     use_cases::ListChecksUseCase,
 };
 use async_trait::async_trait;
-use domain::shared::ids::{CheckId, MonitorId, UserId};
+use domain::shared::ids::{CheckId, MonitorId, TenantId, UserId};
+use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
 use domain::{Check, DiagnosticReport};
 
 #[derive(Clone, Default)]
@@ -29,7 +30,7 @@ impl CheckRepository for NoopCheckRepository {
         Ok(vec![])
     }
 
-    async fn list_checks(&self, _: u32, _: u32, _: UserId) -> CheckRepoResult<Vec<Check>> {
+    async fn list_checks(&self, _: u32, _: u32, _: TenantId) -> CheckRepoResult<Vec<Check>> {
         Ok(vec![])
     }
 
@@ -62,8 +63,17 @@ async fn lists_checks() {
 
     let use_case = ListChecksUseCase::new(repository, diagnostic_repository);
 
+    let tenant_id = TenantId::new();
     let user_id = UserId::from_uuid(uuid::Uuid::new_v4());
-    let result = use_case.execute(10, 0, user_id).await.unwrap();
+    let authenticated_user = AuthenticatedUser::new(
+        user_id,
+        Role::Owner,
+        TenantContext::with_actor(tenant_id, user_id),
+    );
+    let result = use_case
+        .execute(10, 0, authenticated_user, CheckFilters::default())
+        .await
+        .unwrap();
 
     assert!(result.is_empty());
 }

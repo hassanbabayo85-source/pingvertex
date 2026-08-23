@@ -2,10 +2,10 @@ use application::dto::AssertionInput;
 use chrono::{DateTime, Utc};
 use domain::entities::NotificationChannel;
 use domain::enums::NotificationChannelKind;
-use domain::shared::ids::UserId;
-use domain::{Check, CheckStatus, ErrorType, HttpMethod, Incident, Monitor, MonitorKind};
+use domain::{
+    Check, CheckStatus, ErrorType, HttpMethod, Incident, MaintenanceWindow, Monitor, MonitorKind,
+};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// JSON representation of a monitor returned by the API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +92,6 @@ impl MonitorCreateResponse {
 /// Shared request body shape for create/update endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MonitorWriteRequest {
-    pub user_id: Option<String>,
     pub name: String,
     pub url: String,
     pub method: HttpMethod,
@@ -143,23 +142,37 @@ fn default_ssl_expiry_warning_days() -> u32 {
     14
 }
 
-impl MonitorWriteRequest {
-    pub fn parse_user_id(&self) -> Result<UserId, String> {
-        let raw = self
-            .user_id
-            .as_ref()
-            .ok_or_else(|| "user_id is required".to_string())?;
-        let id = Uuid::parse_str(raw).map_err(|_| "invalid user_id".to_string())?;
-        Ok(UserId(id))
-    }
-}
-
 /// A single incident, as exposed on the public status page.
 #[derive(Debug, Clone, Serialize)]
 pub struct PublicIncidentResponse {
     pub id: String,
     pub started_at: DateTime<Utc>,
     pub resolved_at: Option<DateTime<Utc>>,
+}
+
+/// A single maintenance window, as exposed on the public status page.
+///
+/// SECURITY: deliberately carries only `id`, `starts_at`, `ends_at`, and
+/// `reason` — never `tenant_id`, which is the only other field on the
+/// domain `MaintenanceWindow` entity. Same "safe subset only" rule as
+/// `PublicIncidentResponse` above.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicMaintenanceWindowResponse {
+    pub id: String,
+    pub starts_at: DateTime<Utc>,
+    pub ends_at: DateTime<Utc>,
+    pub reason: String,
+}
+
+impl From<&MaintenanceWindow> for PublicMaintenanceWindowResponse {
+    fn from(window: &MaintenanceWindow) -> Self {
+        Self {
+            id: window.id.0.to_string(),
+            starts_at: window.starts_at,
+            ends_at: window.ends_at,
+            reason: window.reason.clone(),
+        }
+    }
 }
 
 /// JSON representation of a monitor returned by the *public, unauthenticated*
@@ -177,14 +190,27 @@ pub struct PublicMonitorResponse {
     pub latency_ms: Option<u128>,
     pub uptime_percentage: f64,
     pub incidents: Vec<PublicIncidentResponse>,
+    /// Maintenance windows currently active for this monitor (i.e.
+    /// `starts_at <= now <= ends_at`). Bounded the same way `incidents` is,
+    /// so a monitor with an unusually large backlog of windows can't bloat
+    /// the response.
+    pub maintenance_windows: Vec<PublicMaintenanceWindowResponse>,
 }
 
 impl PublicMonitorResponse {
-    /// Builds the public response from a monitor plus its checks/incidents.
-    /// `checks` is expected to be ordered most-recent-first (same ordering
-    /// already relied upon by the authenticated `/monitors/{id}/checks`
-    /// endpoint).
-    pub fn from_parts(monitor: Monitor, checks: &[Check], incidents: &[Incident]) -> Self {
+    /// Builds the public response from a monitor plus its checks/incidents
+    /// and currently-active maintenance windows. `checks` is expected to be
+    /// ordered most-recent-first (same ordering already relied upon by the
+    /// authenticated `/monitors/{id}/checks` endpoint). `maintenance_windows`
+    /// is expected to already be filtered to "active at now" by the caller
+    /// (see `MaintenanceWindowRepository::list_active_by_monitor`) — this
+    /// function does not re-filter by time.
+    pub fn from_parts(
+        monitor: Monitor,
+        checks: &[Check],
+        incidents: &[Incident],
+        maintenance_windows: &[MaintenanceWindow],
+    ) -> Self {
         let latest = checks.first();
 
         let total = checks.len();
@@ -210,6 +236,13 @@ impl PublicMonitorResponse {
         incidents.sort_by_key(|b| std::cmp::Reverse(b.started_at));
         incidents.truncate(10);
 
+        let mut maintenance_windows: Vec<PublicMaintenanceWindowResponse> = maintenance_windows
+            .iter()
+            .map(PublicMaintenanceWindowResponse::from)
+            .collect();
+        maintenance_windows.sort_by_key(|w| std::cmp::Reverse(w.starts_at));
+        maintenance_windows.truncate(10);
+
         Self {
             id: monitor.id.0.to_string(),
             name: monitor.name.as_str().to_owned(),
@@ -218,6 +251,7 @@ impl PublicMonitorResponse {
             latency_ms: latest.map(|check| check.latency_ms),
             uptime_percentage,
             incidents,
+            maintenance_windows,
         }
     }
 }

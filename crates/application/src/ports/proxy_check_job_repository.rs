@@ -4,7 +4,7 @@ use std::sync::Arc;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
 use domain::shared::ids::{ProxyCheckJobId, TenantId, UserId};
 
-use crate::ports::monitor_repository::RepoResult;
+use crate::ports::monitor_repository::{QuotaCheckOutcome, RepoResult};
 
 /// Persistence port for `ProxyCheckJob` and its `ProxyEntry` children.
 ///
@@ -24,6 +24,18 @@ pub trait ProxyCheckJobRepository: Send + Sync {
     /// Persists a newly created job together with all of its (not yet
     /// checked) entries.
     async fn save_job(&self, job: &ProxyCheckJob, entries: &[ProxyEntry]) -> RepoResult<()>;
+
+    /// Atomically persists a newly created job only if the per-user daily
+    /// proxy-check job quota has not been reached. Uses the same
+    /// advisory-lock pattern as `MonitorRepository::save_if_within_quota`
+    /// (B13) so the COUNT and INSERT happen inside a single transaction.
+    async fn save_job_if_within_quota(
+        &self,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+        user_id: UserId,
+        limit: usize,
+    ) -> RepoResult<QuotaCheckOutcome>;
 
     /// Persists an update to the job's own fields (status, progress,
     /// completed_at, ...).
@@ -58,6 +70,18 @@ where
 {
     async fn save_job(&self, job: &ProxyCheckJob, entries: &[ProxyEntry]) -> RepoResult<()> {
         (**self).save_job(job, entries).await
+    }
+
+    async fn save_job_if_within_quota(
+        &self,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+        user_id: UserId,
+        limit: usize,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        (**self)
+            .save_job_if_within_quota(job, entries, user_id, limit)
+            .await
     }
 
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {
