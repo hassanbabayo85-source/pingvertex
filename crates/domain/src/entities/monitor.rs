@@ -8,7 +8,7 @@ use crate::{
     enums::{HttpMethod, MonitorKind},
     errors::DomainError,
     value_objects::{
-        CheckInterval, ExpectedStatus, HeartbeatToken, MonitorName, RegionCode, Timeout, Url,
+        CheckInterval, ExpectedStatus, HeartbeatToken, MonitorName, RegionCode, Timeout,
     },
 };
 
@@ -82,10 +82,12 @@ impl Monitor {
     /// Creates a new monitor.
     ///
     /// Validates that the fields required by `input.kind` are present
-    /// (e.g. a `Tcp` monitor must have `tcp_port` set). `Http` monitors
-    /// have no kind-specific required fields, so existing callers that
-    /// never set `kind` (it defaults to `Http`) always succeed here —
-    /// this preserves full backward compatibility.
+    /// (e.g. a `Tcp` monitor must have `tcp_port` set). `Http` and `Flow`
+    /// monitors have no kind-specific required fields on `Monitor` itself
+    /// (a `Flow` monitor's steps live in the separate `ApiFlow` aggregate,
+    /// see `MonitorKind::Flow`'s doc comment) — existing callers that
+    /// never set `kind` (it defaults to `Http`) always succeed here,
+    /// preserving full backward compatibility.
     pub fn create(input: CreateMonitor) -> Result<Self, DomainError> {
         Self::validate_kind_fields(
             input.kind,
@@ -142,6 +144,12 @@ impl Monitor {
     ) -> Result<(), DomainError> {
         match kind {
             MonitorKind::Http => Ok(()),
+            // A Flow monitor's actual request steps live in the separate
+            // `ApiFlow` aggregate (created independently via
+            // `CreateApiFlowUseCase`, keyed by this monitor's id) — the
+            // `Monitor` row itself has no flow-specific required fields,
+            // exactly like `Http`.
+            MonitorKind::Flow => Ok(()),
             MonitorKind::Tcp => {
                 if tcp_port.is_none() {
                     return Err(DomainError::InvalidMonitorKindFields(
@@ -180,17 +188,22 @@ impl Monitor {
     }
 
     /// Updates monitor configuration.
+    ///
+    /// IMPORTANT: `target` is the already-validated target string. The
+    /// caller is responsible for validating it as a `Url` (for HTTP/HTTPS)
+    /// or `Host` (for TCP/DNS) before calling this method. This method
+    /// does NOT validate the target again — it only assigns it.
     pub fn update(
         &mut self,
         name: MonitorName,
-        url: Url,
+        target: String,
         method: HttpMethod,
         expected_status: ExpectedStatus,
         interval: CheckInterval,
         timeout: Timeout,
     ) {
         self.name = name;
-        self.url = url.as_str().to_owned();
+        self.url = target;
         self.method = method;
         self.expected_status = expected_status.into();
         self.interval_seconds = interval.into();

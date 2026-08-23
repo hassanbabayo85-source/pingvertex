@@ -1,13 +1,13 @@
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 
 use crate::{
     handlers::{
         acknowledge_incident, create_escalation_policy, create_maintenance_window, create_monitor,
-        delete_monitor, get_monitor, list_incidents, list_monitor_checks, list_monitors,
-        update_monitor,
+        delete_monitor, disable_monitor, enable_monitor, get_monitor, list_incidents,
+        list_monitor_checks, list_monitors, update_monitor,
     },
     state::AppState,
 };
@@ -19,6 +19,8 @@ pub fn router() -> Router<AppState> {
             "/monitors/{id}",
             get(get_monitor).put(update_monitor).delete(delete_monitor),
         )
+        .route("/monitors/{id}/enable", post(enable_monitor))
+        .route("/monitors/{id}/disable", post(disable_monitor))
         .route("/monitors/{id}/checks", get(list_monitor_checks))
         .route("/monitors/{id}/incidents", get(list_incidents))
         .route(

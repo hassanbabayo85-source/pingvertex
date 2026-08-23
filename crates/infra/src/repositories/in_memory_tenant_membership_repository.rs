@@ -11,13 +11,15 @@ use domain::shared::types::Role;
 
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryTenantMembershipRepository {
-    tenant_cache: Arc<Mutex<HashMap<UserId, TenantId>>>,
+    memberships: Arc<Mutex<HashMap<(TenantId, UserId), TenantMembership>>>,
+    fallback_tenant_cache: Arc<Mutex<HashMap<UserId, TenantId>>>,
 }
 
 impl InMemoryTenantMembershipRepository {
     pub fn new() -> Self {
         Self {
-            tenant_cache: Arc::new(Mutex::new(HashMap::new())),
+            memberships: Arc::new(Mutex::new(HashMap::new())),
+            fallback_tenant_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -26,8 +28,12 @@ impl InMemoryTenantMembershipRepository {
 impl TenantMembershipRepository for InMemoryTenantMembershipRepository {
     async fn create(
         &self,
-        _membership: &TenantMembership,
+        membership: &TenantMembership,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.memberships.lock().unwrap().insert(
+            (membership.tenant_id, membership.user_id),
+            membership.clone(),
+        );
         Ok(())
     }
 
@@ -36,46 +42,86 @@ impl TenantMembershipRepository for InMemoryTenantMembershipRepository {
         tenant_id: TenantId,
         user_id: UserId,
     ) -> Result<Option<TenantMembership>, Box<dyn Error + Send + Sync>> {
-        let now = Utc::now();
-        Ok(Some(TenantMembership {
-            tenant_id,
-            user_id,
-            role: Role::Owner,
-            invited_at: now,
-            joined_at: Some(now),
-        }))
+        Ok(self
+            .memberships
+            .lock()
+            .unwrap()
+            .get(&(tenant_id, user_id))
+            .cloned())
     }
 
     async fn list_by_tenant(
         &self,
-        _tenant_id: TenantId,
+        tenant_id: TenantId,
     ) -> Result<Vec<TenantMembership>, Box<dyn Error + Send + Sync>> {
-        Ok(vec![])
+        Ok(self
+            .memberships
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|m| m.tenant_id == tenant_id)
+            .cloned()
+            .collect())
     }
 
     async fn list_by_user(
         &self,
         user_id: UserId,
     ) -> Result<Vec<TenantMembership>, Box<dyn Error + Send + Sync>> {
-        let mut cache = self.tenant_cache.lock().unwrap();
-        let tenant_id = *cache.entry(user_id).or_insert_with(TenantId::new);
+        let stored = self
+            .memberships
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|m| m.user_id == user_id)
+            .cloned()
+            .collect::<Vec<_>>();
 
+        if !stored.is_empty() {
+            return Ok(stored);
+        }
+
+        // Backwards-compatible fallback for tests that never seeded
+        // memberships and rely on a single implicit Owner membership.
+        let mut cache = self.fallback_tenant_cache.lock().unwrap();
+        let tenant_id = *cache.entry(user_id).or_insert_with(TenantId::new);
         let now = Utc::now();
-        Ok(vec![TenantMembership {
+        let membership = TenantMembership {
             tenant_id,
             user_id,
             role: Role::Owner,
             invited_at: now,
             joined_at: Some(now),
-        }])
+        };
+        self.memberships
+            .lock()
+            .unwrap()
+            .insert((tenant_id, user_id), membership.clone());
+        Ok(vec![membership])
     }
 
     async fn update_role(
         &self,
-        _tenant_id: TenantId,
-        _user_id: UserId,
-        _role: Role,
+        tenant_id: TenantId,
+        user_id: UserId,
+        role: Role,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut map = self.memberships.lock().unwrap();
+        if let Some(membership) = map.get_mut(&(tenant_id, user_id)) {
+            membership.role = role;
+        }
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.memberships
+            .lock()
+            .unwrap()
+            .remove(&(tenant_id, user_id));
         Ok(())
     }
 }

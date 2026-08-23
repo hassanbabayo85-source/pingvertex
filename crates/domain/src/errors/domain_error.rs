@@ -21,6 +21,15 @@ pub enum DomainError {
     #[error("only http and https urls are supported")]
     UnsupportedUrlScheme,
 
+    #[error("host cannot be empty")]
+    EmptyHost,
+
+    #[error("host must not exceed 253 characters")]
+    HostTooLong,
+
+    #[error("invalid host: must be a bare domain or IP, not a URL")]
+    InvalidHost,
+
     #[error("check interval must be at least 30 seconds")]
     IntervalTooSmall,
 
@@ -200,4 +209,64 @@ pub enum DomainError {
 
     #[error("tenant name cannot exceed 100 characters")]
     TenantNameTooLong,
+
+    #[error("api key name cannot be empty")]
+    EmptyApiKeyName,
+
+    #[error("api key name cannot exceed 100 characters")]
+    ApiKeyNameTooLong,
+
+    #[error("an api key must have at least one scope")]
+    EmptyApiKeyScopes,
+
+    #[error("unknown api key scope: {0}")]
+    UnknownApiKeyScope(String),
+
+    #[error("api key expiry must be in the future")]
+    ApiKeyExpiryInPast,
+
+    // TOTP 2FA & backup codes:
+    #[error("2FA is already enabled for this account")]
+    TotpAlreadyEnabled,
+
+    #[error("2FA is not enabled for this account")]
+    TotpNotEnabled,
+
+    #[error("no pending 2FA setup found; please restart 2FA enrollment")]
+    NoPendingTotpSetup,
+
+    #[error("invalid or expired TOTP code")]
+    InvalidTotpCode,
+
+    #[error("invalid or already-used backup code")]
+    InvalidBackupCode,
+
+    #[error("invalid or expired pending 2FA token")]
+    InvalidPendingTwoFactorToken,
+
+    // B5 — Email verification:
+    #[error("invalid or expired verification token")]
+    InvalidOrExpiredVerificationToken,
+
+    // B11 — Plan / Subscription / Entitlement model:
+    #[error("invalid plan tier: {0}")]
+    InvalidPlanTier(String),
+
+    // B12 — Subscription Lifecycle:
+    #[error("invalid subscription status: {0}")]
+    InvalidSubscriptionStatus(String),
+
+    #[error("invalid subscription transition: {0}")]
+    InvalidSubscriptionTransition(String),
+
+    #[error("scheduled cancellation requires a current period end")]
+    ScheduledCancellationMissingPeriodEnd,
+
+    // B14 — Billing Provider Abstraction & Checkout:
+    #[error("invalid checkout status: {0}")]
+    InvalidCheckoutStatus(String),
+
+    // B15 — Billing Webhooks:
+    #[error("invalid billing webhook event type: {0}")]
+    InvalidBillingWebhookEventType(String),
 }

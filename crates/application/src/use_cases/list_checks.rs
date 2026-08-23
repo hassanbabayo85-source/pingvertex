@@ -1,13 +1,13 @@
 use std::{error::Error, sync::Arc};
 
 use crate::dto::CheckWithDiagnosticReport;
+use crate::ports::check_repository::CheckFilters;
 use crate::ports::{CheckRepository, DiagnosticReportRepository};
-use domain::shared::ids::UserId;
+use domain::shared::ids::TenantId;
+use domain::shared::types::AuthenticatedUser;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Lists all checks belonging to the authenticated user, each paired with
-/// its diagnostic report (if one exists for that failed check).
 #[derive(Clone)]
 pub struct ListChecksUseCase {
     check_repository: Arc<dyn CheckRepository>,
@@ -29,11 +29,41 @@ impl ListChecksUseCase {
         &self,
         limit: u32,
         offset: u32,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
+        filters: CheckFilters,
+    ) -> UseCaseResult<Vec<CheckWithDiagnosticReport>> {
+        self.execute_for_tenant(
+            limit,
+            offset,
+            authenticated_user.tenant_context().tenant_id(),
+            filters,
+        )
+        .await
+    }
+
+    /// Tenant-scoped variant of `execute` that takes a `TenantId`
+    /// directly instead of an `AuthenticatedUser`.
+    ///
+    /// Added for the API-key-authenticated public surface
+    /// (`GET /api/v1/external/checks`, B31), where the caller is
+    /// identified by `middleware::api_key_auth::ApiKeyPrincipal` — which
+    /// carries a bare `tenant_id`/`user_id`, not a `Role` — rather than a
+    /// session-derived `AuthenticatedUser`. Synthesizing an
+    /// `AuthenticatedUser` from an API key principal is deliberately
+    /// avoided elsewhere in this codebase (see the doc comment on
+    /// `ApiKeyPrincipal`), so this method exists instead of forcing
+    /// callers to fabricate one. `execute` above is now a thin wrapper
+    /// around this.
+    pub async fn execute_for_tenant(
+        &self,
+        limit: u32,
+        offset: u32,
+        tenant_id: TenantId,
+        filters: CheckFilters,
     ) -> UseCaseResult<Vec<CheckWithDiagnosticReport>> {
         let checks = self
             .check_repository
-            .list_checks(limit, offset, user_id)
+            .list_checks_filtered(limit, offset, tenant_id, filters)
             .await?;
 
         let mut result = Vec::with_capacity(checks.len());

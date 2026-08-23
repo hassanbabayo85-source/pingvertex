@@ -29,6 +29,8 @@ struct UserRow {
     role: String,
     status: String,
     email_verified_at: Option<DateTime<Utc>>,
+    totp_secret: Option<Vec<u8>>,
+    totp_enabled: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -43,6 +45,8 @@ impl UserRow {
             role: user.role().to_string(),
             status: user.status().to_string(),
             email_verified_at: user.email_verified_at(),
+            totp_secret: user.totp_secret().cloned(),
+            totp_enabled: user.totp_enabled(),
             created_at: user.created_at(),
             updated_at: user.updated_at(),
         }
@@ -67,6 +71,8 @@ impl UserRow {
             .role(role)
             .status(status)
             .email_verified_at(self.email_verified_at)
+            .totp_secret(self.totp_secret)
+            .totp_enabled(self.totp_enabled)
             .created_at(self.created_at)
             .updated_at(self.updated_at)
             .build()?)
@@ -87,10 +93,12 @@ impl UserRepository for PostgresUserRepository {
                 role,
                 status,
                 email_verified_at,
+                totp_secret,
+                totp_enabled,
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             "#,
         )
         .bind(row.id)
@@ -100,6 +108,8 @@ impl UserRepository for PostgresUserRepository {
         .bind(row.role)
         .bind(row.status)
         .bind(row.email_verified_at)
+        .bind(row.totp_secret)
+        .bind(row.totp_enabled)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.pool)
@@ -120,7 +130,9 @@ impl UserRepository for PostgresUserRepository {
                 role = $5,
                 status = $6,
                 email_verified_at = $7,
-                updated_at = $8
+                totp_secret = $8,
+                totp_enabled = $9,
+                updated_at = $10
             WHERE id = $1
             "#,
         )
@@ -131,6 +143,8 @@ impl UserRepository for PostgresUserRepository {
         .bind(row.role)
         .bind(row.status)
         .bind(row.email_verified_at)
+        .bind(row.totp_secret)
+        .bind(row.totp_enabled)
         .bind(row.updated_at)
         .execute(&self.pool)
         .await?;
@@ -149,6 +163,8 @@ impl UserRepository for PostgresUserRepository {
                 role,
                 status,
                 email_verified_at,
+                totp_secret,
+                totp_enabled,
                 created_at,
                 updated_at
             FROM users
@@ -176,6 +192,8 @@ impl UserRepository for PostgresUserRepository {
                 role,
                 status,
                 email_verified_at,
+                totp_secret,
+                totp_enabled,
                 created_at,
                 updated_at
             FROM users
@@ -203,6 +221,8 @@ impl UserRepository for PostgresUserRepository {
                 role,
                 status,
                 email_verified_at,
+                totp_secret,
+                totp_enabled,
                 created_at,
                 updated_at
             FROM users

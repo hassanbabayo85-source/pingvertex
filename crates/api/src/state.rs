@@ -3,20 +3,22 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use application::ports::{
-    ApiFlowRepository, AuditLogEntryRepository, CheckRepository, CustomDomainVerifier,
+    AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
+    BillingAuditLogRepository, BillingWebhookIdempotencyRepository, CheckRepository,
+    CheckoutDetails, CheckoutRequest, CheckoutSessionRepository, CustomDomainVerifier,
     DiagnosticReportRepository, EscalationPolicyRepository, IncidentRepository, LogoStorage,
     MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    NotificationService, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
-    StatusPageRepository,
+    NotificationService, PasswordHasher, PaymentProvider, PaymentVerification,
+    ProxyCheckJobRepository, SecretCipher, StatusPageCache, StatusPageRepository,
+    SubscriptionRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::entities::StatusPage;
-use domain::shared::ids::{
-    EscalationPolicyId, MaintenanceWindowId, MonitorId, StatusPageId, UserId,
-};
-use domain::{EscalationPolicy, MaintenanceWindow};
-use infra::UuidIdGenerator;
+use domain::Subscription;
+use domain::entities::{ApiKey, StatusPage};
+use domain::shared::ids::{ApiKeyId, CheckoutSessionId, MonitorId, StatusPageId, TenantId, UserId};
+use domain::{CheckoutSession, EscalationPolicy, MaintenanceWindow};
+use infra::{Argon2PasswordHasher, UuidIdGenerator};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -49,6 +51,46 @@ pub struct AppState {
     pub id_generator: UuidIdGenerator,
     pub heartbeat_rate_limiter: HeartbeatRateLimiter,
     pub audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    pub api_key_repository: Arc<dyn ApiKeyRepository>,
+    pub password_hasher: Arc<dyn PasswordHasher>,
+    pub subscription_repository: Arc<dyn SubscriptionRepository>,
+    pub payment_provider: Arc<dyn PaymentProvider>,
+    pub checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
+    pub billing_webhook_secret: Option<Arc<str>>,
+    pub billing_webhook_idempotency_repository: Arc<dyn BillingWebhookIdempotencyRepository>,
+    pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
+    pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
+}
+
+/// Default `ApiKeyRepository` used until a real one is substituted in.
+#[derive(Clone, Default)]
+struct NoopApiKeyRepository;
+
+#[async_trait]
+impl ApiKeyRepository for NoopApiKeyRepository {
+    async fn create(&self, _api_key: &ApiKey) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn find_by_id(&self, _id: ApiKeyId) -> RepoResult<Option<ApiKey>> {
+        Ok(None)
+    }
+
+    async fn find_by_prefix(&self, _key_prefix: &str) -> RepoResult<Option<ApiKey>> {
+        Ok(None)
+    }
+
+    async fn list_by_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<ApiKey>> {
+        Ok(vec![])
+    }
+
+    async fn delete(&self, _id: ApiKeyId) -> RepoResult<bool> {
+        Ok(false)
+    }
+
+    async fn touch_last_used(&self, _id: ApiKeyId, _at: DateTime<Utc>) -> RepoResult<()> {
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -58,30 +100,6 @@ struct NoopMaintenanceWindowRepository;
 impl MaintenanceWindowRepository for NoopMaintenanceWindowRepository {
     async fn create(&self, _window: &MaintenanceWindow) -> RepoResult<()> {
         Ok(())
-    }
-
-    async fn delete_for_user(
-        &self,
-        _id: MaintenanceWindowId,
-        _user_id: UserId,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
-
-    async fn find_by_id_for_user(
-        &self,
-        _id: MaintenanceWindowId,
-        _user_id: UserId,
-    ) -> RepoResult<Option<MaintenanceWindow>> {
-        Ok(None)
-    }
-
-    async fn list_by_monitor_for_user(
-        &self,
-        _monitor_id: MonitorId,
-        _user_id: UserId,
-    ) -> RepoResult<Option<Vec<MaintenanceWindow>>> {
-        Ok(None)
     }
 
     async fn list_active_by_monitor(
@@ -116,24 +134,12 @@ impl EscalationPolicyRepository for NoopEscalationPolicyRepository {
         Ok(())
     }
 
-    async fn find_by_id_for_user(
-        &self,
-        _id: EscalationPolicyId,
-        _user_id: UserId,
-    ) -> RepoResult<Option<EscalationPolicy>> {
-        Ok(None)
-    }
-
     async fn find_effective(
         &self,
         _monitor_id: MonitorId,
-        _user_id: UserId,
+        _tenant_id: TenantId,
     ) -> RepoResult<Option<EscalationPolicy>> {
         Ok(None)
-    }
-
-    async fn list_for_user(&self, _user_id: UserId) -> RepoResult<Vec<EscalationPolicy>> {
-        Ok(vec![])
     }
 }
 
@@ -163,6 +169,18 @@ impl StatusPageRepository for NoopStatusPageRepository {
     }
 
     async fn find_all_for_user(&self, _user_id: UserId) -> RepoResult<Vec<StatusPage>> {
+        Ok(vec![])
+    }
+
+    async fn find_by_id(&self, _id: StatusPageId) -> RepoResult<Option<StatusPage>> {
+        Ok(None)
+    }
+
+    async fn delete(&self, _id: StatusPageId) -> RepoResult<bool> {
+        Ok(false)
+    }
+
+    async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
         Ok(vec![])
     }
 
@@ -206,6 +224,80 @@ impl StatusPageCache for NoopStatusPageCache {
     }
 
     async fn invalidate(&self, _key: &str) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSubscriptionRepository;
+
+#[async_trait]
+impl SubscriptionRepository for NoopSubscriptionRepository {
+    async fn create(&self, _subscription: &Subscription) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn find_by_tenant_id(&self, _tenant_id: TenantId) -> RepoResult<Option<Subscription>> {
+        Ok(None)
+    }
+
+    async fn update(&self, _subscription: &Subscription) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopPaymentProvider;
+
+#[async_trait]
+impl PaymentProvider for NoopPaymentProvider {
+    fn provider_name(&self) -> &'static str {
+        "noop"
+    }
+
+    async fn create_checkout(&self, _request: &CheckoutRequest) -> RepoResult<CheckoutDetails> {
+        Err(std::io::Error::other("billing provider is not configured").into())
+    }
+
+    async fn verify_payment(&self, _provider_checkout_id: &str) -> RepoResult<PaymentVerification> {
+        Err(std::io::Error::other("billing provider is not configured").into())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopCheckoutSessionRepository;
+
+#[async_trait]
+impl CheckoutSessionRepository for NoopCheckoutSessionRepository {
+    async fn create(&self, _session: &CheckoutSession) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn find_by_id(&self, _id: CheckoutSessionId) -> RepoResult<Option<CheckoutSession>> {
+        Ok(None)
+    }
+
+    async fn update(&self, _session: &CheckoutSession) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopBillingWebhookIdempotencyRepository;
+
+#[async_trait]
+impl BillingWebhookIdempotencyRepository for NoopBillingWebhookIdempotencyRepository {
+    async fn try_insert(&self, _provider_event_id: &str) -> RepoResult<bool> {
+        Ok(true)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopBillingAuditLogRepository;
+
+#[async_trait]
+impl BillingAuditLogRepository for NoopBillingAuditLogRepository {
+    async fn create(&self, _entry: &domain::BillingAuditLogEntry) -> RepoResult<()> {
         Ok(())
     }
 }
@@ -255,6 +347,17 @@ impl AppState {
             id_generator,
             heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
+            api_key_repository: Arc::new(NoopApiKeyRepository),
+            password_hasher: Arc::new(Argon2PasswordHasher),
+            subscription_repository: Arc::new(NoopSubscriptionRepository),
+            payment_provider: Arc::new(NoopPaymentProvider),
+            checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
+            billing_webhook_secret: None,
+            billing_webhook_idempotency_repository: Arc::new(
+                NoopBillingWebhookIdempotencyRepository,
+            ),
+            billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
+            agent_lease_repository: None,
         }
     }
 
@@ -312,6 +415,88 @@ impl AppState {
             id_generator,
             heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
+            api_key_repository: Arc::new(NoopApiKeyRepository),
+            password_hasher: Arc::new(Argon2PasswordHasher),
+            subscription_repository: Arc::new(NoopSubscriptionRepository),
+            payment_provider: Arc::new(NoopPaymentProvider),
+            checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
+            billing_webhook_secret: None,
+            billing_webhook_idempotency_repository: Arc::new(
+                NoopBillingWebhookIdempotencyRepository,
+            ),
+            billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
+            agent_lease_repository: None,
         }
+    }
+
+    pub fn with_api_key_repository<R>(mut self, api_key_repository: R) -> Self
+    where
+        R: ApiKeyRepository + 'static,
+    {
+        self.api_key_repository = Arc::new(api_key_repository);
+        self
+    }
+
+    /// Substitutes a real `StatusPageRepository` in place of the
+    /// `NoopStatusPageRepository` default. Mirrors `with_api_key_repository`.
+    pub fn with_status_page_repository<R>(mut self, status_page_repository: R) -> Self
+    where
+        R: StatusPageRepository + 'static,
+    {
+        self.status_page_repository = Arc::new(status_page_repository);
+        self
+    }
+
+    pub fn with_subscription_repository<R>(mut self, subscription_repository: R) -> Self
+    where
+        R: SubscriptionRepository + 'static,
+    {
+        self.subscription_repository = Arc::new(subscription_repository);
+        self
+    }
+
+    pub fn with_payment_provider<P>(mut self, payment_provider: P) -> Self
+    where
+        P: PaymentProvider + 'static,
+    {
+        self.payment_provider = Arc::new(payment_provider);
+        self
+    }
+
+    pub fn with_checkout_session_repository<R>(mut self, checkout_session_repository: R) -> Self
+    where
+        R: CheckoutSessionRepository + 'static,
+    {
+        self.checkout_session_repository = Arc::new(checkout_session_repository);
+        self
+    }
+
+    pub fn with_billing_webhook_secret<S: Into<String>>(mut self, secret: S) -> Self {
+        self.billing_webhook_secret = Some(Arc::from(secret.into()));
+        self
+    }
+
+    pub fn with_billing_webhook_idempotency_repository<R>(mut self, repo: R) -> Self
+    where
+        R: BillingWebhookIdempotencyRepository + 'static,
+    {
+        self.billing_webhook_idempotency_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_billing_audit_log_repository<R>(mut self, repo: R) -> Self
+    where
+        R: BillingAuditLogRepository + 'static,
+    {
+        self.billing_audit_log_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_agent_lease_repository<R>(mut self, agent_lease_repository: R) -> Self
+    where
+        R: AgentLeaseRepository + 'static,
+    {
+        self.agent_lease_repository = Some(Arc::new(agent_lease_repository));
+        self
     }
 }

@@ -17,6 +17,15 @@ use crate::shared::ids::{CheckId, DiagnosticReportId};
 /// approach this size.
 pub const MAX_ROOT_CAUSE_SUMMARY_LENGTH: usize = 500;
 
+/// Hard cap on `DiagnosticStep::detail`.
+///
+/// `detail` is also produced by the worker from fixed template strings,
+/// never from raw response/header/body content. This cap mirrors
+/// `MAX_ROOT_CAUSE_SUMMARY_LENGTH` and exists only as a backstop against
+/// future call sites that might accidentally interpolate unbounded
+/// server-controlled text. Enforced here at construction.
+pub const MAX_DIAGNOSTIC_STEP_DETAIL_LENGTH: usize = 500;
+
 /// The outcome of one diagnostic probe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiagnosticStepStatus {
@@ -49,11 +58,19 @@ impl DiagnosticStep {
         duration_ms: u64,
         detail: impl Into<String>,
     ) -> Self {
+        let mut detail = detail.into();
+        if detail.chars().count() > MAX_DIAGNOSTIC_STEP_DETAIL_LENGTH {
+            detail = detail
+                .chars()
+                .take(MAX_DIAGNOSTIC_STEP_DETAIL_LENGTH)
+                .collect();
+        }
+
         Self {
             name: name.into(),
             status,
             duration_ms,
-            detail: detail.into(),
+            detail,
         }
     }
 
@@ -134,6 +151,22 @@ mod tests {
         assert_eq!(
             report.root_cause_summary.chars().count(),
             MAX_ROOT_CAUSE_SUMMARY_LENGTH
+        );
+    }
+
+    #[test]
+    fn truncates_oversized_step_detail() {
+        let long_detail = "d".repeat(600);
+        let step = DiagnosticStep::new(
+            "HTTP response",
+            DiagnosticStepStatus::Success,
+            100,
+            long_detail,
+        );
+
+        assert_eq!(
+            step.detail.chars().count(),
+            MAX_DIAGNOSTIC_STEP_DETAIL_LENGTH
         );
     }
 

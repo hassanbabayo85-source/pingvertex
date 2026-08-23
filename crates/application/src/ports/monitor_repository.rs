@@ -1,9 +1,32 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
-use domain::{entities::Monitor, shared::ids::MonitorId};
+use domain::{
+    entities::Monitor,
+    shared::ids::{MonitorId, TenantId},
+};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// Result of an atomic, quota-checked resource creation via
+/// [`MonitorRepository::save_if_within_quota`].
+///
+/// Establishes the naming/shape pattern future quota-checked repository
+/// methods (status pages, API keys, team members, notifications, ...)
+/// should mirror when B13's atomic-quota pattern is reused for other
+/// resource types. See `PostgresMonitorRepository::save_if_within_quota`
+/// for the reference implementation and its doc comment for why the
+/// mechanism is a per-tenant Postgres advisory lock + transaction-scoped
+/// `COUNT`, not `SELECT ... FOR UPDATE`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuotaCheckOutcome {
+    /// The resource was saved. The tenant was strictly under `limit` at
+    /// the time of the check, atomically with the insert — no concurrent
+    /// caller could have observed a stale count.
+    Saved,
+    /// The tenant was already at or above `limit`; nothing was written.
+    QuotaExceeded,
+}
 
 #[async_trait]
 pub trait MonitorRepository: Send + Sync {
@@ -36,10 +59,7 @@ pub trait MonitorRepository: Send + Sync {
     /// the tenant created it. Used once tenants can have more than one
     /// member (see the invite flow), so that every member sees the same
     /// monitors instead of only the ones they personally created.
-    async fn find_all_for_tenant(
-        &self,
-        _tenant_id: domain::shared::ids::TenantId,
-    ) -> RepoResult<Vec<Monitor>> {
+    async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         unimplemented!()
     }
     async fn delete_for_user(
@@ -68,6 +88,46 @@ pub trait MonitorRepository: Send + Sync {
         _id: MonitorId,
         _now: chrono::DateTime<chrono::Utc>,
     ) -> RepoResult<()> {
+        unimplemented!()
+    }
+
+    /// Atomically records the outcome of a single check for `id`:
+    /// increments `consecutive_failures` and zeroes `consecutive_successes`
+    /// when `success` is `false`, or the reverse when `success` is `true`.
+    /// Returns the resulting `(consecutive_failures, consecutive_successes)`
+    /// counts after the update, read back from the same statement that
+    /// wrote them so callers never act on a stale count under concurrent
+    /// calls for the same monitor.
+    ///
+    /// Used by `worker::IncidentEvaluator` (B23) to decide when a run of
+    /// consecutive failures/successes crosses the configured
+    /// open/recovery threshold. Defaults to `unimplemented!()`, matching
+    /// the other worker-path-only methods above — only
+    /// `PostgresMonitorRepository` needs a real implementation, since
+    /// this is only ever called from the live check-execution path.
+    async fn record_check_outcome(&self, _id: MonitorId, _success: bool) -> RepoResult<(u32, u32)> {
+        unimplemented!()
+    }
+
+    /// Atomically checks `tenant_id`'s current monitor count against
+    /// `limit` and, only if currently strictly under it, saves `monitor`
+    /// — both steps inside a single transaction/lock scope, so that any
+    /// number of concurrent callers racing this method for the same
+    /// tenant can never together exceed `limit`.
+    ///
+    /// This is B13's answer to the classic
+    /// `COUNT -> COMPARE -> INSERT` race: callers must use this instead
+    /// of separately calling `find_all_for_tenant`/`find_all_for_user`
+    /// to count, comparing in application code, then calling `save`.
+    /// See `PostgresMonitorRepository::save_if_within_quota` for the
+    /// reference implementation of the underlying mechanism, which is
+    /// the reusable pattern intended for future resource types.
+    async fn save_if_within_quota(
+        &self,
+        _monitor: &Monitor,
+        _tenant_id: TenantId,
+        _limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
         unimplemented!()
     }
 }
@@ -110,10 +170,7 @@ where
     ) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_user(user_id).await
     }
-    async fn find_all_for_tenant(
-        &self,
-        tenant_id: domain::shared::ids::TenantId,
-    ) -> RepoResult<Vec<Monitor>> {
+    async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_tenant(tenant_id).await
     }
     async fn delete_for_user(
@@ -138,5 +195,20 @@ where
         now: chrono::DateTime<chrono::Utc>,
     ) -> RepoResult<()> {
         (**self).update_last_heartbeat_at(id, now).await
+    }
+
+    async fn record_check_outcome(&self, id: MonitorId, success: bool) -> RepoResult<(u32, u32)> {
+        (**self).record_check_outcome(id, success).await
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        monitor: &Monitor,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        (**self)
+            .save_if_within_quota(monitor, tenant_id, limit)
+            .await
     }
 }

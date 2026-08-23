@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use application::ports::{
     EncryptedProxyCredentials, ProxyCheckJobRepository, ProxyCredentialCipher,
 };
@@ -10,7 +11,7 @@ use domain::enums::{ProxyCheckJobStatus, ProxyScheme};
 use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, TenantId, UserId};
 use domain::value_objects::ProxyHost;
 use domain::value_objects::ProxyResult;
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -162,37 +163,16 @@ impl PostgresProxyCheckJobRepository {
     pub fn new(pool: PgPool, cipher: Arc<dyn ProxyCredentialCipher>) -> Self {
         Self { pool, cipher }
     }
-}
 
-impl std::fmt::Debug for PostgresProxyCheckJobRepository {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Manual impl (rather than `#[derive(Debug)]`): `dyn
-        // ProxyCredentialCipher` does not implement `Debug` (it isn't a
-        // supertrait), and even if it did, this repository should never
-        // print anything about the cipher/key it holds.
-        f.debug_struct("PostgresProxyCheckJobRepository").finish()
-    }
-}
-
-impl Clone for PostgresProxyCheckJobRepository {
-    fn clone(&self) -> Self {
-        Self {
-            pool: self.pool.clone(),
-            cipher: Arc::clone(&self.cipher),
-        }
-    }
-}
-
-#[async_trait]
-impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
-    /// Persists `job` together with all of `entries` in a single database
-    /// transaction: if any insert fails partway through, the whole
-    /// transaction is rolled back (nothing is committed) so a job can
-    /// never end up visible in storage without its entries, and no
-    /// partial/inconsistent entry set is ever persisted.
-    async fn save_job(&self, job: &ProxyCheckJob, entries: &[ProxyEntry]) -> RepoResult<()> {
-        let mut tx = self.pool.begin().await?;
-
+    /// Inserts `job` and all of `entries` into an already-open
+    /// transaction. Shared by `save_job` and `save_job_if_within_quota`
+    /// so the same SQL is used for both paths.
+    async fn insert_job_and_entries(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+    ) -> RepoResult<()> {
         let total_count: i32 = job.total_count().try_into()?;
         let checked_count: i32 = job.checked_count().try_into()?;
 
@@ -219,7 +199,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         .bind(job.completed_at())
         .bind(total_count)
         .bind(checked_count)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         for entry in entries {
@@ -259,13 +239,83 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             .bind(proxy_scheme_to_db(entry.scheme()))
             .bind(encrypted_credentials)
             .bind(result_json)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
 
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for PostgresProxyCheckJobRepository {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Manual impl (rather than `#[derive(Debug)]`): `dyn
+        // ProxyCredentialCipher` does not implement `Debug` (it isn't a
+        // supertrait), and even if it did, this repository should never
+        // print anything about the cipher/key it holds.
+        f.debug_struct("PostgresProxyCheckJobRepository").finish()
+    }
+}
+
+impl Clone for PostgresProxyCheckJobRepository {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            cipher: Arc::clone(&self.cipher),
+        }
+    }
+}
+
+#[async_trait]
+impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
+    async fn save_job(&self, job: &ProxyCheckJob, entries: &[ProxyEntry]) -> RepoResult<()> {
+        let mut tx = self.pool.begin().await?;
+        self.insert_job_and_entries(&mut tx, job, entries).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Atomic quota-checked create for proxy-check jobs. Uses the same
+    /// advisory-lock pattern as `PostgresMonitorRepository::save_if_within_quota`
+    /// (B13), but counts jobs created today by the same user rather than
+    /// all tenant rows.
+    async fn save_job_if_within_quota(
+        &self,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+        user_id: UserId,
+        limit: usize,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("proxy_check_jobs:{}", user_id.0))
+            .execute(&mut *tx)
+            .await?;
+
+        let current_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM proxy_check_jobs
+            WHERE user_id = $1
+              AND created_at >= date_trunc('day', now())
+            "#,
+        )
+        .bind(user_id.0)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if current_count as usize >= limit {
+            // `tx` is dropped here without `commit()`, which sqlx turns
+            // into an automatic ROLLBACK — releasing the advisory lock
+            // and guaranteeing no partial write happened.
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        self.insert_job_and_entries(&mut tx, job, entries).await?;
         tx.commit().await?;
 
-        Ok(())
+        Ok(QuotaCheckOutcome::Saved)
     }
 
     /// Persists an update to the job's own status/progress fields only —
@@ -294,12 +344,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         Ok(())
     }
 
-    /// Looks up a single job by id. Does NOT load its entries — callers
-    /// that need both should call `find_entries_by_job_id` separately
-    /// (mirrors `ProxyCheckJobRepository`'s doc comment: job and entry
-    /// lifecycles are managed independently after creation, since the
-    /// worker checks/updates entries concurrently and separately from
-    /// the job's own status).
     async fn find_job_by_id(&self, id: ProxyCheckJobId) -> RepoResult<Option<ProxyCheckJob>> {
         let row = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
@@ -319,11 +363,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         Ok(Some(row.into_domain()?))
     }
 
-    /// Lists all jobs owned by `user_id`, most recent first. Ordered by
-    /// `created_at DESC` to match the `idx_proxy_check_jobs_user_id_created_at`
-    /// index (migration 0019), which was created specifically to make
-    /// this per-user query (and the per-user daily quota check it
-    /// supports) fast.
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>> {
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
@@ -342,9 +381,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             .collect()
     }
 
-    /// Tenant-scoped equivalent of `find_jobs_by_user_id`. Returns every
-    /// job belonging to `tenant_id`, regardless of which member of the
-    /// tenant submitted it.
     async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
@@ -363,10 +399,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             .collect()
     }
 
-    /// Persists the result of a single checked entry. Only `result_json`
-    /// is written — `host`/`port`/`scheme`/`encrypted_credentials` never
-    /// change after `save_job` first inserts an entry, so there is
-    /// nothing else for the worker to update here.
     async fn update_entry(&self, entry: &ProxyEntry) -> RepoResult<()> {
         let result_json = entry.result().map(serde_json::to_value).transpose()?;
 
@@ -385,9 +417,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         Ok(())
     }
 
-    /// Lists all entries belonging to `job_id`, decrypting each entry's
-    /// credentials (if any) via `self.cipher`. Uses the
-    /// `idx_proxy_entries_job_id` index (migration 0020).
     async fn find_entries_by_job_id(&self, job_id: ProxyCheckJobId) -> RepoResult<Vec<ProxyEntry>> {
         let rows = sqlx::query_as::<_, ProxyEntryRow>(
             r#"
@@ -405,8 +434,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
             .collect()
     }
 
-    /// Finds up to `limit` `Pending` jobs, oldest first. Used by the
-    /// worker's poll loop to discover new proxy-check work.
     async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>> {
         let limit_i32: i32 = limit.try_into()?;
 

@@ -48,3 +48,41 @@ pub use tenant_membership::TenantMembership;
 
 mod audit_log_entry;
 pub use audit_log_entry::AuditLogEntry;
+
+mod api_key;
+pub use api_key::{ApiKey, CreateApiKey};
+
+mod backup_code;
+pub use backup_code::BackupCode;
+
+// B5 — Email Verification:
+mod email_verification_token;
+pub use email_verification_token::EmailVerificationToken;
+
+// B6 — Password reset:
+mod reset_password_token;
+pub use reset_password_token::ResetPasswordToken;
+
+// B9 — Tenant invitations:
+mod tenant_invitation;
+pub use tenant_invitation::TenantInvitation;
+
+// B11 — Plan / Subscription / Entitlement model:
+mod plan;
+pub use plan::Plan;
+
+mod subscription;
+pub use subscription::Subscription;
+
+// B14 — Billing Provider Abstraction & Checkout:
+mod checkout_session;
+pub use checkout_session::CheckoutSession;
+
+// B15 — Billing Webhooks:
+pub mod billing_audit_log_entry;
+pub mod billing_webhook_event;
+pub use billing_audit_log_entry::BillingAuditLogEntry;
+pub use billing_webhook_event::BillingWebhookEvent;
+
+mod notification_outbox_entry;
+pub use notification_outbox_entry::NotificationOutboxEntry;

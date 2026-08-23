@@ -5,7 +5,7 @@ use application::ports::{
 };
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use domain::entities::{CreateStatusPage, StatusPage};
 use domain::shared::ids::TenantId;
@@ -13,13 +13,15 @@ use domain::shared::ids::{CheckId, IncidentId, MonitorId, StatusPageId, UserId};
 use domain::value_objects::{CustomDomain, Subdomain};
 use domain::{Check, DiagnosticReport, Incident, User};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryLogoStorage, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
     InMemoryStatusPageRepository, NoopNotificationService, UuidIdGenerator,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -61,7 +63,7 @@ impl CheckRepository for NoopCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -215,9 +217,12 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         token: &str,
-    ) -> Result<UserId, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         let user_id = Uuid::parse_str(token)?;
-        Ok(UserId(user_id))
+        Ok(application::ports::VerifiedToken {
+            user_id: UserId(user_id),
+            issued_at: 0,
+        })
     }
 }
 
@@ -249,7 +254,9 @@ fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepositor
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)

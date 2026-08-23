@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Extension, Path, State},
     Json,
+    extract::{Extension, Path, State},
 };
 use serde::Serialize;
 use tracing::info;
 
 use application::use_cases::{SendTestNotificationError, SendTestNotificationUseCase};
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, state::AppState, validation::parse_notification_channel_id};
 
@@ -32,7 +32,7 @@ pub struct TestNotificationResponse {
 /// button.
 pub async fn test_notification_channel(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(id): Path<String>,
 ) -> Result<Json<TestNotificationResponse>, ApiError> {
     info!("API: test_notification_channel");
@@ -46,7 +46,7 @@ pub async fn test_notification_channel(
     );
 
     use_case
-        .execute(id, user_id)
+        .execute(id, authenticated_user)
         .await
         .map_err(|err| match err {
             SendTestNotificationError::ChannelNotFound => {

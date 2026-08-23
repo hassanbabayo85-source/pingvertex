@@ -20,6 +20,18 @@ const DEFAULT_MTLS_CA_CERT_PATH: &str = "certs/ca/ca-cert.pem";
 const DEFAULT_MTLS_SERVER_CERT_PATH: &str = "certs/api/server-cert.pem";
 const DEFAULT_MTLS_SERVER_KEY_PATH: &str = "certs/api/server-key.pem";
 
+/// Default CORS-allowed browser origin. Overridable via
+/// `CORS_ALLOWED_ORIGIN`. Not a secret — this is validated here (at boot,
+/// via `Config::try_from_env`) purely to fail closed with a clear error
+/// message before the rest of startup (DB pool, Redis, ciphers, ...) runs,
+/// rather than letting an invalid value panic deep inside
+/// `router::cors_layer()` after all of that has already happened. NOTE:
+/// `router::cors_layer()` still independently reads+parses this same env
+/// var to actually build the `CorsLayer` — see this worker's HANDOVER.md
+/// "Deviations from prompt" for why that duplication was kept instead of
+/// threading the validated value through `AppState`.
+const DEFAULT_CORS_ALLOWED_ORIGIN: &str = "http://localhost:3000";
+
 /// Jerin sanannun sirrin da AKA TAɓA turo su a bayyane (leaked) ko wanda
 /// aka sani a matsayin placeholder/example. Ba a taɓa yarda a yi amfani
 /// da su a runtime, koda sun cika tsayin da ake bukata.
@@ -67,6 +79,11 @@ pub struct Config {
     pub mtls_server_cert_path: String,
     /// Path to this server's own private key, matching `mtls_server_cert_path`.
     pub mtls_server_key_path: String,
+    /// Browser origin allowed to make credentialed (cookie-carrying)
+    /// requests to this API — see `router::cors_layer()`. Not a secret;
+    /// validated here purely for an early, clear boot-time error (see
+    /// `DEFAULT_CORS_ALLOWED_ORIGIN` doc comment above).
+    pub cors_allowed_origin: String,
 }
 
 /// Kurakuran da za a iya samu wajen loda/tabbatar da configuration.
@@ -77,6 +94,7 @@ pub enum ConfigError {
     JwtSecretTooShort { actual_len: usize, min_len: usize },
     JwtSecretIsKnownWeakOrLeaked,
     InvalidMtlsPort { value: String },
+    InvalidCorsAllowedOrigin { value: String },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -88,7 +106,10 @@ impl std::fmt::Display for ConfigError {
             Self::MissingJwtSecret => {
                 write!(f, "JWT_SECRET environment variable is not set")
             }
-            Self::JwtSecretTooShort { actual_len, min_len } => write!(
+            Self::JwtSecretTooShort {
+                actual_len,
+                min_len,
+            } => write!(
                 f,
                 "JWT_SECRET is too short ({actual_len} chars); must be at least {min_len} characters (256 bits) long. \
                  Generate one with: openssl rand -hex 64"
@@ -98,10 +119,15 @@ impl std::fmt::Display for ConfigError {
                 "JWT_SECRET matches a known example/placeholder value or a previously leaked secret. \
                  Generate a fresh one with: openssl rand -hex 64"
             ),
-            Self::InvalidMtlsPort { value } => write!(
-                f,
-                "MTLS_PORT is not a valid TCP port number: '{value}'"
-            ),
+            Self::InvalidMtlsPort { value } => {
+                write!(f, "MTLS_PORT is not a valid TCP port number: '{value}'")
+            }
+            Self::InvalidCorsAllowedOrigin { value } => {
+                write!(
+                    f,
+                    "CORS_ALLOWED_ORIGIN '{value}' is not a valid HTTP header value"
+                )
+            }
         }
     }
 }
@@ -133,6 +159,20 @@ fn validate_jwt_secret(secret: &str) -> Result<(), ConfigError> {
     }
 
     Ok(())
+}
+
+/// Tabbatar da cewa CORS_ALLOWED_ORIGIN ya zama darajar `HeaderValue` mai
+/// inganci — daidai da abin da `router::cors_layer()` zai gwada
+/// parse-awa daga baya, amma a nan muna gwadawa TUN FARKO domin app ɗin
+/// ya ƙi tashi da saƙo mai bayyana kafin a fara ƙirƙirar DB pool, Redis,
+/// ciphers, da sauransu.
+fn validate_cors_allowed_origin(value: &str) -> Result<(), ConfigError> {
+    value
+        .parse::<axum::http::HeaderValue>()
+        .map(|_| ())
+        .map_err(|_| ConfigError::InvalidCorsAllowedOrigin {
+            value: value.to_string(),
+        })
 }
 
 fn non_empty_env(key: &str) -> Option<String> {
@@ -181,6 +221,10 @@ impl Config {
         let mtls_server_key_path = non_empty_env("MTLS_SERVER_KEY_PATH")
             .unwrap_or_else(|| DEFAULT_MTLS_SERVER_KEY_PATH.to_string());
 
+        let cors_allowed_origin = non_empty_env("CORS_ALLOWED_ORIGIN")
+            .unwrap_or_else(|| DEFAULT_CORS_ALLOWED_ORIGIN.to_string());
+        validate_cors_allowed_origin(&cors_allowed_origin)?;
+
         Ok(Self {
             database_url,
             jwt_secret,
@@ -189,6 +233,7 @@ impl Config {
             mtls_ca_cert_path,
             mtls_server_cert_path,
             mtls_server_key_path,
+            cors_allowed_origin,
         })
     }
 }
@@ -262,9 +307,25 @@ mod tests {
 
     #[test]
     fn accepts_a_properly_generated_random_secret() {
-        let strong_secret =
-            "b1a4c9e02d7f8635a0e2c4f96d1b7a8e3c5f0d9a2b6e1c4f7a0d3b8e5c2f9a6d0b3e7c1a4f8d5b2e9c6f0a3d7b1e4c8f2a5d9b6e0c3f7a1d4b8e2c5f9a0d3b6";
+        let strong_secret = "b1a4c9e02d7f8635a0e2c4f96d1b7a8e3c5f0d9a2b6e1c4f7a0d3b8e5c2f9a6d0b3e7c1a4f8d5b2e9c6f0a3d7b1e4c8f2a5d9b6e0c3f7a1d4b8e2c5f9a0d3b6";
         assert!(validate_jwt_secret(strong_secret).is_ok());
+    }
+
+    #[test]
+    fn accepts_default_cors_allowed_origin() {
+        assert!(validate_cors_allowed_origin(DEFAULT_CORS_ALLOWED_ORIGIN).is_ok());
+    }
+
+    #[test]
+    fn rejects_cors_allowed_origin_with_invalid_header_characters() {
+        // A raw newline is not a legal HTTP header value byte.
+        let invalid = "http://example.com\nX-Injected: 1";
+        assert_eq!(
+            validate_cors_allowed_origin(invalid),
+            Err(ConfigError::InvalidCorsAllowedOrigin {
+                value: invalid.to_string(),
+            })
+        );
     }
 
     #[test]

@@ -1,6 +1,8 @@
 use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
+use domain::shared::ids::{TenantId, UserId};
+use domain::shared::policies::TenantOwned;
 use domain::shared::types::AuthenticatedUser;
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, Incident};
 use serde_json::json;
@@ -9,7 +11,6 @@ use crate::{
     commands::AcknowledgeIncident,
     ports::{AuditLogEntryRepository, IncidentRepository, MonitorRepository},
 };
-use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 
 /// Error returned by `AcknowledgeIncidentUseCase`.
 #[derive(Debug)]
@@ -61,9 +62,30 @@ impl AcknowledgeIncidentUseCase {
         command: AcknowledgeIncident,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Incident, AcknowledgeIncidentError> {
-        let user_id = authenticated_user.user_id();
-        let tenant_id = authenticated_user.tenant_context().tenant_id();
+        self.execute_for_tenant(
+            command,
+            authenticated_user.tenant_context().tenant_id(),
+            authenticated_user.user_id(),
+        )
+        .await
+    }
 
+    /// Tenant-scoped variant of `execute` that takes `tenant_id` /
+    /// `acting_user_id` directly instead of an `AuthenticatedUser`.
+    ///
+    /// Added for the API-key-authenticated public surface
+    /// (`POST /api/v1/external/incidents/{id}/acknowledge`, B31). The
+    /// audit log records `acting_user_id` (the API key's
+    /// `ApiKeyPrincipal::user_id`, i.e. the key's creator) exactly like
+    /// `CreateApiKeyUseCase` treats that field: an audit trail, not an
+    /// access-control gate. `execute` above is now a thin wrapper
+    /// around this.
+    pub async fn execute_for_tenant(
+        &self,
+        command: AcknowledgeIncident,
+        tenant_id: TenantId,
+        acting_user_id: UserId,
+    ) -> Result<Incident, AcknowledgeIncidentError> {
         let mut incident = self
             .incident_repository
             .find_by_id(command.incident_id)
@@ -71,9 +93,6 @@ impl AcknowledgeIncidentUseCase {
             .map_err(AcknowledgeIncidentError::Other)?
             .ok_or(AcknowledgeIncidentError::NotFound)?;
 
-        // Verify tenant access via the monitor repository.
-        // If the monitor doesn't exist or belongs to a different tenant,
-        // we return NotFound (same outward result as incident not found).
         let monitor = self
             .monitor_repository
             .find_by_id(incident.monitor_id)
@@ -81,8 +100,7 @@ impl AcknowledgeIncidentUseCase {
             .map_err(AcknowledgeIncidentError::Other)?
             .ok_or(AcknowledgeIncidentError::NotFound)?;
 
-        if !AuthorizationPolicy::same_tenant(&authenticated_user.tenant_context(), monitor.tenant_id())
-        {
+        if monitor.tenant_id() != tenant_id {
             return Err(AcknowledgeIncidentError::NotFound);
         }
 
@@ -91,7 +109,7 @@ impl AcknowledgeIncidentUseCase {
         }
 
         let now = Utc::now();
-        incident.acknowledge(user_id, now);
+        incident.acknowledge(acting_user_id, now);
 
         self.incident_repository
             .update(&incident)
@@ -100,7 +118,7 @@ impl AcknowledgeIncidentUseCase {
 
         let entry = AuditLogEntry {
             id: AuditLogEntryId::new(),
-            actor_user_id: user_id,
+            actor_user_id: acting_user_id,
             tenant_id: Some(tenant_id),
             action: AuditAction::IncidentAcknowledged,
             target_id: incident.id.0.to_string(),

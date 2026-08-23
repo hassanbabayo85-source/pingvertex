@@ -87,4 +87,13 @@ impl TenantRepository for PostgresTenantRepository {
         .await?;
         Ok(row.map(TenantRow::into_domain))
     }
+
+    async fn list_all(&self) -> RepoResult<Vec<Tenant>> {
+        let rows = sqlx::query_as::<_, TenantRow>(
+            "SELECT id, name, owner_user_id, created_at FROM tenants ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(TenantRow::into_domain).collect())
+    }
 }

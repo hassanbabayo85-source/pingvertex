@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::{Extension, State},
     http::StatusCode,
-    Json,
 };
 use tracing::info;
 
@@ -11,7 +11,7 @@ use application::{
     commands::CreateEscalationPolicy,
     use_cases::{CreateEscalationPolicyError, CreateEscalationPolicyUseCase},
 };
-use domain::{shared::types::AuthenticatedUser, EscalationStep};
+use domain::{EscalationStep, shared::types::AuthenticatedUser};
 
 use crate::{
     error::ApiError, handlers::feature_types::CreateEscalationPolicyRequest, state::AppState,

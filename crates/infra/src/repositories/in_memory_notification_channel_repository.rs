@@ -132,7 +132,10 @@ impl NotificationChannelRepository for InMemoryNotificationChannelRepository {
             .collect())
     }
 
-    async fn find_by_id(&self, id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+    async fn find_by_id(
+        &self,
+        id: NotificationChannelId,
+    ) -> RepoResult<Option<NotificationChannel>> {
         Ok(self.channels.read().unwrap().get(&id).cloned())
     }
 

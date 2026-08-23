@@ -1,7 +1,8 @@
 mod common;
 
-use application::ports::check_repository::CheckRepository;
+use application::ports::check_repository::{CheckFilters, CheckRepository};
 use application::ports::monitor_repository::MonitorRepository;
+use chrono::{DateTime, Duration, Utc};
 use common::{sample_check, sample_monitor, setup_pool};
 use domain::{CheckStatus, ErrorType};
 use infra::{PostgresCheckRepository, PostgresMonitorRepository};
@@ -102,5 +103,163 @@ async fn delete_by_monitor_removes_all_checks_for_monitor() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+#[serial]
+#[tokio::test]
+async fn list_checks_filtered_pagination_and_filters_are_correct() {
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let check_repository = PostgresCheckRepository::new(pool.clone());
+
+    let monitor_a = sample_monitor(&pool, "Filter A", "https://a.example.com").await;
+    let mut monitor_b = sample_monitor(&pool, "Filter B", "https://b.example.com").await;
+
+    // Put monitor B in the same tenant as monitor A so that both are
+    // visible in tenant-scoped history queries. `sample_monitor` normally
+    // creates a fresh tenant for each monitor.
+    monitor_b.tenant_id = monitor_a.tenant_id;
+
+    monitor_repository.save(&monitor_a).await.unwrap();
+    monitor_repository.save(&monitor_b).await.unwrap();
+    let tenant_id = monitor_a.tenant_id;
+
+    let base = Utc::now() - Duration::days(10);
+    for i in 0..6 {
+        let mut check = sample_check(monitor_a.id);
+        check.checked_at = base + Duration::minutes(i as i64);
+        check.status = if i % 2 == 0 {
+            CheckStatus::Up
+        } else {
+            CheckStatus::Down
+        };
+        check_repository.save(&check).await.unwrap();
+    }
+
+    let mut check_b = sample_check(monitor_b.id);
+    check_b.checked_at = base + Duration::minutes(30);
+    check_repository.save(&check_b).await.unwrap();
+
+    let page1 = check_repository
+        .list_checks_filtered(2, 0, tenant_id, CheckFilters::default())
+        .await
+        .unwrap();
+    assert_eq!(page1.len(), 2);
+    assert_eq!(
+        page1[0].checked_at.timestamp_micros(),
+        (base + Duration::minutes(30)).timestamp_micros()
+    );
+    assert_eq!(
+        page1[1].checked_at.timestamp_micros(),
+        (base + Duration::minutes(5)).timestamp_micros()
+    );
+
+    let up_checks = check_repository
+        .list_checks_filtered(
+            100,
+            0,
+            tenant_id,
+            CheckFilters {
+                status: Some(CheckStatus::Up),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(up_checks.len(), 4); // minutes 0,2,4 + monitor_b check
+    assert!(up_checks.iter().all(|c| c.status == CheckStatus::Up));
+
+    let monitor_a_checks = check_repository
+        .list_checks_filtered(
+            100,
+            0,
+            tenant_id,
+            CheckFilters {
+                monitor_id: Some(monitor_a.id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(monitor_a_checks.len(), 6);
+    assert!(
+        monitor_a_checks
+            .iter()
+            .all(|c| c.monitor_id == monitor_a.id)
+    );
+
+    let range_checks = check_repository
+        .list_checks_filtered(
+            100,
+            0,
+            tenant_id,
+            CheckFilters {
+                from: Some(base + Duration::minutes(2)),
+                to: Some(base + Duration::minutes(4)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(range_checks.len(), 3); // minutes 2,3,4
+}
+
+#[serial]
+#[tokio::test]
+async fn list_checks_filtered_query_plan_uses_index() {
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let check_repository = PostgresCheckRepository::new(pool.clone());
+
+    let monitor = sample_monitor(&pool, "Plan Monitor", "https://plan.example.com").await;
+    monitor_repository.save(&monitor).await.unwrap();
+    let tenant_id = monitor.tenant_id;
+
+    let base = Utc::now();
+    for i in 0..200 {
+        let mut check = sample_check(monitor.id);
+        check.checked_at = base - Duration::seconds(i as i64);
+        check_repository.save(&check).await.unwrap();
+    }
+
+    sqlx::query("ANALYZE checks").execute(&pool).await.unwrap();
+
+    let sql = r#"
+        EXPLAIN (FORMAT TEXT)
+        SELECT c.id, c.monitor_id, c.region, c.status, c.http_status, c.response_time_ms,
+               c.error_type, c.error_message, c.checked_at, c.cert_expires_at,
+               c.cert_days_remaining, c.country_code
+        FROM checks c
+        JOIN monitors m ON c.monitor_id = m.id
+        WHERE m.tenant_id = $1
+          AND ($2::uuid IS NULL OR c.monitor_id = $2)
+          AND ($3::smallint IS NULL OR c.status = $3)
+          AND ($4::timestamptz IS NULL OR c.checked_at >= $4)
+          AND ($5::timestamptz IS NULL OR c.checked_at <= $5)
+        ORDER BY c.checked_at DESC
+        LIMIT $6 OFFSET $7
+    "#;
+
+    let plan_rows: Vec<String> = sqlx::query_scalar::<_, String>(sql)
+        .bind(tenant_id.0)
+        .bind(Some(monitor.id.0))
+        .bind(None::<i16>)
+        .bind(None::<DateTime<Utc>>)
+        .bind(None::<DateTime<Utc>>)
+        .bind(10i64)
+        .bind(0i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    let plan = plan_rows.join("\n");
+    assert!(
+        !plan.contains("Seq Scan on checks"),
+        "plan unexpectedly used a sequential scan on checks:\n{plan}"
+    );
+    assert!(
+        plan.contains("Index") || plan.contains("Bitmap Index"),
+        "plan did not reference an index on checks:\n{plan}"
     );
 }

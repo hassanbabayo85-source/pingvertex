@@ -1,9 +1,10 @@
 use std::error::Error;
 
 use application::ports::CheckRepository;
+use application::ports::check_repository::CheckFilters;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::shared::ids::{CheckId, MonitorId, UserId};
+use domain::shared::ids::{CheckId, MonitorId, TenantId};
 use domain::{Check, CheckStatus, ErrorType, RegionCode};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
@@ -202,7 +203,7 @@ impl CheckRepository for PostgresCheckRepository {
         &self,
         limit: u32,
         offset: u32,
-        user_id: UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Vec<Check>> {
         let rows = sqlx::query_as::<_, CheckRow>(
             r#"
@@ -221,14 +222,124 @@ impl CheckRepository for PostgresCheckRepository {
                 c.country_code
             FROM checks c
             JOIN monitors m ON c.monitor_id = m.id
-            WHERE m.user_id = $3
+            WHERE m.tenant_id = $1
             ORDER BY c.checked_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT $2 OFFSET $3
             "#,
         )
+        .bind(tenant_id.0)
         .bind(limit as i64)
         .bind(offset as i64)
-        .bind(user_id.0) // UUID
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(CheckRow::into_domain).collect()
+    }
+
+    async fn list_checks_filtered(
+        &self,
+        limit: u32,
+        offset: u32,
+        tenant_id: TenantId,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        let status: Option<i16> = filters.status.map(|s| {
+            if matches!(s, CheckStatus::Up) {
+                1i16
+            } else {
+                0i16
+            }
+        });
+        let monitor_id: Option<Uuid> = filters.monitor_id.map(|m| m.0);
+        let from = filters.from;
+        let to = filters.to;
+
+        let rows = sqlx::query_as::<_, CheckRow>(
+            r#"
+            SELECT
+                c.id,
+                c.monitor_id,
+                c.region,
+                c.status,
+                c.http_status,
+                c.response_time_ms,
+                c.error_type,
+                c.error_message,
+                c.checked_at,
+                c.cert_expires_at,
+                c.cert_days_remaining,
+                c.country_code
+            FROM checks c
+            JOIN monitors m ON c.monitor_id = m.id
+            WHERE m.tenant_id = $1
+              AND ($2::uuid IS NULL OR c.monitor_id = $2)
+              AND ($3::smallint IS NULL OR c.status = $3)
+              AND ($4::timestamptz IS NULL OR c.checked_at >= $4)
+              AND ($5::timestamptz IS NULL OR c.checked_at <= $5)
+            ORDER BY c.checked_at DESC
+            LIMIT $6 OFFSET $7
+            "#,
+        )
+        .bind(tenant_id.0)
+        .bind(monitor_id)
+        .bind(status)
+        .bind(from)
+        .bind(to)
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(CheckRow::into_domain).collect()
+    }
+
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        limit: u32,
+        offset: u32,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        let status: Option<i16> = filters.status.map(|s| {
+            if matches!(s, CheckStatus::Up) {
+                1i16
+            } else {
+                0i16
+            }
+        });
+        let from = filters.from;
+        let to = filters.to;
+
+        let rows = sqlx::query_as::<_, CheckRow>(
+            r#"
+            SELECT
+                id,
+                monitor_id,
+                region,
+                status,
+                http_status,
+                response_time_ms,
+                error_type,
+                error_message,
+                checked_at,
+                cert_expires_at,
+                cert_days_remaining,
+                country_code
+            FROM checks
+            WHERE monitor_id = $1
+              AND ($2::smallint IS NULL OR status = $2)
+              AND ($3::timestamptz IS NULL OR checked_at >= $3)
+              AND ($4::timestamptz IS NULL OR checked_at <= $4)
+            ORDER BY checked_at DESC
+            LIMIT $5 OFFSET $6
+            "#,
+        )
+        .bind(monitor_id.0)
+        .bind(status)
+        .bind(from)
+        .bind(to)
+        .bind(limit as i64)
+        .bind(offset as i64)
         .fetch_all(&self.pool)
         .await?;
 

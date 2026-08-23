@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Extension, Path, State},
     Json,
+    extract::{Extension, Path, State},
 };
 use tracing::info;
 
@@ -47,12 +47,32 @@ pub async fn update_monitor(
     let use_case = UpdateMonitorUseCase::new(
         state.monitor_repository.clone(),
         state.audit_log_entry_repository.clone(),
-    );
+    )
+    .with_entitlements(state.subscription_repository.clone());
 
     let monitor = use_case
         .execute(command, authenticated_user)
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to update monitor", err))?
+        .map_err(|err| {
+            let msg = err.to_string();
+            let is_validation_error = msg.contains("invalid")
+                || msg.contains("cannot")
+                || msg.contains("must")
+                || msg.contains("required")
+                || msg.contains("interval")
+                || msg.contains("timeout")
+                || msg.contains("expected")
+                || msg.contains("url")
+                || msg.contains("host")
+                || msg.contains("dns")
+                || msg.contains("heartbeat");
+
+            if is_validation_error {
+                ApiError::bad_request(msg)
+            } else {
+                ApiError::internal_with_source("failed to update monitor", err)
+            }
+        })?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     Ok(Json(MonitorResponse::from(monitor)))

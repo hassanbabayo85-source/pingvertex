@@ -1,5 +1,7 @@
 use domain::entities::{ProxyCheckJob, ProxyEntry};
-use domain::shared::ids::{ProxyCheckJobId, UserId};
+use domain::shared::ids::ProxyCheckJobId;
+use domain::shared::policies::AuthorizationPolicy;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::ports::ProxyCheckJobRepository;
 
@@ -18,13 +20,18 @@ where
     pub async fn execute(
         &self,
         id: ProxyCheckJobId,
-        user_id: UserId,
+        authenticated_user: AuthenticatedUser,
     ) -> Result<Option<(ProxyCheckJob, Vec<ProxyEntry>)>, Box<dyn std::error::Error + Send + Sync>>
     {
         let job = self.repository.find_job_by_id(id).await?;
 
         match job {
-            Some(job) if job.user_id() == user_id => {
+            Some(job)
+                if AuthorizationPolicy::same_tenant(
+                    &authenticated_user.tenant_context(),
+                    job.tenant_id(),
+                ) =>
+            {
                 let entries = self.repository.find_entries_by_job_id(id).await?;
                 Ok(Some((job, entries)))
             }

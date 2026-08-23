@@ -2,10 +2,21 @@ use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use domain::Check;
-use domain::shared::ids::{CheckId, MonitorId};
+use domain::CheckStatus;
+use domain::shared::ids::{CheckId, MonitorId, TenantId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// Filters for check-history queries.
+#[derive(Debug, Clone, Default)]
+pub struct CheckFilters {
+    pub monitor_id: Option<MonitorId>,
+    pub status: Option<CheckStatus>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+}
 
 #[async_trait]
 pub trait CheckRepository: Send + Sync {
@@ -19,8 +30,32 @@ pub trait CheckRepository: Send + Sync {
         &self,
         limit: u32,
         offset: u32,
-        user_id: domain::shared::ids::UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Vec<Check>>;
+
+    /// Tenant-scoped, filtered, paginated check history.
+    async fn list_checks_filtered(
+        &self,
+        limit: u32,
+        offset: u32,
+        tenant_id: TenantId,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        let _ = (limit, offset, tenant_id, filters);
+        Ok(vec![])
+    }
+
+    /// Monitor-scoped, filtered, paginated check history.
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        limit: u32,
+        offset: u32,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        let _ = (monitor_id, limit, offset, filters);
+        Ok(vec![])
+    }
 
     async fn delete_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<u64>;
 }
@@ -46,9 +81,33 @@ where
         &self,
         limit: u32,
         offset: u32,
-        user_id: domain::shared::ids::UserId,
+        tenant_id: TenantId,
     ) -> RepoResult<Vec<Check>> {
-        (**self).list_checks(limit, offset, user_id).await
+        (**self).list_checks(limit, offset, tenant_id).await
+    }
+
+    async fn list_checks_filtered(
+        &self,
+        limit: u32,
+        offset: u32,
+        tenant_id: TenantId,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        (**self)
+            .list_checks_filtered(limit, offset, tenant_id, filters)
+            .await
+    }
+
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        limit: u32,
+        offset: u32,
+        filters: CheckFilters,
+    ) -> RepoResult<Vec<Check>> {
+        (**self)
+            .list_by_monitor_paginated(monitor_id, limit, offset, filters)
+            .await
     }
 
     async fn delete_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<u64> {

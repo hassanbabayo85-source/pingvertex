@@ -1,6 +1,6 @@
 use axum::{
-    routing::{post, put},
     Router,
+    routing::{post, put},
 };
 
 use crate::{

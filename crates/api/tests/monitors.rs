@@ -3,18 +3,20 @@ use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRe
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::User;
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, HttpMethod, Incident};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -56,7 +58,7 @@ impl CheckRepository for NoopCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -146,7 +148,9 @@ fn build_test_app() -> axum::Router {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
     build_test_router(state, auth_state)
 }
@@ -158,7 +162,7 @@ fn monitor_payload(user_id: Uuid, name: &str, url: &str, method: HttpMethod) -> 
         "url": url,
         "method": method,
         "expected_status": 200,
-        "interval_seconds": 60,
+        "interval_seconds": 120,
         "timeout_seconds": 10,
         "assertions": []
     })
@@ -461,9 +465,12 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         token: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         let user_id = uuid::Uuid::parse_str(token)?;
-        Ok(domain::UserId(user_id))
+        Ok(application::ports::VerifiedToken {
+            user_id: domain::UserId(user_id),
+            issued_at: 0,
+        })
     }
 }
 
@@ -486,7 +493,7 @@ fn monitor_payload_with_kind(
         "url": url,
         "method": method,
         "expected_status": 200,
-        "interval_seconds": 60,
+        "interval_seconds": 120,
         "timeout_seconds": 10,
         "assertions": [],
         "kind": kind,
@@ -536,7 +543,7 @@ async fn update_monitor_endpoint_switches_kind_from_http_to_tcp_and_persists_tcp
                     monitor_payload_with_kind(
                         user_id,
                         "Db Server",
-                        "https://example.com",
+                        "db.example.com",
                         HttpMethod::Get,
                         "Tcp",
                         Some(5432),
@@ -594,7 +601,7 @@ async fn update_monitor_endpoint_switching_kind_clears_stale_fields_from_previou
                     monitor_payload_with_kind(
                         user_id,
                         "Db Server",
-                        "https://example.com",
+                        "db.example.com",
                         HttpMethod::Get,
                         "Tcp",
                         Some(5432),
@@ -626,7 +633,7 @@ async fn update_monitor_endpoint_switching_kind_clears_stale_fields_from_previou
                     monitor_payload_with_kind(
                         user_id,
                         "Db Server",
-                        "https://example.com",
+                        "db.example.com",
                         HttpMethod::Get,
                         "Dns",
                         None,
@@ -690,7 +697,7 @@ async fn update_monitor_endpoint_switching_to_tcp_without_tcp_port_is_rejected()
                     monitor_payload_with_kind(
                         user_id,
                         "Db Server",
-                        "https://example.com",
+                        "db.example.com",
                         HttpMethod::Get,
                         "Tcp",
                         None,
@@ -706,14 +713,8 @@ async fn update_monitor_endpoint_switching_to_tcp_without_tcp_port_is_rejected()
         .await
         .unwrap();
 
-    // NOTE: the API currently maps every domain validation error in
-    // update_monitor through ApiError::internal_with_source, which returns
-    // 500 (see crates/api/src/handlers/update_monitor.rs). This test
-    // documents that EXISTING behavior for a missing tcp_port on kind
-    // switch; it is not asserting that 500 is the ideal status code for a
-    // client validation error, only that the request is rejected and the
-    // monitor is not silently left in a broken kind=Tcp/tcp_port=null state.
-    assert_eq!(put_response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    // Now the API maps domain validation errors to 400 for this case.
+    assert_eq!(put_response.status(), StatusCode::BAD_REQUEST);
 
     let get_response = app
         .clone()
@@ -801,4 +802,116 @@ async fn update_monitor_endpoint_switching_to_heartbeat_sets_kind_and_never_expo
         updated.get("heartbeat_token").is_none(),
         "PUT must never expose heartbeat_token, same as GET/list"
     );
+}
+
+#[tokio::test]
+async fn create_monitor_with_tcp_and_url_scheme_is_rejected() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload_with_kind(
+                        user_id,
+                        "Db Server",
+                        "https://example.com",
+                        HttpMethod::Get,
+                        "Tcp",
+                        Some(5432),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn enable_disable_monitor_endpoints_toggle_enabled_field() {
+    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/monitors")
+                .header("content-type", "application/json")
+                .header("authorization", auth_header(user_id))
+                .body(Body::from(
+                    monitor_payload(user_id, "Google", "https://google.com", HttpMethod::Get)
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = read_json(create_response).await;
+    let monitor_id = created["id"].as_str().unwrap();
+    assert_eq!(created["enabled"], true);
+
+    // Disable
+    let disable_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/monitors/{monitor_id}/disable"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(disable_response.status(), StatusCode::OK);
+    let disabled = read_json(disable_response).await;
+    assert_eq!(disabled["enabled"], false);
+
+    // Get and verify
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let fetched = read_json(get_response).await;
+    assert_eq!(fetched["enabled"], false);
+
+    // Enable
+    let enable_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/monitors/{monitor_id}/enable"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(enable_response.status(), StatusCode::OK);
+    let enabled = read_json(enable_response).await;
+    assert_eq!(enabled["enabled"], true);
 }

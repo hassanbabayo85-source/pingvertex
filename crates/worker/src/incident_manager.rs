@@ -5,7 +5,7 @@ use application::ports::{
     NotificationService,
 };
 use async_trait::async_trait;
-use domain::shared::ids::{MaintenanceWindowId, MonitorId, UserId};
+use domain::shared::ids::MonitorId;
 use domain::{Incident, MaintenanceWindow, Monitor, notification::NotificationEvent};
 use tracing::{error, info};
 
@@ -29,26 +29,6 @@ struct NoopMaintenanceWindowRepository;
 impl MaintenanceWindowRepository for NoopMaintenanceWindowRepository {
     async fn create(&self, _window: &MaintenanceWindow) -> Result<()> {
         Ok(())
-    }
-
-    async fn delete_for_user(&self, _id: MaintenanceWindowId, _user_id: UserId) -> Result<bool> {
-        Ok(false)
-    }
-
-    async fn find_by_id_for_user(
-        &self,
-        _id: MaintenanceWindowId,
-        _user_id: UserId,
-    ) -> Result<Option<MaintenanceWindow>> {
-        Ok(None)
-    }
-
-    async fn list_by_monitor_for_user(
-        &self,
-        _monitor_id: MonitorId,
-        _user_id: UserId,
-    ) -> Result<Option<Vec<MaintenanceWindow>>> {
-        Ok(None)
     }
 
     async fn list_active_by_monitor(
@@ -115,19 +95,21 @@ impl IncidentManager {
                 incident.mark_occurred_during_maintenance();
             }
 
-            self.repository.save(&incident).await?;
+            let created = self.repository.save_and_report(&incident).await?;
 
-            info!(
-                monitor_id = %monitor.id.0,
-                incident_id = %incident.id.0,
-                in_maintenance = in_maintenance,
-                "incident opened"
-            );
+            if created {
+                info!(
+                    monitor_id = %monitor.id.0,
+                    incident_id = %incident.id.0,
+                    in_maintenance = in_maintenance,
+                    "incident opened"
+                );
 
-            // Kada a tura notification idan muna cikin maintenance window.
-            if !in_maintenance {
-                self.notify_channels(monitor, NotificationEvent::MonitorDown(monitor.clone()))
-                    .await;
+                // Kada a tura notification idan muna cikin maintenance window.
+                if !in_maintenance {
+                    self.notify_channels(monitor, NotificationEvent::MonitorDown(monitor.clone()))
+                        .await;
+                }
             }
         }
 
@@ -137,22 +119,37 @@ impl IncidentManager {
     pub async fn resolve_if_needed(&self, monitor: &Monitor) -> Result<()> {
         if let Some(mut incident) = self.repository.find_open_by_monitor(monitor.id).await? {
             incident.resolve();
-            self.repository.update(&incident).await?;
+            let resolved = self.repository.resolve_if_open(&incident).await?;
 
-            info!(
-                monitor_id = %monitor.id.0,
-                incident_id = %incident.id.0,
-                "incident resolved"
-            );
+            if resolved {
+                info!(
+                    monitor_id = %monitor.id.0,
+                    incident_id = %incident.id.0,
+                    "incident resolved"
+                );
 
-            self.notify_channels(
-                monitor,
-                NotificationEvent::MonitorRecovered(monitor.clone()),
-            )
-            .await;
+                self.notify_channels(
+                    monitor,
+                    NotificationEvent::MonitorRecovered(monitor.clone()),
+                )
+                .await;
+            }
         }
 
         Ok(())
+    }
+
+    /// Advances the open incident's `last_seen_at` for `monitor`, if one
+    /// exists. Called by `IncidentEvaluator` (B23) on every observed
+    /// failure while the monitor's incident stays open, so `last_seen_at`
+    /// always reflects the most recent evidence the underlying problem is
+    /// ongoing. A no-op if there is no open incident — enforced by the
+    /// repository's `WHERE resolved_at IS NULL` guard, not fetched-then-
+    /// checked here, so this never races with a concurrent resolution.
+    pub async fn touch_last_seen_if_open(&self, monitor: &Monitor) -> Result<()> {
+        self.repository
+            .touch_last_seen(monitor.id, chrono::Utc::now())
+            .await
     }
 
     /// Sends `event` to every enabled notification channel configured for

@@ -8,8 +8,11 @@ use crate::{
     ports::{AuditLogEntryRepository, MonitorRepository, StatusPageRepository},
 };
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, HexColor, MonitorId, entities::StatusPage,
-    shared::policies::{AuthorizationPolicy, TenantOwned}, shared::types::AuthenticatedUser,
+    AuditAction, AuditLogEntry, AuditLogEntryId, HexColor, MonitorId,
+    entities::StatusPage,
+    shared::ids::{TenantId, UserId},
+    shared::policies::TenantOwned,
+    shared::types::AuthenticatedUser,
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -80,22 +83,39 @@ where
         command: UpdateStatusPage,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Option<StatusPage>, UpdateStatusPageError> {
-        let user_id = authenticated_user.user_id();
-        let tenant_id = authenticated_user.tenant_context().tenant_id();
+        self.execute_for_tenant(
+            command,
+            authenticated_user.tenant_context().tenant_id(),
+            authenticated_user.user_id(),
+        )
+        .await
+    }
 
+    /// Tenant-scoped variant of `execute` that takes `tenant_id` /
+    /// `acting_user_id` directly instead of an `AuthenticatedUser`.
+    ///
+    /// Added for the API-key-authenticated public surface
+    /// (`PUT /api/v1/external/status-pages/{id}`, B31) — see the doc
+    /// comment on `ListChecksUseCase::execute_for_tenant` for why a
+    /// separate method exists instead of synthesizing an
+    /// `AuthenticatedUser` from an `ApiKeyPrincipal`. `execute` above is
+    /// now a thin wrapper around this.
+    pub async fn execute_for_tenant(
+        &self,
+        command: UpdateStatusPage,
+        tenant_id: TenantId,
+        acting_user_id: UserId,
+    ) -> Result<Option<StatusPage>, UpdateStatusPageError> {
         let mut status_page = match self.repository.find_by_id(command.id).await? {
             Some(status_page) => status_page,
             None => return Ok(None),
         };
 
-        if !AuthorizationPolicy::same_tenant(
-            &authenticated_user.tenant_context(),
-            status_page.tenant_id(),
-        ) {
+        if status_page.tenant_id() != tenant_id {
             return Ok(None);
         }
 
-        self.assert_monitors_owned(&authenticated_user, &command.monitor_ids)
+        self.assert_monitors_owned_for_tenant(tenant_id, &command.monitor_ids)
             .await?;
 
         status_page.rename(command.name)?;
@@ -109,7 +129,7 @@ where
 
         let entry = AuditLogEntry {
             id: AuditLogEntryId::new(),
-            actor_user_id: user_id,
+            actor_user_id: acting_user_id,
             tenant_id: Some(tenant_id),
             action: AuditAction::StatusPageUpdated,
             target_id: status_page.id.0.to_string(),
@@ -123,9 +143,9 @@ where
         Ok(Some(status_page))
     }
 
-    async fn assert_monitors_owned(
+    async fn assert_monitors_owned_for_tenant(
         &self,
-        authenticated_user: &AuthenticatedUser,
+        tenant_id: TenantId,
         monitor_ids: &[MonitorId],
     ) -> Result<(), UpdateStatusPageError> {
         for &monitor_id in monitor_ids {
@@ -136,10 +156,7 @@ where
                 .map_err(UpdateStatusPageError::Other)?
                 .ok_or(UpdateStatusPageError::MonitorNotFound { monitor_id })?;
 
-            if !AuthorizationPolicy::same_tenant(
-                &authenticated_user.tenant_context(),
-                monitor.tenant_id(),
-            ) {
+            if monitor.tenant_id() != tenant_id {
                 return Err(UpdateStatusPageError::MonitorNotFound { monitor_id });
             }
         }

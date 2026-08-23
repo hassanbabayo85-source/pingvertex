@@ -126,7 +126,7 @@ mod tests {
     #[tokio::test]
     async fn metrics_handler_env_var_scenarios() {
         use axum::body::to_bytes;
-        use axum::http::{header::AUTHORIZATION, HeaderValue};
+        use axum::http::{HeaderValue, header::AUTHORIZATION};
 
         // 1) Babu METRICS_TOKEN a environment => fail-closed 404.
         unsafe {

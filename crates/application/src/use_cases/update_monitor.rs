@@ -5,11 +5,14 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    ports::{AuditLogEntryRepository, MonitorRepository},
+    ports::{AuditLogEntryRepository, MonitorRepository, SubscriptionRepository},
+    queries::ResolveEntitlements,
+    use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
 };
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Monitor,
-    MonitorName, Timeout, Url, entities::Assertion,
+    AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Host, Monitor,
+    MonitorKind, MonitorName, Timeout, Url,
+    entities::Assertion,
     shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::AuthenticatedUser,
 };
@@ -19,6 +22,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct UpdateMonitorUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -32,7 +36,18 @@ where
         Self {
             repository,
             audit_log_entry_repository,
+            subscription_repository: None,
         }
+    }
+
+    /// Enables plan-minimum interval validation during updates.
+    /// When not called, falls back to global `CheckInterval::MIN`.
+    pub fn with_entitlements(
+        mut self,
+        subscription_repository: Arc<dyn SubscriptionRepository>,
+    ) -> Self {
+        self.subscription_repository = Some(subscription_repository);
+        self
     }
 
     pub async fn execute(
@@ -55,9 +70,36 @@ where
             return Ok(None);
         }
 
+        // Resolve min interval (plan or fallback)
+        let min_interval = match &self.subscription_repository {
+            Some(repo) => {
+                let plan = ResolveEntitlementsUseCase::new(repo.clone())
+                    .execute(ResolveEntitlements { tenant_id })
+                    .await?;
+                plan.min_check_interval_seconds
+            }
+            None => CheckInterval::MIN,
+        };
+
+        if command.interval_seconds < min_interval {
+            return Err(format!(
+                "interval must be at least {min_interval} seconds on your current plan"
+            )
+            .into());
+        }
+
+        // Validate target based on kind, same as create
+        let target = match command.kind {
+            MonitorKind::Http | MonitorKind::Heartbeat => {
+                Url::new(command.url)?.as_str().to_owned()
+            }
+            MonitorKind::Tcp | MonitorKind::Dns => Host::new(command.url)?.as_str().to_owned(),
+            MonitorKind::Flow => command.url,
+        };
+
         monitor.update(
             MonitorName::new(command.name)?,
-            Url::new(command.url)?,
+            target,
             command.method,
             ExpectedStatus::new(command.expected_status)?,
             CheckInterval::new(command.interval_seconds)?,

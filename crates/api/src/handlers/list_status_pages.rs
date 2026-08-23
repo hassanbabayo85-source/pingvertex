@@ -1,25 +1,25 @@
 use axum::{
-    extract::{Extension, State},
     Json,
+    extract::{Extension, State},
 };
 use tracing::info;
 
 use application::use_cases::ListStatusPagesUseCase;
-use domain::shared::ids::UserId;
+use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, handlers::types::StatusPageResponse, state::AppState};
 
 /// Lists all status pages owned by the caller.
 pub async fn list_status_pages(
     State(state): State<AppState>,
-    Extension(user_id): Extension<UserId>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<StatusPageResponse>>, ApiError> {
     info!("API: list_status_pages");
 
     let use_case = ListStatusPagesUseCase::new(state.status_page_repository.clone());
 
     let status_pages = use_case
-        .execute(user_id)
+        .execute(authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to list status pages", err))?;
 

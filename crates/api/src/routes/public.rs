@@ -1,4 +1,4 @@
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 
 use crate::{
     handlers::{get_public_status, get_public_status_page, record_heartbeat},

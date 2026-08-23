@@ -82,10 +82,7 @@ async fn deleting_status_page_as_another_tenant_member_succeeds() {
 
     assert!(deleted);
 
-    let remaining = repository
-        .find_by_id(status_page.id)
-        .await
-        .unwrap();
+    let remaining = repository.find_by_id(status_page.id).await.unwrap();
     assert!(remaining.is_none());
 }
 
@@ -118,18 +115,12 @@ async fn deleting_status_page_from_another_tenant_returns_false() {
 
     let delete_use_case = DeleteStatusPageUseCase::new(repository.clone(), new_audit_repo());
     let deleted = delete_use_case
-        .execute(
-            status_page.id,
-            auth_user(attacker_id, attacker_tenant_id),
-        )
+        .execute(status_page.id, auth_user(attacker_id, attacker_tenant_id))
         .await
         .unwrap();
 
     assert!(!deleted);
 
-    let remaining = repository
-        .find_by_id(status_page.id)
-        .await
-        .unwrap();
+    let remaining = repository.find_by_id(status_page.id).await.unwrap();
     assert!(remaining.is_some());
 }

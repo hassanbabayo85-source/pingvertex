@@ -41,6 +41,7 @@ fn role_to_db(role: &Role) -> &'static str {
         Role::Admin => "Admin",
         Role::Owner => "Owner",
         Role::Auditor => "Auditor",
+        Role::Viewer => "Viewer",
     }
 }
 
@@ -50,6 +51,7 @@ fn role_from_db(value: &str) -> RepoResult<Role> {
         "Admin" => Ok(Role::Admin),
         "Owner" => Ok(Role::Owner),
         "Auditor" => Ok(Role::Auditor),
+        "Viewer" => Ok(Role::Viewer),
         other => Err(format!("unknown tenant_memberships.role '{other}' in database").into()),
     }
 }
@@ -150,6 +152,15 @@ impl TenantMembershipRepository for PostgresTenantMembershipRepository {
         .bind(role_to_db(&role))
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, tenant_id: TenantId, user_id: UserId) -> RepoResult<()> {
+        sqlx::query("DELETE FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2")
+            .bind(tenant_id.0)
+            .bind(user_id.0)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

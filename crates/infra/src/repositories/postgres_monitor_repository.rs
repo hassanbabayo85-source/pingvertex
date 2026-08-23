@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use application::ports::MonitorRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use async_trait::async_trait;
 use domain::shared::ids::{AssertionId, MonitorId, TenantId, UserId};
 use domain::{
     Assertion, AssertionOperator, HttpMethod, Monitor, MonitorKind, MonitorName, RegionCode,
     ResponsePart, Url,
 };
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -204,6 +205,7 @@ fn kind_to_db(kind: MonitorKind) -> String {
         MonitorKind::Tcp => "tcp".to_string(),
         MonitorKind::Dns => "dns".to_string(),
         MonitorKind::Heartbeat => "heartbeat".to_string(),
+        MonitorKind::Flow => "flow".to_string(),
     }
 }
 
@@ -213,6 +215,7 @@ fn kind_from_db(value: &str) -> RepoResult<MonitorKind> {
         "tcp" => Ok(MonitorKind::Tcp),
         "dns" => Ok(MonitorKind::Dns),
         "heartbeat" => Ok(MonitorKind::Heartbeat),
+        "flow" => Ok(MonitorKind::Flow),
         other => Err(format!("unsupported monitor kind in database: {other}").into()),
     }
 }
@@ -291,12 +294,27 @@ fn operator_from_db(value: &str) -> RepoResult<AssertionOperator> {
     }
 }
 
-#[async_trait]
-impl MonitorRepository for PostgresMonitorRepository {
-    async fn save(&self, monitor: &Monitor) -> RepoResult<()> {
+impl PostgresMonitorRepository {
+    /// Inserts (or, on a primary-key conflict, fully replaces) `monitor`
+    /// and its assertions, within an already-open transaction.
+    ///
+    /// Factored out of `save` so that both the plain `save` path and the
+    /// new `save_if_within_quota` path (see below) share this exact SQL
+    /// instead of it being duplicated — `save_if_within_quota` needs to
+    /// run the same insert logic but only after an in-transaction quota
+    /// check, inside the same transaction so the check and the write are
+    /// atomic together.
+    ///
+    /// NOTE (observed, not touched — out of B13's scope): this INSERT's
+    /// column list does not include `is_public`, even though `MonitorRow`
+    /// carries it and `MONITOR_COLUMNS`/`SELECT` reads it back. That
+    /// predates this worker and is unrelated to quota atomicity; flagging
+    /// only so it isn't mistaken for something this change introduced.
+    async fn insert_or_replace(
+        tx: &mut Transaction<'_, Postgres>,
+        monitor: &Monitor,
+    ) -> RepoResult<()> {
         let row = MonitorRow::from_domain(monitor)?;
-
-        let mut tx = self.pool.begin().await?;
 
         sqlx::query(
             r#"
@@ -373,7 +391,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         .bind(row.last_heartbeat_at)
         .bind(row.created_at)
         .bind(row.updated_at)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         sqlx::query(
@@ -383,7 +401,7 @@ impl MonitorRepository for PostgresMonitorRepository {
             "#,
         )
         .bind(monitor.id.0)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         for (position, assertion) in monitor.assertions.iter().enumerate() {
@@ -412,12 +430,20 @@ impl MonitorRepository for PostgresMonitorRepository {
             .bind(&assertion.expected_value)
             .bind(assertion.created_at)
             .bind(assertion.updated_at)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
 
-        tx.commit().await?;
+        Ok(())
+    }
+}
 
+#[async_trait]
+impl MonitorRepository for PostgresMonitorRepository {
+    async fn save(&self, monitor: &Monitor) -> RepoResult<()> {
+        let mut tx = self.pool.begin().await?;
+        Self::insert_or_replace(&mut tx, monitor).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -718,5 +744,110 @@ impl MonitorRepository for PostgresMonitorRepository {
             .await?;
 
         Ok(())
+    }
+
+    /// Atomically increments/resets `consecutive_failures` and
+    /// `consecutive_successes` for `id` based on `success`, in a single
+    /// `UPDATE ... RETURNING` statement.
+    ///
+    /// A single UPDATE is inherently row-locked by Postgres for its
+    /// duration, so two concurrent calls for the same `id` (e.g. two
+    /// worker replicas racing to process results for the same monitor)
+    /// serialize at the database level: each sees the correctly
+    /// up-to-date prior value, never a stale read. No advisory lock or
+    /// explicit transaction is needed here — unlike
+    /// `save_if_within_quota` above, there is no separate check-then-act
+    /// step; the read and write are the same statement.
+    async fn record_check_outcome(&self, id: MonitorId, success: bool) -> RepoResult<(u32, u32)> {
+        let row: (i32, i32) = sqlx::query_as(
+            r#"
+            UPDATE monitors
+            SET
+                consecutive_failures = CASE WHEN $2 THEN 0 ELSE consecutive_failures + 1 END,
+                consecutive_successes = CASE WHEN $2 THEN consecutive_successes + 1 ELSE 0 END,
+                updated_at = now()
+            WHERE id = $1
+            RETURNING consecutive_failures, consecutive_successes
+            "#,
+        )
+        .bind(id.0)
+        .bind(success)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok((row.0 as u32, row.1 as u32))
+    }
+
+    /// Atomic quota-checked create — see the trait doc comment and this
+    /// crate's `MonitorRepository` port for the contract.
+    ///
+    /// # Why an advisory lock, not `SELECT ... FOR UPDATE`
+    ///
+    /// `SELECT COUNT(*) ... FOR UPDATE` only takes row locks on rows that
+    /// currently match the `WHERE` clause. It does **not** block a
+    /// concurrent transaction from `INSERT`ing a brand-new row for the
+    /// same tenant — there is no existing row to lock against a row that
+    /// doesn't exist yet ("phantom read" territory). Two transactions can
+    /// both run the `FOR UPDATE` count, both see e.g. 9 out of a limit of
+    /// 10, and both proceed to insert — ending at 11.
+    ///
+    /// A `pg_advisory_xact_lock` avoids this: it's not a row lock at all,
+    /// it's a lock on an arbitrary application-chosen key, held for the
+    /// duration of the transaction and automatically released on
+    /// `COMMIT` or `ROLLBACK` (including an implicit rollback from the
+    /// `Transaction` being dropped without a `commit()`, e.g. on an early
+    /// `return` or a `?`-propagated error). Taking this lock first
+    /// serializes every `save_if_within_quota` call for the same tenant,
+    /// so the `COUNT` that follows is guaranteed not to be invalidated by
+    /// a concurrent insert before this transaction commits.
+    ///
+    /// # Reusable pattern for future resource types
+    ///
+    /// The lock key is namespaced as `"{resource_table}:{tenant_id}"`
+    /// (here `"monitors:{tenant_id}"`) rather than just `tenant_id`, so
+    /// that quota checks for different resource types (status pages, API
+    /// keys, ...) don't serialize against each other unnecessarily — only
+    /// concurrent creates of the *same* resource type for the *same*
+    /// tenant contend for the same lock. Future workers adding quota
+    /// enforcement for another resource should follow this exact
+    /// four-step shape inside one transaction:
+    ///   1. `SELECT pg_advisory_xact_lock(hashtext($1)::bigint)` with key
+    ///      `"{table}:{tenant_id}"`
+    ///   2. `SELECT COUNT(*) FROM {table} WHERE tenant_id = $1`
+    ///   3. compare against the entitlement-resolved limit; if at/over,
+    ///      return early (drop the transaction — automatic rollback) and
+    ///      report `QuotaCheckOutcome::QuotaExceeded` — no partial writes
+    ///   4. otherwise perform the insert inside the same transaction,
+    ///      then `commit()`
+    async fn save_if_within_quota(
+        &self,
+        monitor: &Monitor,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("monitors:{}", tenant_id.0))
+            .execute(&mut *tx)
+            .await?;
+
+        let current_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM monitors WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if current_count as u32 >= limit {
+            // `tx` is dropped here without `commit()`, which sqlx turns
+            // into an automatic ROLLBACK — releasing the advisory lock
+            // and guaranteeing no partial write happened.
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        Self::insert_or_replace(&mut tx, monitor).await?;
+        tx.commit().await?;
+
+        Ok(QuotaCheckOutcome::Saved)
     }
 }

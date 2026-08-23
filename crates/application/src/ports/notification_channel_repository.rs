@@ -67,7 +67,10 @@ pub trait NotificationChannelRepository: Send + Sync {
     /// that authorize the result themselves against the caller's tenant
     /// (e.g. via `AuthorizationPolicy::same_tenant`) instead of the
     /// single-owner `find_by_id_for_user` check.
-    async fn find_by_id(&self, _id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+    async fn find_by_id(
+        &self,
+        _id: NotificationChannelId,
+    ) -> RepoResult<Option<NotificationChannel>> {
         unimplemented!()
     }
 
@@ -132,7 +135,10 @@ where
         (**self).list_enabled_by_monitor(monitor_id).await
     }
 
-    async fn find_by_id(&self, id: NotificationChannelId) -> RepoResult<Option<NotificationChannel>> {
+    async fn find_by_id(
+        &self,
+        id: NotificationChannelId,
+    ) -> RepoResult<Option<NotificationChannel>> {
         (**self).find_by_id(id).await
     }
 

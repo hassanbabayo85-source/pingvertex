@@ -21,3 +21,16 @@ pub trait SecretCipher: Send + Sync {
     fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError>;
     fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError>;
 }
+
+impl<T> SecretCipher for std::sync::Arc<T>
+where
+    T: SecretCipher + ?Sized,
+{
+    fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        (**self).encrypt_bytes(plaintext)
+    }
+
+    fn decrypt_bytes(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
+        (**self).decrypt_bytes(ciphertext)
+    }
+}

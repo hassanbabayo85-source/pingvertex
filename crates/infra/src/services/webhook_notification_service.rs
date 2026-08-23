@@ -12,27 +12,10 @@ use tracing::warn;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Per-attempt network timeout. Keeps one slow/hanging third-party
-/// endpoint from tying up a worker task indefinitely.
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(8);
-
-/// Total attempts (1 initial + up to 2 retries) for a transient failure
-/// (network error, non-2xx response, timeout).
 const WEBHOOK_MAX_ATTEMPTS: u32 = 3;
-
-/// Base for exponential backoff between retries: 500ms, then 1000ms.
 const WEBHOOK_BACKOFF_BASE_MS: u64 = 500;
 
-/// Sends monitor lifecycle notifications as signed HTTP POST requests to a
-/// user-supplied URL — the mechanism that lets someone wire this project up
-/// to Slack/Discord/PagerDuty/their own endpoint via an incoming webhook.
-///
-/// Holds the shared `SecretCipher` (same AES-256-GCM cipher used for
-/// Telegram bot tokens / SMS credentials) so it can decrypt
-/// `channel.encrypted_secret` at send time — new channels persist the HMAC
-/// signing secret encrypted at rest rather than in the plaintext
-/// `signing_secret` column (see `CreateNotificationChannelUseCase`). Cheap
-/// to construct and safe to share across the whole app behind one `Arc`.
 #[derive(Clone)]
 pub struct WebhookNotificationService {
     cipher: std::sync::Arc<dyn application::ports::SecretCipher>,
@@ -43,13 +26,6 @@ impl WebhookNotificationService {
         Self { cipher }
     }
 
-    /// Resolves the plaintext HMAC signing secret for a webhook channel.
-    ///
-    /// Prefers the encrypted secret (new channels, and any legacy channel
-    /// that has since been rotated). Falls back to the legacy plaintext
-    /// `signing_secret` column so channels created before encryption was
-    /// added keep working without a forced migration — rotating a channel
-    /// (delete + recreate) moves it onto encrypted storage.
     fn resolve_secret(&self, channel: &NotificationChannel) -> Result<String, String> {
         if let Some(encrypted) = channel.encrypted_secret.as_ref() {
             let bytes = self
@@ -139,7 +115,7 @@ impl NotificationService for WebhookNotificationService {
                 Ok(()) => return Ok(()),
                 Err(err) => {
                     warn!(
-                        url = %channel.target,
+                        channel_id = %channel.id.0,
                         attempt = attempt + 1,
                         max_attempts = WEBHOOK_MAX_ATTEMPTS,
                         error = %err,
@@ -159,12 +135,7 @@ impl NotificationService for WebhookNotificationService {
 ///
 /// Re-resolves and re-validates the destination via `shared::ssrf` on
 /// EVERY call — including every retry — never just once up front. This is
-/// what closes the DNS-rebinding gap: a URL that resolved to a public IP
-/// when the channel was created (or on a previous retry) could have its
-/// DNS record repointed at an internal address by the time this call
-/// fires. Re-checking on every attempt, using the same
-/// `resolve_and_validate_destination` the worker's monitor checker uses,
-/// means that repointed address is caught here too, not just once.
+/// what closes the DNS-rebinding gap.
 async fn send_once(
     url: &str,
     body: &[u8],
@@ -195,4 +166,23 @@ async fn send_once(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SSRF guard must reject a private-IP webhook URL before any network
+    /// call is made. The error message must not include the signing secret.
+    #[tokio::test]
+    async fn send_once_rejects_private_ip_without_revealing_signature() {
+        let secret = "whsec_test_secret_do_not_leak";
+
+        let result = send_once("http://127.0.0.1:8080/status", b"{}", secret).await;
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("SSRF blocked"));
+        assert!(!err_msg.contains(secret));
+    }
 }

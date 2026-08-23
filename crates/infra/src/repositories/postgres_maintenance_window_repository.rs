@@ -4,7 +4,7 @@ use application::ports::MaintenanceWindowRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::MaintenanceWindow;
-use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId, UserId};
+use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -84,69 +84,6 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
         .await?;
 
         Ok(())
-    }
-
-    async fn delete_for_user(&self, id: MaintenanceWindowId, user_id: UserId) -> RepoResult<bool> {
-        let result = sqlx::query(
-            "DELETE FROM maintenance_windows \
-             WHERE id = $1 AND monitor_id IN (SELECT id FROM monitors WHERE user_id = $2)",
-        )
-        .bind(id.0)
-        .bind(user_id.0)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn find_by_id_for_user(
-        &self,
-        id: MaintenanceWindowId,
-        user_id: UserId,
-    ) -> RepoResult<Option<MaintenanceWindow>> {
-        let row = sqlx::query_as::<_, MaintenanceWindowRow>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM maintenance_windows \
-             WHERE id = $1 AND monitor_id IN (SELECT id FROM monitors WHERE id = maintenance_windows.monitor_id AND user_id = $2)"
-        ))
-        .bind(id.0)
-        .bind(user_id.0)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(MaintenanceWindowRow::into_domain))
-    }
-
-    async fn list_by_monitor_for_user(
-        &self,
-        monitor_id: MonitorId,
-        user_id: UserId,
-    ) -> RepoResult<Option<Vec<MaintenanceWindow>>> {
-        let owns_monitor: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM monitors WHERE id = $1 AND user_id = $2)",
-        )
-        .bind(monitor_id.0)
-        .bind(user_id.0)
-        .fetch_one(&self.pool)
-        .await?;
-
-        if !owns_monitor {
-            return Ok(None);
-        }
-
-        let rows = sqlx::query_as::<_, MaintenanceWindowRow>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM maintenance_windows \
-             WHERE monitor_id = $1 ORDER BY starts_at DESC"
-        ))
-        .bind(monitor_id.0)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let windows = rows
-            .into_iter()
-            .map(MaintenanceWindowRow::into_domain)
-            .collect::<Vec<_>>();
-
-        Ok(Some(windows))
     }
 
     async fn list_active_by_monitor(

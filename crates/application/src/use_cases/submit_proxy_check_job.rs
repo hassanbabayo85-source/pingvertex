@@ -3,6 +3,7 @@ use std::{error::Error, fmt, sync::Arc};
 use chrono::Utc;
 use serde_json::json;
 
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::{
     dto::CreateProxyCheckJobRequest,
     ports::{AuditLogEntryRepository, IdGenerator, ProxyCheckJobRepository},
@@ -86,24 +87,6 @@ where
             ));
         }
 
-        let existing_jobs = self
-            .repository
-            .find_jobs_by_user_id(user_id)
-            .await
-            .map_err(SubmitProxyCheckJobError::RepoError)?;
-
-        let today = Utc::now().date_naive();
-        let jobs_submitted_today = existing_jobs
-            .iter()
-            .filter(|job| job.created_at().date_naive() == today)
-            .count();
-
-        if jobs_submitted_today >= MAX_JOBS_PER_USER_PER_DAY {
-            return Err(SubmitProxyCheckJobError::QuotaExceeded {
-                limit: MAX_JOBS_PER_USER_PER_DAY,
-            });
-        }
-
         let job_id = self.id_generator.next_proxy_check_job_id().await;
 
         let total_count = u32::try_from(request.entries.len())
@@ -147,10 +130,20 @@ where
             entries.push(entry);
         }
 
-        self.repository
-            .save_job(&job, &entries)
+        let outcome = self
+            .repository
+            .save_job_if_within_quota(&job, &entries, user_id, MAX_JOBS_PER_USER_PER_DAY)
             .await
             .map_err(SubmitProxyCheckJobError::RepoError)?;
+
+        match outcome {
+            QuotaCheckOutcome::QuotaExceeded => {
+                return Err(SubmitProxyCheckJobError::QuotaExceeded {
+                    limit: MAX_JOBS_PER_USER_PER_DAY,
+                });
+            }
+            QuotaCheckOutcome::Saved => {}
+        }
 
         let entry = AuditLogEntry {
             id: AuditLogEntryId::new(),

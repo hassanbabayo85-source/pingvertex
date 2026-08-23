@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Extension, Multipart, Path, State},
     Json,
+    extract::{Extension, Multipart, Path, State},
 };
 use tracing::info;
 

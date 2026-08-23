@@ -1,4 +1,5 @@
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{Json, extract::State, response::IntoResponse};
+use chrono::Utc;
 use tracing::info;
 
 use crate::{handlers::types::PublicMonitorResponse, state::AppState};
@@ -18,6 +19,7 @@ pub async fn get_public_status(State(state): State<AppState>) -> impl IntoRespon
         .unwrap_or_default();
 
     let mut responses = Vec::with_capacity(monitors.len());
+    let now = Utc::now();
 
     for monitor in monitors {
         let checks = state
@@ -32,8 +34,17 @@ pub async fn get_public_status(State(state): State<AppState>) -> impl IntoRespon
             .await
             .unwrap_or_default();
 
+        let maintenance_windows = state
+            .maintenance_window_repository
+            .list_active_by_monitor(monitor.id, now)
+            .await
+            .unwrap_or_default();
+
         responses.push(PublicMonitorResponse::from_parts(
-            monitor, &checks, &incidents,
+            monitor,
+            &checks,
+            &incidents,
+            &maintenance_windows,
         ));
     }
 

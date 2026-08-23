@@ -15,7 +15,9 @@ use domain::{
     MonitorBuilder, MonitorName, RegionCode, Timeout, Url, User,
 };
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
@@ -104,7 +106,7 @@ impl CheckRepository for MockCheckRepository {
         &self,
         _limit: u32,
         _offset: u32,
-        _user_id: UserId,
+        _user_id: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -262,8 +264,11 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         _token: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(domain::UserId::from_uuid(uuid::Uuid::nil()))
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(application::ports::VerifiedToken {
+            user_id: domain::UserId::from_uuid(uuid::Uuid::nil()),
+            issued_at: 0,
+        })
     }
 }
 
@@ -309,7 +314,9 @@ async fn build_test_app(
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     (build_test_router(state, auth_state), check_repo)

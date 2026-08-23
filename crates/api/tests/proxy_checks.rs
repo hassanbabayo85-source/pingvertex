@@ -4,12 +4,14 @@ use application::ports::{PasswordHasher, TokenService, UserRepository};
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::Body;
-use axum::http::{header::CONTENT_TYPE, Request, StatusCode};
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
+use axum::http::{Request, StatusCode, header::CONTENT_TYPE};
 use domain::User;
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, Incident};
 use infra::InMemoryAuditLogEntryRepository;
+use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
+use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
@@ -58,7 +60,7 @@ impl CheckRepository for MockCheckRepository {
         &self,
         _: u32,
         _: u32,
-        _: UserId,
+        _: TenantId,
     ) -> Result<Vec<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(vec![])
     }
@@ -207,8 +209,11 @@ impl TokenService for NoopTokenService {
     async fn verify(
         &self,
         _: &str,
-    ) -> Result<domain::UserId, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(domain::UserId::from_uuid(uuid::Uuid::nil()))
+    ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(application::ports::VerifiedToken {
+            user_id: domain::UserId::from_uuid(uuid::Uuid::nil()),
+            issued_at: 0,
+        })
     }
 }
 
@@ -238,7 +243,9 @@ fn build_test_app() -> axum::Router {
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
+        InMemoryTenantRepository::new(),
         InMemoryTenantMembershipRepository::new(),
+        InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)

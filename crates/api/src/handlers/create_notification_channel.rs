@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::{Extension, Path, State},
     http::StatusCode,
-    Json,
 };
 use std::sync::Arc;
 use tracing::info;

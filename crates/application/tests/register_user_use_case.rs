@@ -1,10 +1,10 @@
 use std::error::Error;
 
 use application::dto::RegisterRequest;
-use application::ports::UserRepository;
+use application::ports::{RegistrationTransaction, UserRepository};
 use application::use_cases::RegisterUserUseCase;
 use async_trait::async_trait;
-use domain::{Email, User, UserId, Username};
+use domain::{Email, Tenant, TenantMembership, User, UserId, Username};
 use infra::{Argon2PasswordHasher, JsonWebTokenService, UuidIdGenerator};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -52,6 +52,24 @@ impl UserRepository for MockUserRepository {
     }
 }
 
+/// Test-only no-op implementation of the fifth generic parameter required
+/// by `RegisterUserUseCase`. Application-level tests cannot depend on
+/// `infra`'s concrete repositories, so we define a local stand-in here.
+#[derive(Clone, Default)]
+struct MockRegistrationTransaction;
+
+#[async_trait]
+impl RegistrationTransaction for MockRegistrationTransaction {
+    async fn register_user_with_tenant(
+        &self,
+        _user: &User,
+        _tenant: &Tenant,
+        _membership: &TenantMembership,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
 fn make_use_case(
     email_exists: bool,
     username_exists: bool,
@@ -60,6 +78,7 @@ fn make_use_case(
     UuidIdGenerator,
     Argon2PasswordHasher,
     JsonWebTokenService,
+    MockRegistrationTransaction,
 > {
     RegisterUserUseCase::new(
         MockUserRepository {
@@ -69,6 +88,7 @@ fn make_use_case(
         UuidIdGenerator::new(),
         Argon2PasswordHasher,
         JsonWebTokenService::new("test-secret"),
+        MockRegistrationTransaction,
     )
 }
 
@@ -100,8 +120,6 @@ async fn email_and_username_collisions_produce_identical_error_message() {
         "registration failed: email or username already in use"
     );
 
-    // Neither message should leak which field collided:
-    // both must be exactly the same generic message.
     assert_eq!(
         email_err.to_string(),
         "registration failed: email or username already in use"

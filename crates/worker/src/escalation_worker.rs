@@ -77,7 +77,7 @@ impl EscalationWorker {
 
         let policy = match self
             .escalation_policy_repository
-            .find_effective(monitor.id, monitor.user_id)
+            .find_effective(monitor.id, monitor.tenant_id)
             .await?
         {
             Some(p) => p,
@@ -139,7 +139,39 @@ impl EscalationWorker {
 
         let channel = channel.unwrap();
 
-        // Send escalation notification (reusing MonitorDown event).
+        // B28 — Atomically claim this escalation step BEFORE sending
+        // anything. This is what actually prevents duplicate escalation
+        // under concurrent processing: two overlapping sweeps (multiple
+        // worker replicas, or overlapping sweeps within one process) may
+        // both reach this point having observed the same
+        // `escalation_step_index`, but only one of them can win the
+        // conditional UPDATE inside `try_claim_escalation_step` (a
+        // compare-and-swap on `escalation_step_index`, guarded by
+        // `resolved_at IS NULL AND acknowledged_at IS NULL` so
+        // acknowledgement/resolution racing in also correctly blocks the
+        // claim). This mirrors `IncidentManager::open_if_needed`'s
+        // save-then-notify-only-if-created pattern (B23) and the
+        // notification outbox's claim-before-send pattern (B25).
+        let claimed = self
+            .incident_repository
+            .try_claim_escalation_step(incident, now)
+            .await?;
+
+        if !claimed {
+            debug!(
+                incident_id = %incident.id.0,
+                step_index = step_index,
+                "escalation step already claimed by another process; skipping"
+            );
+            return Ok(());
+        }
+
+        // Send escalation notification (reusing MonitorDown event). The
+        // step is already claimed at this point — a send failure here is
+        // logged but does NOT retry this step; the incident has moved on
+        // to the next step index, exactly like `IncidentManager` never
+        // rolls back a persisted incident because a downstream
+        // notification failed.
         if let Err(err) = self
             .notification_service
             .notify(channel, &NotificationEvent::MonitorDown(monitor.clone()))
@@ -149,7 +181,7 @@ impl EscalationWorker {
                 incident_id = %incident.id.0,
                 channel_id = %channel.id.0,
                 error = %err,
-                "failed to send escalation notification"
+                "failed to send escalation notification (step already claimed; will not retry this step)"
             );
             return Ok(());
         }
@@ -160,12 +192,6 @@ impl EscalationWorker {
             channel_id = %channel.id.0,
             "sent escalation notification"
         );
-
-        // Advance escalation progress
-        incident.escalation_step_index = step_index as u32 + 1;
-        incident.last_escalation_at = Some(now);
-        incident.updated_at = now;
-        self.incident_repository.update(incident).await?;
 
         Ok(())
     }

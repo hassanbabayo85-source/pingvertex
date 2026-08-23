@@ -1,14 +1,37 @@
 use std::error::Error;
 
 use application::dto::LoginRequest;
-use application::ports::{PasswordHasher, UserRepository};
+use application::ports::{
+    PasswordHasher, PendingAuthCache, PendingAuthCacheResult, UserRepository,
+};
 use application::use_cases::LoginUserUseCase;
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::{Email, PasswordHash, User, UserBuilder, UserId, UserRole, UserStatus, Username};
-use infra::{Argon2PasswordHasher, JsonWebTokenService};
+use infra::{Argon2PasswordHasher, JsonWebTokenService, UuidIdGenerator};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// In-memory `PendingAuthCache` test double — the real
+/// `RedisPendingAuthCache` needs an actual Redis instance, which these
+/// unit tests have no business depending on.
+#[derive(Clone, Default)]
+struct InMemoryPendingAuthCache;
+
+#[async_trait]
+impl PendingAuthCache for InMemoryPendingAuthCache {
+    async fn get(&self, _key: &str) -> PendingAuthCacheResult<Option<String>> {
+        Ok(None)
+    }
+
+    async fn set(&self, _key: &str, _value: &str, _ttl_seconds: u64) -> PendingAuthCacheResult<()> {
+        Ok(())
+    }
+
+    async fn delete(&self, _key: &str) -> PendingAuthCacheResult<()> {
+        Ok(())
+    }
+}
 
 /// Test double for `UserRepository` whose `find_by_email` response is
 /// configured per test, so we can force either the "no such user" path or
@@ -80,11 +103,19 @@ async fn make_active_user(email: &str, password: &str) -> User {
 
 fn make_use_case(
     user: Option<User>,
-) -> LoginUserUseCase<MockUserRepository, Argon2PasswordHasher, JsonWebTokenService> {
+) -> LoginUserUseCase<
+    MockUserRepository,
+    Argon2PasswordHasher,
+    JsonWebTokenService,
+    UuidIdGenerator,
+    InMemoryPendingAuthCache,
+> {
     LoginUserUseCase::new(
         MockUserRepository { user },
         Argon2PasswordHasher,
         JsonWebTokenService::new("test-secret"),
+        UuidIdGenerator,
+        InMemoryPendingAuthCache,
     )
 }
 

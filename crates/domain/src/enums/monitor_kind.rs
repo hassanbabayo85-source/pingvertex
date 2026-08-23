@@ -8,4 +8,10 @@ pub enum MonitorKind {
     Tcp,
     Dns,
     Heartbeat,
+    /// A multi-step API flow (see `domain::entities::ApiFlow`, keyed by this
+    /// monitor's id via `ApiFlow::monitor_id`). The `Monitor` itself carries
+    /// no flow-specific fields — all step configuration lives in the
+    /// separate `ApiFlow`/`ApiFlowStep` aggregate, fetched at check time by
+    /// `worker::FlowCheckExecutor` via `ApiFlowRepository::find_by_monitor_id`.
+    Flow,
 }
