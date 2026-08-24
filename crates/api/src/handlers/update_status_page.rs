@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Extension, Path, State},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 use application::{
     commands::UpdateStatusPage,
@@ -58,6 +58,21 @@ pub async fn update_status_page(
             }
         })?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;
+
+    // B34: previously never invalidated — a status page's cached public
+    // response (see `handlers::public_status_page::render_public_status_page`)
+    // would keep serving stale monitor selection / name / logo / color
+    // for up to the cache's full 45s TTL after every edit. Best-effort,
+    // same as every other cache call site: a failure here must not fail
+    // the request that already succeeded above.
+    let cache_key = format!("status_page:id:{}", status_page.id.0);
+    if let Err(err) = state.status_page_cache.invalidate(&cache_key).await {
+        warn!(
+            status_page_id = %status_page.id.0,
+            error = %err,
+            "failed to invalidate cached status page after update"
+        );
+    }
 
     Ok(Json(StatusPageResponse::from(status_page)))
 }

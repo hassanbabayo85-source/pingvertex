@@ -668,7 +668,7 @@ mod tests {
     use domain::shared::ids::{TenantId, UserId};
     use domain::value_objects::ProxyHost;
     use infra::{InMemoryProxyCheckJobRepository, UuidIdGenerator};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr};
     use tokio::net::TcpListener;
 
     #[tokio::test]

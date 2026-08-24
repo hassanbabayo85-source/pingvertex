@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use application::ports::DiagnosticReportRepository;
@@ -105,5 +106,43 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
         .await?;
 
         Ok(row.map(DiagnosticReportRow::into_domain))
+    }
+
+    /// B35: single-batch load for a page of checks. Replaces the default
+    /// one-query-per-check loop and removes the N+1 hit on
+    /// `GET /api/v1/checks` and `GET /api/v1/monitors/{id}/checks`.
+    async fn find_by_check_ids(
+        &self,
+        check_ids: &[CheckId],
+    ) -> RepoResult<HashMap<CheckId, DiagnosticReport>> {
+        if check_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let ids: Vec<Uuid> = check_ids.iter().map(|id| id.0).collect();
+
+        let rows = sqlx::query_as::<_, DiagnosticReportRow>(
+            r#"
+            SELECT
+                id,
+                check_id,
+                steps,
+                root_cause_summary,
+                created_at
+            FROM diagnostic_reports
+            WHERE check_id = ANY($1)
+            "#,
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut reports = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let report = row.into_domain();
+            reports.insert(report.check_result_id, report);
+        }
+
+        Ok(reports)
     }
 }

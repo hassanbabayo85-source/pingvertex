@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use domain::RegionCode;
 use domain::shared::ids::{CheckId, MonitorId};
-use sqlx::{FromRow, PgPool};
+use domain::{Check, CheckStatus};
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,55 @@ pub struct PostgresAgentLeaseRepository {
 impl PostgresAgentLeaseRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    async fn insert_check(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        check: &Check,
+    ) -> RepoResult<()> {
+        let status: i16 = if matches!(check.status, CheckStatus::Up) {
+            1
+        } else {
+            0
+        };
+        let error_type = format!("{:?}", check.error_type);
+
+        sqlx::query(
+            r#"
+            INSERT INTO checks (
+                id,
+                monitor_id,
+                region,
+                status,
+                http_status,
+                response_time_ms,
+                error_type,
+                error_message,
+                checked_at,
+                cert_expires_at,
+                cert_days_remaining,
+                country_code
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+        )
+        .bind(check.id.0)
+        .bind(check.monitor_id.0)
+        .bind(check.region.to_string())
+        .bind(status)
+        .bind(check.status_code.map(i32::from))
+        .bind(check.latency_ms as i64)
+        .bind(error_type)
+        .bind(check.error_message.clone())
+        .bind(check.checked_at)
+        .bind(check.cert_expires_at)
+        .bind(check.cert_days_remaining)
+        .bind(check.country_code.clone())
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -126,13 +176,14 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         Ok(claimed)
     }
 
-    async fn submit_result(
+    async fn submit_result_with_check(
         &self,
         agent_id: &str,
         check_id: CheckId,
         monitor_id: MonitorId,
         region: &RegionCode,
         now: DateTime<Utc>,
+        check: &Check,
     ) -> RepoResult<SubmitAgentResultOutcome> {
         let mut tx = self.pool.begin().await?;
 
@@ -157,6 +208,7 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         .await?;
 
         if updated.rows_affected() == 1 {
+            self.insert_check(&mut tx, check).await?;
             tx.commit().await?;
             return Ok(SubmitAgentResultOutcome::Accepted);
         }

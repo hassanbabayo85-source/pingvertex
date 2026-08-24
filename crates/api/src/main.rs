@@ -23,14 +23,14 @@ use infra::{
     PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
     PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDiagnosticReportRepository,
     PostgresEmailVerificationTokenRepository, PostgresEscalationPolicyRepository,
-    PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
-    PostgresNotificationChannelRepository, PostgresProxyCheckJobRepository,
-    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository,
-    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
-    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisStatusPageCache,
-    S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
-    UuidIdGenerator, create_pool,
+    PostgresHealthCheck, PostgresIncidentRepository, PostgresMaintenanceWindowRepository,
+    PostgresMonitorRepository, PostgresNotificationChannelRepository,
+    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
+    PostgresResetPasswordTokenRepository, PostgresStatusPageRepository,
+    PostgresSubscriptionRepository, PostgresTenantInvitationRepository,
+    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUserRepository,
+    RedisPendingAuthCache, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
+    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -136,7 +136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool.clone(),
     ))
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
-    .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()));
+    .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
+    // B34 — Public Endpoint Security & Efficiency: backs `GET /ready`
+    // with a real DB reachability check instead of the always-healthy
+    // `NoopHealthCheckPort` default.
+    .with_health_check_port(PostgresHealthCheck::new(pool.clone()));
 
     let app_state = match billing_config.webhook_secret {
         Some(secret) => app_state.with_billing_webhook_secret(secret),
@@ -238,15 +242,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let plain_listener = tokio::net::TcpListener::bind(plain_addr).await?;
 
+    // B38: graceful shutdown — stop accepting new plain-HTTP connections
+    // on SIGTERM/Ctrl+C and let in-flight requests finish instead of
+    // being killed mid-request. Pairs with `stop_grace_period: 30s` on
+    // the `api` service in docker-compose.prod.yml.
     let plain_server = axum::serve(
         plain_listener,
         plain_app.into_make_service_with_connect_info::<SocketAddr>(),
-    );
+    )
+    .with_graceful_shutdown(shutdown_signal());
 
     let mtls_acceptor = MtlsAcceptor::new(RustlsAcceptor::new(mtls_config));
 
+    // B38: same idea for the mTLS listener, via axum-server's `Handle`
+    // (axum::serve's `with_graceful_shutdown` isn't available on
+    // axum-server's builder). Agents mid-check get up to 25s to finish
+    // before the listener stops.
+    let mtls_handle = axum_server::Handle::new();
+    let shutdown_handle = mtls_handle.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        tracing::info!("shutdown signal received, draining mTLS listener");
+        shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(25)));
+    });
+
     let mtls_server = axum_server::bind(mtls_addr)
         .acceptor(mtls_acceptor)
+        .handle(mtls_handle)
         .serve(internal_agent_app.into_make_service());
 
     tokio::try_join!(
@@ -262,5 +284,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
 
+    tracing::info!("api shut down cleanly");
+
     Ok(())
+}
+
+/// B38: resolves on SIGTERM (the signal Docker/systemd send on `stop`)
+/// or Ctrl+C (SIGINT, for local `cargo run`), letting both listeners
+/// above stop accepting new connections and drain in-flight requests
+/// instead of being killed mid-request.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }

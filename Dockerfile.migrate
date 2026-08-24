@@ -1,0 +1,37 @@
+# B38: production migration image. Replaces the base docker-compose.yml
+# `migrate` service's dev-time `/usr/local/cargo/bin/cargo install sqlx-cli` (which recompiles
+# sqlx-cli from source on every deploy) with a small pre-built image —
+# faster, reproducible, and no Rust toolchain needed in the deploy path.
+# Only used via docker-compose.prod.yml's `migrate` service override; the
+# base docker-compose.yml's dev `migrate` service is untouched.
+FROM rust:1.89-slim AS builder
+USER root
+ENV PATH="/usr/local/cargo/bin:$PATH"
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN /usr/local/cargo/bin/cargo install sqlx-cli --version 0.8.3 --no-default-features --features postgres
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+COPY migrations ./migrations
+
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+USER appuser
+
+ENTRYPOINT ["sqlx"]
+CMD ["migrate", "run", "--source", "migrations"]

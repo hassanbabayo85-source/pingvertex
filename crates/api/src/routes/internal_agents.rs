@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use application::ports::IdGenerator;
-use application::ports::SubmitAgentResultOutcome;
+use application::ports::{IdGenerator, SubmitAgentResultOutcome};
 use axum::{
     Json, Router,
     extract::{Extension, Path, State},
@@ -121,33 +120,10 @@ async fn submit_result(
     let region =
         RegionCode::new(payload.region).map_err(|err| ApiError::bad_request(err.to_string()))?;
 
-    if let Some(lease_repo) = &state.agent_lease_repository {
-        let outcome = lease_repo
-            .submit_result(
-                &agent_id,
-                CheckId(payload.check_id),
-                MonitorId(payload.monitor_id),
-                &region,
-                Utc::now(),
-            )
-            .await
-            .map_err(|err| ApiError::internal_with_source("failed to validate agent lease", err))?;
-
-        match outcome {
-            SubmitAgentResultOutcome::Accepted => {}
-            SubmitAgentResultOutcome::Duplicate => return Ok(StatusCode::ACCEPTED),
-            SubmitAgentResultOutcome::Stale => {
-                return Err(ApiError::Conflict(
-                    "stale or reassigned agent check lease".into(),
-                ));
-            }
-        }
-    }
-
     let check = Check::new(
         CheckId(payload.check_id),
         MonitorId(payload.monitor_id),
-        region,
+        region.clone(),
         if payload.success {
             CheckStatus::Up
         } else {
@@ -164,9 +140,33 @@ async fn submit_result(
     )
     .with_country_code(payload.country_code);
 
-    state.check_repository.save(&check).await.map_err(|err| {
-        ApiError::internal_with_source("failed to persist agent check result", err)
-    })?;
+    if let Some(lease_repo) = &state.agent_lease_repository {
+        let outcome = lease_repo
+            .submit_result_with_check(
+                &agent_id,
+                CheckId(payload.check_id),
+                MonitorId(payload.monitor_id),
+                &region,
+                Utc::now(),
+                &check,
+            )
+            .await
+            .map_err(|err| ApiError::internal_with_source("failed to validate agent lease", err))?;
+
+        match outcome {
+            SubmitAgentResultOutcome::Accepted => {}
+            SubmitAgentResultOutcome::Duplicate => return Ok(StatusCode::ACCEPTED),
+            SubmitAgentResultOutcome::Stale => {
+                return Err(ApiError::Conflict(
+                    "stale or reassigned agent check lease".into(),
+                ));
+            }
+        }
+    } else {
+        state.check_repository.save(&check).await.map_err(|err| {
+            ApiError::internal_with_source("failed to persist agent check result", err)
+        })?;
+    }
 
     Ok(StatusCode::ACCEPTED)
 }

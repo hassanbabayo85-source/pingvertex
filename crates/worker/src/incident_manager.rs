@@ -2,17 +2,25 @@ use std::{error::Error, sync::Arc};
 
 use application::ports::{
     IdGenerator, IncidentRepository, MaintenanceWindowRepository, NotificationChannelRepository,
-    NotificationService,
+    NotificationOutboxRepository, NotificationService, PUBLIC_STATUS_LIST_CACHE_KEY,
+    StatusPageCache, StatusPageRepository,
 };
 use async_trait::async_trait;
-use domain::shared::ids::MonitorId;
-use domain::{Incident, MaintenanceWindow, Monitor, notification::NotificationEvent};
-use tracing::{error, info};
+use domain::shared::ids::{IncidentId, MonitorId};
+use domain::{
+    Incident, MaintenanceWindow, Monitor, NotificationOutboxEntry, NotificationOutboxEntryId,
+    NotificationOutboxEventKind, notification::NotificationEvent,
+};
+use tracing::{error, info, warn};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Handles opening and closing incidents, and notifying a monitor's
-/// notification channels when either happens.
+#[derive(Clone)]
+struct StatusPageInvalidation {
+    status_page_repository: Arc<dyn StatusPageRepository>,
+    status_page_cache: Arc<dyn StatusPageCache>,
+}
+
 #[derive(Clone)]
 pub struct IncidentManager {
     repository: Arc<dyn IncidentRepository>,
@@ -20,6 +28,8 @@ pub struct IncidentManager {
     notification_channel_repository: Arc<dyn NotificationChannelRepository>,
     notification_service: Arc<dyn NotificationService>,
     maintenance_window_repository: Arc<dyn MaintenanceWindowRepository>,
+    status_page_invalidation: Option<StatusPageInvalidation>,
+    notification_outbox_repository: Option<Arc<dyn NotificationOutboxRepository>>,
 }
 
 #[derive(Clone)]
@@ -69,13 +79,31 @@ impl IncidentManager {
             notification_channel_repository,
             notification_service,
             maintenance_window_repository,
+            status_page_invalidation: None,
+            notification_outbox_repository: None,
         }
     }
 
-    /// Yana buɗe wani sabon incident ga `monitor` idan babu wani open
-    /// incident a halin yanzu. Idan akwai active maintenance window a
-    /// lokacin, incident ɗin zai kasance mara notification (silent) kuma
-    /// flagged `occurred_during_maintenance = true`.
+    pub fn with_status_page_cache_invalidation(
+        mut self,
+        status_page_repository: Arc<dyn StatusPageRepository>,
+        status_page_cache: Arc<dyn StatusPageCache>,
+    ) -> Self {
+        self.status_page_invalidation = Some(StatusPageInvalidation {
+            status_page_repository,
+            status_page_cache,
+        });
+        self
+    }
+
+    pub fn with_notification_outbox(
+        mut self,
+        notification_outbox_repository: Arc<dyn NotificationOutboxRepository>,
+    ) -> Self {
+        self.notification_outbox_repository = Some(notification_outbox_repository);
+        self
+    }
+
     pub async fn open_if_needed(&self, monitor: &Monitor) -> Result<()> {
         let existing = self.repository.find_open_by_monitor(monitor.id).await?;
 
@@ -83,7 +111,6 @@ impl IncidentManager {
             let mut incident =
                 Incident::new(self.id_generator.next_incident_id().await, monitor.id);
 
-            // Check maintenance windows
             let now = chrono::Utc::now();
             let active_windows = self
                 .maintenance_window_repository
@@ -105,10 +132,15 @@ impl IncidentManager {
                     "incident opened"
                 );
 
-                // Kada a tura notification idan muna cikin maintenance window.
+                self.invalidate_status_pages_for(monitor).await;
+
                 if !in_maintenance {
-                    self.notify_channels(monitor, NotificationEvent::MonitorDown(monitor.clone()))
-                        .await;
+                    self.notify_channels(
+                        monitor,
+                        NotificationEvent::MonitorDown(monitor.clone()),
+                        incident.id,
+                    )
+                    .await;
                 }
             }
         }
@@ -128,9 +160,12 @@ impl IncidentManager {
                     "incident resolved"
                 );
 
+                self.invalidate_status_pages_for(monitor).await;
+
                 self.notify_channels(
                     monitor,
                     NotificationEvent::MonitorRecovered(monitor.clone()),
+                    incident.id,
                 )
                 .await;
             }
@@ -139,23 +174,69 @@ impl IncidentManager {
         Ok(())
     }
 
-    /// Advances the open incident's `last_seen_at` for `monitor`, if one
-    /// exists. Called by `IncidentEvaluator` (B23) on every observed
-    /// failure while the monitor's incident stays open, so `last_seen_at`
-    /// always reflects the most recent evidence the underlying problem is
-    /// ongoing. A no-op if there is no open incident — enforced by the
-    /// repository's `WHERE resolved_at IS NULL` guard, not fetched-then-
-    /// checked here, so this never races with a concurrent resolution.
+    async fn invalidate_status_pages_for(&self, monitor: &Monitor) {
+        let Some(invalidation) = &self.status_page_invalidation else {
+            return;
+        };
+
+        match invalidation
+            .status_page_repository
+            .find_all_referencing_monitor(monitor.id)
+            .await
+        {
+            Ok(status_pages) => {
+                for status_page in status_pages {
+                    let cache_key = format!("status_page:id:{}", status_page.id.0);
+                    if let Err(err) = invalidation.status_page_cache.invalidate(&cache_key).await {
+                        warn!(
+                            monitor_id = %monitor.id.0,
+                            status_page_id = %status_page.id.0,
+                            error = %err,
+                            "failed to invalidate cached status page after incident change"
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                warn!(
+                    monitor_id = %monitor.id.0,
+                    error = %err,
+                    "failed to look up status pages referencing monitor for cache invalidation"
+                );
+            }
+        }
+
+        if let Err(err) = invalidation
+            .status_page_cache
+            .invalidate(PUBLIC_STATUS_LIST_CACHE_KEY)
+            .await
+        {
+            warn!(
+                monitor_id = %monitor.id.0,
+                error = %err,
+                "failed to invalidate cached public status list after incident change"
+            );
+        }
+    }
+
     pub async fn touch_last_seen_if_open(&self, monitor: &Monitor) -> Result<()> {
         self.repository
             .touch_last_seen(monitor.id, chrono::Utc::now())
             .await
     }
 
-    /// Sends `event` to every enabled notification channel configured for
-    /// `monitor`. Deliberately never returns an error and is always called
-    /// AFTER the incident itself has already been saved/updated above.
-    async fn notify_channels(&self, monitor: &Monitor, event: NotificationEvent) {
+    async fn notify_channels(
+        &self,
+        monitor: &Monitor,
+        event: NotificationEvent,
+        incident_id: IncidentId,
+    ) {
+        if let Some(outbox) = &self.notification_outbox_repository {
+            self.enqueue_outbox_notifications(outbox, monitor, event, incident_id)
+                .await;
+            return;
+        }
+
         let channels = match self
             .notification_channel_repository
             .list_enabled_by_monitor(monitor.id)
@@ -179,6 +260,76 @@ impl IncidentManager {
                     channel_id = %channel.id.0,
                     error = %err,
                     "failed to send notification"
+                );
+            }
+        }
+    }
+
+    async fn enqueue_outbox_notifications(
+        &self,
+        outbox: &Arc<dyn NotificationOutboxRepository>,
+        monitor: &Monitor,
+        event: NotificationEvent,
+        incident_id: IncidentId,
+    ) {
+        let event_kind = match event {
+            NotificationEvent::MonitorDown(_) => NotificationOutboxEventKind::MonitorDown,
+            NotificationEvent::MonitorRecovered(_) => NotificationOutboxEventKind::MonitorRecovered,
+            NotificationEvent::Test(_) => NotificationOutboxEventKind::Test,
+        };
+
+        let payload = match serde_json::to_string(monitor) {
+            Ok(payload) => payload,
+            Err(err) => {
+                error!(
+                    monitor_id = %monitor.id.0,
+                    error = %err,
+                    "failed to serialize monitor for notification outbox"
+                );
+                return;
+            }
+        };
+
+        let channels = match self
+            .notification_channel_repository
+            .list_enabled_by_monitor(monitor.id)
+            .await
+        {
+            Ok(channels) => channels,
+            Err(err) => {
+                error!(
+                    monitor_id = %monitor.id.0,
+                    error = %err,
+                    "failed to load notification channels for outbox"
+                );
+                return;
+            }
+        };
+
+        for channel in channels {
+            let idempotency_key = format!(
+                "incident:{}:{}:{}",
+                incident_id.0,
+                channel.id.0,
+                event_kind.as_str()
+            );
+
+            let entry = NotificationOutboxEntry::new(
+                NotificationOutboxEntryId::new(),
+                channel.id,
+                event_kind,
+                payload.clone(),
+                idempotency_key,
+                chrono::Utc::now(),
+            );
+
+            if let Err(err) = outbox.enqueue(&entry).await {
+                error!(
+                    monitor_id = %monitor.id.0,
+                    channel_id = %channel.id.0,
+                    incident_id = %incident_id.0,
+                    error = %err,
+                    "failed to enqueue incident notification"
                 );
             }
         }

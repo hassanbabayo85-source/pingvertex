@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use application::ports::ApiFlowRepository;
@@ -25,6 +26,9 @@ impl PostgresApiFlowRepository {
 
     /// Loads the steps (and their assertions) for an already-fetched
     /// `api_flows` row and assembles the full `ApiFlow` aggregate.
+    ///
+    /// B35: loads all step assertions in one `ANY($1)` query instead of
+    /// one query per step, removing the N+1 pattern this method had.
     async fn build_flow(&self, row: ApiFlowRow) -> RepoResult<ApiFlow> {
         let step_rows = sqlx::query_as::<_, ApiFlowStepRow>(
             r#"
@@ -49,33 +53,46 @@ impl PostgresApiFlowRepository {
         .fetch_all(&self.pool)
         .await?;
 
+        if step_rows.is_empty() {
+            return row.into_domain(Vec::new());
+        }
+
+        let step_ids: Vec<Uuid> = step_rows.iter().map(|step| step.id).collect();
+
+        let assertion_rows = sqlx::query_as::<_, FlowStepAssertionRow>(
+            r#"
+            SELECT
+                id,
+                api_flow_step_id,
+                position,
+                response_part,
+                operator,
+                target,
+                expected_value,
+                created_at,
+                updated_at
+            FROM monitor_assertions
+            WHERE api_flow_step_id = ANY($1)
+            ORDER BY api_flow_step_id, position ASC
+            "#,
+        )
+        .bind(&step_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut assertions_by_step: HashMap<Uuid, Vec<Assertion>> = HashMap::new();
+        for assertion_row in assertion_rows {
+            let step_id = assertion_row.api_flow_step_id;
+            let domain_assertion = assertion_row.into_domain()?;
+            assertions_by_step
+                .entry(step_id)
+                .or_default()
+                .push(domain_assertion);
+        }
+
         let mut steps = Vec::with_capacity(step_rows.len());
         for step_row in step_rows {
-            let assertion_rows = sqlx::query_as::<_, FlowStepAssertionRow>(
-                r#"
-                SELECT
-                    id,
-                    position,
-                    response_part,
-                    operator,
-                    target,
-                    expected_value,
-                    created_at,
-                    updated_at
-                FROM monitor_assertions
-                WHERE api_flow_step_id = $1
-                ORDER BY position ASC
-                "#,
-            )
-            .bind(step_row.id)
-            .fetch_all(&self.pool)
-            .await?;
-
-            let assertions = assertion_rows
-                .into_iter()
-                .map(FlowStepAssertionRow::into_domain)
-                .collect::<RepoResult<Vec<_>>>()?;
-
+            let assertions = assertions_by_step.remove(&step_row.id).unwrap_or_default();
             steps.push(step_row.into_domain(assertions)?);
         }
 
@@ -159,6 +176,9 @@ impl ApiFlowStepRow {
 #[derive(Debug, Clone, FromRow)]
 struct FlowStepAssertionRow {
     id: Uuid,
+    /// Loaded from the database so sqlx can map the query result.
+    /// Used for grouping assertions by step in `build_flow`.
+    api_flow_step_id: Uuid,
     /// Loaded from the database so sqlx can map the query result.
     /// Ordering is handled by SQL (ORDER BY position), so this field is not read.
     #[expect(dead_code)]

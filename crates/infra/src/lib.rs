@@ -4,8 +4,11 @@ pub mod repositories;
 pub mod s3_config;
 pub mod services;
 pub mod twilio_config;
+// B34 — Public Endpoint Security & Efficiency: readiness-endpoint DB check.
+pub mod postgres_health_check;
 pub use config::{NotificationConfigError, SmtpConfig};
 pub use db::create_pool;
+pub use postgres_health_check::PostgresHealthCheck;
 pub use repositories::postgres_diagnostic_report_repository::PostgresDiagnosticReportRepository;
 pub use repositories::*;
 pub use s3_config::{S3Config, S3ConfigError};

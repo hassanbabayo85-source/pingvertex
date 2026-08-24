@@ -22,9 +22,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   migrate:
-    image: rust:1.89-slim
     container_name: uptime-monitor-migrate
     working_dir: /app
     depends_on:
@@ -61,7 +62,16 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
       RUST_LOG: info
     ports:
-      - "3000:3000"
+      # B38: plain-HTTP port bound to localhost only, same reasoning as
+      # postgres/prometheus/grafana/alertmanager below — this is now
+      # reached through the `caddy` reverse proxy in
+      # docker-compose.prod.yml (public 80/443) or an SSH tunnel for
+      # local debugging, never directly from the network. The mTLS port
+      # (3443) stays published on every interface below: that listener
+      # is internet-facing BY DESIGN, since remote monitoring agents
+      # connect to it directly (see crates/api/src/mtls.rs) and every
+      # connection requires a valid client certificate.
+      - "127.0.0.1:3000:3000"
       - "3443:3443"
 
   worker:
@@ -89,7 +99,14 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
       RUST_LOG: info
     ports:
-      - "3001:3001"
+      # B38: bound to localhost only — Prometheus scrapes this over the
+      # internal Compose network regardless of host port publishing;
+      # this binding only controls host-machine/network reachability.
+      # Unlike the api's /metrics, this endpoint has no bearer-token
+      # check of its own (see this worker's HANDOVER.md "Known Risks"),
+      # so keeping it off the public interface is the only thing making
+      # it "private" right now.
+      - "127.0.0.1:3001:3001"
 
 
   prometheus:
@@ -155,3 +172,6 @@ services:
     environment:
       AGENT_API_BASE_URL: https://api:3443/internal/v1
       RUST_LOG: info
+
+volumes:
+  postgres_data:
