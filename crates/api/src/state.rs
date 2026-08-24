@@ -6,11 +6,11 @@ use application::ports::{
     AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
     BillingAuditLogRepository, BillingWebhookIdempotencyRepository, CheckRepository,
     CheckoutDetails, CheckoutRequest, CheckoutSessionRepository, CustomDomainVerifier,
-    DiagnosticReportRepository, EscalationPolicyRepository, IncidentRepository, LogoStorage,
-    MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    NotificationService, PasswordHasher, PaymentProvider, PaymentVerification,
-    ProxyCheckJobRepository, SecretCipher, StatusPageCache, StatusPageRepository,
-    SubscriptionRepository,
+    DiagnosticReportRepository, EscalationPolicyRepository, HealthCheckPort, HealthCheckResult,
+    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorRepository,
+    NotificationChannelRepository, NotificationService, PasswordHasher, PaymentProvider,
+    PaymentVerification, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
+    StatusPageRepository, SubscriptionRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -60,6 +60,10 @@ pub struct AppState {
     pub billing_webhook_idempotency_repository: Arc<dyn BillingWebhookIdempotencyRepository>,
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
+    /// B34: backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
+    /// healthy) until `with_health_check_port` substitutes a real check —
+    /// see `main.rs`, which wires `infra::PostgresHealthCheck`.
+    pub health_check_port: Arc<dyn HealthCheckPort>,
 }
 
 /// Default `ApiKeyRepository` used until a real one is substituted in.
@@ -198,6 +202,13 @@ impl StatusPageRepository for NoopStatusPageRepository {
     async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
         Ok(vec![])
     }
+
+    async fn find_all_referencing_monitor(
+        &self,
+        _monitor_id: MonitorId,
+    ) -> RepoResult<Vec<StatusPage>> {
+        Ok(vec![])
+    }
 }
 
 #[derive(Clone, Default)]
@@ -224,6 +235,20 @@ impl StatusPageCache for NoopStatusPageCache {
     }
 
     async fn invalidate(&self, _key: &str) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
+/// B34: default `HealthCheckPort` used until `with_health_check_port`
+/// substitutes a real one. Always reports healthy — matches the pattern
+/// every other Noop* default in this file follows (safe placeholder,
+/// never the production path once `main.rs` wires the real dependency).
+#[derive(Clone, Default)]
+pub struct NoopHealthCheckPort;
+
+#[async_trait]
+impl HealthCheckPort for NoopHealthCheckPort {
+    async fn check(&self) -> HealthCheckResult<()> {
         Ok(())
     }
 }
@@ -358,6 +383,7 @@ impl AppState {
             ),
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             agent_lease_repository: None,
+            health_check_port: Arc::new(NoopHealthCheckPort),
         }
     }
 
@@ -426,6 +452,7 @@ impl AppState {
             ),
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             agent_lease_repository: None,
+            health_check_port: Arc::new(NoopHealthCheckPort),
         }
     }
 
@@ -497,6 +524,17 @@ impl AppState {
         R: AgentLeaseRepository + 'static,
     {
         self.agent_lease_repository = Some(Arc::new(agent_lease_repository));
+        self
+    }
+
+    /// B34: substitutes a real `HealthCheckPort` (see
+    /// `infra::PostgresHealthCheck`) in place of the always-healthy
+    /// `NoopHealthCheckPort` default, backing `GET /ready`.
+    pub fn with_health_check_port<H>(mut self, health_check_port: H) -> Self
+    where
+        H: HealthCheckPort + 'static,
+    {
+        self.health_check_port = Arc::new(health_check_port);
         self
     }
 }

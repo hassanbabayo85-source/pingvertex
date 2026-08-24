@@ -329,7 +329,7 @@ fn submit_request(check_id: uuid::Uuid, monitor_id: uuid::Uuid) -> Request<Body>
 }
 
 #[tokio::test]
-async fn stale_result_for_expired_lease_is_rejected() {
+async fn stale_result_for_expired_lease_is_rejected_and_does_not_save_check() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
     let check_id = CheckId::new();
     let monitor_id = monitor.id;
@@ -344,14 +344,14 @@ async fn stale_result_for_expired_lease_is_rejected() {
         None,
     );
 
-    let (app, check_repo) = build_app_with_lease_repo(monitor, lease_repo).await;
+    let (app, _check_repo) = build_app_with_lease_repo(monitor, lease_repo.clone()).await;
     let response = app
         .oneshot(submit_request(check_id.0, monitor_id.0))
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CONFLICT);
-    assert_eq!(check_repo.save_count(), 0);
+    assert_eq!(lease_repo.saved_check_count(), 0);
 }
 
 #[tokio::test]
@@ -370,12 +370,38 @@ async fn duplicate_result_for_completed_lease_is_idempotent_and_does_not_save_ch
         Some(Utc::now()),
     );
 
-    let (app, check_repo) = build_app_with_lease_repo(monitor, lease_repo).await;
+    let (app, _check_repo) = build_app_with_lease_repo(monitor, lease_repo.clone()).await;
     let response = app
         .oneshot(submit_request(check_id.0, monitor_id.0))
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
-    assert_eq!(check_repo.save_count(), 0);
+    assert_eq!(lease_repo.saved_check_count(), 0);
+}
+
+#[tokio::test]
+async fn accepted_result_saves_check_exactly_once_through_lease_repository() {
+    let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
+    let check_id = CheckId::new();
+    let monitor_id = monitor.id;
+
+    let lease_repo = Arc::new(InMemoryAgentLeaseRepository::new());
+    lease_repo.seed_lease(
+        check_id,
+        monitor_id,
+        RegionCode::new("us-east").unwrap(),
+        "agent-1",
+        Utc::now() + Duration::seconds(60),
+        None,
+    );
+
+    let (app, _check_repo) = build_app_with_lease_repo(monitor, lease_repo.clone()).await;
+    let response = app
+        .oneshot(submit_request(check_id.0, monitor_id.0))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(lease_repo.saved_check_count(), 1);
 }

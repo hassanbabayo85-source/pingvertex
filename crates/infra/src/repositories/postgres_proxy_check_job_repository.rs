@@ -52,9 +52,6 @@ fn proxy_scheme_from_db(value: &str) -> RepoResult<ProxyScheme> {
     }
 }
 
-//
-// proxy_check_jobs table row
-//
 #[derive(Debug, Clone, FromRow)]
 struct ProxyCheckJobRow {
     id: Uuid,
@@ -86,9 +83,6 @@ impl ProxyCheckJobRow {
     }
 }
 
-//
-// proxy_entries table row
-//
 #[derive(Debug, Clone, FromRow)]
 struct ProxyEntryRow {
     id: Uuid,
@@ -101,13 +95,6 @@ struct ProxyEntryRow {
 }
 
 impl ProxyEntryRow {
-    /// Converts this row into a domain `ProxyEntry`, decrypting
-    /// `encrypted_credentials` (if present) via `cipher`.
-    ///
-    /// SECURITY: the decrypted `ProxyCredentials` only ever lives in the
-    /// returned `ProxyEntry` in memory — it is never logged, and
-    /// `ProxyCredentials`'s own hand-written `Debug` impl redacts the
-    /// password even if something downstream does log the entry.
     fn into_domain(self, cipher: &Arc<dyn ProxyCredentialCipher>) -> RepoResult<ProxyEntry> {
         let host = ProxyHost::new(self.host)?;
         let port: u16 = self.port.try_into()?;
@@ -133,27 +120,6 @@ impl ProxyEntryRow {
     }
 }
 
-/// PostgreSQL-backed repository for `ProxyCheckJob` and its `ProxyEntry`
-/// children.
-///
-/// # Why this repository owns a cipher
-///
-/// `ProxyEntry::credentials()` holds *plaintext* `ProxyCredentials`, but
-/// the `proxy_entries.encrypted_credentials` column (migration 0020) is
-/// `BYTEA` — ciphertext only, by design (see the SECURITY note on that
-/// column). Something has to perform that encryption before the INSERT
-/// happens (and decryption on the way back out), and
-/// `ProxyCheckJobRepository`'s methods (as defined in
-/// `application::ports`) do not thread a cipher through as a parameter —
-/// nor does any composition-root wiring for this repository exist yet to
-/// suggest an alternative. Given Clean Architecture (infra implements a
-/// contract application/domain own, and *how* encryption happens is
-/// explicitly an infra decision per `ProxyCredentialCipher`'s own doc
-/// comment), the most faithful choice available at this layer is for
-/// this repository to hold the cipher itself and encrypt/decrypt
-/// immediately at the persistence boundary. If a future prompt wires
-/// this differently (e.g. encryption pushed up into an application-layer
-/// use case instead), this field can be removed then.
 pub struct PostgresProxyCheckJobRepository {
     pool: PgPool,
     cipher: Arc<dyn ProxyCredentialCipher>,
@@ -164,9 +130,6 @@ impl PostgresProxyCheckJobRepository {
         Self { pool, cipher }
     }
 
-    /// Inserts `job` and all of `entries` into an already-open
-    /// transaction. Shared by `save_job` and `save_job_if_within_quota`
-    /// so the same SQL is used for both paths.
     async fn insert_job_and_entries(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -203,19 +166,12 @@ impl PostgresProxyCheckJobRepository {
         .await?;
 
         for entry in entries {
-            // SECURITY: credentials are encrypted here, immediately
-            // before the INSERT, and never bound/logged in plaintext.
-            // `ProxyCredentialCipherError` implements `std::error::Error`,
-            // so `?` converts it into this function's `RepoResult` error
-            // type without any credential material passing through a
-            // format string.
             let encrypted_credentials: Option<Vec<u8>> = match entry.credentials() {
                 Some(credentials) => Some(self.cipher.encrypt(credentials)?.as_bytes().to_vec()),
                 None => None,
             };
 
             let result_json = entry.result().map(serde_json::to_value).transpose()?;
-
             let port: i32 = i32::from(entry.port());
 
             sqlx::query(
@@ -249,10 +205,6 @@ impl PostgresProxyCheckJobRepository {
 
 impl std::fmt::Debug for PostgresProxyCheckJobRepository {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Manual impl (rather than `#[derive(Debug)]`): `dyn
-        // ProxyCredentialCipher` does not implement `Debug` (it isn't a
-        // supertrait), and even if it did, this repository should never
-        // print anything about the cipher/key it holds.
         f.debug_struct("PostgresProxyCheckJobRepository").finish()
     }
 }
@@ -275,10 +227,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         Ok(())
     }
 
-    /// Atomic quota-checked create for proxy-check jobs. Uses the same
-    /// advisory-lock pattern as `PostgresMonitorRepository::save_if_within_quota`
-    /// (B13), but counts jobs created today by the same user rather than
-    /// all tenant rows.
     async fn save_job_if_within_quota(
         &self,
         job: &ProxyCheckJob,
@@ -306,9 +254,6 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         .await?;
 
         if current_count as usize >= limit {
-            // `tx` is dropped here without `commit()`, which sqlx turns
-            // into an automatic ROLLBACK — releasing the advisory lock
-            // and guaranteeing no partial write happened.
             return Ok(QuotaCheckOutcome::QuotaExceeded);
         }
 
@@ -318,10 +263,23 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         Ok(QuotaCheckOutcome::Saved)
     }
 
-    /// Persists an update to the job's own status/progress fields only —
-    /// entries are updated independently via `update_entry`. A
-    /// single-statement UPDATE needs no explicit transaction: it is
-    /// already atomic.
+    async fn try_mark_running(&self, id: ProxyCheckJobId) -> RepoResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE proxy_check_jobs
+            SET status = 'running',
+                completed_at = NULL
+            WHERE id = $1
+              AND status = 'pending'
+            "#,
+        )
+        .bind(id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {
         let checked_count: i32 = job.checked_count().try_into()?;
 
@@ -356,11 +314,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        let Some(row) = row else {
-            return Ok(None);
-        };
-
-        Ok(Some(row.into_domain()?))
+        row.map(ProxyCheckJobRow::into_domain).transpose()
     }
 
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>> {

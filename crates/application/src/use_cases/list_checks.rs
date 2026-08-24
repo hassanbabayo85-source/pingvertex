@@ -66,15 +66,19 @@ impl ListChecksUseCase {
             .list_checks_filtered(limit, offset, tenant_id, filters)
             .await?;
 
+        // B35: load all diagnostic reports in one batch, not one-by-one.
+        let check_ids: Vec<_> = checks.iter().map(|check| check.id).collect();
+        let diagnostic_reports = self
+            .diagnostic_report_repository
+            .find_by_check_ids(&check_ids)
+            .await?;
+
         let mut result = Vec::with_capacity(checks.len());
         for check in checks {
-            let report = self
-                .diagnostic_report_repository
-                .find_by_check_id(check.id)
-                .await?;
+            let diagnostic_report = diagnostic_reports.get(&check.id).cloned();
             result.push(CheckWithDiagnosticReport {
                 check,
-                diagnostic_report: report,
+                diagnostic_report,
             });
         }
 

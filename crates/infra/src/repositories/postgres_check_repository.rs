@@ -11,6 +11,16 @@ use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// B34: hard ceiling on `list_by_monitor`'s unfiltered result set. This
+/// endpoint has no caller-supplied limit/offset (unlike
+/// `list_by_monitor_paginated`), and is reachable from the unauthenticated
+/// public status endpoints (`get_public_status`, `public_status_page`),
+/// so it must never be allowed to scan/return a monitor's entire check
+/// history. 1000 most-recent checks is far more than any of its current
+/// callers (latest-check + uptime-percentage calculation, multi-region
+/// incident evaluation) need.
+const LIST_BY_MONITOR_LIMIT: i64 = 1000;
+
 #[derive(Debug, Clone)]
 pub struct PostgresCheckRepository {
     pool: PgPool,
@@ -171,6 +181,11 @@ impl CheckRepository for PostgresCheckRepository {
         }
     }
 
+    /// B34: now bounded by `LIST_BY_MONITOR_LIMIT` (most-recent-first) —
+    /// see the constant's doc comment. Previously unbounded, which meant
+    /// a monitor with a long check history caused every call site
+    /// (including the unauthenticated public status endpoints) to scan
+    /// and materialize its ENTIRE history on every request.
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Check>> {
         let rows = sqlx::query_as::<_, CheckRow>(
             r#"
@@ -190,9 +205,11 @@ impl CheckRepository for PostgresCheckRepository {
             FROM checks
             WHERE monitor_id = $1
             ORDER BY checked_at DESC
+            LIMIT $2
             "#,
         )
         .bind(monitor_id.0)
+        .bind(LIST_BY_MONITOR_LIMIT)
         .fetch_all(&self.pool)
         .await?;
 

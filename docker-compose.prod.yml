@@ -1,40 +1,177 @@
 # Production override for docker-compose.yml.
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# What this changes vs. the base file:
+# Requires Docker Compose v2 (the `docker compose` plugin, not the
+# legacy standalone `docker-compose` v1 binary) — `deploy.resources.limits`
+# below is only honored outside Swarm mode by Compose v2.
 #
-#   1. POSTGRES_PASSWORD and GF_SECURITY_ADMIN_PASSWORD no longer fall back
-#      to a dev default ("postgres" / "admin") — Compose refuses to start
-#      if they aren't set in the environment/.env, instead of silently
-#      booting with a credential every scanner tries first.
+# What this file adds/changes vs. docker-compose.yml, on top of the
+# password-fail-closed overrides already here:
 #
-# The base file already binds postgres/prometheus/grafana/alertmanager to
-# 127.0.0.1 only (not 0.0.0.0), so those ports are not reachable from the
-# network in either dev or prod — this override does not need to touch
-# `ports:` (Compose concatenates list-type fields like `ports` across
-# files rather than replacing them, so a port published in the base file
-# can't be un-published from an override anyway). If you need to reach
-# Grafana/Prometheus/pgAdmin remotely in production, do it through an SSH
-# tunnel or a VPN onto the host — never by publishing these ports wider.
+#   1. Resource limits (deploy.resources.limits) for every service — see
+#      "Resource baselines" in HANDOVER.md. These are conservative
+#      STARTING points, not measured production numbers: B38 could not
+#      run/profile the app directly (no shell access to the actual
+#      codebase — see this worker's INSPECTING THE CODEBASE protocol).
+#      Run the app under real/synthetic load, capture `docker stats`
+#      output, and report it back so these can be tightened or loosened.
+#
+#   2. Log rotation (x-logging) for every service, so container logs
+#      can't fill the host disk unbounded.
+#
+#   3. Docker-level HEALTHCHECK wiring via `depends_on: condition:
+#      service_healthy`, using the HEALTHCHECK baked into
+#      Dockerfile.api / Dockerfile.worker (GET /health — liveness, B34).
+#
+#   4. `migrate` now builds from Dockerfile.migrate (pre-built sqlx-cli
+#      image) instead of the base file's `cargo install sqlx-cli` at
+#      every deploy — faster and fully reproducible for production. Note:
+#      the base file's `- .:/app` bind mount on `migrate` still applies
+#      here too (Compose concatenates list-type fields like `volumes`
+#      across files rather than letting an override remove entries —
+#      same limitation already documented for `ports` below). It's
+#      harmless: Dockerfile.migrate's image never reads from /app.
+#
+#   5. A `caddy` reverse-proxy service: the ONLY service that publishes
+#      ports to the public internet (80/443) other than the api's mTLS
+#      listener (3443, published in the base file — internet-facing BY
+#      DESIGN). Caddy terminates public HTTPS (automatic Let's Encrypt
+#      certs) and reverse-proxies to `api:3000` over the internal
+#      Compose network — api's plain port and worker's metrics port are
+#      bound to 127.0.0.1 in docker-compose.yml precisely so they are
+#      reachable ONLY through Caddy or a local SSH tunnel.
+#
+#      Set PINGVERTEX_DOMAIN in .env to your real public domain before
+#      going live (defaults to the placeholder api.example.com — see
+#      ./Caddyfile). FUTURE FRONTEND ATTACH POINT: see ./Caddyfile —
+#      once the FRONTEND TRACK replaces apps/dashboard with the
+#      Rust+Leptos frontend, that service attaches to Caddy alongside
+#      `api`, without redoing this reverse-proxy/TLS layer.
+#
+# Backups: see scripts/backup.sh and scripts/restore.sh — NOT a compose
+# service; run via host cron/systemd timer against the private
+# 127.0.0.1:5433 Postgres port (sample systemd timer in
+# deploy/systemd/). See HANDOVER.md for exact commands.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production — no insecure default here}
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
 
   migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    command: ["migrate", "run", "--source", "migrations"]
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+    logging: *default-logging
 
   api:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+    logging: *default-logging
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
   worker:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+    logging: *default-logging
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  agent:
+    logging: *default-logging
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  prometheus:
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
 
   grafana:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set for production — no insecure default here}
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  alertmanager:
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: uptime-monitor-caddy
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - PINGVERTEX_DOMAIN=${PINGVERTEX_DOMAIN:-api.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+
+volumes:
+  caddy_data:
+  caddy_config:

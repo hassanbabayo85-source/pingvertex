@@ -18,6 +18,7 @@ FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -44,5 +45,13 @@ USER appuser
 
 EXPOSE 3000
 EXPOSE 3443
+
+# B38: liveness check — GET /health (zero-dependency, see
+# crates/api/src/handlers/health.rs). Docker restarts the container on
+# repeated failure; compose's `healthcheck:` override in
+# docker-compose.prod.yml also gates `depends_on: condition:
+# service_healthy` for worker/caddy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://localhost:3000/health || exit 1
 
 CMD ["api"]

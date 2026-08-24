@@ -105,6 +105,24 @@ pub async fn billing_webhook(
 /// (or `X-Webhook-Signature` with the same format). The HMAC secret is
 /// supplied separately so this function is easy to unit-test without
 /// constructing a full `AppState`.
+///
+/// SEC (B37 backend security audit): this used to compute the expected
+/// signature as a hex `String` and compare it against the caller-supplied
+/// header with `!=`. `String`/`&str` inequality short-circuits on the
+/// first differing byte, which leaks timing information proportional to
+/// how many leading bytes of the signature an attacker has correctly
+/// guessed — a classic timing side-channel that lets a remote attacker
+/// forge a valid signature byte-by-byte without ever knowing
+/// `BILLING_WEBHOOK_SECRET`, since `POST /api/v1/billing/webhook` is
+/// otherwise unauthenticated by design (signature verification IS the
+/// authentication). This is the exact bug class `api::metrics::constant_time_eq`
+/// was already introduced to close for `METRICS_TOKEN`; this handler had
+/// never been brought up to that same standard.
+///
+/// Fixed by decoding the expected hex signature to raw bytes and using
+/// `hmac::Mac::verify_slice`, which performs a constant-time comparison
+/// internally (backed by the `subtle` crate) instead of a variable-time
+/// string comparison.
 pub fn verify_signature(secret: &str, headers: &HeaderMap, body: &[u8]) -> Result<(), ApiError> {
     let signature_header = headers
         .get("x-billing-signature")
@@ -116,14 +134,16 @@ pub fn verify_signature(secret: &str, headers: &HeaderMap, body: &[u8]) -> Resul
         .strip_prefix("sha256=")
         .ok_or_else(|| ApiError::unauthorized("invalid billing webhook signature format"))?;
 
+    let expected_bytes = hex::decode(expected_hex)
+        .map_err(|_| ApiError::unauthorized("invalid billing webhook signature format"))?;
+
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|_| ApiError::internal("failed to initialize billing webhook verifier"))?;
     mac.update(body);
-    let actual_hex = hex::encode(mac.finalize().into_bytes());
 
-    if actual_hex != expected_hex {
-        return Err(ApiError::unauthorized("invalid billing webhook signature"));
-    }
+    // Constant-time comparison — see doc comment above.
+    mac.verify_slice(&expected_bytes)
+        .map_err(|_| ApiError::unauthorized("invalid billing webhook signature"))?;
 
     Ok(())
 }
@@ -167,6 +187,42 @@ mod tests {
     fn malformed_signature_header_is_rejected() {
         let mut headers = HeaderMap::new();
         headers.insert("x-billing-signature", "not-a-valid-format".parse().unwrap());
+
+        assert!(verify_signature("secret", &headers, b"{}").is_err());
+    }
+
+    /// SEC regression: a non-hex signature value must be rejected as a
+    /// format error (via `hex::decode` failing), not accepted or panic —
+    /// this is the new failure path introduced by decoding to bytes
+    /// before comparison.
+    #[test]
+    fn non_hex_signature_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-billing-signature",
+            "sha256=not-hex-at-all!!".parse().unwrap(),
+        );
+
+        assert!(verify_signature("secret", &headers, b"{}").is_err());
+    }
+
+    /// SEC regression: a same-length but byte-wise-different signature
+    /// (the case a naive `!=` string compare would also catch, but where
+    /// the constant-time path must still correctly reject it) is rejected.
+    #[test]
+    fn same_length_wrong_signature_is_rejected() {
+        let correct = sign("secret", b"{}");
+        let correct_hex = correct.strip_prefix("sha256=").unwrap();
+        // Flip the first hex character while preserving length.
+        let mut chars: Vec<char> = correct_hex.chars().collect();
+        chars[0] = if chars[0] == '0' { '1' } else { '0' };
+        let tampered: String = chars.into_iter().collect();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-billing-signature",
+            format!("sha256={tampered}").parse().unwrap(),
+        );
 
         assert!(verify_signature("secret", &headers, b"{}").is_err());
     }

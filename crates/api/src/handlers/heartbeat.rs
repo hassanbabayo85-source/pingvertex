@@ -6,6 +6,7 @@ use axum::{
     http::StatusCode,
 };
 use chrono::Utc;
+use domain::value_objects::HeartbeatToken;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
@@ -38,18 +39,37 @@ const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
 /// SECURITY: never returns any monitor details (name, URL, owner, etc.) —
 /// only a generic acknowledgement — since this endpoint is unauthenticated
 /// and reachable by anyone who has (or guesses/leaks) a token.
+///
+/// B34: the raw path segment is validated as a well-formed
+/// `HeartbeatToken` BEFORE it is ever used as a key into the in-memory
+/// rate-limit map. Previously, any arbitrary string reaching this handler
+/// — including garbage that could never match a real monitor — was
+/// inserted into `HeartbeatRateLimiter` first, and only rejected by the
+/// DB lookup afterwards. Since that map is never pruned (see its doc
+/// comment) and is keyed by the raw path string, an attacker could grow
+/// it without bound by requesting a large number of distinct nonsense
+/// paths — a memory-exhaustion vector on an unauthenticated endpoint,
+/// independent of (and not mitigated by) the IP-based `GovernorLayer` on
+/// `public::router()`, since a distributed/rotating-IP attacker is not
+/// slowed by a per-IP limit. Rejecting malformed tokens before the map
+/// insert closes this: only strings shaped like a real token (UUID or
+/// 32-char lowercase hex — see `HeartbeatToken::new`) can ever occupy a
+/// slot, and the number of distinct VALID tokens is bounded by how many
+/// heartbeat monitors actually exist.
 pub async fn record_heartbeat(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
-    if !check_and_record_rate_limit(&state.heartbeat_rate_limiter, &token).await {
+    let token = HeartbeatToken::new(&token).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    if !check_and_record_rate_limit(&state.heartbeat_rate_limiter, token.as_str()).await {
         warn!("heartbeat rate limit exceeded for a token");
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
     let monitor = match state
         .monitor_repository
-        .find_by_heartbeat_token(&token)
+        .find_by_heartbeat_token(token.as_str())
         .await
     {
         Ok(Some(monitor)) => monitor,
@@ -87,9 +107,11 @@ pub async fn record_heartbeat(
 ///
 /// NOTE: the map is never pruned of stale/inactive tokens. This is bounded
 /// in practice by the number of Heartbeat monitors that have EVER pinged
-/// this server (one entry per distinct token), which is a small, slowly-
-/// growing set compared to raw request volume — acceptable for now, but a
-/// candidate for a periodic sweep if it ever becomes a concern.
+/// this server (one entry per distinct token) AND, as of B34, only ever
+/// receives entries for well-formed tokens (see `record_heartbeat`'s doc
+/// comment) — a small, slowly-growing set compared to raw request volume,
+/// acceptable for now, but a candidate for a periodic sweep if it ever
+/// becomes a concern.
 async fn check_and_record_rate_limit(limiter: &HeartbeatRateLimiter, token: &str) -> bool {
     let mut buckets = limiter.lock().await;
     let now = Instant::now();
@@ -152,7 +174,21 @@ mod tests {
             assert!(check_and_record_rate_limit(&limiter, "token-c").await);
         }
 
-        // A different token must not be affected by token-c's exhausted quota.
         assert!(check_and_record_rate_limit(&limiter, "token-d").await);
+    }
+
+    #[tokio::test]
+    async fn record_heartbeat_rejects_malformed_token_before_touching_rate_limiter() {
+        // B34 regression test: a malformed token must never be able to
+        // grow the rate-limiter map. We can't easily call the full
+        // handler here without a lot of AppState scaffolding (already
+        // covered end-to-end in crates/api/tests/heartbeat.rs), so this
+        // test asserts the underlying guarantee directly: HeartbeatToken
+        // parsing rejects arbitrary garbage, which is the mechanism
+        // `record_heartbeat` now relies on to fail closed before any
+        // limiter/database call.
+        assert!(HeartbeatToken::new("../../../../etc/passwd").is_err());
+        assert!(HeartbeatToken::new("<script>alert(1)</script>").is_err());
+        assert!(HeartbeatToken::new("").is_err());
     }
 }

@@ -1,0 +1,38 @@
+# E2E test overlay for docker-compose.yml (Worker B39).
+# Added `migrate` with image to satisfy compose validation (disabled via profile).
+# Email notification uses Mailpit via SMTP; BILLING_PROVIDER=fake.
+
+services:
+  migrate:
+    image: alpine:3.20
+    profiles: ["disabled"]
+    command: ["echo", "e2e skip migrate"]
+
+  mock-target:
+    image: nginx:alpine
+    container_name: uptime-monitor-e2e-mock-target
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: uptime-monitor-e2e-mailpit
+    restart: "no"
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  api:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: e2e
+      SMTP_PASSWORD: e2e-not-a-real-credential-mailpit-ignores-auth
+      SMTP_FROM_ADDRESS: alerts@e2e.invalid
+      SMTP_FROM_NAME: PingVertex E2E
+      SMTP_STARTTLS: "false"
+      BILLING_PROVIDER: fake
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-e2e-test-webhook-secret}
+
+  worker:
+    environment:
+      INCIDENT_FAILURE_THRESHOLD: "1"
+      INCIDENT_RECOVERY_THRESHOLD: "1"

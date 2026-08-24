@@ -8,13 +8,14 @@ use application::ports::{AgentLease, AgentLeaseRepository, RepoResult, SubmitAge
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::shared::ids::{CheckId, MonitorId};
-use domain::{Monitor, RegionCode};
+use domain::{Check, Monitor, RegionCode};
 use uuid::Uuid;
 
 #[derive(Default)]
 struct State {
     due_monitors: Vec<Monitor>,
     leases: HashMap<Uuid, StoredLease>,
+    saved_checks: Vec<Check>,
 }
 
 struct StoredLease {
@@ -58,6 +59,10 @@ impl InMemoryAgentLeaseRepository {
                 completed_at,
             },
         );
+    }
+
+    pub fn saved_check_count(&self) -> usize {
+        self.state.lock().unwrap().saved_checks.len()
     }
 }
 
@@ -118,13 +123,14 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
         Ok(claimed)
     }
 
-    async fn submit_result(
+    async fn submit_result_with_check(
         &self,
         agent_id: &str,
         check_id: CheckId,
         monitor_id: MonitorId,
         region: &RegionCode,
         now: DateTime<Utc>,
+        check: &Check,
     ) -> RepoResult<SubmitAgentResultOutcome> {
         let mut state = self.state.lock().unwrap();
 
@@ -145,6 +151,7 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
         }
 
         lease.completed_at = Some(now);
+        state.saved_checks.push(check.clone());
         Ok(SubmitAgentResultOutcome::Accepted)
     }
 

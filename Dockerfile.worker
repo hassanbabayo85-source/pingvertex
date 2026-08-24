@@ -18,6 +18,7 @@ FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,5 +32,10 @@ RUN groupadd -r app && useradd -r -g app -u 1000 appuser
 USER appuser
 
 EXPOSE 3001
+
+# B38: liveness check — GET /health on the worker's metrics server (see
+# crates/worker/src/metrics.rs).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://localhost:3001/health || exit 1
 
 CMD ["worker"]

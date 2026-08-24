@@ -10,6 +10,15 @@ use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// B34: hard ceiling on `list_by_monitor`'s unfiltered result set. Same
+/// reasoning as `PostgresCheckRepository::LIST_BY_MONITOR_LIMIT` — this
+/// method is reachable (indirectly, via the public status handlers) from
+/// unauthenticated endpoints and has no caller-supplied pagination. 200
+/// most-recent-first incidents is generous headroom over what any current
+/// caller actually consumes (the public response layer itself further
+/// truncates to 10).
+const LIST_BY_MONITOR_LIMIT: i64 = 200;
+
 #[derive(Debug, Clone)]
 pub struct PostgresIncidentRepository {
     pool: PgPool,
@@ -163,7 +172,6 @@ impl IncidentRepository for PostgresIncidentRepository {
     }
 
     async fn resolve_if_open(&self, incident: &Incident) -> RepoResult<bool> {
-        // Conditional update: only resolves if still open.
         let resolved_at = incident.resolved_at.unwrap_or_else(Utc::now);
         let updated_at = incident.updated_at;
 
@@ -183,16 +191,6 @@ impl IncidentRepository for PostgresIncidentRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    /// B28 — atomic escalation-step claim. Only advances the row (and
-    /// only reports success) if `escalation_step_index` in the database
-    /// still equals the value the caller last observed AND the incident
-    /// is still open and unacknowledged. This is the compare-and-swap
-    /// that makes `EscalationWorker` safe under concurrent sweeps: two
-    /// racing sweeps that both observed `escalation_step_index = N` can
-    /// each attempt this UPDATE, but only one `WHERE` clause can match
-    /// (the loser's `escalation_step_index = N` predicate no longer
-    /// holds once the winner's UPDATE has committed), so only the winner
-    /// proceeds to actually send the notification.
     async fn try_claim_escalation_step(
         &self,
         incident: &mut Incident,
@@ -252,12 +250,15 @@ impl IncidentRepository for PostgresIncidentRepository {
         Ok(row.map(IncidentRow::into_domain))
     }
 
+    /// B34: now bounded by `LIST_BY_MONITOR_LIMIT` — see the constant's
+    /// doc comment.
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Incident>> {
         let rows = sqlx::query_as::<_, IncidentRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM incidents \
-             WHERE monitor_id = $1 ORDER BY started_at DESC"
+             WHERE monitor_id = $1 ORDER BY started_at DESC LIMIT $2"
         ))
         .bind(monitor_id.0)
+        .bind(LIST_BY_MONITOR_LIMIT)
         .fetch_all(&self.pool)
         .await?;
 

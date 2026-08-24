@@ -1,0 +1,41 @@
+{$PINGVERTEX_DOMAIN:api.example.com} {
+	encode gzip
+
+	# B38: readiness (not liveness) — Caddy's job is a routing decision
+	# ("should traffic go to this backend right now"), which is exactly
+	# what /ready (B34) is for. The container's own restart decision
+	# uses /health instead (see Dockerfile.api's HEALTHCHECK).
+	reverse_proxy api:3000 {
+		health_uri /ready
+		health_interval 10s
+		health_timeout 3s
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
+
+# ── FUTURE FRONTEND ATTACH POINT (FRONTEND TRACK) ──────────────────────
+# Once the Rust + Leptos frontend replaces apps/dashboard (after the
+# "Freeze & Document API Contract" worker has run), it attaches here, on
+# the SAME site block above, without needing a new TLS cert or a new
+# publicly-exposed port:
+#
+#   handle /api/* {
+#       reverse_proxy api:3000
+#   }
+#
+#   handle {
+#       reverse_proxy leptos-frontend:PORT
+#       # or, if the Leptos frontend is built to static files instead:
+#       # root * /srv/frontend
+#       # file_server
+#   }
+#
+# Until then, apps/dashboard (Next.js) is deployed/served separately —
+# untouched per this phase's "DO NOT TOUCH apps/dashboard" rule — and is
+# NOT routed through this Caddy instance.

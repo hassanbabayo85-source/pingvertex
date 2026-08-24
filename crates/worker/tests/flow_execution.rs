@@ -14,9 +14,7 @@
 //! is not exercised end-to-end, since doing so would require a real
 //! 60-second wait per test run. See HANDOVER.md Known Issues.
 
-use std::future::Future;
 use std::net::SocketAddr;
-use std::pin::Pin;
 
 use domain::entities::{ApiFlow, ApiFlowStep};
 use domain::shared::ids::{MonitorId, TenantId};
@@ -29,8 +27,6 @@ use domain::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use worker::flow_executor::{DestinationResolverFn, execute_flow};
-
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 fn no_op_assertion() -> Vec<Assertion> {
     vec![]

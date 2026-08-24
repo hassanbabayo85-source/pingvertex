@@ -14,20 +14,6 @@ use domain::value_objects::{ProxyCredentials, ProxyHost, ProxyResult};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// A `ProxyEntry`'s persisted components, stored separately from the
-/// domain type itself.
-///
-/// Mirrors `PostgresProxyCheckJobRepository`'s `ProxyEntryRow`: `ProxyEntry`
-/// does not derive `Clone` (nor does `ProxyCredentials`, deliberately, per
-/// its own security doc comment), so this repository — like the Postgres
-/// one — stores the raw components instead and reconstructs a `ProxyEntry`
-/// via `ProxyEntry::from_persisted` on every read. `credentials` is kept
-/// as a plain `(username, password)` tuple (this repository's in-memory
-/// storage has no encryption boundary to mirror; `PostgresProxyCheckJobRepository`
-/// stores ciphertext instead) and re-validated through
-/// `ProxyCredentials::new` when reconstructing — this cannot fail, since
-/// the same values already passed validation once when the entry was
-/// first saved.
 #[derive(Debug, Clone)]
 struct StoredProxyEntry {
     job_id: ProxyCheckJobId,
@@ -38,8 +24,6 @@ struct StoredProxyEntry {
     result: Option<ProxyResult>,
 }
 
-/// In-memory `ProxyCheckJobRepository`, for tests only (mirrors
-/// `InMemoryApiFlowRepository`'s role and shape).
 #[derive(Clone)]
 pub struct InMemoryProxyCheckJobRepository {
     jobs: Arc<RwLock<HashMap<ProxyCheckJobId, ProxyCheckJob>>>,
@@ -113,8 +97,21 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
         }
 
         self.save_job(job, entries).await?;
-
         Ok(QuotaCheckOutcome::Saved)
+    }
+
+    async fn try_mark_running(&self, id: ProxyCheckJobId) -> RepoResult<bool> {
+        let mut jobs = self.jobs.write().unwrap();
+        let Some(job) = jobs.get_mut(&id) else {
+            return Ok(false);
+        };
+
+        if job.status() != ProxyCheckJobStatus::Pending {
+            return Ok(false);
+        }
+
+        job.mark_running();
+        Ok(true)
     }
 
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {

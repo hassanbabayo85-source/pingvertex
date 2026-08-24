@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -14,6 +15,26 @@ pub trait DiagnosticReportRepository: Send + Sync {
     async fn save(&self, report: &DiagnosticReport) -> RepoResult<()>;
 
     async fn find_by_check_id(&self, check_id: CheckId) -> RepoResult<Option<DiagnosticReport>>;
+
+    /// Bulk equivalent of `find_by_check_id`.
+    ///
+    /// The default implementation is deliberately safe-but-naive (one
+    /// query per id) so existing mocks continue to compile unchanged.
+    /// Postgres overrides this with a single `ANY($1)` query to avoid
+    /// N+1 when materializing a page of checks (see
+    /// `ListChecksUseCase`).
+    async fn find_by_check_ids(
+        &self,
+        check_ids: &[CheckId],
+    ) -> RepoResult<HashMap<CheckId, DiagnosticReport>> {
+        let mut reports = HashMap::new();
+        for check_id in check_ids {
+            if let Some(report) = self.find_by_check_id(*check_id).await? {
+                reports.insert(*check_id, report);
+            }
+        }
+        Ok(reports)
+    }
 }
 
 #[async_trait]
@@ -27,5 +48,12 @@ where
 
     async fn find_by_check_id(&self, check_id: CheckId) -> RepoResult<Option<DiagnosticReport>> {
         (**self).find_by_check_id(check_id).await
+    }
+
+    async fn find_by_check_ids(
+        &self,
+        check_ids: &[CheckId],
+    ) -> RepoResult<HashMap<CheckId, DiagnosticReport>> {
+        (**self).find_by_check_ids(check_ids).await
     }
 }

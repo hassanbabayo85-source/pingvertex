@@ -2,6 +2,8 @@ mod config;
 
 use std::{error::Error, sync::Arc, time::Duration};
 
+use application::ports::StatusPageCache;
+use async_trait::async_trait;
 use infra::{
     AesGcmProxyCredentialCipher, HickoryCustomDomainVerifier, NotificationDispatcher,
     PostgresApiFlowRepository, PostgresCheckRepository, PostgresDiagnosticReportRepository,
@@ -9,7 +11,8 @@ use infra::{
     PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
     PostgresProxyCheckJobRepository, PostgresSchedulingRepository, PostgresStatusPageRepository,
-    PostgresSubscriptionRepository, PostgresTenantRepository, UuidIdGenerator, create_pool,
+    PostgresSubscriptionRepository, PostgresTenantRepository, RedisStatusPageCache,
+    UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 use worker::{
@@ -18,6 +21,29 @@ use worker::{
     RealNotificationOutboxSender, RetentionWorker, TenantNotificationRateLimiter,
     init_rustls_crypto_provider, metrics, run_durable,
 };
+
+#[derive(Clone, Default)]
+struct NoopStatusPageCache;
+
+#[async_trait]
+impl StatusPageCache for NoopStatusPageCache {
+    async fn get(&self, _key: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+
+    async fn set(
+        &self,
+        _key: &str,
+        _value: &str,
+        _ttl_seconds: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn invalidate(&self, _key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -39,7 +65,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     });
 
     let worker_config = config::WorkerConfig::from_env();
-
     let pool = create_pool(&worker_config.database_url).await?;
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
@@ -51,8 +76,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         Arc::new(PostgresMaintenanceWindowRepository::new(pool.clone()));
     let escalation_policy_repository =
         Arc::new(PostgresEscalationPolicyRepository::new(pool.clone()));
-    // Reserved for a future worker that wires diagnostics/incident
-    // management into the durable scheduler's active check path.
     let _diagnostic_report_repository =
         Arc::new(PostgresDiagnosticReportRepository::new(pool.clone()));
     let status_page_repository = Arc::new(PostgresStatusPageRepository::new(pool.clone()));
@@ -72,22 +95,31 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let notification_service = Arc::new(NotificationDispatcher::from_env(secret_cipher));
-
-    // B29: API flow definitions (multi-step HTTP flows), read by
-    // `FlowCheckExecutor` (via `MultiCheckExecutor`) at check time.
     let api_flow_repository = Arc::new(PostgresApiFlowRepository::new(pool.clone()));
 
-    // B23: incident state machine, wired into the durable scheduler's
-    // active check path via `IncidentEvaluator` below. The legacy sweep
-    // scheduler (`worker::run`, not currently invoked from `main`) still
-    // constructs and uses its own separate `IncidentManager` instance.
+    let notification_outbox_repository =
+        Arc::new(PostgresNotificationOutboxRepository::new(pool.clone()));
+
+    let status_page_cache: Arc<dyn StatusPageCache> = match &worker_config.redis_url {
+        Some(redis_url) => Arc::new(RedisStatusPageCache::new(redis_url)?),
+        None => {
+            tracing::warn!(
+                "REDIS_URL not configured — incident open/resolve will not invalidate cached \
+                 public status pages immediately (falls back to TTL-only staleness)"
+            );
+            Arc::new(NoopStatusPageCache)
+        }
+    };
+
     let incident_manager = IncidentManager::new_with_maintenance_window(
         incident_repository.clone(),
         id_generator.clone(),
         notification_channel_repository.clone(),
         notification_service.clone(),
         maintenance_window_repository.clone(),
-    );
+    )
+    .with_status_page_cache_invalidation(status_page_repository.clone(), status_page_cache)
+    .with_notification_outbox(notification_outbox_repository.clone());
 
     let incident_evaluator = IncidentEvaluator::new(
         monitor_repository.clone(),
@@ -130,8 +162,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    // B22: Tenant-scoped history retention enforcement. Runs on its own
-    // interval, using batched deletes, independent of the check scheduler.
     let retention_worker = RetentionWorker::new(
         tenant_repository,
         subscription_repository,
@@ -148,8 +178,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    // B19: Passive heartbeat sweep. Runs on its own interval and does NOT
-    // participate in the claim-based active scheduler below.
     let heartbeat_sweeper = HeartbeatSweeper::new(monitor_repository.clone());
     tokio::spawn(async move {
         if let Err(err) = heartbeat_sweeper
@@ -164,11 +192,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     });
 
     let scheduling_repository = Arc::new(PostgresSchedulingRepository::new(pool.clone()));
-    // B19: Dispatcher handles HTTP (B18), TCP, and DNS. B29 adds Flow.
-    // Heartbeat is intentionally excluded from the claim query, so it
-    // never reaches this executor. B23: each sub-executor now also
-    // evaluates incident state (consecutive-failure/success thresholds)
-    // via `incident_evaluator` after persisting its check.
     let executor = Arc::new(MultiCheckExecutor::new(
         check_repository.clone(),
         id_generator.clone(),
@@ -176,10 +199,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         api_flow_repository,
     ));
 
-    // B25: Notification outbox reliability layer. Uses a stub sender for
-    // now; B26/B27 will replace the sender with real channel delivery.
-    let notification_outbox_repository =
-        Arc::new(PostgresNotificationOutboxRepository::new(pool.clone()));
     let tenant_notification_rate_limiter = Arc::new(TenantNotificationRateLimiter::new(
         60,
         Duration::from_secs(60),
@@ -200,13 +219,61 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    run_durable(
-        scheduling_repository,
-        executor,
-        Duration::from_secs(worker_config.lease_seconds),
-        worker_config.max_concurrent_checks,
-    )
-    .await?;
+    tracing::info!("worker started; press Ctrl+C or send SIGTERM to shut down");
+
+    // B38: graceful shutdown for the main scheduler loop only. The
+    // background subsystems spawned above (escalation, custom-domain
+    // verification, proxy-check, retention, heartbeat sweeper,
+    // notification outbox) do NOT get an individual graceful drain here
+    // — none of their `run_forever()` methods currently accept a
+    // cancellation signal, so they are dropped when the tokio runtime
+    // exits along with the rest of the process. See this worker's
+    // HANDOVER.md "Deviations from prompt" for why threading a
+    // cancellation token through all six was treated as out of scope
+    // for a deployment worker.
+    tokio::select! {
+        result = run_durable(
+            scheduling_repository,
+            executor,
+            Duration::from_secs(worker_config.lease_seconds),
+            worker_config.max_concurrent_checks,
+        ) => {
+            result?;
+        }
+        _ = shutdown_signal() => {
+            tracing::info!("shutdown signal received, stopping scheduler loop");
+        }
+    }
+
+    tracing::info!("worker shut down");
 
     Ok(())
+}
+
+/// B38: resolves on SIGTERM or Ctrl+C — see the identical helper in
+/// `crates/api/src/main.rs` for the full rationale.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }

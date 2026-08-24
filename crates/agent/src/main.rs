@@ -35,6 +35,34 @@ fn build_mtls_client(config: &AgentConfig) -> Result<Client> {
     Ok(client)
 }
 
+/// B38: resolves on SIGTERM or Ctrl+C — see the identical helper in
+/// `crates/api/src/main.rs` for the full rationale.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
@@ -71,74 +99,103 @@ async fn main() -> Result<()> {
 
     let poll_interval = Duration::from_secs(5);
 
+    // B38: graceful shutdown — a `watch` channel flipped by the signal
+    // handler below. The loop stops CLAIMING new work as soon as it's
+    // set, but still awaits any checks already claimed in the current
+    // iteration's `JoinSet` before exiting (best-effort drain).
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        info!("shutdown signal received, agent will stop claiming new checks");
+        let _ = shutdown_tx.send(true);
+    });
+
     loop {
-        match claim_client::claim_checks(
-            &client,
-            &agent_config.api_base_url,
-            &agent_config.agent_id,
-            &agent_config.agent_region,
-        )
-        .await
-        {
-            Ok(checks) => {
-                if checks.is_empty() {
-                    tokio::time::sleep(poll_interval).await;
-                    continue;
-                }
+        if *shutdown_rx.borrow() {
+            break;
+        }
 
-                let mut tasks = JoinSet::new();
-
-                for task in checks {
-                    let client = client.clone();
-                    let geoip_reader = Arc::clone(&geoip_reader);
-                    let semaphore = Arc::clone(&semaphore);
-                    let api_base = agent_config.api_base_url.clone();
-                    let agent_id = agent_config.agent_id.clone();
-                    let agent_region = agent_config.agent_region.clone();
-
-                    tasks.spawn(async move {
-                        let _permit = semaphore
-                            .acquire_owned()
-                            .await
-                            .expect("agent semaphore must not be closed");
-
-                        let result = checker::check_monitor(
-                            &task.monitor,
-                            &task.region,
-                            geoip_reader.as_ref(),
-                        )
-                        .await;
-
-                        if let Err(err) = claim_client::submit_result(
-                            &client,
-                            &api_base,
-                            &agent_id,
-                            &agent_region,
-                            task.check_id,
-                            task.monitor.id.0,
-                            result,
-                        )
-                        .await
-                        {
-                            error!(
-                                check_id = %task.check_id,
-                                error = %err,
-                                "failed to submit check result"
-                            );
+        tokio::select! {
+            claim_result = claim_client::claim_checks(
+                &client,
+                &agent_config.api_base_url,
+                &agent_config.agent_id,
+                &agent_config.agent_region,
+            ) => {
+                match claim_result {
+                    Ok(checks) => {
+                        if checks.is_empty() {
+                            tokio::select! {
+                                _ = tokio::time::sleep(poll_interval) => {},
+                                _ = shutdown_rx.changed() => { break; }
+                            }
+                            continue;
                         }
-                    });
-                }
 
-                while let Some(join_result) = tasks.join_next().await {
-                    if let Err(join_err) = join_result {
-                        error!(error = %join_err, "agent check task panicked");
+                        let mut tasks = JoinSet::new();
+
+                        for task in checks {
+                            let client = client.clone();
+                            let geoip_reader = Arc::clone(&geoip_reader);
+                            let semaphore = Arc::clone(&semaphore);
+                            let api_base = agent_config.api_base_url.clone();
+                            let agent_id = agent_config.agent_id.clone();
+                            let agent_region = agent_config.agent_region.clone();
+
+                            tasks.spawn(async move {
+                                let _permit = semaphore
+                                    .acquire_owned()
+                                    .await
+                                    .expect("agent semaphore must not be closed");
+
+                                let result = checker::check_monitor(
+                                    &task.monitor,
+                                    &task.region,
+                                    geoip_reader.as_ref(),
+                                )
+                                .await;
+
+                                if let Err(err) = claim_client::submit_result(
+                                    &client,
+                                    &api_base,
+                                    &agent_id,
+                                    &agent_region,
+                                    task.check_id,
+                                    task.monitor.id.0,
+                                    result,
+                                )
+                                .await
+                                {
+                                    error!(
+                                        check_id = %task.check_id,
+                                        error = %err,
+                                        "failed to submit check result"
+                                    );
+                                }
+                            });
+                        }
+
+                        while let Some(join_result) = tasks.join_next().await {
+                            if let Err(join_err) = join_result {
+                                error!(error = %join_err, "agent check task panicked");
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        warn!(error = %err, "claim request failed; will retry");
+                        tokio::select! {
+                            _ = tokio::time::sleep(poll_interval) => {},
+                            _ = shutdown_rx.changed() => { break; }
+                        }
                     }
                 }
             }
-            Err(err) => {
-                warn!(error = %err, "claim request failed; will retry");
-                tokio::time::sleep(poll_interval).await;
+            _ = shutdown_rx.changed() => {
+                break;
             }
         }
     }
+
+    info!("agent shut down");
+    Ok(())
 }

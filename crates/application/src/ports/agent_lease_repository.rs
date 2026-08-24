@@ -3,7 +3,10 @@ use std::{error::Error, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::RegionCode;
-use domain::shared::ids::{CheckId, MonitorId};
+use domain::{
+    Check,
+    shared::ids::{CheckId, MonitorId},
+};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -33,13 +36,14 @@ pub trait AgentLeaseRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<AgentLease>>;
 
-    async fn submit_result(
+    async fn submit_result_with_check(
         &self,
         agent_id: &str,
         check_id: CheckId,
         monitor_id: MonitorId,
         region: &RegionCode,
         now: DateTime<Utc>,
+        check: &Check,
     ) -> RepoResult<SubmitAgentResultOutcome>;
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64>;
@@ -63,16 +67,17 @@ where
             .await
     }
 
-    async fn submit_result(
+    async fn submit_result_with_check(
         &self,
         agent_id: &str,
         check_id: CheckId,
         monitor_id: MonitorId,
         region: &RegionCode,
         now: DateTime<Utc>,
+        check: &Check,
     ) -> RepoResult<SubmitAgentResultOutcome> {
         (**self)
-            .submit_result(agent_id, check_id, monitor_id, region, now)
+            .submit_result_with_check(agent_id, check_id, monitor_id, region, now, check)
             .await
     }
 
