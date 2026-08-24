@@ -152,6 +152,10 @@ impl StatusPageRow {
     }
 }
 
+const SELECT_COLUMNS: &str = "id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
+     custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
+     monitor_ids, created_at, updated_at";
+
 #[async_trait]
 impl StatusPageRepository for PostgresStatusPageRepository {
     async fn save(&self, status_page: &StatusPage) -> RepoResult<()> {
@@ -235,12 +239,9 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     }
 
     async fn find_by_id(&self, id: StatusPageId) -> RepoResult<Option<StatusPage>> {
-        let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages WHERE id = $1",
-        )
+        let row = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE id = $1"
+        ))
         .bind(id.0)
         .fetch_optional(&self.pool)
         .await?;
@@ -258,12 +259,9 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     }
 
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
-        let rows = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages WHERE tenant_id = $1 ORDER BY created_at DESC",
-        )
+        let rows = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE tenant_id = $1 ORDER BY created_at DESC"
+        ))
         .bind(tenant_id.0)
         .fetch_all(&self.pool)
         .await?;
@@ -286,12 +284,9 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         id: StatusPageId,
         user_id: UserId,
     ) -> RepoResult<Option<StatusPage>> {
-        let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages WHERE id = $1 AND user_id = $2",
-        )
+        let row = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE id = $1 AND user_id = $2"
+        ))
         .bind(id.0)
         .bind(user_id.0)
         .fetch_optional(&self.pool)
@@ -301,12 +296,9 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     }
 
     async fn find_all_for_user(&self, user_id: UserId) -> RepoResult<Vec<StatusPage>> {
-        let rows = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages WHERE user_id = $1 ORDER BY created_at DESC",
-        )
+        let rows = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE user_id = $1 ORDER BY created_at DESC"
+        ))
         .bind(user_id.0)
         .fetch_all(&self.pool)
         .await?;
@@ -318,12 +310,9 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     /// pattern/LIKE matching — so a request cannot be crafted to match
     /// more than the single intended status page.
     async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {
-        let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages WHERE subdomain = $1",
-        )
+        let row = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE subdomain = $1"
+        ))
         .bind(subdomain)
         .fetch_optional(&self.pool)
         .await?;
@@ -340,13 +329,10 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         &self,
         custom_domain: &str,
     ) -> RepoResult<Option<StatusPage>> {
-        let row = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages \
-             WHERE custom_domain = $1 AND custom_domain_verified_at IS NOT NULL",
-        )
+        let row = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages \
+             WHERE custom_domain = $1 AND custom_domain_verified_at IS NOT NULL"
+        ))
         .bind(custom_domain)
         .fetch_optional(&self.pool)
         .await?;
@@ -358,13 +344,34 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     /// system-wide, not scoped to a user, since the worker acts on behalf
     /// of the whole deployment, not any single caller.
     async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
-        let rows = sqlx::query_as::<_, StatusPageRow>(
-            "SELECT id, user_id, tenant_id, name, subdomain, custom_domain, custom_domain_token, \
-             custom_domain_requested_at, custom_domain_verified_at, logo_url, primary_color, \
-             monitor_ids, created_at, updated_at \
-             FROM status_pages \
-             WHERE custom_domain IS NOT NULL AND custom_domain_verified_at IS NULL",
-        )
+        let rows = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages \
+             WHERE custom_domain IS NOT NULL AND custom_domain_verified_at IS NULL"
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(StatusPageRow::into_domain).collect()
+    }
+
+    /// B34: uses the JSONB containment operator (`@>`) against
+    /// `monitor_ids` — e.g. `monitor_ids @> '["<uuid>"]'` — to find every
+    /// status page (across all tenants) that references `monitor_id`.
+    /// No index backs this yet (see this worker's HANDOVER.md "Known
+    /// Issues"): a GIN index on `monitor_ids` would make this an index
+    /// scan instead of a sequential scan, but adding one requires a new
+    /// migration this worker did not create — flagged, not silently
+    /// skipped.
+    async fn find_all_referencing_monitor(
+        &self,
+        monitor_id: MonitorId,
+    ) -> RepoResult<Vec<StatusPage>> {
+        let needle = serde_json::json!([monitor_id.0]);
+
+        let rows = sqlx::query_as::<_, StatusPageRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE monitor_ids @> $1"
+        ))
+        .bind(needle)
         .fetch_all(&self.pool)
         .await?;
 

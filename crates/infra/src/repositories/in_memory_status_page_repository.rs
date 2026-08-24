@@ -6,7 +6,7 @@ use std::{
 use application::ports::StatusPageRepository;
 use async_trait::async_trait;
 use domain::entities::StatusPage;
-use domain::shared::ids::{StatusPageId, TenantId, UserId};
+use domain::shared::ids::{MonitorId, StatusPageId, TenantId, UserId};
 
 /// Simple in-memory repository for development and tests.
 #[derive(Debug, Clone, Default)]
@@ -161,6 +161,22 @@ impl StatusPageRepository for InMemoryStatusPageRepository {
                     Some((_, CustomDomainVerification::Pending { .. }))
                 )
             })
+            .cloned()
+            .collect())
+    }
+
+    /// B34: in-memory equivalent of the Postgres `@>` containment query —
+    /// linear scan over `monitor_ids`, fine for tests/dev-mode scale.
+    async fn find_all_referencing_monitor(
+        &self,
+        monitor_id: MonitorId,
+    ) -> Result<Vec<StatusPage>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .status_pages
+            .read()
+            .unwrap()
+            .values()
+            .filter(|status_page| status_page.monitor_ids.contains(&monitor_id))
             .cloned()
             .collect())
     }

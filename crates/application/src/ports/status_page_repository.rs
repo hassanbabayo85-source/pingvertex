@@ -3,7 +3,7 @@ use std::{error::Error, sync::Arc};
 
 use domain::{
     entities::StatusPage,
-    shared::ids::{StatusPageId, TenantId, UserId},
+    shared::ids::{MonitorId, StatusPageId, TenantId, UserId},
 };
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -82,6 +82,19 @@ pub trait StatusPageRepository: Send + Sync {
     async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
         unimplemented!()
     }
+
+    /// B34: returns every status page (across all tenants) whose
+    /// `monitor_ids` includes `monitor_id`. System-wide, not tenant-scoped
+    /// — same reasoning as `find_pending_custom_domains`: this is used by
+    /// `IncidentManager` (worker) to know which cached public status-page
+    /// responses to invalidate whenever that monitor's incident opens or
+    /// resolves, and the worker acts independently of any single caller.
+    async fn find_all_referencing_monitor(
+        &self,
+        _monitor_id: MonitorId,
+    ) -> RepoResult<Vec<StatusPage>> {
+        unimplemented!()
+    }
 }
 
 #[async_trait]
@@ -138,5 +151,12 @@ where
 
     async fn find_pending_custom_domains(&self) -> RepoResult<Vec<StatusPage>> {
         (**self).find_pending_custom_domains().await
+    }
+
+    async fn find_all_referencing_monitor(
+        &self,
+        monitor_id: MonitorId,
+    ) -> RepoResult<Vec<StatusPage>> {
+        (**self).find_all_referencing_monitor(monitor_id).await
     }
 }
