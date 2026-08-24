@@ -10,6 +10,15 @@ pub struct WorkerConfig {
     /// B23: consecutive successful checks required before an open
     /// incident resolves.
     pub incident_recovery_threshold: u32,
+    /// B34: connection URL for the status-page response cache
+    /// (`RedisStatusPageCache`). Optional, same reasoning as the API
+    /// crate's `Config::redis_url`: a deployment that doesn't care about
+    /// cache-invalidation-on-incident-change shouldn't be forced to stand
+    /// up Redis just to run the worker. When absent, `main.rs` wires a
+    /// no-op cache instead, and `IncidentManager` falls back to
+    /// TTL-only staleness for public status pages (see
+    /// `IncidentManager::with_status_page_cache_invalidation`).
+    pub redis_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +131,7 @@ impl WorkerConfig {
             2,
             WorkerConfigError::InvalidIncidentRecoveryThreshold,
         )?;
+        let redis_url = non_empty_env("REDIS_URL");
 
         Ok(Self {
             database_url,
@@ -129,6 +139,7 @@ impl WorkerConfig {
             max_concurrent_checks,
             incident_failure_threshold,
             incident_recovery_threshold,
+            redis_url,
         })
     }
 }
@@ -159,6 +170,7 @@ mod tests {
             env::remove_var("WORKER_MAX_CONCURRENT_CHECKS");
             env::remove_var("INCIDENT_FAILURE_THRESHOLD");
             env::remove_var("INCIDENT_RECOVERY_THRESHOLD");
+            env::remove_var("REDIS_URL");
         }
         let config = WorkerConfig::try_from_env().expect("expected valid config");
         assert_eq!(
@@ -169,8 +181,24 @@ mod tests {
         assert_eq!(config.max_concurrent_checks, 10);
         assert_eq!(config.incident_failure_threshold, 3);
         assert_eq!(config.incident_recovery_threshold, 2);
+        assert_eq!(config.redis_url, None);
         unsafe {
             env::remove_var("DATABASE_URL");
+        }
+    }
+
+    #[test]
+    #[serial(worker_database_url_env)]
+    fn accepts_an_optional_redis_url() {
+        unsafe {
+            env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db");
+            env::set_var("REDIS_URL", "redis://localhost:6379");
+        }
+        let config = WorkerConfig::try_from_env().expect("expected valid config");
+        assert_eq!(config.redis_url, Some("redis://localhost:6379".to_string()));
+        unsafe {
+            env::remove_var("DATABASE_URL");
+            env::remove_var("REDIS_URL");
         }
     }
 

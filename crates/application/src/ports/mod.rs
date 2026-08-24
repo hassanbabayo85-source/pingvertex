@@ -38,6 +38,9 @@ pub mod email_verification_token_repository;
 // B9 — Tenant invitations:
 pub mod tenant_invitation_repository;
 
+// B34 — Public Endpoint Security & Efficiency:
+pub mod health_check;
+
 pub use api_flow_repository::ApiFlowRepository;
 pub use check_repository::CheckRepository;
 pub use diagnostic_report_repository::DiagnosticReportRepository;
@@ -70,7 +73,10 @@ pub use escalation_policy_repository::EscalationPolicyRepository;
 pub use maintenance_window_repository::MaintenanceWindowRepository;
 pub use pending_auth_cache::{PendingAuthCache, PendingAuthCacheResult};
 pub use registration_transaction::{RegistrationTransaction, RegistrationTransactionResult};
-pub use status_page_cache::{CacheResult, StatusPageCache};
+// B34 — Public Endpoint Security & Efficiency: PUBLIC_STATUS_LIST_CACHE_KEY
+// is the shared cache key for the public status *list* endpoint, used by
+// both the API (get_public_status) and the worker (IncidentManager).
+pub use status_page_cache::{CacheResult, PUBLIC_STATUS_LIST_CACHE_KEY, StatusPageCache};
 pub use status_page_repository::StatusPageRepository;
 pub use tenant_membership_repository::TenantMembershipRepository;
 pub use tenant_repository::TenantRepository;
@@ -122,3 +128,6 @@ pub use agent_lease_repository::{
 // B22 — History Retention Enforcement:
 pub mod history_retention_repository;
 pub use history_retention_repository::HistoryRetentionRepository;
+
+// B34 — Public Endpoint Security & Efficiency:
+pub use health_check::{HealthCheckPort, HealthCheckResult};
