@@ -21,10 +21,22 @@ impl SmtpEmailVerificationMailer {
         let builder = if config.starttls {
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)?
         } else {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)?
+            // Mailpit (da sauran plain-SMTP relays na local/e2e) ba sa
+            // magana da TLS kwata-kwata. `relay()` koyaushe yana ƙoƙarin
+            // implicit-TLS ne, wanda ke haifar da
+            // "received corrupt message of type InvalidContentType"
+            // lokacin da aka yi masa TLS handshake da plain-SMTP server.
+            // `builder_dangerous` shine zaɓin da lettre ke bayarwa musamman
+            // don irin wannan yanayi (babu TLS kwata-kwata).
+            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
         };
 
-        let mailer = builder.port(config.port).credentials(credentials).build();
+        let builder = builder.port(config.port);
+        let mailer = if config.username.is_empty() {
+            builder.build()
+        } else {
+            builder.credentials(credentials).build()
+        };
 
         let from: Mailbox = match &config.from_name {
             Some(name) if !name.is_empty() => {
