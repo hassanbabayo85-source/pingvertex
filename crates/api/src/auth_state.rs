@@ -12,28 +12,13 @@ use domain::{
 use application::ports::{
     BackupCodeRepository, EmailVerificationMailer, EmailVerificationTokenRepository,
     PasswordHasher, PasswordResetMailer, PasswordResetMailerResult, PendingAuthCache,
-    PendingAuthCacheResult, RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher,
-    SecretCipherError, TenantInvitationRepository, TenantMembershipRepository, TenantRepository,
-    TokenService, UserRepository,
+    PendingAuthCacheResult, RateLimiter, RateLimiterResult, RegistrationTransaction,
+    ResetPasswordTokenRepository, SecretCipher, SecretCipherError, TenantInvitationRepository,
+    TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
 };
 use infra::UuidIdGenerator;
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-pub type ResendVerificationRateLimiter = Arc<tokio::sync::Mutex<HashMap<String, (Instant, u32)>>>;
-
-fn new_resend_verification_rate_limiter() -> ResendVerificationRateLimiter {
-    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
-}
-
-/// Per-email fixed-window rate limiter for `POST /auth/forgot-password`.
-/// Same shape as `ResendVerificationRateLimiter` — see
-/// `handlers/forgot_password.rs` for the actual limit values.
-pub type ForgotPasswordRateLimiter = Arc<tokio::sync::Mutex<HashMap<String, (Instant, u32)>>>;
-
-fn new_forgot_password_rate_limiter() -> ForgotPasswordRateLimiter {
-    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
-}
 
 #[derive(Clone, Default)]
 pub struct NoopPendingAuthCache;
@@ -110,9 +95,6 @@ impl EmailVerificationMailer for NoopEmailVerificationMailer {
     }
 }
 
-/// Default `ResetPasswordTokenRepository` used until a real one (e.g.
-/// `PostgresResetPasswordTokenRepository`, wired in `main.rs`) is
-/// substituted in. Mirrors `NoopEmailVerificationTokenRepository`.
 #[derive(Clone, Default)]
 struct NoopResetPasswordTokenRepository;
 
@@ -136,8 +118,6 @@ impl ResetPasswordTokenRepository for NoopResetPasswordTokenRepository {
     }
 }
 
-/// Default `PasswordResetMailer` used until a real one is substituted
-/// in. Mirrors `NoopEmailVerificationMailer`.
 #[derive(Clone, Default)]
 struct NoopPasswordResetMailer;
 
@@ -152,9 +132,6 @@ impl PasswordResetMailer for NoopPasswordResetMailer {
     }
 }
 
-/// Default `TenantInvitationRepository` used until a real Postgres one
-/// is wired via `AuthState::with_invitation_repository`. Mirrors the
-/// other `Noop*` defaults in this file.
 #[derive(Clone, Default)]
 struct NoopTenantInvitationRepository;
 
@@ -203,6 +180,85 @@ impl SecretCipher for NoopSecretCipher {
     }
 }
 
+/// Default rate limiter used until a real distributed one (e.g.
+/// `RedisRateLimiter`) is wired via `AuthState::with_rate_limiter`.
+/// Allows every request; intended only for tests or deliberate no-op
+/// configurations where rate limiting is handled elsewhere (e.g. by an
+/// external proxy).
+#[derive(Clone, Default)]
+struct NoopRateLimiter;
+
+#[async_trait]
+impl RateLimiter for NoopRateLimiter {
+    async fn check_and_record(
+        &self,
+        _namespace: &str,
+        _key: &str,
+        _max_requests: u32,
+        _window_seconds: u64,
+    ) -> RateLimiterResult<bool> {
+        Ok(true)
+    }
+}
+
+/// In-memory rate limiter used in API tests where a real Redis is not
+/// available. Mirrors the fixed-window semantics of
+/// `infra::RedisRateLimiter`, including namespace/key composition,
+/// so tests can exercise the exact same handlers' rate limiting logic.
+#[derive(Clone, Default)]
+pub struct InMemoryRateLimiter {
+    store: Arc<tokio::sync::Mutex<HashMap<String, (Instant, u32)>>>,
+}
+
+impl InMemoryRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            store: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl RateLimiter for InMemoryRateLimiter {
+    async fn check_and_record(
+        &self,
+        namespace: &str,
+        key: &str,
+        max_requests: u32,
+        window_seconds: u64,
+    ) -> RateLimiterResult<bool> {
+        if max_requests == 0 || window_seconds == 0 {
+            return Ok(false);
+        }
+
+        let full_key = format!("rate_limit:{namespace}:{key}");
+        let now = Instant::now();
+        let mut store = self.store.lock().await;
+
+        let allowed = if let Some((window_start, count)) = store.get_mut(&full_key) {
+            if now.duration_since(*window_start).as_secs() >= window_seconds {
+                // window expired, start a new one
+                *window_start = now;
+                *count = 1;
+                true
+            } else {
+                *count += 1;
+                *count <= max_requests
+            }
+        } else {
+            store.insert(full_key, (now, 1));
+            true
+        };
+
+        // Minimal eviction: if the store gets large, drop expired entries.
+        if store.len() > 1000 {
+            store.retain(|_, (start, _)| now.duration_since(*start).as_secs() < 3600);
+        }
+
+        Ok(allowed)
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthState {
     pub user_repository: Arc<dyn UserRepository>,
@@ -217,11 +273,10 @@ pub struct AuthState {
     pub backup_code_repository: Arc<dyn BackupCodeRepository>,
     pub email_verification_token_repository: Arc<dyn EmailVerificationTokenRepository>,
     pub email_verification_mailer: Arc<dyn EmailVerificationMailer>,
-    pub resend_verification_rate_limiter: ResendVerificationRateLimiter,
+    pub rate_limiter: Arc<dyn RateLimiter>,
     /// B6 — Password reset:
     pub reset_password_token_repository: Arc<dyn ResetPasswordTokenRepository>,
     pub password_reset_mailer: Arc<dyn PasswordResetMailer>,
-    pub forgot_password_rate_limiter: ForgotPasswordRateLimiter,
     /// B9 — Tenant invitations:
     pub invitation_repository: Arc<dyn TenantInvitationRepository>,
 }
@@ -257,10 +312,9 @@ impl AuthState {
             backup_code_repository: Arc::new(NoopBackupCodeRepository),
             email_verification_token_repository: Arc::new(NoopEmailVerificationTokenRepository),
             email_verification_mailer: Arc::new(NoopEmailVerificationMailer),
-            resend_verification_rate_limiter: new_resend_verification_rate_limiter(),
+            rate_limiter: Arc::new(NoopRateLimiter),
             reset_password_token_repository: Arc::new(NoopResetPasswordTokenRepository),
             password_reset_mailer: Arc::new(NoopPasswordResetMailer),
-            forgot_password_rate_limiter: new_forgot_password_rate_limiter(),
             invitation_repository: Arc::new(NoopTenantInvitationRepository),
         }
     }
@@ -292,6 +346,14 @@ impl AuthState {
         self
     }
 
+    pub fn with_rate_limiter<R>(mut self, rate_limiter: R) -> Self
+    where
+        R: RateLimiter + 'static,
+    {
+        self.rate_limiter = Arc::new(rate_limiter);
+        self
+    }
+
     pub fn with_password_reset<R, M>(mut self, token_repository: R, mailer: M) -> Self
     where
         R: ResetPasswordTokenRepository + 'static,
@@ -302,8 +364,6 @@ impl AuthState {
         self
     }
 
-    /// Substitutes a real B9 invitation repository in place of the
-    /// `NoopTenantInvitationRepository` default.
     pub fn with_invitation_repository<IR>(mut self, invitation_repository: IR) -> Self
     where
         IR: TenantInvitationRepository + 'static,
