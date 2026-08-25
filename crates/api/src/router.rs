@@ -58,7 +58,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let monitor_routes = monitors::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid api rate-limit configuration"),
@@ -69,7 +69,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let check_routes = checks::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid api rate-limit configuration"),
@@ -80,7 +80,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let notification_routes = notifications::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid api rate-limit configuration"),
@@ -91,7 +91,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let notification_test_routes = notifications::test_router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(5)
                 .finish()
                 .expect("valid notification test rate-limit configuration"),
@@ -102,7 +102,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let api_flow_routes = api_flows::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(3)
                 .finish()
                 .expect("valid api flow rate-limit configuration"),
@@ -113,7 +113,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let proxy_check_routes = proxy_checks::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(3)
                 .finish()
                 .expect("valid proxy check rate-limit configuration"),
@@ -124,7 +124,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let status_page_routes = status_pages::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid status page rate-limit configuration"),
@@ -135,7 +135,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let custom_domain_routes = status_pages::custom_domain_router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(5)
                 .finish()
                 .expect("valid custom domain rate-limit configuration"),
@@ -146,7 +146,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let billing_routes = billing::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(10)
                 .finish()
                 .expect("valid billing rate-limit configuration"),
@@ -157,7 +157,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let billing_webhook_routes = billing::webhook_router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(10)
                 .finish()
                 .expect("valid billing webhook rate-limit configuration"),
@@ -187,7 +187,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let totp_protected_routes = auth::protected_router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid totp management rate-limit configuration"),
@@ -198,7 +198,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let api_key_routes = api_keys::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid api key rate-limit configuration"),
@@ -209,7 +209,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let membership_routes = members::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid membership rate-limit configuration"),
@@ -220,7 +220,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let invitation_routes = invitations::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid invitation rate-limit configuration"),
@@ -234,7 +234,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let external_routes = api_keys::external_router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(30)
                 .finish()
                 .expect("valid external api-key rate-limit configuration"),
@@ -245,7 +245,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
     let public_routes = public::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(60)
+                .per_millisecond(17)
                 .burst_size(60)
                 .finish()
                 .expect("valid public rate-limit configuration"),

@@ -91,6 +91,9 @@ impl SmtpConfig {
     /// that only wants webhook notifications shouldn't be forced to set
     /// up an SMTP relay just to boot.
     pub fn try_from_env() -> Result<Self, NotificationConfigError> {
+        let allow_empty_credentials = std::env::var("SMTP_ALLOW_EMPTY_CREDENTIALS")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
         let host = non_empty_env("SMTP_HOST").ok_or(NotificationConfigError::MissingSmtpHost)?;
 
         let port_raw =
@@ -99,18 +102,26 @@ impl SmtpConfig {
             .parse()
             .map_err(|_| NotificationConfigError::InvalidSmtpPort(port_raw.clone()))?;
 
-        let username =
-            non_empty_env("SMTP_USERNAME").ok_or(NotificationConfigError::MissingSmtpUsername)?;
+        let username = if allow_empty_credentials {
+            non_empty_env("SMTP_USERNAME").unwrap_or_default()
+        } else {
+            non_empty_env("SMTP_USERNAME").ok_or(NotificationConfigError::MissingSmtpUsername)?
+        };
 
-        let password =
-            non_empty_env("SMTP_PASSWORD").ok_or(NotificationConfigError::MissingSmtpPassword)?;
+        let password = if allow_empty_credentials {
+            non_empty_env("SMTP_PASSWORD").unwrap_or_default()
+        } else {
+            non_empty_env("SMTP_PASSWORD").ok_or(NotificationConfigError::MissingSmtpPassword)?
+        };
 
-        let lowered_password = password.to_lowercase();
-        if KNOWN_PLACEHOLDER_SMTP_PASSWORDS
-            .iter()
-            .any(|known| known.to_lowercase() == lowered_password)
-        {
-            return Err(NotificationConfigError::SmtpPasswordIsKnownPlaceholder);
+        if !allow_empty_credentials {
+            let lowered_password = password.to_lowercase();
+            if KNOWN_PLACEHOLDER_SMTP_PASSWORDS
+                .iter()
+                .any(|known| known.to_lowercase() == lowered_password)
+            {
+                return Err(NotificationConfigError::SmtpPasswordIsKnownPlaceholder);
+            }
         }
 
         let from_address = non_empty_env("SMTP_FROM_ADDRESS")

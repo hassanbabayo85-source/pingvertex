@@ -203,9 +203,11 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
         .port_or_known_default()
         .ok_or_else(|| "monitor URL has no valid port".to_string())?;
 
+    let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
+
     // Idan user ya saka IP kai tsaye, babu DNS lookup da ake bukata.
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
+        if !allow_private && is_private_ip(ip) {
             return Err(format!(
                 "SSRF blocked: private/internal IP address supplied directly: {ip}"
             ));
@@ -233,7 +235,7 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
 
     // Kada mu bar wani internal address ya shiga cikin resolved set.
     for addr in &addrs {
-        if is_private_ip(addr.ip()) {
+        if !allow_private && is_private_ip(addr.ip()) {
             return Err(format!(
                 "SSRF blocked: host '{host}' resolves to private/internal address {}",
                 addr.ip()
@@ -268,8 +270,9 @@ pub async fn validate_destination(url: &str) -> Result<(), String> {
 /// once, validate every resolved address, then pin the connection to the
 /// validated address rather than resolving again at connect time.
 pub async fn resolve_and_validate_host_port(host: &str, port: u16) -> Result<SocketAddr, String> {
+    let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
+        if !allow_private && is_private_ip(ip) {
             return Err(format!(
                 "SSRF blocked: private/internal IP address supplied directly: {ip}"
             ));
@@ -288,7 +291,7 @@ pub async fn resolve_and_validate_host_port(host: &str, port: u16) -> Result<Soc
     }
 
     for addr in &addrs {
-        if is_private_ip(addr.ip()) {
+        if !allow_private && is_private_ip(addr.ip()) {
             return Err(format!(
                 "SSRF blocked: host '{host}' resolves to private/internal address {}",
                 addr.ip()

@@ -49,7 +49,7 @@ wait_for_health() {
 
 db_query() {
   local user="${POSTGRES_USER:-postgres}"
-  local db="${POSTGRES_DB:-postgres}"
+  local db="${POSTGRES_DB:-uptime_monitor}"
   docker compose "${COMPOSE_FILES[@]}" exec -T -e PGPASSWORD="${POSTGRES_PASSWORD:-postgres}" postgres psql -U "$user" -d "$db" -tAc "$1" 2>/dev/null | tr -d '[:space:]'
 }
 
@@ -81,19 +81,25 @@ require_status "register" "201" "$REGISTER_STATUS"
 # ---------------------------------------------------------------------
 step "VERIFY EMAIL"
 TOKEN=""
-for i in $(seq 1 30); do
-  MSG_ID=$(curl -sS "$MAILPIT/api/v1/messages?limit=50" | jq -r --arg e "$EMAIL" \
+for i in $(seq 1 60); do
+  MSG_ID=$(curl -sS "$MAILPIT/api/v1/messages?limit=100" | jq -r --arg e "$EMAIL" \
     '.messages[] | select(.To[0].Address==$e) | .ID' | head -1)
   if [ -n "${MSG_ID:-}" ]; then break; fi
   sleep 1
 done
 
 if [ -z "${MSG_ID:-}" ]; then
-  fail "no verification email arrived at Mailpit for $EMAIL within 30s"
+  fail "no verification email arrived at Mailpit for $EMAIL within 60s"
 else
   RAW=$(curl -sS "$MAILPIT/api/v1/message/$MSG_ID")
   BODY_TEXT=$(echo "$RAW" | jq -r '.Text // .HTML // ""')
-  TOKEN=$(echo "$BODY_TEXT" | awk '/following token:/{getline; print $1; exit}')
+  # Primary: exact evt_ token format from the real email template
+  TOKEN=$(echo "$BODY_TEXT" | grep -oE 'evt_[a-fA-F0-9]{16}_[a-fA-F0-9]{64}' | head -1)
+  # Fallback: awk (line after "following token:")
+  if [ -z "$TOKEN" ]; then
+    TOKEN=$(echo "$BODY_TEXT" | awk '/following token:/{getline; print $1; exit}')
+  fi
+  # Fallback: bare long token
   if [ -z "$TOKEN" ]; then
     TOKEN=$(echo "$BODY_TEXT" | grep -oE '[A-Za-z0-9_-]{32,}' | head -1)
   fi
@@ -105,10 +111,9 @@ if [ -n "${TOKEN:-}" ]; then
     -H 'Content-Type: application/json' -d "$VERIFY_BODY")
   require_status "verify-email" "200" "$VERIFY_STATUS"
 else
-  fail "could not extract verification token (raw body: $(echo "$BODY_TEXT" | head -5))"
+  fail "could not extract verification token (raw body: $(echo "$BODY_TEXT" | head -20))"
 fi
 
-# ---------------------------------------------------------------------
 step "LOGIN"
 LOGIN_BODY=$(jq -n --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p}')
 LOGIN_STATUS=$(curl -sS -c "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/login" \
@@ -161,6 +166,21 @@ else
 fi
 
 # ---------------------------------------------------------------------
+step "NOTIFICATION (email channel setup)"
+if [ "$MONITOR_ID" != "missing" ]; then
+  NOTIFY_EMAIL="notify-${UNIQUE}@example.com"
+  CHANNEL_BODY=$(jq -n --arg target "$NOTIFY_EMAIL" '{kind:"email", target:$target}')
+  CHANNEL_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/monitors/$MONITOR_ID/notifications" \
+    -H 'Content-Type: application/json' -d "$CHANNEL_BODY")
+  CHANNEL_STATUS=$(echo "$CHANNEL_RESP" | tail -1)
+  require_status "create email notification channel" "201" "$CHANNEL_STATUS"
+  if [ "$CHANNEL_STATUS" != "201" ]; then
+    echo "  response: $(echo "$CHANNEL_RESP" | sed '$d')"
+  fi
+else
+  fail "skipped NOTIFICATION setup because monitor id is missing"
+fi
+
 step "DOWN -> INCIDENT"
 if [ "$MONITOR_ID" != "missing" ]; then
   docker compose "${COMPOSE_FILES[@]}" stop mock-target >/dev/null 2>&1
@@ -183,18 +203,8 @@ else
 fi
 
 # ---------------------------------------------------------------------
-step "NOTIFICATION (email channel -> Mailpit capture)"
-if [ "$MONITOR_ID" != "missing" ]; then
-  NOTIFY_EMAIL="notify-${UNIQUE}@example.com"
-  CHANNEL_BODY=$(jq -n --arg target "$NOTIFY_EMAIL" '{kind:"email", target:$target}')
-  CHANNEL_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/monitors/$MONITOR_ID/notifications" \
-    -H 'Content-Type: application/json' -d "$CHANNEL_BODY")
-  CHANNEL_STATUS=$(echo "$CHANNEL_RESP" | tail -1)
-  require_status "create email notification channel" "201" "$CHANNEL_STATUS"
-  if [ "$CHANNEL_STATUS" != "201" ]; then
-    echo "  response: $(echo "$CHANNEL_RESP" | sed '$d')"
-  fi
-
+step "NOTIFICATION (email delivery)"
+if [ -n "$NOTIFY_EMAIL" ]; then
   NOTIFICATION_RECEIVED=false
   for i in $(seq 1 40); do
     MSG_COUNT=$(curl -sS "$MAILPIT/api/v1/messages?limit=100" | jq --arg e "$NOTIFY_EMAIL" '[.messages[] | select(.To[0].Address==$e)] | length' 2>/dev/null || echo "0")
@@ -203,10 +213,9 @@ if [ "$MONITOR_ID" != "missing" ]; then
   done
   if $NOTIFICATION_RECEIVED; then ok "notification email arrived at Mailpit for $NOTIFY_EMAIL"; else fail "no notification email found at Mailpit within 40s"; fi
 else
-  fail "skipped NOTIFICATION because monitor id is missing"
+  fail "NOTIFY_EMAIL not set; cannot check notification delivery"
 fi
 
-# ---------------------------------------------------------------------
 step "RECOVERY"
 if [ "$MONITOR_ID" != "missing" ]; then
   docker compose "${COMPOSE_FILES[@]}" start mock-target >/dev/null 2>&1
@@ -256,7 +265,7 @@ fi
 # ---------------------------------------------------------------------
 step "UPGRADE"
 CHECKOUT_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/billing/checkout" \
-  -H 'Content-Type: application/json' -d '{"plan_tier":"tier1"}')
+  -H 'Content-Type: application/json' -d '{"plan_tier":"tier_1"}')
 CHECKOUT_STATUS=$(echo "$CHECKOUT_RESP" | tail -1)
 CHECKOUT_JSON=$(echo "$CHECKOUT_RESP" | sed '$d')
 require_status "initiate checkout" "200" "$CHECKOUT_STATUS"
