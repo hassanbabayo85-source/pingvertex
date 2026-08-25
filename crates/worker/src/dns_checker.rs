@@ -44,12 +44,11 @@ impl DnsCheckOutcome {
 }
 
 fn extract_host(raw: &str) -> String {
-    if raw.contains("://") {
-        if let Ok(parsed) = Url::parse(raw) {
-            if let Some(host) = parsed.host_str() {
-                return host.to_string();
-            }
-        }
+    if raw.contains("://")
+        && let Ok(parsed) = Url::parse(raw)
+        && let Some(host) = parsed.host_str()
+    {
+        return host.to_string();
     }
     raw.to_string()
 }
@@ -159,10 +158,10 @@ fn evaluate_dns_answers(
         return Ok(false);
     }
 
-    if let Some(expected) = expected {
-        if !answers.iter().any(|answer| answer == expected) {
-            return Ok(false);
-        }
+    if let Some(expected) = expected
+        && !answers.iter().any(|answer| answer == expected)
+    {
+        return Ok(false);
     }
 
     let _ = (host, record_type);

@@ -13,7 +13,7 @@ services:
     restart: "no"
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.20.3
     container_name: uptime-monitor-e2e-mailpit
     restart: "no"
     ports:

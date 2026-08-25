@@ -69,7 +69,7 @@ impl AddMemberUseCase {
             .user_repository
             .find_by_id(&command.user_id)
             .await
-            .map_err(|err| MembershipError::Other(err))?
+            .map_err(MembershipError::Other)?
             .is_none()
         {
             return Err(MembershipError::NotFound);
@@ -80,7 +80,7 @@ impl AddMemberUseCase {
             .tenant_membership_repository
             .find_by_tenant_and_user(tenant_id, command.user_id)
             .await
-            .map_err(|err| MembershipError::Other(err))?
+            .map_err(MembershipError::Other)?
             .is_some()
         {
             return Err(MembershipError::Conflict);
@@ -98,7 +98,7 @@ impl AddMemberUseCase {
         self.tenant_membership_repository
             .create(&membership)
             .await
-            .map_err(|err| MembershipError::Other(err))?;
+            .map_err(MembershipError::Other)?;
 
         Ok(membership)
     }

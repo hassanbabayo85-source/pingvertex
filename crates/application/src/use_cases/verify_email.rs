@@ -59,7 +59,7 @@ where
             .token_repository
             .find_by_prefix(&prefix)
             .await
-            .map_err(|e| VerifyEmailError::Internal(e))?
+            .map_err(VerifyEmailError::Internal)?
             .ok_or(VerifyEmailError::InvalidOrExpiredToken)?;
 
         if !token.is_valid(Utc::now()) {
@@ -74,7 +74,7 @@ where
             .password_hasher
             .verify(&raw_token, &token_hash)
             .await
-            .map_err(|e| VerifyEmailError::Internal(e))?;
+            .map_err(VerifyEmailError::Internal)?;
 
         if !valid {
             return Err(VerifyEmailError::InvalidOrExpiredToken);
@@ -84,7 +84,7 @@ where
             .user_repository
             .find_by_id(&token_user_id)
             .await
-            .map_err(|e| VerifyEmailError::Internal(e))?
+            .map_err(VerifyEmailError::Internal)?
             .ok_or(VerifyEmailError::InvalidOrExpiredToken)?;
 
         let mut token = token;
@@ -92,13 +92,13 @@ where
         self.token_repository
             .mark_used(token_id, Utc::now())
             .await
-            .map_err(|e| VerifyEmailError::Internal(e))?;
+            .map_err(VerifyEmailError::Internal)?;
 
         user.mark_email_verified(Utc::now());
         self.user_repository
             .update(&user)
             .await
-            .map_err(|e| VerifyEmailError::Internal(e))?;
+            .map_err(VerifyEmailError::Internal)?;
 
         Ok(())
     }

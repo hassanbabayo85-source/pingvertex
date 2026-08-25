@@ -36,6 +36,6 @@ impl ListMembersUseCase {
         self.tenant_membership_repository
             .list_by_tenant(tenant_id)
             .await
-            .map_err(|err| MembershipError::Other(err))
+            .map_err(MembershipError::Other)
     }
 }

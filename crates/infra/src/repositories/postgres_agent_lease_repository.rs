@@ -71,11 +71,7 @@ impl PostgresAgentLeaseRepository {
 
 #[derive(Debug, FromRow)]
 struct LeaseStatusRow {
-    agent_id: String,
-    monitor_id: Uuid,
-    region: String,
     completed_at: Option<DateTime<Utc>>,
-    lease_expires_at: DateTime<Utc>,
 }
 
 #[async_trait]
@@ -215,7 +211,7 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
 
         let row = sqlx::query_as::<_, LeaseStatusRow>(
             r#"
-            SELECT agent_id, monitor_id, region, completed_at, lease_expires_at
+            SELECT completed_at
             FROM agent_check_leases
             WHERE check_id = $1
             "#,
@@ -229,12 +225,6 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
             Some(row) => {
                 if row.completed_at.is_some() {
                     SubmitAgentResultOutcome::Duplicate
-                } else if row.agent_id != agent_id
-                    || row.monitor_id != monitor_id.0
-                    || row.region != region.as_str()
-                    || row.lease_expires_at <= now
-                {
-                    SubmitAgentResultOutcome::Stale
                 } else {
                     SubmitAgentResultOutcome::Stale
                 }

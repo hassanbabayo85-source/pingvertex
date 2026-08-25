@@ -110,7 +110,7 @@ services:
 
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     container_name: uptime-monitor-prometheus
     restart: unless-stopped
     depends_on:
@@ -129,7 +129,7 @@ services:
       - "127.0.0.1:9090:9090"
 
   grafana:
-    image: grafana/grafana-oss:latest
+    image: grafana/grafana-oss:11.2.0
     container_name: uptime-monitor-grafana
     restart: unless-stopped
     depends_on:
@@ -145,7 +145,7 @@ services:
       - "127.0.0.1:3002:3000"
 
   alertmanager:
-    image: prom/alertmanager:latest
+    image: prom/alertmanager:v0.27.0
     container_name: uptime-monitor-alertmanager
     restart: unless-stopped
 

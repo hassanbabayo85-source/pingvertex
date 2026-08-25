@@ -64,10 +64,10 @@ impl TenantInvitationRepository for InMemoryTenantInvitationRepository {
             .unwrap()
             .iter_mut()
             .find(|i| i.id == id)
+            && invitation.revoked_at.is_none()
+            && invitation.accepted_at.is_none()
         {
-            if invitation.revoked_at.is_none() && invitation.accepted_at.is_none() {
-                invitation.revoked_at = Some(revoked_at);
-            }
+            invitation.revoked_at = Some(revoked_at);
         }
         Ok(())
     }
@@ -79,10 +79,10 @@ impl TenantInvitationRepository for InMemoryTenantInvitationRepository {
             .unwrap()
             .iter_mut()
             .find(|i| i.id == id)
+            && invitation.revoked_at.is_none()
+            && invitation.accepted_at.is_none()
         {
-            if invitation.revoked_at.is_none() && invitation.accepted_at.is_none() {
-                invitation.accepted_at = Some(accepted_at);
-            }
+            invitation.accepted_at = Some(accepted_at);
         }
         Ok(())
     }

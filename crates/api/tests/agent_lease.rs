@@ -39,11 +39,7 @@ struct MockCheckRepository {
     saved_checks: Arc<Mutex<Vec<Check>>>,
 }
 
-impl MockCheckRepository {
-    fn save_count(&self) -> usize {
-        self.saved_checks.lock().unwrap().len()
-    }
-}
+impl MockCheckRepository {}
 
 #[async_trait]
 impl CheckRepository for MockCheckRepository {

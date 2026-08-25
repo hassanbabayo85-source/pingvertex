@@ -49,18 +49,17 @@ impl ChangeMemberRoleUseCase {
             .tenant_membership_repository
             .find_by_tenant_and_user(tenant_id, command.user_id)
             .await
-            .map_err(|err| MembershipError::Other(err))?
+            .map_err(MembershipError::Other)?
             .ok_or(MembershipError::NotFound)?;
 
         let actor_role = actor.role();
 
         // Admin restrictions
-        if actor_role == Role::Admin {
-            if matches!(target.role, Role::Owner | Role::Admin)
-                || matches!(command.new_role, Role::Owner | Role::Admin)
-            {
-                return Err(MembershipError::Forbidden);
-            }
+        if actor_role == Role::Admin
+            && (matches!(target.role, Role::Owner | Role::Admin)
+                || matches!(command.new_role, Role::Owner | Role::Admin))
+        {
+            return Err(MembershipError::Forbidden);
         }
 
         // Only Owner can assign Owner/Admin (already covered above, but keep explicit)
@@ -77,7 +76,7 @@ impl ChangeMemberRoleUseCase {
                 .tenant_membership_repository
                 .list_by_tenant(tenant_id)
                 .await
-                .map_err(|err| MembershipError::Other(err))?
+                .map_err(MembershipError::Other)?
                 .into_iter()
                 .filter(|m| m.role == Role::Owner)
                 .count();
@@ -91,6 +90,6 @@ impl ChangeMemberRoleUseCase {
         self.tenant_membership_repository
             .update_role(tenant_id, command.user_id, command.new_role)
             .await
-            .map_err(|err| MembershipError::Other(err))
+            .map_err(MembershipError::Other)
     }
 }
