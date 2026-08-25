@@ -100,10 +100,10 @@ impl CreateEscalationPolicyUseCase {
                 return Err(CreateEscalationPolicyError::ChannelNotFound);
             }
 
-            if let Some(monitor_id) = command.monitor_id {
-                if channel.monitor_id != monitor_id {
-                    return Err(CreateEscalationPolicyError::ChannelNotFound);
-                }
+            if let Some(monitor_id) = command.monitor_id
+                && channel.monitor_id != monitor_id
+            {
+                return Err(CreateEscalationPolicyError::ChannelNotFound);
             }
         }
 

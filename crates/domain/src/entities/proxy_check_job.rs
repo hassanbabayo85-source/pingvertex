@@ -40,6 +40,7 @@ impl ProxyCheckJob {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_persisted(
         id: ProxyCheckJobId,
         user_id: UserId,

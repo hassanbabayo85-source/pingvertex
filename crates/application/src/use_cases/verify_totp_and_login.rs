@@ -88,14 +88,12 @@ where
 
         // Try TOTP first (cheap, no DB round-trip). `build_totp`'s skew
         // of 1 covers the required ±1 step clock-skew tolerance.
-        if let Some(encrypted_secret) = user.totp_secret() {
-            if let Ok(secret_bytes) = self.secret_cipher.decrypt_bytes(encrypted_secret) {
-                if let Ok(totp) = build_totp(secret_bytes, user.email().as_str().to_string()) {
-                    if let Ok(true) = totp.check_current(&request.code) {
-                        verified = true;
-                    }
-                }
-            }
+        if let Some(encrypted_secret) = user.totp_secret()
+            && let Ok(secret_bytes) = self.secret_cipher.decrypt_bytes(encrypted_secret)
+            && let Ok(totp) = build_totp(secret_bytes, user.email().as_str().to_string())
+            && let Ok(true) = totp.check_current(&request.code)
+        {
+            verified = true;
         }
 
         // Fall back to a backup code only when TOTP didn't match.

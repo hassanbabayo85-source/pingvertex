@@ -84,7 +84,7 @@ impl TenantMembershipRepository for InMemoryTenantMembershipRepository {
         // Backwards-compatible fallback for tests that never seeded
         // memberships and rely on a single implicit Owner membership.
         let mut cache = self.fallback_tenant_cache.lock().unwrap();
-        let tenant_id = *cache.entry(user_id).or_insert_with(TenantId::new);
+        let tenant_id = *cache.entry(user_id).or_default();
         let now = Utc::now();
         let membership = TenantMembership {
             tenant_id,

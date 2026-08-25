@@ -44,12 +44,11 @@ impl TcpCheckOutcome {
 /// helpers and TCP/DNS checkers need a bare host. If `monitor.url` is
 /// already a bare host, it is returned unchanged.
 fn extract_host(raw: &str) -> String {
-    if raw.contains("://") {
-        if let Ok(parsed) = Url::parse(raw) {
-            if let Some(host) = parsed.host_str() {
-                return host.to_string();
-            }
-        }
+    if raw.contains("://")
+        && let Ok(parsed) = Url::parse(raw)
+        && let Some(host) = parsed.host_str()
+    {
+        return host.to_string();
     }
     raw.to_string()
 }

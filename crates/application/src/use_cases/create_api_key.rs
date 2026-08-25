@@ -140,10 +140,10 @@ impl CreateApiKeyUseCase {
         if command.scopes.is_empty() {
             return Err(CreateApiKeyError::EmptyScopes);
         }
-        if let Some(expires_at) = command.expires_at {
-            if expires_at <= Utc::now() {
-                return Err(CreateApiKeyError::ExpiryInPast);
-            }
+        if let Some(expires_at) = command.expires_at
+            && expires_at <= Utc::now()
+        {
+            return Err(CreateApiKeyError::ExpiryInPast);
         }
 
         let user_id = authenticated_user.user_id();

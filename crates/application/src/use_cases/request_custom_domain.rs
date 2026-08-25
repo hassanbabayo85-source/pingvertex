@@ -110,12 +110,11 @@ where
             .find_by_verified_custom_domain(domain.as_str())
             .await
             .map_err(RequestCustomDomainError::Other)?
+            && existing.id != status_page.id
         {
-            if existing.id != status_page.id {
-                return Err(RequestCustomDomainError::AlreadyClaimed {
-                    domain: domain.as_str().to_owned(),
-                });
-            }
+            return Err(RequestCustomDomainError::AlreadyClaimed {
+                domain: domain.as_str().to_owned(),
+            });
         }
 
         status_page.request_custom_domain(domain);

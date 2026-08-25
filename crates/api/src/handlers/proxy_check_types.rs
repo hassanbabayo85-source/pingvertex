@@ -34,7 +34,7 @@ impl From<domain::entities::ProxyCheckJob> for ProxyCheckJobHttpResponse {
         ProxyCheckJobHttpResponse {
             id: job.id().to_string(),
             user_id: job.user_id().0.to_string(),
-            status: job.status().clone(),
+            status: job.status(),
             created_at: job.created_at().to_rfc3339(),
             completed_at: job.completed_at().map(|dt| dt.to_rfc3339()),
             total_count: job.total_count(),
@@ -91,7 +91,7 @@ impl
         ProxyCheckJobDetailHttpResponse {
             id: job.id().to_string(),
             user_id: job.user_id().0.to_string(),
-            status: job.status().clone(),
+            status: job.status(),
             created_at: job.created_at().to_rfc3339(),
             completed_at: job.completed_at().map(|dt| dt.to_rfc3339()),
             total_count: job.total_count(),

@@ -52,7 +52,7 @@ impl MaintenanceWindowRepository for InMemoryMaintenanceWindowRepository {
             .cloned()
             .collect();
 
-        windows.sort_by(|a, b| b.starts_at.cmp(&a.starts_at));
+        windows.sort_by_key(|b| std::cmp::Reverse(b.starts_at));
         Ok(windows)
     }
 
@@ -74,7 +74,7 @@ impl MaintenanceWindowRepository for InMemoryMaintenanceWindowRepository {
             .cloned()
             .collect();
 
-        windows.sort_by(|a, b| b.starts_at.cmp(&a.starts_at));
+        windows.sort_by_key(|b| std::cmp::Reverse(b.starts_at));
         Ok(windows)
     }
 }
