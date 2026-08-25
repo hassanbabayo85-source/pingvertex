@@ -379,6 +379,16 @@ done
 require_status "6th+ rapid login attempt rate-limited" "429" "$LAST_STATUS"
 
 # ---------------------------------------------------------------------
+step "FAILURE: forgot-password rate limit"
+LAST_FORGOT_STATUS=""
+for i in $(seq 1 8); do
+  LAST_FORGOT_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/forgot-password" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg e "e2e-forgot-${i}@example.com" '{email:$e}')")
+done
+require_status "4th+ rapid forgot-password attempt rate-limited" "429" "$LAST_FORGOT_STATUS"
+
+# ---------------------------------------------------------------------
 step "FAILURE: worker restart"
 docker compose "${COMPOSE_FILES[@]}" restart worker >/dev/null 2>&1
 wait_for_health "worker (post-restart)" "http://localhost:3001/health"
