@@ -18,7 +18,6 @@ pub async fn setup_pool() -> PgPool {
 
     println!("CARGO_MANIFEST_DIR = {}", env!("CARGO_MANIFEST_DIR"));
 
-    reset_database(&pool).await;
     sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
 
     clear_tables(&pool).await;
@@ -26,13 +25,17 @@ pub async fn setup_pool() -> PgPool {
     pool
 }
 
+#[allow(dead_code)]
 async fn reset_database(pool: &PgPool) {
     query("DROP SCHEMA IF EXISTS public CASCADE")
         .execute(pool)
         .await
         .unwrap();
 
-    query("CREATE SCHEMA public").execute(pool).await.unwrap();
+    query("CREATE SCHEMA IF NOT EXISTS public")
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 pub async fn clear_tables(pool: &PgPool) {

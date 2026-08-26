@@ -21,6 +21,10 @@
 //!
 //! H2 — added: forgot-password / resend-verification rate limiting tests
 //! using `InMemoryRateLimiter` (simulating Redis-backed behavior).
+//!
+//! H3 — updated: `InMemoryPendingAuthCache` now implements the atomic
+//! `getdel` method and `NoopBackupCodeRepository` returns `bool` from
+//! `mark_used`.
 
 use api::{
     auth_state::{AuthState, InMemoryRateLimiter},
@@ -170,6 +174,11 @@ impl PendingAuthCache for InMemoryPendingAuthCache {
         Ok(store.get(key).map(|(value, _)| value.clone()))
     }
 
+    async fn getdel(&self, key: &str) -> PendingAuthCacheResult<Option<String>> {
+        let mut store = self.store.lock().await;
+        Ok(store.remove(key).map(|(value, _)| value))
+    }
+
     async fn set(&self, key: &str, value: &str, _ttl_seconds: u64) -> PendingAuthCacheResult<()> {
         let mut store = self.store.lock().await;
         store.insert(key.to_string(), (value.to_string(), Utc::now().timestamp()));
@@ -194,7 +203,7 @@ impl BackupCodeRepository for NoopBackupCodeRepository {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
-    async fn find_unused_by_user(
+    async fn find_all_by_user(
         &self,
         _user_id: UserId,
     ) -> Result<Vec<BackupCode>, Box<dyn std::error::Error + Send + Sync>> {
@@ -204,8 +213,8 @@ impl BackupCodeRepository for NoopBackupCodeRepository {
         &self,
         _id: BackupCodeId,
         _used_at: DateTime<Utc>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(true)
     }
     async fn delete_all_for_user(
         &self,

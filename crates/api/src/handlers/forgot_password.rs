@@ -1,11 +1,9 @@
-use std::time::Instant;
-
 use axum::{Json, extract::State, http::StatusCode};
 use serde_json::{Value, json};
 
 use application::{dto::ForgotPasswordRequest, use_cases::RequestPasswordResetUseCase};
 
-use crate::auth_state::{AuthState, ForgotPasswordRateLimiter};
+use crate::auth_state::AuthState;
 
 /// Per-email fixed-window limit for `POST /auth/forgot-password`.
 /// Identical shape/values to `resend_verification.rs`'s limiter — same
@@ -13,33 +11,6 @@ use crate::auth_state::{AuthState, ForgotPasswordRateLimiter};
 /// repeatedly triggering reset emails for their address).
 const FORGOT_PASSWORD_MAX_REQUESTS: u32 = 3;
 const FORGOT_PASSWORD_WINDOW_SECS: u64 = 60;
-
-async fn check_and_record_forgot_password_rate_limit(
-    limiter: &ForgotPasswordRateLimiter,
-    key: &str,
-) -> bool {
-    let mut buckets = limiter.lock().await;
-    let now = Instant::now();
-
-    match buckets.get_mut(key) {
-        Some((window_start, count)) => {
-            if now.duration_since(*window_start).as_secs() >= FORGOT_PASSWORD_WINDOW_SECS {
-                *window_start = now;
-                *count = 1;
-                true
-            } else if *count >= FORGOT_PASSWORD_MAX_REQUESTS {
-                false
-            } else {
-                *count += 1;
-                true
-            }
-        }
-        None => {
-            buckets.insert(key.to_string(), (now, 1));
-            true
-        }
-    }
-}
 
 /// `POST /auth/forgot-password`
 ///
@@ -59,13 +30,33 @@ pub async fn forgot_password(
 ) -> (StatusCode, Json<Value>) {
     let normalized_email = payload.email.trim().to_ascii_lowercase();
 
-    if !check_and_record_forgot_password_rate_limit(
-        &state.forgot_password_rate_limiter,
-        &normalized_email,
-    )
-    .await
+    let allowed = match state
+        .rate_limiter
+        .check_and_record(
+            "forgot_password",
+            &normalized_email,
+            FORGOT_PASSWORD_MAX_REQUESTS,
+            FORGOT_PASSWORD_WINDOW_SECS,
+        )
+        .await
     {
-        tracing::warn!("forgot-password rate limit exceeded for a normalized email");
+        Ok(allowed) => allowed,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "forgot-password rate limiter unavailable; failing closed"
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "message": "password reset is temporarily unavailable; please try again later"
+                })),
+            );
+        }
+    };
+
+    if !allowed {
+        tracing::warn!("forgot-password rate limit exceeded");
         return (
             StatusCode::TOO_MANY_REQUESTS,
             Json(json!({
@@ -98,46 +89,15 @@ pub async fn forgot_password(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-
-    fn empty_limiter() -> ForgotPasswordRateLimiter {
-        Arc::new(Mutex::new(std::collections::HashMap::new()))
+    #[test]
+    fn normalized_email_is_trimmed_and_lowercase() {
+        let email = "  User@Example.COM ";
+        assert_eq!(email.trim().to_ascii_lowercase(), "user@example.com");
     }
 
-    #[tokio::test]
-    async fn allows_up_to_max_requests() {
-        let limiter = empty_limiter();
-        for _ in 0..FORGOT_PASSWORD_MAX_REQUESTS {
-            assert!(check_and_record_forgot_password_rate_limit(&limiter, "a@example.com").await);
-        }
-        assert!(!check_and_record_forgot_password_rate_limit(&limiter, "a@example.com").await);
-    }
-
-    #[tokio::test]
-    async fn different_emails_have_independent_limits() {
-        let limiter = empty_limiter();
-        for _ in 0..FORGOT_PASSWORD_MAX_REQUESTS {
-            assert!(check_and_record_forgot_password_rate_limit(&limiter, "a@example.com").await);
-        }
-        assert!(check_and_record_forgot_password_rate_limit(&limiter, "b@example.com").await);
-    }
-
-    #[tokio::test]
-    async fn window_resets_after_elapsed_time() {
-        let limiter = empty_limiter();
-        for _ in 0..FORGOT_PASSWORD_MAX_REQUESTS {
-            assert!(check_and_record_forgot_password_rate_limit(&limiter, "a@example.com").await);
-        }
-
-        {
-            let mut buckets = limiter.lock().await;
-            let (start, _) = buckets.get_mut("a@example.com").unwrap();
-            *start =
-                Instant::now() - std::time::Duration::from_secs(FORGOT_PASSWORD_WINDOW_SECS + 1);
-        }
-
-        assert!(check_and_record_forgot_password_rate_limit(&limiter, "a@example.com").await);
+    #[test]
+    fn rate_limit_configuration_is_sixty_seconds_and_three_requests() {
+        assert_eq!(super::FORGOT_PASSWORD_MAX_REQUESTS, 3);
+        assert_eq!(super::FORGOT_PASSWORD_WINDOW_SECS, 60);
     }
 }

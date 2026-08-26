@@ -70,6 +70,10 @@ impl PendingAuthCache for FakePendingAuthCache {
         Ok(self.store.lock().unwrap().get(key).cloned())
     }
 
+    async fn getdel(&self, key: &str) -> PendingAuthCacheResult<Option<String>> {
+        Ok(self.store.lock().unwrap().remove(key))
+    }
+
     async fn set(&self, key: &str, value: &str, _ttl_seconds: u64) -> PendingAuthCacheResult<()> {
         self.store
             .lock()
@@ -199,7 +203,6 @@ async fn full_forgot_password_then_reset_password_happy_path()
         "stored password hash must NOT verify against the OLD password anymore"
     );
 
-    // Session invalidation marker must have been written.
     let cache_key = session_invalidated_at_cache_key(user.id());
     assert!(
         harness.pending_auth_cache.get(&cache_key).await?.is_some(),
@@ -215,10 +218,6 @@ async fn expired_token_is_rejected() -> Result<(), Box<dyn Error + Send + Sync>>
     let user = make_active_user("resetflow-expired@example.com", STRONG_PASSWORD).await;
     harness.user_repository.create(&user).await?;
 
-    // Build an already-expired token directly (bypassing the forgot-password
-    // use case, which always issues a token with a future expiry) and insert
-    // it straight into the repository — the raw token value itself is
-    // otherwise perfectly well-formed and its hash matches.
     let raw_token = format!("rst_{}_{}", "a".repeat(16), "b".repeat(64));
     let token_hash = Argon2PasswordHasher.hash(&raw_token).await?;
     let expired_token = ResetPasswordToken::new(
@@ -259,16 +258,12 @@ async fn reused_token_is_rejected() -> Result<(), Box<dyn Error + Send + Sync>> 
 
     let raw_token = harness.last_sent_token();
 
-    // First redemption succeeds.
     harness
         .reset_password_use_case()
         .execute(raw_token.clone(), NEW_STRONG_PASSWORD.to_string())
         .await
         .expect("first redemption must succeed");
 
-    // Second redemption of the SAME raw token must be rejected — the
-    // token was marked used (and any unused duplicates deleted) by the
-    // first call.
     let second_result = harness
         .reset_password_use_case()
         .execute(raw_token, "AnotherPassword789!".to_string())
@@ -286,7 +281,6 @@ async fn reused_token_is_rejected() -> Result<(), Box<dyn Error + Send + Sync>> 
 async fn enumeration_protection_returns_ok_for_nonexistent_email()
 -> Result<(), Box<dyn Error + Send + Sync>> {
     let harness = Harness::new();
-    // No user is ever created — the email below does not exist.
 
     let result = harness
         .forgot_password_use_case()
@@ -332,8 +326,6 @@ async fn weak_new_password_is_rejected_without_consuming_the_token()
         Err(ResetPasswordError::WeakPassword(_))
     ));
 
-    // The token must still be redeemable afterward with a strong password
-    // — a rejected weak password must not have consumed the token.
     harness
         .reset_password_use_case()
         .execute(raw_token, NEW_STRONG_PASSWORD.to_string())

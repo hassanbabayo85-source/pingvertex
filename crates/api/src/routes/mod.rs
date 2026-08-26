@@ -3,6 +3,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod billing;
 pub mod checks;
+pub mod dashboard;
 pub mod health;
 pub mod internal_agents;
 pub mod invitations;

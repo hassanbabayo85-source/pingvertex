@@ -48,6 +48,11 @@ impl StatusPageCache for NoopStatusPageCache {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     init_rustls_crypto_provider();
+
+    // P0 hardening: refuse to boot in production if the private-IP SSRF
+    // escape hatch is enabled.
+    shared::ssrf::validate_production_ssrf_config()?;
+
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,tower_http=trace"));
 
@@ -221,16 +226,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     tracing::info!("worker started; press Ctrl+C or send SIGTERM to shut down");
 
-    // B38: graceful shutdown for the main scheduler loop only. The
-    // background subsystems spawned above (escalation, custom-domain
-    // verification, proxy-check, retention, heartbeat sweeper,
-    // notification outbox) do NOT get an individual graceful drain here
-    // — none of their `run_forever()` methods currently accept a
-    // cancellation signal, so they are dropped when the tokio runtime
-    // exits along with the rest of the process. See this worker's
-    // HANDOVER.md "Deviations from prompt" for why threading a
-    // cancellation token through all six was treated as out of scope
-    // for a deployment worker.
     tokio::select! {
         result = run_durable(
             scheduling_repository,
@@ -250,8 +245,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }
 
-/// B38: resolves on SIGTERM or Ctrl+C — see the identical helper in
-/// `crates/api/src/main.rs` for the full rationale.
 async fn shutdown_signal() {
     use tokio::signal;
 

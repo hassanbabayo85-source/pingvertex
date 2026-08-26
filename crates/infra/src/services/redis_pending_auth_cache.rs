@@ -35,6 +35,21 @@ impl PendingAuthCache for RedisPendingAuthCache {
         Ok(value)
     }
 
+    async fn getdel(&self, key: &str) -> PendingAuthCacheResult<Option<String>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        // Redis `GETDEL` returns the value and deletes the key atomically.
+        // `redis` crate doesn't expose `getdel` as a typed `AsyncCommands`
+        // method, so we use a tiny Lua script via `redis::Script` (which is
+        // the same primitive used elsewhere in this crate for rate limiter
+        // scripts).
+        let script = redis::Script::new("return redis.call('GETDEL', KEYS[1])");
+        let value: Option<String> = script
+            .key(Self::namespaced(key))
+            .invoke_async(&mut conn)
+            .await?;
+        Ok(value)
+    }
+
     async fn set(&self, key: &str, value: &str, ttl_seconds: u64) -> PendingAuthCacheResult<()> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let _: () = conn

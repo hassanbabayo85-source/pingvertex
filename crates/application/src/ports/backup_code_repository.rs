@@ -12,15 +12,20 @@ pub trait BackupCodeRepository: Send + Sync {
     /// `ConfirmTotpSetupUseCase`) in one call.
     async fn create_many(&self, codes: &[BackupCode]) -> RepoResult<()>;
 
-    /// Returns every not-yet-used backup code for `user_id`. Used by
-    /// `VerifyTotpAndLoginUseCase` to check a submitted backup code
-    /// against each stored hash via `PasswordHasher::verify`.
-    async fn find_unused_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>>;
+    /// Returns every backup code for `user_id`, both unused and already
+    /// redeemed. `VerifyTotpAndLoginUseCase` needs the full set so it can
+    /// distinguish "no such code / hash mismatch" from "the code exists
+    /// but was already used by a concurrent request" — the latter must
+    /// produce the same generic `InvalidBackupCode` error, not a TOTP error.
+    async fn find_all_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>>;
 
-    /// Marks a single backup code as redeemed. Must be called
-    /// immediately after a successful `PasswordHasher::verify` match so
-    /// the same code cannot be used twice.
-    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<()>;
+    /// Marks a single backup code as redeemed **only if it is still
+    /// unused**, atomically. The conditional `used_at IS NULL` guard and
+    /// the returned boolean make this safe against concurrent redemption
+    /// races: exactly one caller receives `true` for a given code id.
+    /// Implementations must return `false` (not an error) if the code was
+    /// already redeemed by another request.
+    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<bool>;
 
     /// Deletes every backup code (used and unused) belonging to
     /// `user_id`. Called by `DisableTotpUseCase` and re-called by
@@ -41,11 +46,11 @@ where
         (**self).create_many(codes).await
     }
 
-    async fn find_unused_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>> {
-        (**self).find_unused_by_user(user_id).await
+    async fn find_all_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>> {
+        (**self).find_all_by_user(user_id).await
     }
 
-    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<()> {
+    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<bool> {
         (**self).mark_used(id, used_at).await
     }
 

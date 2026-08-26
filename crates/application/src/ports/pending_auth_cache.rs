@@ -28,6 +28,13 @@ pub trait PendingAuthCache: Send + Sync {
     /// Returns the value stored under `key`, if present and not expired.
     async fn get(&self, key: &str) -> PendingAuthCacheResult<Option<String>>;
 
+    /// Atomically fetches and removes the value stored under `key`.
+    /// Returns `None` if the key was not present (already consumed or
+    /// expired). This is the single-use primitive used by
+    /// `VerifyTotpAndLoginUseCase` to guarantee that a pending 2FA token
+    /// cannot be replayed by two concurrent requests.
+    async fn getdel(&self, key: &str) -> PendingAuthCacheResult<Option<String>>;
+
     /// Stores `value` under `key` with the given time-to-live.
     async fn set(&self, key: &str, value: &str, ttl_seconds: u64) -> PendingAuthCacheResult<()>;
 
@@ -46,6 +53,10 @@ where
 {
     async fn get(&self, key: &str) -> PendingAuthCacheResult<Option<String>> {
         (**self).get(key).await
+    }
+
+    async fn getdel(&self, key: &str) -> PendingAuthCacheResult<Option<String>> {
+        (**self).getdel(key).await
     }
 
     async fn set(&self, key: &str, value: &str, ttl_seconds: u64) -> PendingAuthCacheResult<()> {

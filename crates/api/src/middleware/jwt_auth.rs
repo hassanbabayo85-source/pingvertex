@@ -41,14 +41,19 @@ pub async fn jwt_auth(
 
     let user_id = verified.user_id;
 
-    if let Ok(Some(invalidated_at_str)) = auth
+    let invalidated_at = auth
         .pending_auth_cache
         .get(&application::session_invalidated_at_cache_key(user_id))
         .await
-        && let Ok(invalidated_at) = invalidated_at_str.parse::<i64>()
-        && verified.issued_at < invalidated_at
-    {
-        return Err(StatusCode::UNAUTHORIZED);
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    if let Some(invalidated_at_str) = invalidated_at {
+        let invalidated_at = invalidated_at_str
+            .parse::<i64>()
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        if verified.issued_at < invalidated_at {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
     }
 
     let memberships = auth

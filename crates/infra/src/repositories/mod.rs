@@ -37,6 +37,8 @@ pub mod postgres_tenant_invitation_repository;
 pub mod postgres_tenant_membership_repository;
 pub mod postgres_tenant_repository;
 pub mod postgres_user_repository;
+// H6 — Dashboard Overview:
+pub mod postgres_dashboard_repository;
 
 pub use in_memory_api_flow_repository::*;
 pub use in_memory_api_key_repository::InMemoryApiKeyRepository;
@@ -77,6 +79,8 @@ pub use postgres_tenant_invitation_repository::PostgresTenantInvitationRepositor
 pub use postgres_tenant_membership_repository::PostgresTenantMembershipRepository;
 pub use postgres_tenant_repository::PostgresTenantRepository;
 pub use postgres_user_repository::*;
+// H6 — Dashboard Overview:
+pub use postgres_dashboard_repository::PostgresDashboardRepository;
 
 // B11 — Plan / Subscription / Entitlement model:
 pub mod in_memory_subscription_repository;
