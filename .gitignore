@@ -50,3 +50,8 @@ data/geoip/
 *.zip
 # XML audit and status files
 sashi-*.xml
+# Build artifacts and logs
+/target/
+/erro
+# Generated SBOM files (optional — remove if you want to commit them)
+*.cdx.json
