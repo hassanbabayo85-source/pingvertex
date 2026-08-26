@@ -9,13 +9,15 @@ use application::ports::{
     DashboardRepository, DiagnosticReportRepository, EscalationPolicyRepository, HealthCheckPort,
     HealthCheckResult, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
     MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
-    PaymentProvider, PaymentVerification, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
-    StatusPageRepository, SubscriptionRepository,
+    PaymentProvider, PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository,
+    SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
 };
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::Subscription;
 use domain::entities::{ApiKey, StatusPage};
+use domain::pricing::PricingConfig;
 use domain::shared::ids::{ApiKeyId, CheckoutSessionId, MonitorId, StatusPageId, TenantId, UserId};
 use domain::{CheckoutSession, EscalationPolicy, MaintenanceWindow};
 use infra::{Argon2PasswordHasher, UuidIdGenerator};
@@ -61,6 +63,7 @@ pub struct AppState {
     pub billing_webhook_secret: Option<Arc<str>>,
     pub billing_webhook_idempotency_repository: Arc<dyn BillingWebhookIdempotencyRepository>,
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
+    pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
     /// B34: backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
     /// healthy) until `with_health_check_port` substitutes a real check —
@@ -357,6 +360,28 @@ impl BillingAuditLogRepository for NoopBillingAuditLogRepository {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopPricingConfigRepository;
+
+#[async_trait]
+impl PricingConfigRepository for NoopPricingConfigRepository {
+    async fn find_active_config(&self) -> RepoResult<Option<PricingConfig>> {
+        Ok(None)
+    }
+
+    async fn find_by_version(&self, _version: u32) -> RepoResult<Option<PricingConfig>> {
+        Ok(None)
+    }
+
+    async fn create_version(&self, _config: &PricingConfig) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>> {
+        Ok(vec![])
+    }
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -412,6 +437,7 @@ impl AppState {
                 NoopBillingWebhookIdempotencyRepository,
             ),
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
+            pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
@@ -482,6 +508,7 @@ impl AppState {
                 NoopBillingWebhookIdempotencyRepository,
             ),
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
+            pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
@@ -573,6 +600,14 @@ impl AppState {
     /// H6 — Dashboard Overview:
     /// Substitutes a real `DashboardRepository` (e.g. `PostgresDashboardRepository`)
     /// in place of the no-op default.
+    pub fn with_pricing_config_repository<R>(mut self, pricing_config_repository: R) -> Self
+    where
+        R: PricingConfigRepository + 'static,
+    {
+        self.pricing_config_repository = Arc::new(pricing_config_repository);
+        self
+    }
+
     pub fn with_dashboard_repository<R>(mut self, dashboard_repository: R) -> Self
     where
         R: DashboardRepository + 'static,

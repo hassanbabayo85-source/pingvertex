@@ -17,3 +17,5 @@ pub use notification::*;
 pub use repositories::*;
 pub use shared::ids::*;
 pub use value_objects::*;
+
+pub mod pricing;

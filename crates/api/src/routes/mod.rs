@@ -10,6 +10,7 @@ pub mod invitations;
 pub mod members;
 pub mod monitors;
 pub mod notifications;
+pub mod pricing;
 pub mod proxy_checks;
 pub mod public;
 pub mod status_pages;
