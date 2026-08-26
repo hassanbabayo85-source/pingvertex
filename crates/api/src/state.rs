@@ -6,10 +6,10 @@ use application::ports::{
     AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
     BillingAuditLogRepository, BillingWebhookIdempotencyRepository, CheckRepository,
     CheckoutDetails, CheckoutRequest, CheckoutSessionRepository, CustomDomainVerifier,
-    DiagnosticReportRepository, EscalationPolicyRepository, HealthCheckPort, HealthCheckResult,
-    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorRepository,
-    NotificationChannelRepository, NotificationService, PasswordHasher, PaymentProvider,
-    PaymentVerification, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
+    DashboardRepository, DiagnosticReportRepository, EscalationPolicyRepository, HealthCheckPort,
+    HealthCheckResult, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
+    MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
+    PaymentProvider, PaymentVerification, ProxyCheckJobRepository, SecretCipher, StatusPageCache,
     StatusPageRepository, SubscriptionRepository,
 };
 use async_trait::async_trait;
@@ -19,6 +19,8 @@ use domain::entities::{ApiKey, StatusPage};
 use domain::shared::ids::{ApiKeyId, CheckoutSessionId, MonitorId, StatusPageId, TenantId, UserId};
 use domain::{CheckoutSession, EscalationPolicy, MaintenanceWindow};
 use infra::{Argon2PasswordHasher, UuidIdGenerator};
+
+use application::dto::DashboardOverview;
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -64,6 +66,34 @@ pub struct AppState {
     /// healthy) until `with_health_check_port` substitutes a real check —
     /// see `main.rs`, which wires `infra::PostgresHealthCheck`.
     pub health_check_port: Arc<dyn HealthCheckPort>,
+    /// H6 — Dashboard Overview Aggregated Backend API:
+    /// Tenant-scoped, efficient aggregate queries for the dashboard.
+    /// Defaults to `NoopDashboardRepository` (returns empty) until
+    /// `with_dashboard_repository` substitutes the real Postgres implementation.
+    pub dashboard_repository: Arc<dyn DashboardRepository>,
+}
+
+/// Default `DashboardRepository` used until a real one is substituted in.
+#[derive(Clone, Default)]
+struct NoopDashboardRepository;
+
+#[async_trait]
+impl DashboardRepository for NoopDashboardRepository {
+    async fn get_overview(&self, _tenant_id: TenantId) -> RepoResult<DashboardOverview> {
+        Ok(DashboardOverview {
+            monitor_summary: application::dto::MonitorSummary {
+                total: 0,
+                up: 0,
+                down: 0,
+                disabled: 0,
+            },
+            monitors: Vec::new(),
+            incident_summary: application::dto::IncidentSummaryData {
+                open_count: 0,
+                recent: Vec::new(),
+            },
+        })
+    }
 }
 
 /// Default `ApiKeyRepository` used until a real one is substituted in.
@@ -384,6 +414,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
+            dashboard_repository: Arc::new(NoopDashboardRepository),
         }
     }
 
@@ -453,6 +484,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
+            dashboard_repository: Arc::new(NoopDashboardRepository),
         }
     }
 
@@ -535,6 +567,17 @@ impl AppState {
         H: HealthCheckPort + 'static,
     {
         self.health_check_port = Arc::new(health_check_port);
+        self
+    }
+
+    /// H6 — Dashboard Overview:
+    /// Substitutes a real `DashboardRepository` (e.g. `PostgresDashboardRepository`)
+    /// in place of the no-op default.
+    pub fn with_dashboard_repository<R>(mut self, dashboard_repository: R) -> Self
+    where
+        R: DashboardRepository + 'static,
+    {
+        self.dashboard_repository = Arc::new(dashboard_repository);
         self
     }
 }

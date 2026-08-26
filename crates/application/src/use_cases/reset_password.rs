@@ -76,18 +76,16 @@ impl Error for ResetPasswordError {}
 /// The raw token is looked up by its prefix, then the full token is
 /// re-verified against the stored Argon2id hash before being accepted
 /// (identical pattern to `VerifyEmailUseCase`). On success:
-///   1. the user's password hash is replaced,
-///   2. the token is marked used and every other unused reset token for
-///      the account is deleted,
-///   3. a "session invalidated before now" marker is written to
+///   1. a "session invalidated before now" marker is written to
 ///      `PendingAuthCache` (Redis) so `jwt_auth` starts rejecting every
-///      session JWT that was issued before this moment (see
-///      `application::session_invalidated_at_cache_key`).
+///      session JWT that was issued before this moment;
+///   2. the user's password hash is replaced;
+///   3. the token is marked used and every other unused reset token for
+///      the account is deleted.
 ///
-/// Step 3 is best-effort: a `PendingAuthCache` failure does not fail the
-/// password reset itself (the new password is already durably saved by
-/// that point) — see the inline comment at the call site for the full
-/// security/availability trade-off.
+/// The Redis write is security-critical: if it fails, the password reset
+/// fails before the password is changed, preventing a fail-open window
+/// where an old session could remain usable.
 pub struct ResetPasswordUseCase<R, U, H, C> {
     token_repository: R,
     user_repository: U,
@@ -165,6 +163,18 @@ where
         let password_hash =
             PasswordHash::new(hashed).map_err(|e| ResetPasswordError::Internal(Box::new(e)))?;
 
+        // SEC: session invalidation is a mandatory security precondition.
+        // Do this BEFORE changing the durable password so a Redis outage
+        // cannot leave the old session valid after a successful reset.
+        self.pending_auth_cache
+            .set(
+                &session_invalidated_at_cache_key(token.user_id),
+                &now.timestamp().to_string(),
+                SESSION_INVALIDATION_TTL_SECONDS,
+            )
+            .await
+            .map_err(ResetPasswordError::Internal)?;
+
         user.set_password_hash(password_hash, now);
 
         self.user_repository
@@ -183,26 +193,6 @@ where
             .delete_unused_for_user(token.user_id)
             .await
             .map_err(ResetPasswordError::Internal)?;
-
-        // SEC (B6): invalidate every session JWT issued to this user
-        // BEFORE this moment. Best-effort — deliberately NOT propagated
-        // as an `Err` on failure: the new password is already durably
-        // saved above, so failing the whole request here would leave the
-        // account in a confusing state (password changed, but the client
-        // told "reset failed"). A `PendingAuthCache` outage instead just
-        // means pre-existing sessions keep working until they expire
-        // naturally (max 24h) rather than being cut off immediately —
-        // the same fail-open posture this cache already has elsewhere
-        // (e.g. TOTP pending-secret storage). See `jwt_auth.rs` for the
-        // read side of this check.
-        let _ = self
-            .pending_auth_cache
-            .set(
-                &session_invalidated_at_cache_key(token.user_id),
-                &now.timestamp().to_string(),
-                SESSION_INVALIDATION_TTL_SECONDS,
-            )
-            .await;
 
         Ok(())
     }

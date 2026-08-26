@@ -17,9 +17,10 @@ pub use services::{
     DisabledEmailVerificationMailer, DisabledPasswordResetMailer, DiscordNotificationService,
     HickoryCustomDomainVerifier, InMemoryLogoStorage, JsonWebTokenService, NoopNotificationService,
     NotificationDispatcher, ProxyCredentialEncryptionKeyError, RedisPendingAuthCache,
-    RedisStatusPageCache, S3LogoStorage, SlackNotificationService, SmsNotificationService,
-    SmtpEmailNotificationService, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
-    TelegramNotificationService, UuidIdGenerator, WebhookNotificationService,
+    RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SlackNotificationService,
+    SmsNotificationService, SmtpEmailNotificationService, SmtpEmailVerificationMailer,
+    SmtpPasswordResetMailer, TelegramNotificationService, UuidIdGenerator,
+    WebhookNotificationService,
 };
 pub use twilio_config::{TwilioConfig, TwilioConfigError};
 

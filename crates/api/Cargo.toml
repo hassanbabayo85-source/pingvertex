@@ -45,4 +45,4 @@ hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 async-trait = "0.1"
 rcgen = "0.14.9"
-
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json"] }

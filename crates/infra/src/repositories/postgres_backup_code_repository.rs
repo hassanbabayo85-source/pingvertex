@@ -55,9 +55,6 @@ impl BackupCodeRow {
 #[async_trait]
 impl BackupCodeRepository for PostgresBackupCodeRepository {
     async fn create_many(&self, codes: &[BackupCode]) -> RepoResult<()> {
-        // A handful of single-row inserts inside one transaction — this
-        // is a rare, low-frequency write path (once per 2FA enrollment,
-        // ten rows), so a bulk-insert query isn't worth the complexity.
         let mut tx = self.pool.begin().await?;
 
         for code in codes {
@@ -81,12 +78,12 @@ impl BackupCodeRepository for PostgresBackupCodeRepository {
         Ok(())
     }
 
-    async fn find_unused_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>> {
+    async fn find_all_by_user(&self, user_id: UserId) -> RepoResult<Vec<BackupCode>> {
         let rows = sqlx::query_as::<_, BackupCodeRow>(
             r#"
             SELECT id, user_id, code_hash, used_at, created_at
             FROM backup_codes
-            WHERE user_id = $1 AND used_at IS NULL
+            WHERE user_id = $1
             "#,
         )
         .bind(user_id.into_uuid())
@@ -96,20 +93,21 @@ impl BackupCodeRepository for PostgresBackupCodeRepository {
         Ok(rows.into_iter().map(BackupCodeRow::into_domain).collect())
     }
 
-    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<()> {
-        sqlx::query(
+    async fn mark_used(&self, id: BackupCodeId, used_at: DateTime<Utc>) -> RepoResult<bool> {
+        let redeemed_id: Option<Uuid> = sqlx::query_scalar(
             r#"
             UPDATE backup_codes
             SET used_at = $2
             WHERE id = $1 AND used_at IS NULL
+            RETURNING id
             "#,
         )
         .bind(id.into_uuid())
         .bind(used_at)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(redeemed_id.is_some())
     }
 
     async fn delete_all_for_user(&self, user_id: UserId) -> RepoResult<()> {

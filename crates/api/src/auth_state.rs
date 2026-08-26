@@ -28,6 +28,9 @@ impl PendingAuthCache for NoopPendingAuthCache {
     async fn get(&self, _key: &str) -> PendingAuthCacheResult<Option<String>> {
         Ok(None)
     }
+    async fn getdel(&self, _key: &str) -> PendingAuthCacheResult<Option<String>> {
+        Ok(None)
+    }
     async fn set(&self, _key: &str, _value: &str, _ttl_seconds: u64) -> PendingAuthCacheResult<()> {
         Ok(())
     }
@@ -44,11 +47,11 @@ impl BackupCodeRepository for NoopBackupCodeRepository {
     async fn create_many(&self, _codes: &[BackupCode]) -> RepoResult<()> {
         Ok(())
     }
-    async fn find_unused_by_user(&self, _user_id: UserId) -> RepoResult<Vec<BackupCode>> {
+    async fn find_all_by_user(&self, _user_id: UserId) -> RepoResult<Vec<BackupCode>> {
         Ok(vec![])
     }
-    async fn mark_used(&self, _id: BackupCodeId, _used_at: DateTime<Utc>) -> RepoResult<()> {
-        Ok(())
+    async fn mark_used(&self, _id: BackupCodeId, _used_at: DateTime<Utc>) -> RepoResult<bool> {
+        Ok(true)
     }
     async fn delete_all_for_user(&self, _user_id: UserId) -> RepoResult<()> {
         Ok(())

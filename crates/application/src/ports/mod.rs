@@ -25,6 +25,7 @@ pub mod custom_domain_verifier;
 pub mod escalation_policy_repository;
 pub mod maintenance_window_repository;
 pub mod pending_auth_cache;
+pub mod rate_limiter;
 pub mod registration_transaction;
 pub mod status_page_cache;
 pub mod status_page_repository;
@@ -40,6 +41,9 @@ pub mod tenant_invitation_repository;
 
 // B34 — Public Endpoint Security & Efficiency:
 pub mod health_check;
+
+// H6 — Dashboard Overview:
+pub mod dashboard_repository;
 
 pub use api_flow_repository::ApiFlowRepository;
 pub use check_repository::CheckRepository;
@@ -72,6 +76,7 @@ pub use custom_domain_verifier::{CustomDomainVerifier, VerifierResult};
 pub use escalation_policy_repository::EscalationPolicyRepository;
 pub use maintenance_window_repository::MaintenanceWindowRepository;
 pub use pending_auth_cache::{PendingAuthCache, PendingAuthCacheResult};
+pub use rate_limiter::{RateLimiter, RateLimiterResult};
 pub use registration_transaction::{RegistrationTransaction, RegistrationTransactionResult};
 // B34 — Public Endpoint Security & Efficiency: PUBLIC_STATUS_LIST_CACHE_KEY
 // is the shared cache key for the public status *list* endpoint, used by
@@ -131,3 +136,6 @@ pub use history_retention_repository::HistoryRetentionRepository;
 
 // B34 — Public Endpoint Security & Efficiency:
 pub use health_check::{HealthCheckPort, HealthCheckResult};
+
+// H6 — Dashboard Overview:
+pub use dashboard_repository::DashboardRepository;

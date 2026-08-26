@@ -51,3 +51,9 @@ pub mod forgot_password_request;
 pub mod reset_password_request;
 pub use forgot_password_request::ForgotPasswordRequest;
 pub use reset_password_request::ResetPasswordRequest;
+
+// H6 — Dashboard Overview Aggregated Backend API:
+pub mod dashboard_overview;
+pub use dashboard_overview::{
+    DashboardOverview, IncidentSummary, IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
+};

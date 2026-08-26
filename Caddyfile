@@ -1,6 +1,15 @@
 {$PINGVERTEX_DOMAIN:api.example.com} {
 	encode gzip
 
+	# Security headers (H7)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		Referrer-Policy "no-referrer"
+	}
+
 	# B38: readiness (not liveness) — Caddy's job is a routing decision
 	# ("should traffic go to this backend right now"), which is exactly
 	# what /ready (B34) is for. The container's own restart decision

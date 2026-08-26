@@ -19,8 +19,8 @@ use crate::{
         jwt_auth::jwt_auth, metrics::record_http_metrics,
     },
     routes::{
-        api_flows, api_keys, auth, billing, checks, health, internal_agents, invitations, members,
-        monitors, notifications, proxy_checks, public, status_pages,
+        api_flows, api_keys, auth, billing, checks, dashboard, health, internal_agents,
+        invitations, members, monitors, notifications, proxy_checks, public, status_pages,
     },
     state::AppState,
 };
@@ -73,6 +73,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 .burst_size(30)
                 .finish()
                 .expect("valid api rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let dashboard_routes = dashboard::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(30)
+                .finish()
+                .expect("valid dashboard rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -257,6 +268,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .merge(health_routes)
         .nest("/api/v1", monitor_routes)
         .nest("/api/v1", check_routes)
+        .nest("/api/v1", dashboard_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
@@ -328,6 +340,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let dashboard_routes = dashboard::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let notification_routes = notifications::router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -395,6 +411,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .merge(health_routes)
         .nest("/api/v1", monitor_routes)
         .nest("/api/v1", check_routes)
+        .nest("/api/v1", dashboard_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)

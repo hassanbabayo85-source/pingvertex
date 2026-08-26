@@ -35,8 +35,6 @@ fn build_mtls_client(config: &AgentConfig) -> Result<Client> {
     Ok(client)
 }
 
-/// B38: resolves on SIGTERM or Ctrl+C — see the identical helper in
-/// `crates/api/src/main.rs` for the full rationale.
 async fn shutdown_signal() {
     use tokio::signal;
 
@@ -65,6 +63,10 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // P0 hardening: refuse to boot in production if the private-IP SSRF
+    // escape hatch is enabled.
+    shared::ssrf::validate_production_ssrf_config()?;
+
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info"));
 
@@ -99,10 +101,6 @@ async fn main() -> Result<()> {
 
     let poll_interval = Duration::from_secs(5);
 
-    // B38: graceful shutdown — a `watch` channel flipped by the signal
-    // handler below. The loop stops CLAIMING new work as soon as it's
-    // set, but still awaits any checks already claimed in the current
-    // iteration's `JoinSet` before exiting (best-effort drain).
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
         shutdown_signal().await;

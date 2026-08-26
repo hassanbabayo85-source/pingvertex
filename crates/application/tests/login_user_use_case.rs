@@ -24,6 +24,10 @@ impl PendingAuthCache for InMemoryPendingAuthCache {
         Ok(None)
     }
 
+    async fn getdel(&self, _key: &str) -> PendingAuthCacheResult<Option<String>> {
+        Ok(None)
+    }
+
     async fn set(&self, _key: &str, _value: &str, _ttl_seconds: u64) -> PendingAuthCacheResult<()> {
         Ok(())
     }
@@ -119,23 +123,8 @@ fn make_use_case(
     )
 }
 
-/// THE regression test for Bug #3.
-///
-/// Before the fix, a login attempt for a non-existent email hit the
-/// malformed `DUMMY_PASSWORD_HASH` constant, which `PasswordHash::new()`
-/// failed to parse, producing a DISTINCT error
-/// ("invalid password hash: invalid Base64 encoding") that never went
-/// through the generic "invalid email or password" path a wrong-password
-/// attempt against a real account produces. That distinction was a hard
-/// user-enumeration oracle via response content alone.
-///
-/// This test asserts both paths now produce the exact same error string,
-/// so if this constant, or the `?`-vs-`unwrap_or(false)` handling around
-/// `verify()`, ever regresses to reintroduce a distinguishable error,
-/// this test fails.
 #[tokio::test]
 async fn nonexistent_email_and_wrong_password_for_existing_user_produce_identical_error() {
-    // Path A: email does not exist at all.
     let nonexistent_email_use_case = make_use_case(None);
     let nonexistent_email_err = nonexistent_email_use_case
         .execute(LoginRequest {
@@ -145,7 +134,6 @@ async fn nonexistent_email_and_wrong_password_for_existing_user_produce_identica
         .await
         .unwrap_err();
 
-    // Path B: email exists, but the password is wrong.
     let existing_user = make_active_user("realuser@example.com", "CorrectPassword123!").await;
     let wrong_password_use_case = make_use_case(Some(existing_user));
     let wrong_password_err = wrong_password_use_case
@@ -169,16 +157,10 @@ async fn nonexistent_email_and_wrong_password_for_existing_user_produce_identica
         "invalid email or password"
     );
 
-    // Explicitly guard against the exact regression that caused Bug #3:
-    // the error must never leak hashing/parsing internals.
     assert!(!nonexistent_email_err.to_string().contains("Base64"));
     assert!(!nonexistent_email_err.to_string().contains("hash"));
 }
 
-/// Sanity check: a correct password for an existing, active user must
-/// still succeed. This guards against an overly-broad fix (e.g. someone
-/// "fixing" Bug #3 by making `verify()` always return `false`) that would
-/// technically close the oracle by breaking login entirely.
 #[tokio::test]
 async fn correct_password_for_existing_active_user_succeeds() {
     let user = make_active_user("gooduser@example.com", "CorrectPassword123!").await;
@@ -198,10 +180,6 @@ async fn correct_password_for_existing_active_user_succeeds() {
     );
 }
 
-/// A password longer than `MAX_PASSWORD_LENGTH` must still return the
-/// generic "invalid email or password" message, never a distinct
-/// length-related message — otherwise the length check itself becomes a
-/// second, smaller oracle.
 #[tokio::test]
 async fn overlong_password_produces_generic_error_not_a_distinct_message() {
     let use_case = make_use_case(None);

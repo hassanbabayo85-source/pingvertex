@@ -21,21 +21,26 @@ use infra::{
     PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
     PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
     PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
-    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDiagnosticReportRepository,
-    PostgresEmailVerificationTokenRepository, PostgresEscalationPolicyRepository,
-    PostgresHealthCheck, PostgresIncidentRepository, PostgresMaintenanceWindowRepository,
-    PostgresMonitorRepository, PostgresNotificationChannelRepository,
-    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
-    PostgresResetPasswordTokenRepository, PostgresStatusPageRepository,
-    PostgresSubscriptionRepository, PostgresTenantInvitationRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUserRepository,
-    RedisPendingAuthCache, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
-    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
+    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
+    PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
+    PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresIncidentRepository,
+    PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
+    PostgresNotificationChannelRepository, PostgresProxyCheckJobRepository,
+    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
+    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
+    SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // P0 hardening: refuse to boot in production if the private-IP SSRF
+    // escape hatch is enabled.
+    shared::ssrf::validate_production_ssrf_config()?;
+
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,tower_http=trace"));
 
@@ -123,13 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         audit_log_entry_repository,
     )
     .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
-    // B13 — Atomic Quota Enforcement: real subscription lookups instead of
-    // the `NoopSubscriptionRepository` default, so `CreateMonitorUseCase`
-    // resolves each tenant's actual plan (via `.with_entitlements(...)`,
-    // wired in `crates/api/src/handlers/create_monitor.rs`) rather than
-    // always falling back to the legacy per-user hardcoded limit.
     .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
-    // B14 — Billing Provider Abstraction & Checkout:
     .with_checkout_session_repository(PostgresCheckoutSessionRepository::new(pool.clone()))
     .with_payment_provider(billing_provider)
     .with_billing_webhook_idempotency_repository(PostgresBillingWebhookIdempotencyRepository::new(
@@ -137,10 +136,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
-    // B34 — Public Endpoint Security & Efficiency: backs `GET /ready`
-    // with a real DB reachability check instead of the always-healthy
-    // `NoopHealthCheckPort` default.
-    .with_health_check_port(PostgresHealthCheck::new(pool.clone()));
+    .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
+    .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()));
 
     let app_state = match billing_config.webhook_secret {
         Some(secret) => app_state.with_billing_webhook_secret(secret),
@@ -175,7 +172,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // B6 — Password reset:
     let reset_password_token_repository = PostgresResetPasswordTokenRepository::new(pool.clone());
 
     let password_reset_mailer: Arc<dyn PasswordResetMailer> = match SmtpConfig::try_from_env() {
@@ -198,7 +194,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // B9 — Tenant invitations:
     let invitation_repository = PostgresTenantInvitationRepository::new(pool.clone());
 
     let auth_state = AuthState::new(
@@ -215,6 +210,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pending_auth_cache,
         PostgresBackupCodeRepository::new(pool.clone()),
     )
+    .with_rate_limiter(RedisRateLimiter::new(
+        &std::env::var("REDIS_URL")
+            .map_err(|_| anyhow::anyhow!("REDIS_URL is required for rate limiting"))?,
+    )?)
     .with_email_verification(
         email_verification_token_repository,
         email_verification_mailer,
@@ -242,10 +241,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let plain_listener = tokio::net::TcpListener::bind(plain_addr).await?;
 
-    // B38: graceful shutdown — stop accepting new plain-HTTP connections
-    // on SIGTERM/Ctrl+C and let in-flight requests finish instead of
-    // being killed mid-request. Pairs with `stop_grace_period: 30s` on
-    // the `api` service in docker-compose.prod.yml.
     let plain_server = axum::serve(
         plain_listener,
         plain_app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -254,10 +249,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mtls_acceptor = MtlsAcceptor::new(RustlsAcceptor::new(mtls_config));
 
-    // B38: same idea for the mTLS listener, via axum-server's `Handle`
-    // (axum::serve's `with_graceful_shutdown` isn't available on
-    // axum-server's builder). Agents mid-check get up to 25s to finish
-    // before the listener stops.
     let mtls_handle = axum_server::Handle::new();
     let shutdown_handle = mtls_handle.clone();
     tokio::spawn(async move {
@@ -289,10 +280,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// B38: resolves on SIGTERM (the signal Docker/systemd send on `stop`)
-/// or Ctrl+C (SIGINT, for local `cargo run`), letting both listeners
-/// above stop accepting new connections and drain in-flight requests
-/// instead of being killed mid-request.
 async fn shutdown_signal() {
     use tokio::signal;
 

@@ -1,21 +1,13 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16.6
     container_name: uptime-monitor-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      # Dev-only default. Override via `POSTGRES_PASSWORD=... docker compose up`,
-      # or (better) set it in `.env` — see docker-compose.prod.yml for a
-      # production override that refuses to start without one.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: uptime_monitor
     ports:
-      # Bound to localhost only: reachable from the host machine (e.g.
-      # `psql -h localhost -p 5433`) but never from the network — a bare
-      # `- "5433:5432"` publishes on every interface (0.0.0.0), which is
-      # what let this be reached directly from outside the host in the
-      # first place.
       - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d uptime_monitor"]
@@ -62,15 +54,6 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
       RUST_LOG: info
     ports:
-      # B38: plain-HTTP port bound to localhost only, same reasoning as
-      # postgres/prometheus/grafana/alertmanager below — this is now
-      # reached through the `caddy` reverse proxy in
-      # docker-compose.prod.yml (public 80/443) or an SSH tunnel for
-      # local debugging, never directly from the network. The mTLS port
-      # (3443) stays published on every interface below: that listener
-      # is internet-facing BY DESIGN, since remote monitoring agents
-      # connect to it directly (see crates/api/src/mtls.rs) and every
-      # connection requires a valid client certificate.
       - "127.0.0.1:3000:3000"
       - "3443:3443"
 
@@ -85,27 +68,13 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    # Added for the notifications feature: the worker is what actually
-    # sends email/webhook notifications when an incident opens or
-    # resolves (see crates/worker/src/incident_manager.rs), so it needs
-    # the same SMTP_* variables as the api service. Previously only `api`
-    # read `.env` here — without this, the worker would silently run with
-    # email notifications disabled (falls back to
-    # `DisabledEmailNotificationService`, logs a warning) even if SMTP_*
-    # was correctly set in `.env`.
     env_file:
       - .env
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
       RUST_LOG: info
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
     ports:
-      # B38: bound to localhost only — Prometheus scrapes this over the
-      # internal Compose network regardless of host port publishing;
-      # this binding only controls host-machine/network reachability.
-      # Unlike the api's /metrics, this endpoint has no bearer-token
-      # check of its own (see this worker's HANDOVER.md "Known Risks"),
-      # so keeping it off the public interface is the only thing making
-      # it "private" right now.
       - "127.0.0.1:3001:3001"
 
 
@@ -119,13 +88,11 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./monitoring/rules.yml:/etc/prometheus/rules.yml
+    secrets:
+      - metrics_token
     command:
       - --config.file=/etc/prometheus/prometheus.yml
     ports:
-      # Localhost-only — see the postgres comment above. Prometheus has no
-      # authentication of its own, so a bare host-wide publish exposes
-      # every metric (monitor names, request patterns, user counts) to
-      # anyone who can reach the host on this port.
       - "127.0.0.1:9090:9090"
 
   grafana:
@@ -136,10 +103,6 @@ services:
       - prometheus
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      # Dev-only default — change this (or use docker-compose.prod.yml,
-      # which requires it to be set explicitly) before running anywhere
-      # reachable outside your own machine. `admin`/`admin` is the first
-      # thing any scanner tries.
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
     ports:
       - "127.0.0.1:3002:3000"
@@ -175,3 +138,7 @@ services:
 
 volumes:
   postgres_data:
+
+secrets:
+  metrics_token:
+    file: .metrics_token

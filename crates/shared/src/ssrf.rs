@@ -302,9 +302,56 @@ pub async fn resolve_and_validate_host_port(host: &str, port: u16) -> Result<Soc
     Ok(addrs[0])
 }
 
+/// Error returned by `validate_production_ssrf_config` when boot should be
+/// refused. Implements `std::error::Error` so it composes with both
+/// `anyhow::Result` (agent) and `Box<dyn Error>` (api/worker).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SsrfConfigError {
+    message: String,
+}
+
+impl std::fmt::Display for SsrfConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for SsrfConfigError {}
+
+/// P0 hardening: refuse to boot if `PINGVERTEX_SSRF_ALLOW_PRIVATE=true`
+/// in production.
+///
+/// RATIONALE: allowing private/internal IPs in production gives any
+/// authenticated user with monitor/webhook creation rights a direct SSRF
+/// bridge to cloud metadata endpoints and internal services. It must be
+/// a boot-time failure, not a warning, because it's too dangerous to run
+/// by mistake.
+///
+/// Error message deliberately does NOT include any secret values.
+pub fn validate_production_ssrf_config() -> Result<(), SsrfConfigError> {
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
+    let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
+
+    if environment == "production" && allow_private {
+        return Err(SsrfConfigError {
+            message: "refusing to boot: PINGVERTEX_SSRF_ALLOW_PRIVATE=true is not allowed in \
+                      production because it enables SSRF access to private/internal IPs"
+                .to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serialize tests that mutate process-wide environment variables to
+    // prevent races where one test removes ENVIRONMENT while another is
+    // still running.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn blocks_private_ipv4_ranges() {
@@ -332,8 +379,6 @@ mod tests {
 
     #[test]
     fn blocks_zero_network_ipv4() {
-        // 0.0.0.0/8 — also guards against the `::` / `::1` unwrap
-        // interaction documented on `is_private_ipv4`.
         let ip: IpAddr = "0.0.0.0".parse().unwrap();
         assert!(is_private_ip(ip));
         let ip: IpAddr = "0.0.0.1".parse().unwrap();
@@ -353,27 +398,16 @@ mod tests {
         }
     }
 
-    /// Regression test for a real SSRF bypass class: IPv6 encodings that
-    /// embed a private IPv4 address must be blocked too, not just the
-    /// "native" IPv6 private ranges. Without unwrapping these, an
-    /// attacker could reach internal/cloud-metadata IPv4 addresses simply
-    /// by writing them in one of these forms.
     #[test]
     fn blocks_ipv6_encodings_that_embed_a_private_ipv4_address() {
         let bypass_attempts = [
-            // IPv4-mapped — the classic bypass: AWS/GCP/Azure metadata
-            // endpoint (169.254.169.254) written as IPv6.
             "::ffff:169.254.169.254",
-            "::ffff:a9fe:a9fe", // same address, hex-segment form
+            "::ffff:a9fe:a9fe",
             "::ffff:127.0.0.1",
             "::ffff:10.0.0.1",
             "::ffff:192.168.1.1",
-            // Deprecated IPv4-compatible form.
             "::169.254.169.254",
-            // 6to4 (2002::/16) wrapping a private IPv4 address.
-            "2002:a9fe:a9fe::", // 2002:<169.254.169.254 as hex>::
-            // Teredo (2001::/32): client IPv4 is the last 32 bits, XORed
-            // with 0xffffffff. This encodes 169.254.169.254.
+            "2002:a9fe:a9fe::",
             "2001:0000:0000:0000:0000:0000:5601:5601",
         ];
 
@@ -456,5 +490,55 @@ mod tests {
             destination.url,
             Url::parse("http://1.1.1.1/status").unwrap()
         );
+    }
+
+    // ---- P0 hardening: production SSRF guard tests ----
+
+    #[test]
+    fn production_private_true_fails() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::set_var("ENVIRONMENT", "production");
+            std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
+        }
+
+        assert!(validate_production_ssrf_config().is_err());
+
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+    }
+
+    #[test]
+    fn production_private_false_allows() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::set_var("ENVIRONMENT", "production");
+            std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "false");
+        }
+
+        assert!(validate_production_ssrf_config().is_ok());
+
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+    }
+
+    #[test]
+    fn development_private_true_allows() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::set_var("ENVIRONMENT", "development");
+            std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
+        }
+
+        assert!(validate_production_ssrf_config().is_ok());
+
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
     }
 }

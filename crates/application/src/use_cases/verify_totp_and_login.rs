@@ -60,11 +60,15 @@ where
     pub async fn execute(&self, request: VerifyTotpRequest) -> UseCaseResult<AuthResponse> {
         let cache_key = pending_login_cache_key(&request.pending_token);
 
+        // Atomic get-and-delete: the pending 2FA token is single-use.
+        // The first request that executes this line consumes the token;
+        // any concurrent request with the same pending_token now gets
+        // `None` and fails with `InvalidPendingTwoFactorToken`.
         let user_id_str = self
             .pending_auth_cache
-            .get(&cache_key)
+            .getdel(&cache_key)
             .await
-            .map_err(|e| format!("failed to read pending 2FA token: {e}"))?
+            .map_err(|e| format!("failed to consume pending 2FA token: {e}"))?
             .ok_or(DomainError::InvalidPendingTwoFactorToken)?;
 
         let user_id = UserId(
@@ -98,12 +102,12 @@ where
 
         // Fall back to a backup code only when TOTP didn't match.
         if !verified {
-            let unused_codes = self
+            let all_codes = self
                 .backup_code_repository
-                .find_unused_by_user(user_id)
+                .find_all_by_user(user_id)
                 .await?;
 
-            for candidate in unused_codes {
+            for candidate in all_codes {
                 let matches = self
                     .password_hasher
                     .verify(&request.code, &candidate.code_hash)
@@ -111,10 +115,24 @@ where
                     .unwrap_or(false);
 
                 if matches {
-                    self.backup_code_repository
+                    // If this code was already used, it's an invalid backup
+                    // code (single-use). If it's still unused, atomically
+                    // try to redeem it; a false return means a concurrent
+                    // request won the race.
+                    if candidate.used_at.is_some() {
+                        return Err(DomainError::InvalidBackupCode.into());
+                    }
+
+                    let redeemed = self
+                        .backup_code_repository
                         .mark_used(candidate.id, Utc::now())
                         .await?;
-                    verified = true;
+
+                    if redeemed {
+                        verified = true;
+                    } else {
+                        return Err(DomainError::InvalidBackupCode.into());
+                    }
                     break;
                 }
             }
@@ -123,12 +141,6 @@ where
         if !verified {
             return Err(DomainError::InvalidTotpCode.into());
         }
-
-        // Single-use: once redeemed, the pending token cannot be replayed.
-        self.pending_auth_cache
-            .delete(&cache_key)
-            .await
-            .map_err(|e| format!("failed to clear pending 2FA token: {e}"))?;
 
         let token = self.token_service.generate(user.id()).await?;
 
