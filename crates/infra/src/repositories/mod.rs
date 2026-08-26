@@ -124,3 +124,6 @@ pub mod postgres_history_retention_repository;
 
 pub use in_memory_history_retention_repository::InMemoryHistoryRetentionRepository;
 pub use postgres_history_retention_repository::PostgresHistoryRetentionRepository;
+pub mod in_memory_pricing_config_repository;
+pub mod postgres_pricing_config_repository;
+pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;

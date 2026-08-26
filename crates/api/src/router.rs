@@ -20,7 +20,7 @@ use crate::{
     },
     routes::{
         api_flows, api_keys, auth, billing, checks, dashboard, health, internal_agents,
-        invitations, members, monitors, notifications, proxy_checks, public, status_pages,
+        invitations, members, monitors, notifications, pricing, proxy_checks, public, status_pages,
     },
     state::AppState,
 };
@@ -263,6 +263,8 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
+    let pricing_routes = pricing::router().with_state(app_state.clone());
+
     Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
@@ -277,6 +279,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
+        .nest("/api/v1", pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)
@@ -406,6 +409,8 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(axum::middleware::from_fn(agent_auth))
         .with_state(app_state.clone());
 
+    let pricing_routes = pricing::router().with_state(app_state.clone());
+
     Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
@@ -420,6 +425,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
+        .nest("/api/v1", pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)

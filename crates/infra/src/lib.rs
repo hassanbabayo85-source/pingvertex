@@ -10,6 +10,7 @@ pub use config::{NotificationConfigError, SmtpConfig};
 pub use db::create_pool;
 pub use postgres_health_check::PostgresHealthCheck;
 pub use repositories::postgres_diagnostic_report_repository::PostgresDiagnosticReportRepository;
+pub use repositories::postgres_pricing_config_repository::PostgresPricingConfigRepository;
 pub use repositories::*;
 pub use s3_config::{S3Config, S3ConfigError};
 pub use services::{

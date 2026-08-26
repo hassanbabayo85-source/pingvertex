@@ -25,13 +25,13 @@ use infra::{
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
-    PostgresNotificationChannelRepository, PostgresProxyCheckJobRepository,
-    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository,
-    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
-    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
-    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
+    PostgresNotificationChannelRepository, PostgresPricingConfigRepository,
+    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
+    PostgresResetPasswordTokenRepository, PostgresStatusPageRepository,
+    PostgresSubscriptionRepository, PostgresTenantInvitationRepository,
+    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUserRepository,
+    RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
+    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -137,7 +137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
-    .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()));
+    .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
+    .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()));
 
     let app_state = match billing_config.webhook_secret {
         Some(secret) => app_state.with_billing_webhook_secret(secret),

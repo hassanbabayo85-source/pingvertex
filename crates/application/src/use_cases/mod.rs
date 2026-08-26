@@ -139,3 +139,4 @@ pub use upload_status_page_logo::*;
 pub use verify_checkout::*;
 pub use verify_email::*;
 pub use verify_totp_and_login::*;
+pub mod calculate_pricing_quote;

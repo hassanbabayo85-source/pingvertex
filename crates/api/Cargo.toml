@@ -18,6 +18,7 @@ serde_json = "1"
 chrono = { workspace = true }
 uuid = { workspace = true }
 dotenvy = "0.15"
+rust_decimal = { version = "1.37", features = ["serde"] }
 
 jsonwebtoken = "9"
 headers = "0.4"
