@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::shared::ids::UserId;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PricingConfig {
     pub version: u32,
@@ -19,6 +21,10 @@ pub struct PricingConfig {
     pub free_tier: FreeTierDefaults,
     pub currency: String,
     pub effective_at: DateTime<Utc>,
+    pub avg_billable_network_bytes_per_check: u64,
+    pub cost_per_gb_egress: Decimal,
+    pub cost_safety_buffer: Decimal,
+    pub created_by: Option<UserId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,7 +43,7 @@ impl PricingConfig {
             cost_per_gb_hot: Decimal::new(21, 2),    // $0.21
             cost_per_gb_warm: Decimal::new(11, 2),   // $0.11
             cost_per_gb_cold: Decimal::new(4, 2),    // $0.04
-            backup_multiplier: Decimal::new(15, 2),  // 0.15
+            backup_multiplier: Decimal::new(25, 2),  // 0.25
             markup_multiplier: Decimal::new(200, 2), // 2.00
             min_interval_seconds: 5,
             max_monitors: 10000,
@@ -50,6 +56,10 @@ impl PricingConfig {
             },
             currency: "USD".to_string(),
             effective_at: Utc::now(),
+            avg_billable_network_bytes_per_check: 512,
+            cost_per_gb_egress: Decimal::new(12, 2),  // $0.12
+            cost_safety_buffer: Decimal::new(120, 2), // 1.20
+            created_by: None,
         }
     }
 }
