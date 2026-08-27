@@ -154,3 +154,9 @@ pub use verify_checkout::*;
 // B15 — Billing Webhooks:
 pub mod billing_webhook;
 pub use billing_webhook::*;
+
+// H12 — Subscription Usage Update:
+pub mod subscription_types;
+pub mod update_subscription_usage;
+pub use subscription_types::*;
+pub use update_subscription_usage::*;

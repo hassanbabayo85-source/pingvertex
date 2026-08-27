@@ -21,6 +21,7 @@ use crate::{
     routes::{
         api_flows, api_keys, auth, billing, checks, dashboard, health, internal_agents,
         invitations, members, monitors, notifications, pricing, proxy_checks, public, status_pages,
+        subscription,
     },
     state::AppState,
 };
@@ -161,6 +162,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 .burst_size(10)
                 .finish()
                 .expect("valid billing rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let subscription_routes = subscription::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(10)
+                .finish()
+                .expect("valid subscription rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -327,6 +339,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
+        .nest("/api/v1", subscription_routes)
         .nest("/api/v1", pricing_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)
@@ -424,6 +437,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let subscription_routes = subscription::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let billing_webhook_routes = billing::webhook_router().with_state(app_state.clone());
 
     let api_key_routes = api_keys::router()
@@ -488,6 +505,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
+        .nest("/api/v1", subscription_routes)
         .nest("/api/v1", pricing_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)

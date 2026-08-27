@@ -56,3 +56,4 @@ sashi-*.xml
 # Generated SBOM files (optional — remove if you want to commit them)
 *.cdx.json
 .metrics_token
+.env.test
