@@ -14,3 +14,4 @@ pub mod pricing;
 pub mod proxy_checks;
 pub mod public;
 pub mod status_pages;
+pub mod subscription;

@@ -106,6 +106,17 @@ COMPLETE
 ### Notes for Next Worker
 - H11 can use PricingConfigRepository::create_version(config, reason) which now handles audit logging in the same transaction.
 
+### H9 — RE-CONFIRMED BY USER (2026-08-27)
+Status: **COMPLETE** (re-verified; the PASS results recorded above were not
+actually exercised earlier this session until now).
+
+User ran `DATABASE_URL=... cargo test --test pricing_config_repository -- --ignored`
+against the isolated `uptime_monitor_test` database — `test_seed_and_audit_log_flow`
+PASSED. Combined with the already-passing `cargo fmt --all`, `cargo clippy
+--workspace --all-targets -- -D warnings`, and `cargo test --workspace` (0
+failures across the full workspace), all H9 completion criteria are now
+directly confirmed rather than assumed.
+
 ## Worker H10 — Pricing Endpoint Rate Limiting (Security Gap)
 
 ### Status
@@ -405,3 +416,92 @@ DATABASE_URL=... cargo test --test subscription_usage_transaction -- --ignored
 - [ ] User runs `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` — all PASS.
 - [ ] User runs `DATABASE_URL=... cargo test --test subscription_usage_transaction -- --ignored` — PASS.
 - [ ] User confirms proration math: two usage periods in one cycle sum to a value strictly between the old-usage-full-month price and the new-usage-full-month price.
+
+### H12 — CONFIRMED BY USER (2026-08-27)
+Status: **COMPLETE** (supersedes "WAITING_FOR_USER_TEST" above).
+
+User ran and confirmed PASS for all of:
+- `cargo fmt --all`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace` — 0 failures across every crate (api, application,
+  domain, infra, worker, agent, shared), run against the isolated
+  `uptime_monitor_test` database (see repo-wide test-infra fix: dedicated
+  test DB + `.env.test`/`test.sh` wrapper added this session to prevent the
+  live docker-compose worker/API from racing with the test suite on a
+  shared database).
+- `DATABASE_URL=... cargo test --test subscription_usage_transaction -- --ignored`
+  — `change_usage_closes_previous_period_opens_new_one_and_updates_subscription`
+  PASSED against real Postgres (all 55 migrations applied, including 0053's
+  usage columns this worker's code reads/writes).
+
+All three H12 completion criteria met. Proration math (two usage periods in
+one cycle summing to a value strictly between the old- and new-usage
+full-month price) is asserted directly inside the passing integration test.
+
+## Worker H13 — Subscription Usage HTTP Endpoint (H12 Wiring)
+
+### Status
+WAITING_FOR_USER_TEST
+
+### Scope
+- Wired H12's `UpdateSubscriptionUsageUseCase` (previously application-layer only, per H12 Deviation #2) to a real HTTP endpoint: `PATCH /api/v1/subscription/usage`.
+- Client sends only `plan_tier: String`; the handler resolves fixed `max_monitors`/`min_check_interval_seconds`/`history_retention_days` for that tier via `domain::entities::Plan::for_tier`, never trusting raw usage numbers from the client.
+
+### Files Created
+- `crates/api/src/handlers/subscription_types.rs` — `UpdateSubscriptionUsageRequest { plan_tier: String }`, `UpdateSubscriptionUsageResponse { plan_tier, monitors, interval_seconds, retention_days, pricing_version }`.
+- `crates/api/src/handlers/update_subscription_usage.rs` — `update_subscription_usage` handler: local `require_manage_billing` permission check (same convention as `admin_pricing.rs`, not the unused `require_permission` middleware), parses `plan_tier`, resolves `Plan::for_tier`, fetches active pricing config for `pricing_version`, builds and executes `UpdateSubscriptionUsageUseCase`, maps errors via local `usage_error_to_api_error` (`SubscriptionNotFound`→404, `InvalidUsage`→400, `Other`→500).
+- `crates/api/src/routes/subscription.rs` — `pub fn router() -> Router<AppState>` with `.route("/subscription/usage", patch(update_subscription_usage))`.
+- `crates/api/tests/subscription_usage.rs` — 4 E2E tests, self-contained fixtures following `admin_pricing.rs`'s style.
+
+### Files Modified
+- `crates/api/src/handlers/mod.rs` — registered `subscription_types`/`update_subscription_usage` modules and re-exports.
+- `crates/api/src/routes/mod.rs` — added `pub mod subscription;`.
+- `crates/api/src/state.rs` — added `SubscriptionUsagePeriodRepository`/`SubscriptionUsageTransaction` to `AppState` (new fields, Noop defaults in both constructors, new builder methods `with_subscription_usage_period_repository`/`with_subscription_usage_transaction`).
+- `crates/api/src/router.rs` — added `subscription` to the `routes::{...}` import, added a `subscription_routes` block in both `build_router` (with `GovernorLayer`, `per_millisecond(17)`/`burst_size(10)`, matching `billing_routes`) and `build_test_router` (jwt_auth only), and `.nest("/api/v1", subscription_routes)` in both routers' chains.
+- `crates/api/src/main.rs` — wired `PostgresSubscriptionUsagePeriodRepository`/`PostgresSubscriptionUsageTransaction` into `AppState::new_with_feature_repos(...)`.
+
+### Backend/Database/API/Security Changes
+- New route: `PATCH /api/v1/subscription/usage`, JWT-authenticated, `ManageBilling` permission checked inside the handler (Owner only, matching the `admin_pricing.rs` convention — `require_permission` middleware remains unused codebase-wide).
+- No new migration — reuses H12's existing usage columns/tables.
+- No raw usage numbers ever accepted from the client; only a `plan_tier` string, resolved server-side to `Plan::for_tier`'s fixed limits.
+
+### Tests
+- `member_without_manage_billing_gets_forbidden` — Role::Member → 403.
+- `owner_without_existing_subscription_gets_not_found` — Role::Owner, no seeded `Subscription` → 404.
+- `owner_can_update_usage_to_a_valid_tier_and_response_reflects_plan_limits` — seeds a `Subscription` (Free tier), PATCHes `{"plan_tier": "tier_5"}` → 200, body matches `Plan::for_tier(PlanTier::Tier5)` limits and `pricing_version: 1`.
+- `invalid_plan_tier_is_rejected` — PATCHes `{"plan_tier": "not_a_real_tier"}` → 400.
+
+Run:
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+./test.sh
+```
+
+### Deviations from Prompt
+1. **Route was NOT hooked into `router.rs` on first pass.** The handler, DTOs, and `routes/subscription.rs` router fn were all created and compiled cleanly in isolation, but `subscription` was never added to `router.rs`'s `routes::{...}` import list, and no `subscription_routes`/`.nest(...)` wiring existed — meaning the route was completely unreachable despite `cargo check --workspace` passing (imports/state/main.rs all compiled fine without it). This was only caught because all 4 new E2E tests returned 404 instead of their expected status codes; `grep -n "subscription" crates/api/src/router.rs` confirmed zero occurrences. Fixed this worker by adding the import, a `subscription_routes` block (mirroring `billing_routes`' shape) in both `build_router` and `build_test_router`, and `.nest("/api/v1", subscription_routes)` in both router chains. Flagging explicitly: `cargo check --workspace` passing is NOT sufficient evidence a new route is actually wired — must verify via `grep` on `router.rs` or an E2E test hitting the real path.
+2. **Test file's `use application::ports::{...}` import was also initially incomplete** (missing `SubscriptionRepository`, `TenantMembershipRepository`), causing 3 compile errors (`no method named create found` — trait not in scope). Fixed by adding both traits to the existing import block.
+
+### Suggested Commit Messages
+- `feat(api): add PATCH /api/v1/subscription/usage endpoint for H12 usage updates (H13)`
+- `fix(api): wire subscription_routes into build_router/build_test_router (H13)`
+- `test(api): add E2E coverage for subscription usage endpoint (H13)`
+
+### User Test Commands
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+./test.sh
+```
+
+### Known Issues/Risks
+- `CalculateSubscriptionCycleCostUseCase` (also from H12) still has no HTTP endpoint — remains application-layer only.
+- `crates/infra/src/repositories/mod.rs`'s append from H12 (never fully verified against original file content, per H12 Known Issues) has not been re-checked this worker; `cargo check --workspace` continues to pass, which is the only verification done.
+
+### Notes for Next Worker
+- If wiring another new route group into `router.rs`, always `grep -n "<name>" crates/api/src/router.rs` afterward to confirm the import, the route-group `let` binding, AND the `.nest(...)` call all landed — `cargo check` passing only proves the code compiles, not that it's reachable.
+- `CalculateSubscriptionCycleCostUseCase` is the natural next candidate for a `GET /api/v1/subscription/cycle-cost`-style endpoint, following this same handler/route/state-wiring pattern.
+
+### Completion Criteria
+- [ ] User runs `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `./test.sh` — all PASS.
+- [ ] User confirms `PATCH /api/v1/subscription/usage` is reachable and behaves per the 4 E2E tests above.

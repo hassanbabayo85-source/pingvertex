@@ -11,6 +11,7 @@ use application::ports::{
     MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
     PaymentProvider, PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository,
     SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
+    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
 };
 
 use async_trait::async_trait;
@@ -75,6 +76,10 @@ pub struct AppState {
     /// Defaults to `NoopDashboardRepository` (returns empty) until
     /// `with_dashboard_repository` substitutes the real Postgres implementation.
     pub dashboard_repository: Arc<dyn DashboardRepository>,
+    /// H12 — Proration Service.
+    pub subscription_usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
+    /// H12 — Proration Service.
+    pub subscription_usage_transaction: Arc<dyn SubscriptionUsageTransaction>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -395,6 +400,58 @@ impl PricingConfigRepository for NoopPricingConfigRepository {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopSubscriptionUsagePeriodRepository;
+
+#[async_trait]
+impl SubscriptionUsagePeriodRepository for NoopSubscriptionUsagePeriodRepository {
+    async fn create_period(
+        &self,
+        _period: &domain::entities::SubscriptionUsagePeriod,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn close_period(
+        &self,
+        _period_id: domain::shared::ids::SubscriptionUsagePeriodId,
+        _end_at: DateTime<Utc>,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn find_open_period(
+        &self,
+        _subscription_id: domain::shared::ids::SubscriptionId,
+    ) -> RepoResult<Option<domain::entities::SubscriptionUsagePeriod>> {
+        Ok(None)
+    }
+
+    async fn list_periods_for_cycle(
+        &self,
+        _subscription_id: domain::shared::ids::SubscriptionId,
+        _cycle_start: DateTime<Utc>,
+        _cycle_end: DateTime<Utc>,
+    ) -> RepoResult<Vec<domain::entities::SubscriptionUsagePeriod>> {
+        Ok(vec![])
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSubscriptionUsageTransaction;
+
+#[async_trait]
+impl SubscriptionUsageTransaction for NoopSubscriptionUsageTransaction {
+    async fn change_usage(
+        &self,
+        _subscription: &Subscription,
+        _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
+        _new_period: &domain::entities::SubscriptionUsagePeriod,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -454,6 +511,8 @@ impl AppState {
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
+            subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
+            subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
         }
     }
 
@@ -525,6 +584,8 @@ impl AppState {
             agent_lease_repository: None,
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
+            subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
+            subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
         }
     }
 
@@ -626,6 +687,24 @@ impl AppState {
         R: DashboardRepository + 'static,
     {
         self.dashboard_repository = Arc::new(dashboard_repository);
+        self
+    }
+
+    /// H12 — Proration Service.
+    pub fn with_subscription_usage_period_repository<R>(mut self, repo: R) -> Self
+    where
+        R: SubscriptionUsagePeriodRepository + 'static,
+    {
+        self.subscription_usage_period_repository = Arc::new(repo);
+        self
+    }
+
+    /// H12 — Proration Service.
+    pub fn with_subscription_usage_transaction<T>(mut self, transaction: T) -> Self
+    where
+        T: SubscriptionUsageTransaction + 'static,
+    {
+        self.subscription_usage_transaction = Arc::new(transaction);
         self
     }
 }
