@@ -1,17 +1,26 @@
+#![allow(dead_code)]
+
 use api::auth_state::AuthState;
 use api::router::build_test_router;
 use api::state::AppState;
+use application::ports::AddOnSubscriptionRepository;
 use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, PasswordHasher, SecretCipher,
     SecretCipherError, TokenService, UserRepository,
 };
 use async_trait::async_trait;
+use domain::enums::PlanTier;
 use domain::pricing::PricingConfig;
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
-use domain::{Check, DiagnosticReport, Incident, User};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId, UserId};
+use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
+use domain::{
+    AddOnStatus, AddOnSubscription, AddOnType, Check, DiagnosticReport, Incident, Subscription,
+    SubscriptionId, User,
+};
 use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
-    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
+    InMemoryAddOnSubscriptionRepository, InMemoryApiFlowRepository,
+    InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
     NoopNotificationService, UuidIdGenerator,
@@ -248,4 +257,60 @@ pub async fn build() -> axum::Router {
     );
 
     build_test_router(app_state, auth_state)
+}
+
+pub async fn build_billing_summary_fixture() -> (
+    AppState,
+    AuthenticatedUser,
+    Arc<InMemoryAddOnSubscriptionRepository>,
+    Arc<infra::InMemorySubscriptionRepository>,
+) {
+    let monitor_repository = InMemoryMonitorRepository::new();
+    let pricing_repo = Arc::new(
+        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
+    );
+    let addon_repo = Arc::new(InMemoryAddOnSubscriptionRepository::new());
+    let subscription_repo = Arc::new(infra::InMemorySubscriptionRepository::new());
+
+    let app_state = AppState::new(
+        monitor_repository.clone(),
+        NoopCheckRepository,
+        NoopDiagnosticReportRepository,
+        NoopIncidentRepository,
+        InMemoryNotificationChannelRepository::new(monitor_repository),
+        NoopNotificationService::new(),
+        InMemoryApiFlowRepository::new(),
+        InMemoryProxyCheckJobRepository::new(),
+        UuidIdGenerator::new(),
+        Arc::new(NoopSecretCipher),
+        InMemoryAuditLogEntryRepository::new(),
+    )
+    .with_pricing_config_repository(pricing_repo)
+    .with_subscription_repository(subscription_repo.clone())
+    .with_add_on_subscription_repository(addon_repo.clone());
+
+    let tenant_id = TenantId::new();
+    let user_id = UserId::new();
+    let user = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
+
+    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
+    subscription.update_usage(100, 60, 30, 1).unwrap();
+    application::ports::SubscriptionRepository::create(&*subscription_repo, &subscription)
+        .await
+        .unwrap();
+
+    let addon = AddOnSubscription::new(
+        domain::AddOnSubscriptionId::new(),
+        tenant_id,
+        AddOnType::EnterpriseSla,
+        2,
+        None,
+        rust_decimal::Decimal::new(9900, 2),
+        "USD".into(),
+        AddOnStatus::Active,
+    )
+    .unwrap();
+    addon_repo.create(&addon).await.unwrap();
+
+    (app_state, user, addon_repo, subscription_repo)
 }
