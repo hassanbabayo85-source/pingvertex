@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use domain::{
     ApiFlowId, ApiKeyId, CheckId, DiagnosticReportId, EscalationPolicyId, IncidentId,
     MaintenanceWindowId, MonitorId, NotificationChannelId, ProxyCheckJobId, ProxyEntryId,
-    StatusPageId, UserId,
+    StatusPageId, SubscriptionUsagePeriodId, UserId,
 };
 
 /// Generates unique IDs for domain entities.
@@ -145,4 +145,14 @@ pub trait IdGenerator: Send + Sync {
     /// exactly once to the inviting admin; only its Argon2id hash is
     /// persisted.
     async fn next_invitation_token(&self) -> String;
+
+    /// Generates a new `SubscriptionUsagePeriodId` (H12 — Proration
+    /// Service).
+    ///
+    /// Same reasoning as `next_status_page_id`/`next_api_key_id` above: a
+    /// fresh random UUID wrapper with no infra-specific state, so
+    /// existing implementors of this trait pick it up for free.
+    async fn next_subscription_usage_period_id(&self) -> SubscriptionUsagePeriodId {
+        SubscriptionUsagePeriodId::new()
+    }
 }

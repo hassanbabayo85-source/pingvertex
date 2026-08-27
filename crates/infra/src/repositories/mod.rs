@@ -127,3 +127,13 @@ pub use postgres_history_retention_repository::PostgresHistoryRetentionRepositor
 pub mod in_memory_pricing_config_repository;
 pub mod postgres_pricing_config_repository;
 pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;
+
+// H12 — Proration Service:
+pub mod in_memory_subscription_usage_period_repository;
+pub mod in_memory_subscription_usage_transaction;
+pub mod postgres_subscription_usage_period_repository;
+pub mod postgres_subscription_usage_transaction;
+pub use in_memory_subscription_usage_period_repository::InMemorySubscriptionUsagePeriodRepository;
+pub use in_memory_subscription_usage_transaction::InMemorySubscriptionUsageTransaction;
+pub use postgres_subscription_usage_period_repository::PostgresSubscriptionUsagePeriodRepository;
+pub use postgres_subscription_usage_transaction::PostgresSubscriptionUsageTransaction;

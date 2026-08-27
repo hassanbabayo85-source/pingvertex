@@ -141,3 +141,11 @@ pub use health_check::{HealthCheckPort, HealthCheckResult};
 pub use dashboard_repository::DashboardRepository;
 pub mod pricing_config_repository;
 pub use pricing_config_repository::PricingConfigRepository;
+
+// H12 — Proration Service:
+pub mod subscription_usage_period_repository;
+pub mod subscription_usage_transaction;
+pub use subscription_usage_period_repository::SubscriptionUsagePeriodRepository;
+pub use subscription_usage_transaction::{
+    SubscriptionUsageTransaction, SubscriptionUsageTransactionResult,
+};

@@ -263,7 +263,55 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
-    let pricing_routes = pricing::router().with_state(app_state.clone());
+    // H10 (SECURITY GAP FIX): `pricing_routes` previously had no rate
+    // limiting at all, unlike every other route group in this file
+    // (including `public_routes` right above, which is the closest analog
+    // since both groups are fully anonymous — no `jwt_auth`/`api_key_auth`
+    // `route_layer` is attached to either). `pricing::router()` currently
+    // exposes only `POST /pricing/quote`, which is unauthenticated and was
+    // therefore floodable without limit: an attacker could hammer it to
+    // degrade the DB/CPU cost of quote calculation, or scrape pricing
+    // config values at will.
+    //
+    // Per the original spec this endpoint should eventually distinguish
+    // Anonymous (30 req/min) vs Authenticated (120 req/min) callers, but
+    // `pricing_routes` has no auth middleware wired at all today — there is
+    // no `AuthenticatedUser`/`ApiKeyPrincipal` in scope by the time this
+    // layer runs, so the limiter cannot key on "authenticated vs not".
+    // Splitting that would require `jwt_auth`/`api_key_auth` to run BEFORE
+    // rate limiting and expose auth state to a custom `KeyExtractor` (see
+    // `AgentIdKeyExtractor` for the existing precedent) — a real design
+    // decision (does the quote endpoint become auth-required at all?
+    // optional auth?) that is out of scope for this fix and not decidable
+    // from the existing code/ADRs. Until that's decided, every caller is
+    // treated as anonymous and gets the single, conservative 30 req/min
+    // limit called for in the "Anonymous" tier of the original spec.
+    //
+    // `per_second(2)` + `burst_size(30)` == an initial burst of 30
+    // requests, replenishing at 1 token / 2s thereafter == 30 req/min
+    // sustained, matching that Anonymous figure exactly.
+    let pricing_routes = pricing::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(2)
+                .burst_size(30)
+                .finish()
+                .expect("valid pricing rate-limit configuration"),
+        ))
+        .with_state(app_state.clone());
+
+    // Admin pricing routes: protected by JWT only; permission check is done
+    // inside handlers (require ManageBilling, available to Owner only).
+    let admin_pricing_routes = pricing::admin_router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(30)
+                .finish()
+                .expect("valid admin pricing rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
 
     Router::new()
         .route("/metrics", get(metrics_handler))
@@ -280,6 +328,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
         .nest("/api/v1", pricing_routes)
+        .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)
@@ -409,7 +458,21 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(axum::middleware::from_fn(agent_auth))
         .with_state(app_state.clone());
 
+    // NOTE (H10): deliberately still NO `GovernorLayer` here, consistent
+    // with every other route in `build_test_router` — this test router
+    // exists precisely so the E2E suite ISN'T subject to IP-based rate
+    // limiting (which would make unrelated tests flaky/order-dependent
+    // under `oneshot()`). Isolated rate-limit coverage for pricing lives in
+    // `crates/api/tests/pricing_rate_limit.rs`, which uses the new
+    // `build_pricing_only_router_with_rate_limit` below instead of this
+    // function — mirroring how `build_auth_only_router_with_rate_limit`
+    // already does the same for `auth_routes`.
     let pricing_routes = pricing::router().with_state(app_state.clone());
+
+    // Admin pricing routes for test router: JWT only, permission check in handlers.
+    let admin_pricing_routes = pricing::admin_router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
 
     Router::new()
         .route("/metrics", get(metrics_handler))
@@ -426,6 +489,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
         .nest("/api/v1", pricing_routes)
+        .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)
@@ -463,4 +527,30 @@ pub fn build_auth_only_router_with_rate_limit(auth_state: AuthState) -> Router {
         .with_state(auth_state);
 
     Router::new().nest("/api/v1/auth", auth_routes)
+}
+
+/// H10: minimal router exposing ONLY `pricing_routes`, with the same
+/// production `GovernorLayer` wired onto it in `build_router` above,
+/// for isolated E2E rate-limit testing.
+///
+/// Mirrors `build_auth_only_router_with_rate_limit` immediately above it
+/// (same shape, same reason for existing): `build_test_router` deliberately
+/// omits `GovernorLayer` from every route group so the rest of the E2E
+/// suite isn't flaky/order-dependent under IP-based rate limiting, which
+/// means that shared harness structurally cannot be used to verify this
+/// behavior. This constructor exists solely so
+/// `crates/api/tests/pricing_rate_limit.rs` can exercise the real limiter
+/// end-to-end without affecting any other test.
+pub fn build_pricing_only_router_with_rate_limit(app_state: AppState) -> Router {
+    let pricing_routes = pricing::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(2)
+                .burst_size(30)
+                .finish()
+                .expect("valid pricing rate-limit configuration"),
+        ))
+        .with_state(app_state);
+
+    Router::new().nest("/api/v1", pricing_routes)
 }

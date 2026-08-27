@@ -35,6 +35,12 @@ struct SubscriptionRow {
     current_period_ends_at: Option<DateTime<Utc>>,
     canceled_at: Option<DateTime<Utc>>,
     cancel_at_period_end: bool,
+    // H12 — Proration Service: usage snapshot columns added by migration
+    // 0053, previously unused by any repository.
+    monitors: Option<i64>,
+    interval_seconds: Option<i32>,
+    retention_days: Option<i32>,
+    pricing_version: Option<i32>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -51,6 +57,10 @@ impl SubscriptionRow {
             current_period_ends_at: subscription.current_period_ends_at,
             canceled_at: subscription.canceled_at,
             cancel_at_period_end: subscription.cancel_at_period_end,
+            monitors: subscription.monitors.map(|m| m as i64),
+            interval_seconds: subscription.interval_seconds.map(|i| i as i32),
+            retention_days: subscription.retention_days.map(|r| r as i32),
+            pricing_version: subscription.pricing_version.map(|v| v as i32),
             created_at: subscription.created_at,
             updated_at: subscription.updated_at,
         }
@@ -76,6 +86,10 @@ impl SubscriptionRow {
             current_period_ends_at: self.current_period_ends_at,
             canceled_at: self.canceled_at,
             cancel_at_period_end: self.cancel_at_period_end,
+            monitors: self.monitors.map(|m| m as u64),
+            interval_seconds: self.interval_seconds.map(|i| i as u32),
+            retention_days: self.retention_days.map(|r| r as u32),
+            pricing_version: self.pricing_version.map(|v| v as u32),
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -89,8 +103,10 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
         sqlx::query(
             "INSERT INTO subscriptions \
              (id, tenant_id, plan_tier, status, trial_ends_at, grace_period_ends_at, \
-              current_period_ends_at, canceled_at, cancel_at_period_end, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+              current_period_ends_at, canceled_at, cancel_at_period_end, \
+              monitors, interval_seconds, retention_days, pricing_version, \
+              created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .bind(row.id)
         .bind(row.tenant_id)
@@ -101,6 +117,10 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
         .bind(row.current_period_ends_at)
         .bind(row.canceled_at)
         .bind(row.cancel_at_period_end)
+        .bind(row.monitors)
+        .bind(row.interval_seconds)
+        .bind(row.retention_days)
+        .bind(row.pricing_version)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.pool)
@@ -111,7 +131,9 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
     async fn find_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Option<Subscription>> {
         let row = sqlx::query_as::<_, SubscriptionRow>(
             "SELECT id, tenant_id, plan_tier, status, trial_ends_at, grace_period_ends_at, \
-             current_period_ends_at, canceled_at, cancel_at_period_end, created_at, updated_at \
+             current_period_ends_at, canceled_at, cancel_at_period_end, \
+             monitors, interval_seconds, retention_days, pricing_version, \
+             created_at, updated_at \
              FROM subscriptions WHERE tenant_id = $1",
         )
         .bind(tenant_id.0)
@@ -127,7 +149,8 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
             "UPDATE subscriptions SET \
              plan_tier = $2, status = $3, trial_ends_at = $4, grace_period_ends_at = $5, \
              current_period_ends_at = $6, canceled_at = $7, cancel_at_period_end = $8, \
-             updated_at = $9 \
+             monitors = $9, interval_seconds = $10, retention_days = $11, pricing_version = $12, \
+             updated_at = $13 \
              WHERE id = $1",
         )
         .bind(row.id)
@@ -138,6 +161,10 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
         .bind(row.current_period_ends_at)
         .bind(row.canceled_at)
         .bind(row.cancel_at_period_end)
+        .bind(row.monitors)
+        .bind(row.interval_seconds)
+        .bind(row.retention_days)
+        .bind(row.pricing_version)
         .bind(row.updated_at)
         .execute(&self.pool)
         .await?;

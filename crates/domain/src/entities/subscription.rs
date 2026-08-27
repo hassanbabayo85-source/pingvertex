@@ -12,7 +12,11 @@ use crate::shared::ids::{SubscriptionId, TenantId};
 /// failed/expired payment, expiry, and cancellation (immediate or at
 /// end of period). B14 adds `apply_verified_payment`, which moves an
 /// existing subscription back to `Active` after server-side payment
-/// verification and updates the plan tier.
+/// verification and updates the plan tier. H12 adds the current usage
+/// snapshot (`monitors`/`interval_seconds`/`retention_days`/
+/// `pricing_version`) — the fields that back the `monitors`,
+/// `interval_seconds`, `retention_days`, `pricing_version` columns added
+/// by migration 0053, which had no domain representation until now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Subscription {
     pub id: SubscriptionId,
@@ -33,13 +37,23 @@ pub struct Subscription {
     /// `true` once a cancellation has been requested with
     /// `at_period_end = true` and not yet finalized.
     pub cancel_at_period_end: bool,
+    /// H12 — current usage snapshot. `None` until the tenant's first
+    /// checkout/plan-change sets it via `update_usage`. This is a
+    /// convenience snapshot of "usage right now"; the authoritative,
+    /// billable history lives in `SubscriptionUsagePeriod` rows.
+    pub monitors: Option<u64>,
+    pub interval_seconds: Option<u32>,
+    pub retention_days: Option<u32>,
+    pub pricing_version: Option<u32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl Subscription {
     /// Creates a new, immediately-active subscription for a tenant on
-    /// the given plan tier (no trial).
+    /// the given plan tier (no trial). Usage fields start unset — call
+    /// `update_usage` once the tenant's monitors/interval/retention are
+    /// known (e.g. right after checkout).
     pub fn new(id: SubscriptionId, tenant_id: TenantId, plan_tier: PlanTier) -> Self {
         let now = Utc::now();
         Self {
@@ -52,6 +66,10 @@ impl Subscription {
             current_period_ends_at: None,
             canceled_at: None,
             cancel_at_period_end: false,
+            monitors: None,
+            interval_seconds: None,
+            retention_days: None,
+            pricing_version: None,
             created_at: now,
             updated_at: now,
         }
@@ -198,6 +216,40 @@ impl Subscription {
         self.updated_at = Utc::now();
         Ok(())
     }
+
+    /// H12 — Proration Service. Applies a mid-cycle usage change
+    /// (monitors/interval_seconds/retention_days). Does NOT touch
+    /// `status`/lifecycle fields — usage and lifecycle are independent
+    /// axes of this entity. Only basic positivity invariants are
+    /// enforced here; plan-tier-specific entitlement limits (max
+    /// monitors for a tier, minimum interval for a tier, etc.) are an
+    /// application-layer concern (see `ResolveEntitlementsUseCase`),
+    /// since they depend on `PricingConfig`/plan data this entity does
+    /// not have access to.
+    pub fn update_usage(
+        &mut self,
+        monitors: u64,
+        interval_seconds: u32,
+        retention_days: u32,
+        pricing_version: u32,
+    ) -> Result<(), DomainError> {
+        if monitors == 0 {
+            return Err(DomainError::SubscriptionUsageMonitorsZero);
+        }
+        if interval_seconds == 0 {
+            return Err(DomainError::SubscriptionUsageIntervalSecondsZero);
+        }
+        if retention_days == 0 {
+            return Err(DomainError::SubscriptionUsageRetentionDaysZero);
+        }
+
+        self.monitors = Some(monitors);
+        self.interval_seconds = Some(interval_seconds);
+        self.retention_days = Some(retention_days);
+        self.pricing_version = Some(pricing_version);
+        self.updated_at = Utc::now();
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -228,6 +280,15 @@ mod tests {
     fn new_subscription_sets_created_and_updated_at_equal() {
         let subscription = active(PlanTier::Free);
         assert_eq!(subscription.created_at, subscription.updated_at);
+    }
+
+    #[test]
+    fn new_subscription_starts_with_no_usage_set() {
+        let subscription = active(PlanTier::Tier1);
+        assert_eq!(subscription.monitors, None);
+        assert_eq!(subscription.interval_seconds, None);
+        assert_eq!(subscription.retention_days, None);
+        assert_eq!(subscription.pricing_version, None);
     }
 
     #[test]
@@ -406,5 +467,61 @@ mod tests {
         let result = subscription.apply_verified_payment(PlanTier::Tier10);
         assert!(result.is_err());
         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+    }
+
+    // H12 — Proration Service:
+
+    #[test]
+    fn update_usage_sets_usage_fields() {
+        let mut subscription = active(PlanTier::Tier5);
+        subscription.update_usage(100, 60, 30, 1).unwrap();
+        assert_eq!(subscription.monitors, Some(100));
+        assert_eq!(subscription.interval_seconds, Some(60));
+        assert_eq!(subscription.retention_days, Some(30));
+        assert_eq!(subscription.pricing_version, Some(1));
+    }
+
+    #[test]
+    fn update_usage_bumps_updated_at() {
+        let mut subscription = active(PlanTier::Tier5);
+        let before = subscription.updated_at;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        subscription.update_usage(100, 60, 30, 1).unwrap();
+        assert!(subscription.updated_at > before);
+    }
+
+    #[test]
+    fn update_usage_rejects_zero_monitors() {
+        let mut subscription = active(PlanTier::Tier5);
+        let result = subscription.update_usage(0, 60, 30, 1);
+        assert_eq!(result, Err(DomainError::SubscriptionUsageMonitorsZero));
+        assert_eq!(subscription.monitors, None);
+    }
+
+    #[test]
+    fn update_usage_rejects_zero_interval_seconds() {
+        let mut subscription = active(PlanTier::Tier5);
+        let result = subscription.update_usage(100, 0, 30, 1);
+        assert_eq!(
+            result,
+            Err(DomainError::SubscriptionUsageIntervalSecondsZero)
+        );
+    }
+
+    #[test]
+    fn update_usage_rejects_zero_retention_days() {
+        let mut subscription = active(PlanTier::Tier5);
+        let result = subscription.update_usage(100, 60, 0, 1);
+        assert_eq!(result, Err(DomainError::SubscriptionUsageRetentionDaysZero));
+    }
+
+    #[test]
+    fn update_usage_can_be_called_again_to_change_usage_mid_cycle() {
+        let mut subscription = active(PlanTier::Tier5);
+        subscription.update_usage(100, 60, 30, 1).unwrap();
+        subscription.update_usage(200, 30, 90, 1).unwrap();
+        assert_eq!(subscription.monitors, Some(200));
+        assert_eq!(subscription.interval_seconds, Some(30));
+        assert_eq!(subscription.retention_days, Some(90));
     }
 }

@@ -389,6 +389,10 @@ impl PricingConfigRepository for NoopPricingConfigRepository {
     async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>> {
         Ok(vec![])
     }
+
+    async fn list_audit_logs(&self) -> RepoResult<Vec<PricingAuditLogEntry>> {
+        Ok(vec![])
+    }
 }
 
 impl AppState {

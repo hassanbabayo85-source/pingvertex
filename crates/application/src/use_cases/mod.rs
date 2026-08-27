@@ -140,3 +140,9 @@ pub use verify_checkout::*;
 pub use verify_email::*;
 pub use verify_totp_and_login::*;
 pub mod calculate_pricing_quote;
+
+// H12 — Proration Service:
+pub mod calculate_subscription_cycle_cost;
+pub mod update_subscription_usage;
+pub use calculate_subscription_cycle_cost::*;
+pub use update_subscription_usage::*;
