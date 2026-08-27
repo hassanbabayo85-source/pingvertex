@@ -31,7 +31,12 @@ async fn insert_user_and_tenant(pool: &PgPool, user_id: UserId) -> TenantId {
     tenant_id
 }
 
-async fn insert_monitor_with_data(pool: &PgPool, tenant_id: TenantId, user_id: UserId, name: &str) {
+async fn insert_monitor_with_data(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tenant_id: TenantId,
+    user_id: UserId,
+    name: &str,
+) {
     let monitor = MonitorBuilder::new(MonitorId(Uuid::new_v4()), user_id, tenant_id)
         .name(MonitorName::new(name).unwrap())
         .url(Url::new("https://example.com").unwrap())
@@ -66,7 +71,7 @@ async fn insert_monitor_with_data(pool: &PgPool, tenant_id: TenantId, user_id: U
     .bind("http")
     .bind(monitor.created_at)
     .bind(monitor.updated_at)
-    .execute(pool)
+    .execute(&mut **tx)
     .await
     .unwrap();
 
@@ -84,13 +89,17 @@ async fn insert_monitor_with_data(pool: &PgPool, tenant_id: TenantId, user_id: U
         .bind(check.id.0).bind(check.monitor_id.0).bind(check.region.to_string())
         .bind(1i16).bind(check.status_code.map(i32::from)).bind(check.latency_ms as i64)
         .bind("None").bind(check.checked_at)
-        .execute(pool).await.unwrap();
+        .execute(&mut **tx)
+        .await
+        .unwrap();
 
     let incident = Incident::new(IncidentId(Uuid::new_v4()), monitor.id);
     sqlx::query("INSERT INTO incidents (id, monitor_id, started_at, resolved_at, last_seen_at, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(incident.id.0).bind(incident.monitor_id.0).bind(incident.started_at)
         .bind(incident.resolved_at).bind(incident.last_seen_at).bind(incident.created_at).bind(incident.updated_at)
-        .execute(pool).await.unwrap();
+        .execute(&mut **tx)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -102,13 +111,25 @@ async fn get_overview_handles_1000_monitors_without_n_plus_one_queries() {
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = insert_user_and_tenant(&pool, user_id).await;
 
+    // Use a single transaction for all 1000 inserts – atomic and fast.
+    let mut tx = pool.begin().await.expect("begin transaction");
     let start = std::time::Instant::now();
     for i in 0..1000 {
         let name = format!("monitor-{i}");
-        insert_monitor_with_data(&pool, tenant_id, user_id, &name).await;
+        insert_monitor_with_data(&mut tx, tenant_id, user_id, &name).await;
     }
+    tx.commit().await.expect("commit transaction");
     let insertion_elapsed = start.elapsed();
     println!("Inserted 1000 monitors in {:?}", insertion_elapsed);
+
+    // Optional diagnostic: confirm count in DB (remove after debugging if desired)
+    let db_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monitors WHERE tenant_id = $1")
+        .bind(tenant_id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    println!("DB monitor count: {}", db_count);
+    assert_eq!(db_count, 1000, "Monitors were not all inserted");
 
     let query_start = std::time::Instant::now();
     let overview = repo
@@ -144,7 +165,9 @@ async fn get_overview_respects_tenant_isolation() {
     let user_b = UserId(Uuid::new_v4());
     let tenant_b = insert_user_and_tenant(&pool, user_b).await;
 
-    insert_monitor_with_data(&pool, tenant_a, user_a, "tenant-a-monitor").await;
+    let mut tx = pool.begin().await.unwrap();
+    insert_monitor_with_data(&mut tx, tenant_a, user_a, "tenant-a-monitor").await;
+    tx.commit().await.unwrap();
 
     let overview_a = repo.get_overview(tenant_a).await.unwrap();
     assert_eq!(overview_a.monitor_summary.total, 1);
