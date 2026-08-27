@@ -4,10 +4,7 @@ use chrono::Utc;
 use rust_decimal::Decimal;
 
 const PERIOD_SECONDS: u64 = 2_592_000; // 30 days
-const AVG_BILLABLE_NETWORK_BYTES_PER_CHECK: u64 = 512;
 const BYTES_PER_GB: u64 = 1_073_741_824;
-const COST_PER_GB_EGRESS: Decimal = Decimal::from_parts(12, 0, 0, false, 2); // $0.12
-const COST_SAFETY_BUFFER: Decimal = Decimal::from_parts(120, 0, 0, false, 2); // 1.20
 
 pub fn calculate_price(
     input: PricingInput,
@@ -25,18 +22,18 @@ pub fn calculate_price(
     let base_compute = Decimal::from(checks_per_period) * config.cost_per_check;
 
     let base_network = Decimal::from(checks_per_period)
-        * Decimal::from(AVG_BILLABLE_NETWORK_BYTES_PER_CHECK)
+        * Decimal::from(config.avg_billable_network_bytes_per_check)
         / Decimal::from(BYTES_PER_GB)
-        * COST_PER_GB_EGRESS;
+        * config.cost_per_gb_egress;
 
     let storage = compute_storage(input, config);
 
     let base_backup = (base_compute + base_network + storage.base) * config.backup_multiplier;
 
-    let adj_compute = base_compute * COST_SAFETY_BUFFER;
-    let adj_network = base_network * COST_SAFETY_BUFFER;
-    let adj_storage = storage.base * COST_SAFETY_BUFFER;
-    let adj_backup = base_backup * COST_SAFETY_BUFFER;
+    let adj_compute = base_compute * config.cost_safety_buffer;
+    let adj_network = base_network * config.cost_safety_buffer;
+    let adj_storage = storage.base * config.cost_safety_buffer;
+    let adj_backup = base_backup * config.cost_safety_buffer;
 
     let infrastructure_cost = adj_compute + adj_network + adj_storage + adj_backup;
     let markup_amount = infrastructure_cost * (config.markup_multiplier - Decimal::ONE);
@@ -281,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_output() {
+    fn deterministic_output_excluding_generated_at() {
         let config = test_config();
         let input = PricingInput {
             monitors: 500,
@@ -289,11 +286,54 @@ mod tests {
             retention_days: 90,
         };
         let q1 = calculate_price(input, &config).unwrap();
-        let mut q2 = calculate_price(input, &config).unwrap();
-        // `generated_at` is a real-time timestamp and will naturally differ
-        // between the two calls; normalize it before comparing everything
-        // else for determinism.
-        q2.generated_at = q1.generated_at;
-        assert_eq!(q1, q2);
+        let q2 = calculate_price(input, &config).unwrap();
+
+        // generated_at is a real-time timestamp and may differ between calls.
+        // We assert on every other field to demonstrate true determinism of the
+        // calculation logic without hiding the issue by overwriting the timestamp.
+        assert_eq!(q1.is_free, q2.is_free);
+        assert_eq!(q1.monitors, q2.monitors);
+        assert_eq!(q1.interval_seconds, q2.interval_seconds);
+        assert_eq!(q1.retention_days, q2.retention_days);
+        assert_eq!(q1.interval_label, q2.interval_label);
+        assert_eq!(q1.retention_label, q2.retention_label);
+        assert_eq!(q1.checks_per_period, q2.checks_per_period);
+        assert_eq!(q1.compute, q2.compute);
+        assert_eq!(q1.network, q2.network);
+        assert_eq!(q1.storage, q2.storage);
+        assert_eq!(q1.backup, q2.backup);
+        assert_eq!(q1.infrastructure_cost, q2.infrastructure_cost);
+        assert_eq!(q1.markup_amount, q2.markup_amount);
+        assert_eq!(q1.monthly_price, q2.monthly_price);
+        assert_eq!(q1.currency, q2.currency);
+        assert_eq!(q1.pricing_version, q2.pricing_version);
+    }
+
+    #[test]
+    fn changing_config_fields_changes_cost() {
+        let mut config = test_config();
+        let input = PricingInput {
+            monitors: 100,
+            interval_seconds: 60,
+            retention_days: 30,
+        };
+        let base_quote = calculate_price(input, &config).unwrap();
+
+        // Increase avg_billable_network_bytes_per_check -> network cost increases
+        config.avg_billable_network_bytes_per_check = 1024;
+        let higher_network_quote = calculate_price(input, &config).unwrap();
+        assert!(
+            higher_network_quote.network.base > base_quote.network.base,
+            "network base should increase when avg_billable_network_bytes_per_check increases"
+        );
+
+        // Reset config, then increase cost_safety_buffer -> adjusted costs increase
+        let mut config2 = test_config();
+        config2.cost_safety_buffer = Decimal::new(150, 2); // 1.50
+        let higher_buffer_quote = calculate_price(input, &config2).unwrap();
+        assert!(
+            higher_buffer_quote.infrastructure_cost > base_quote.infrastructure_cost,
+            "infrastructure cost should increase when safety buffer increases"
+        );
     }
 }
