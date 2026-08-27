@@ -94,6 +94,6 @@ pub use user_builder::UserBuilder;
 mod incident;
 pub use incident::*;
 mod notification_channel;
-pub use notification_channel::{NotificationChannel, CreateEmailChannel, CreateWebhookChannel};
+pub use notification_channel::{CreateEmailChannel, CreateWebhookChannel, NotificationChannel};
 mod subscriber;
 pub use subscriber::*;
