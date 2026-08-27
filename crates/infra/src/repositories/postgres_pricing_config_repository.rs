@@ -2,8 +2,12 @@ use application::ports::PricingConfigRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::pricing::{FreeTierDefaults, PricingConfig};
+use domain::{
+    PricingAuditLogEntry,
+    shared::ids::{AuditLogEntryId, UserId},
+};
 use rust_decimal::Decimal;
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres};
 use std::error::Error;
 use uuid::Uuid;
 
@@ -17,6 +21,29 @@ pub struct PostgresPricingConfigRepository {
 impl PostgresPricingConfigRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Inserts an audit log entry using the given executor (pool or transaction).
+    async fn insert_audit_log<'e, E>(executor: E, entry: &PricingAuditLogEntry) -> RepoResult<()>
+    where
+        E: sqlx::Executor<'e, Database = Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO pricing_audit_logs \
+             (id, version, field_name, old_value, new_value, changed_by, changed_at, reason) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(entry.id.0)
+        .bind(entry.version as i32)
+        .bind(&entry.field_name)
+        .bind(&entry.old_value)
+        .bind(&entry.new_value)
+        .bind(entry.changed_by.map(|u| u.0))
+        .bind(entry.changed_at)
+        .bind(&entry.reason)
+        .execute(executor)
+        .await?;
+        Ok(())
     }
 }
 
@@ -40,8 +67,12 @@ struct PricingConfigRow {
     free_monitors: i64,
     free_interval_seconds: i32,
     free_retention_days: i32,
+    avg_billable_network_bytes_per_check: i64,
+    cost_per_gb_egress: Decimal,
+    cost_safety_buffer: Decimal,
     created_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,
+    created_by: Option<Uuid>,
 }
 
 impl PricingConfigRow {
@@ -66,6 +97,10 @@ impl PricingConfigRow {
             },
             currency: self.currency,
             effective_at: self.effective_at,
+            avg_billable_network_bytes_per_check: self.avg_billable_network_bytes_per_check as u64,
+            cost_per_gb_egress: self.cost_per_gb_egress,
+            cost_safety_buffer: self.cost_safety_buffer,
+            created_by: self.created_by.map(UserId),
         }
     }
 }
@@ -78,7 +113,8 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             created_at, effective_at \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             created_at, effective_at, created_by \
              FROM pricing_configs \
              WHERE effective_at <= now() \
              ORDER BY version DESC LIMIT 1",
@@ -94,7 +130,8 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             created_at, effective_at \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             created_at, effective_at, created_by \
              FROM pricing_configs \
              WHERE version = $1",
         )
@@ -104,14 +141,27 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         Ok(row.map(PricingConfigRow::into_domain))
     }
 
-    async fn create_version(&self, config: &PricingConfig) -> RepoResult<()> {
+    async fn create_version(
+        &self,
+        config: &PricingConfig,
+        reason: Option<String>,
+    ) -> RepoResult<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // Get previous version for audit log old_value
+        let prev_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM pricing_configs")
+                .fetch_one(&mut *tx)
+                .await?;
+
         sqlx::query(
             "INSERT INTO pricing_configs (id, version, currency, cost_per_check, \
              effective_storage_bytes_per_check, cost_per_gb_hot, cost_per_gb_warm, \
              cost_per_gb_cold, backup_multiplier, markup_multiplier, min_interval_seconds, \
              max_monitors, max_retention_days, min_paid_monthly_price, free_monitors, \
-             free_interval_seconds, free_retention_days, effective_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+             free_interval_seconds, free_retention_days, avg_billable_network_bytes_per_check, \
+             cost_per_gb_egress, cost_safety_buffer, effective_at, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
         )
         .bind(Uuid::new_v4())
         .bind(config.version as i32)
@@ -130,10 +180,33 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         .bind(config.free_tier.monitors as i64)
         .bind(config.free_tier.interval_seconds as i32)
         .bind(config.free_tier.retention_days as i32)
+        .bind(config.avg_billable_network_bytes_per_check as i64)
+        .bind(config.cost_per_gb_egress)
+        .bind(config.cost_safety_buffer)
         .bind(config.effective_at)
-        .execute(&self.pool)
+        .bind(config.created_by.map(|u| u.0))
+        .bind(config.created_by.map(|u| u.0))
+        .execute(&mut *tx)
         .await?;
+
+        // Create audit log entry
+        let entry = PricingAuditLogEntry::new(
+            AuditLogEntryId::new(),
+            config.version,
+            "version".to_string(),
+            prev_version.map(|v| v.to_string()),
+            Some(config.version.to_string()),
+            config.created_by,
+            reason,
+        );
+        Self::insert_audit_log(&mut *tx, &entry).await?;
+
+        tx.commit().await?;
         Ok(())
+    }
+
+    async fn record_audit_log(&self, entry: &PricingAuditLogEntry) -> RepoResult<()> {
+        Self::insert_audit_log(&self.pool, entry).await
     }
 
     async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>> {
@@ -142,7 +215,8 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             created_at, effective_at \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             created_at, effective_at, created_by \
              FROM pricing_configs ORDER BY version",
         )
         .fetch_all(&self.pool)

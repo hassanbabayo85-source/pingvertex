@@ -15,6 +15,7 @@ use application::ports::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use domain::PricingAuditLogEntry;
 use domain::Subscription;
 use domain::entities::{ApiKey, StatusPage};
 use domain::pricing::PricingConfig;
@@ -373,7 +374,15 @@ impl PricingConfigRepository for NoopPricingConfigRepository {
         Ok(None)
     }
 
-    async fn create_version(&self, _config: &PricingConfig) -> RepoResult<()> {
+    async fn create_version(
+        &self,
+        _config: &PricingConfig,
+        _reason: Option<String>,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn record_audit_log(&self, _entry: &PricingAuditLogEntry) -> RepoResult<()> {
         Ok(())
     }
 

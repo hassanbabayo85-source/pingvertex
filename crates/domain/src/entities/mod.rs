@@ -84,5 +84,9 @@ pub mod billing_webhook_event;
 pub use billing_audit_log_entry::BillingAuditLogEntry;
 pub use billing_webhook_event::BillingWebhookEvent;
 
+// H9 — Pricing Audit Log:
+mod pricing_audit_log_entry;
+pub use pricing_audit_log_entry::PricingAuditLogEntry;
+
 mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;

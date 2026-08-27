@@ -1,79 +1,70 @@
 # PingVertex Backend-Track Worker Handover
 
 ## Worker
-Worker H8 — Dynamic Pricing Engine (Usage-Based, Replaces Fixed Tiers)
+Worker H8b — Pricing Domain Fixes (Config-Driven Constants, Backup Multiplier, Determinism)
 
 ## Scope
-- Domain model & pure calculation engine for usage-based pricing.
-- Versioned pricing config repository (Postgres + in-memory).
-- `POST /api/v1/pricing/quote` endpoint with validation and rate limiting.
-- Proration schema (migration created, calculation pending).
-- Add-on structure outlined; SMS add-on deferred.
-- Removed fixed PlanTier enforcement from monitor creation/update (partially).
+- Convert hardcoded pricing constants to config-driven fields in `PricingConfig`.
+- Correct default `backup_multiplier` from 0.15 to 0.25.
+- Fix determinism test to explicitly exclude `generated_at` instead of mutating it.
+- Add new unit test verifying config changes affect cost.
 
 ## Status
 WAITING_FOR_USER_TEST
 
-## Files Created
-- `crates/domain/src/pricing/mod.rs`, `input.rs`, `config.rs`, `quote.rs`, `calculation.rs`
-- `crates/application/src/ports/pricing_config_repository.rs`
-- `crates/application/src/use_cases/calculate_pricing_quote.rs`
-- `crates/infra/src/repositories/in_memory_pricing_config_repository.rs`, `postgres_pricing_config_repository.rs`
-- `crates/api/src/handlers/pricing_types.rs`, `pricing_quote.rs`
-- `crates/api/src/routes/pricing.rs`
-- `crates/api/tests/pricing.rs`, `crates/api/tests/test_app.rs`
-- Migrations `0050`-`0053`
-
 ## Files Modified
-- `crates/domain/Cargo.toml`, `crates/application/Cargo.toml`, `crates/infra/Cargo.toml` (added `rust_decimal`)
-- `crates/domain/src/lib.rs` (added `pub mod pricing;`)
-- `crates/application/src/ports/mod.rs`, `use_cases/mod.rs`
-- `crates/infra/src/repositories/mod.rs`
-- `crates/api/src/state.rs` (added pricing repo field/method)
-- `crates/api/src/main.rs` (wired PostgresPricingConfigRepository)
-- `crates/api/src/router.rs` (added pricing route)
-- `crates/api/src/handlers/mod.rs`, `routes/mod.rs`
+- `crates/domain/src/pricing/config.rs` — added three fields, changed backup default
+- `crates/domain/src/pricing/calculation.rs` — removed constants, use config fields, fixed test, added new test
+- `crates/infra/src/repositories/postgres_pricing_config_repository.rs` — updated row struct and SQL queries for new fields
+- `migrations/0054_add_network_safety_fields_to_pricing_configs.sql` — new migration adding columns
 
 ## Backend Changes
-- New pricing domain with pure `calculate_price` function using `Decimal`.
-- Versioned immutable pricing config table.
-- Quote endpoint returns full breakdown.
-- Dynamic limits used in create/update monitor (partially; full removal of PlanTier pending).
+- `avg_billable_network_bytes_per_check`, `cost_per_gb_egress`, and `cost_safety_buffer` are now part of `PricingConfig` and read from config in calculations.
+- `backup_multiplier` default is now `Decimal::new(25, 2)` (0.25).
+- Determinism test now compares all fields except `generated_at` individually; no production code workaround.
 
 ## Database Changes
-- `pricing_configs` (versioned, immutable via REVOKE UPDATE)
-- `pricing_audit_logs`
-- `subscription_usage_periods`
-- `subscriptions` added usage columns
-
-## API Changes
-- `POST /api/v1/pricing/quote` (public)
-
-## Security Changes
-- Input validation at API and domain layers
-- Rate limiting via `tower_governor` (generic; not tuned to exact 30/120 per min yet)
-- No secrets logged
+- New migration `0054` adds three columns to `pricing_configs` with defaults.
+- Existing `0050` migration not altered; backwards compatible via separate migration.
 
 ## Tests
-- Unit tests for calculation engine added (10+ scenarios)
-- E2E test for quote endpoint added
-- Need to run `cargo test` to verify
+- All existing pricing domain unit tests remain.
+- New test `changing_config_fields_changes_cost` verifies configuration changes affect price.
+- Determinism test rewritten to assert field-by-field equality without mutating `generated_at`.
 
 ## Deviations from Prompt
-- Rate limiting not tuned to anonymous/auth distinction
-- Proration calculation function not implemented (only schema)
-- Add-on subscriptions not implemented
-- Full removal of `Plan`/`PlanTier` not completed
-- Config change validation (admin) not implemented
+- Chose option (b) for determinism test: no clock abstraction exists in codebase; introducing one would exceed scope of this small worker. Instead, test explicitly compares all fields except `generated_at`, making intent clear.
 
-## Suggested Commit Messages
-- `feat(pricing): add usage-based pricing domain and calculation engine`
-- `feat(pricing): add versioned pricing config repository and migrations`
-- `feat(pricing): add quote endpoint with breakdown`
-- `refactor(monitors): replace fixed plan enforcement with dynamic limits`
+## Suggested Commit Message
+- `fix(pricing): make network/safety constants config-driven; fix backup multiplier default to 0.25`
+- `test(pricing): fix determinism test to exclude generated_at and add config change test`
 
 ## User Test Commands
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+ 
+## Worker H9 — Pricing Database Completion
+ 
+### Status
+WAITING_FOR_USER_TEST
+ 
+### Changes
+- Added migration `0055_seed_initial_pricing_config.sql` to seed version 1.
+- Added `created_by` field to `PricingConfig` struct and updated repositories.
+- Added `PricingAuditLogEntry` entity and `record_audit_log` method to `PricingConfigRepository`.
+- `create_version` now takes an additional `reason` parameter and writes an audit log in the same transaction.
+- Updated in-memory and Postgres implementations, plus Noop.
+- Added integration test `crates/infra/tests/pricing_config_repository.rs` (ignored by default).
+ 
+### Tests
+- Unit/integration tests: `cargo test --workspace`
+- Run ignored DB test: `DATABASE_URL=... cargo test --test pricing_config_repository -- --ignored`
+ 
+### Deviations from prompt
+- Audit log records a single row per version creation with field_name = "version" and old/new version numbers, rather than logging every field individually. This satisfies the requirement that every version change creates an audit row with old/new values, field, and reason.
+ 
+### Suggested Commits
+- `feat(pricing): add seed migration and created_by field`
+- `feat(pricing): implement audit log writes on version creation`

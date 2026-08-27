@@ -1,6 +1,7 @@
 use application::ports::PricingConfigRepository;
 use async_trait::async_trait;
 use domain::pricing::PricingConfig;
+use domain::{PricingAuditLogEntry, shared::ids::AuditLogEntryId};
 use std::{
     collections::HashMap,
     error::Error,
@@ -10,6 +11,7 @@ use std::{
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryPricingConfigRepository {
     configs: Arc<Mutex<HashMap<u32, PricingConfig>>>,
+    audit_logs: Arc<Mutex<Vec<PricingAuditLogEntry>>>,
 }
 
 impl InMemoryPricingConfigRepository {
@@ -22,6 +24,11 @@ impl InMemoryPricingConfigRepository {
         map.insert(config.version, config);
         drop(map);
         self
+    }
+
+    /// Returns all stored audit log entries (for testing).
+    pub fn audit_logs(&self) -> Vec<PricingAuditLogEntry> {
+        self.audit_logs.lock().unwrap().clone()
     }
 }
 
@@ -44,11 +51,41 @@ impl PricingConfigRepository for InMemoryPricingConfigRepository {
     async fn create_version(
         &self,
         config: &PricingConfig,
+        reason: Option<String>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.configs
+        {
+            let mut configs = self.configs.lock().unwrap();
+            configs.insert(config.version, config.clone());
+        }
+
+        let prev_version = self
+            .configs
             .lock()
             .unwrap()
-            .insert(config.version, config.clone());
+            .keys()
+            .filter(|&&v| v < config.version)
+            .max()
+            .cloned();
+
+        let entry = PricingAuditLogEntry::new(
+            AuditLogEntryId::new(),
+            config.version,
+            "version".to_string(),
+            prev_version.map(|v| v.to_string()),
+            Some(config.version.to_string()),
+            config.created_by,
+            reason,
+        );
+        self.audit_logs.lock().unwrap().push(entry);
+
+        Ok(())
+    }
+
+    async fn record_audit_log(
+        &self,
+        entry: &PricingAuditLogEntry,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.audit_logs.lock().unwrap().push(entry.clone());
         Ok(())
     }
 
