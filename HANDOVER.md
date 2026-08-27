@@ -68,3 +68,40 @@ WAITING_FOR_USER_TEST
 ### Suggested Commits
 - `feat(pricing): add seed migration and created_by field`
 - `feat(pricing): implement audit log writes on version creation`
+
+## Worker H9 — Pricing Database Completion
+
+### Status
+COMPLETE
+
+### Scope
+- Seed version 1 of pricing_configs
+- Add created_by field to PricingConfig and repository
+- Implement audit log writes on create_version in a transaction
+
+### Files Created/Modified
+- migrations/0055_seed_initial_pricing_config.sql (new)
+- crates/domain/src/pricing/config.rs (modified)
+- crates/domain/src/entities/pricing_audit_log_entry.rs (new)
+- crates/domain/src/entities/mod.rs (modified)
+- crates/application/src/ports/pricing_config_repository.rs (modified)
+- crates/infra/src/repositories/postgres_pricing_config_repository.rs (modified)
+- crates/infra/src/repositories/in_memory_pricing_config_repository.rs (modified)
+- crates/infra/tests/pricing_config_repository.rs (new, ignored by default)
+- crates/api/src/state.rs (modified)
+
+### Tests
+- cargo fmt --all: PASS
+- cargo clippy --workspace --all-targets -- -D warnings: PASS
+- cargo test --workspace: PASS
+- DATABASE_URL=... cargo test --test pricing_config_repository -- --ignored: PASS
+
+### Deviations from prompt
+- Audit log writes one row per version creation with field_name="version", old/new version numbers, rather than every field individually.
+
+### Suggested Commit Messages
+- feat(pricing): add seed migration and created_by field (already committed)
+- feat(pricing): implement audit log writes on version creation (already committed)
+
+### Notes for Next Worker
+- H11 can use PricingConfigRepository::create_version(config, reason) which now handles audit logging in the same transaction.
