@@ -9,6 +9,7 @@ use infra::create_pool;
 use sqlx::{PgPool, query};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub async fn setup_pool() -> PgPool {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor".to_string()
@@ -38,6 +39,7 @@ async fn reset_database(pool: &PgPool) {
         .unwrap();
 }
 
+#[allow(dead_code)]
 pub async fn clear_tables(pool: &PgPool) {
     query(
         "TRUNCATE TABLE audit_log, tenant_memberships, tenants, status_pages, notification_channels, incidents, checks, monitors, users RESTART IDENTITY CASCADE",
