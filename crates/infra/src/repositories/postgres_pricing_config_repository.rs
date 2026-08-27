@@ -105,6 +105,33 @@ impl PricingConfigRow {
     }
 }
 
+#[derive(Debug, FromRow)]
+struct PricingAuditLogRow {
+    id: Uuid,
+    version: i32,
+    field_name: String,
+    old_value: Option<String>,
+    new_value: Option<String>,
+    changed_by: Option<Uuid>,
+    changed_at: DateTime<Utc>,
+    reason: Option<String>,
+}
+
+impl PricingAuditLogRow {
+    fn into_domain(self) -> PricingAuditLogEntry {
+        PricingAuditLogEntry {
+            id: AuditLogEntryId(self.id),
+            version: self.version as u32,
+            field_name: self.field_name,
+            old_value: self.old_value,
+            new_value: self.new_value,
+            changed_by: self.changed_by.map(UserId),
+            changed_at: self.changed_at,
+            reason: self.reason,
+        }
+    }
+}
+
 #[async_trait]
 impl PricingConfigRepository for PostgresPricingConfigRepository {
     async fn find_active_config(&self) -> RepoResult<Option<PricingConfig>> {
@@ -185,7 +212,6 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         .bind(config.cost_safety_buffer)
         .bind(config.effective_at)
         .bind(config.created_by.map(|u| u.0))
-        .bind(config.created_by.map(|u| u.0))
         .execute(&mut *tx)
         .await?;
 
@@ -224,6 +250,20 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         Ok(rows
             .into_iter()
             .map(PricingConfigRow::into_domain)
+            .collect())
+    }
+
+    async fn list_audit_logs(&self) -> RepoResult<Vec<PricingAuditLogEntry>> {
+        let rows = sqlx::query_as::<_, PricingAuditLogRow>(
+            "SELECT id, version, field_name, old_value, new_value, changed_by, changed_at, reason \
+             FROM pricing_audit_logs \
+             ORDER BY changed_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(PricingAuditLogRow::into_domain)
             .collect())
     }
 }

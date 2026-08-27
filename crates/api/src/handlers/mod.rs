@@ -73,6 +73,11 @@ pub mod invitation_types;
 pub mod list_invitations;
 pub mod revoke_invitation;
 
+// H11 — Admin Pricing:
+pub mod admin_pricing;
+pub mod pricing_quote;
+pub mod pricing_types;
+
 pub use acknowledge_incident::*;
 pub use api_key_types::*;
 pub use change_password::*;
@@ -149,5 +154,3 @@ pub use verify_checkout::*;
 // B15 — Billing Webhooks:
 pub mod billing_webhook;
 pub use billing_webhook::*;
-pub mod pricing_quote;
-pub mod pricing_types;

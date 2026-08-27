@@ -94,4 +94,11 @@ impl PricingConfigRepository for InMemoryPricingConfigRepository {
         vals.sort_by_key(|c| c.version);
         Ok(vals)
     }
+
+    async fn list_audit_logs(
+        &self,
+    ) -> Result<Vec<PricingAuditLogEntry>, Box<dyn Error + Send + Sync>> {
+        let logs = self.audit_logs.lock().unwrap().clone();
+        Ok(logs.into_iter().rev().collect())
+    }
 }

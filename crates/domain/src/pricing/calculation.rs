@@ -1,6 +1,7 @@
 use super::{CostLine, PricingConfig, PricingInput, PricingQuote, StorageCost, StorageTierCost};
+use crate::entities::SubscriptionUsagePeriod;
 use crate::pricing::{interval_label, retention_label};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
 const PERIOD_SECONDS: u64 = 2_592_000; // 30 days
@@ -93,6 +94,52 @@ pub fn calculate_price(
     })
 }
 
+/// H12 — Proration Service.
+///
+/// Computes the (prorated) cost contributed by ONE `SubscriptionUsagePeriod`
+/// to a given billing cycle `[cycle_start, cycle_end)`. Deliberately does
+/// NOT re-implement the pricing formula: it calls `calculate_price` (H8's
+/// full-cycle monthly quote for the period's usage) and then scales that
+/// monthly price by the fraction of the cycle the period actually
+/// overlaps. Full-cycle billing (the "monthly quote") is just the special
+/// case of this function where a single period covers the entire cycle
+/// — the overlap fraction is 1 and the result equals `calculate_price`'s
+/// `monthly_price`.
+///
+/// Returns `Decimal::ZERO` if the period does not actually overlap the
+/// cycle, or if the period's usage falls in the free tier.
+pub fn calculate_period_cost(
+    period: &SubscriptionUsagePeriod,
+    config: &PricingConfig,
+    cycle_start: DateTime<Utc>,
+    cycle_end: DateTime<Utc>,
+) -> Result<Decimal, crate::pricing::PricingValidationError> {
+    let input = PricingInput {
+        monitors: period.monitors,
+        interval_seconds: period.interval_seconds,
+        retention_days: period.retention_days,
+    };
+
+    let quote = calculate_price(input, config)?;
+
+    if quote.is_free {
+        return Ok(Decimal::ZERO);
+    }
+
+    let overlap_start = period.start_at.max(cycle_start);
+    let overlap_end = period.end_at.unwrap_or(cycle_end).min(cycle_end);
+
+    if overlap_end <= overlap_start {
+        return Ok(Decimal::ZERO);
+    }
+
+    let overlap_seconds = (overlap_end - overlap_start).num_seconds().max(0);
+    let cycle_seconds = (cycle_end - cycle_start).num_seconds().max(1);
+
+    let fraction = Decimal::from(overlap_seconds) / Decimal::from(cycle_seconds);
+    Ok((quote.monthly_price * fraction).round_dp(2))
+}
+
 fn compute_storage(input: PricingInput, config: &PricingConfig) -> StorageCost {
     let hot_days = input.retention_days.min(30) as u64;
     let warm_days = input.retention_days.saturating_sub(30).min(60) as u64;
@@ -151,6 +198,7 @@ fn compute_storage(input: PricingInput, config: &PricingConfig) -> StorageCost {
 mod tests {
     use super::*;
     use crate::pricing::PricingInput;
+    use crate::shared::ids::{SubscriptionId, SubscriptionUsagePeriodId};
     use rust_decimal::Decimal;
 
     fn test_config() -> PricingConfig {
@@ -335,5 +383,154 @@ mod tests {
             higher_buffer_quote.infrastructure_cost > base_quote.infrastructure_cost,
             "infrastructure cost should increase when safety buffer increases"
         );
+    }
+
+    // H12 — Proration Service: calculate_period_cost
+
+    #[test]
+    fn calculate_period_cost_for_a_full_cycle_period_equals_monthly_price() {
+        let config = test_config();
+        let cycle_start = Utc::now();
+        let cycle_end = cycle_start + chrono::Duration::days(30);
+
+        let period = SubscriptionUsagePeriod::open(
+            SubscriptionUsagePeriodId::new(),
+            SubscriptionId::new(),
+            100,
+            60,
+            30,
+            cycle_start,
+        );
+
+        let input = PricingInput {
+            monitors: 100,
+            interval_seconds: 60,
+            retention_days: 30,
+        };
+        let expected_monthly = calculate_price(input, &config).unwrap().monthly_price;
+
+        let cost = calculate_period_cost(&period, &config, cycle_start, cycle_end).unwrap();
+
+        assert_eq!(cost, expected_monthly);
+    }
+
+    #[test]
+    fn calculate_period_cost_prorates_a_half_cycle_period() {
+        let config = test_config();
+        let cycle_start = Utc::now();
+        let cycle_end = cycle_start + chrono::Duration::days(30);
+        let midpoint = cycle_start + chrono::Duration::days(15);
+
+        let mut period = SubscriptionUsagePeriod::open(
+            SubscriptionUsagePeriodId::new(),
+            SubscriptionId::new(),
+            100,
+            60,
+            30,
+            cycle_start,
+        );
+        period.close(midpoint).unwrap();
+
+        let input = PricingInput {
+            monitors: 100,
+            interval_seconds: 60,
+            retention_days: 30,
+        };
+        let full_monthly = calculate_price(input, &config).unwrap().monthly_price;
+
+        let cost = calculate_period_cost(&period, &config, cycle_start, cycle_end).unwrap();
+
+        // Roughly half the full-cycle price (allow small rounding slack).
+        let expected_half = (full_monthly / Decimal::from(2)).round_dp(2);
+        let diff = (cost - expected_half).abs();
+        assert!(
+            diff <= Decimal::new(1, 2),
+            "expected ~{expected_half}, got {cost}"
+        );
+    }
+
+    #[test]
+    fn calculate_period_cost_sums_correctly_across_two_periods_in_one_cycle() {
+        let config = test_config();
+        let cycle_start = Utc::now();
+        let cycle_end = cycle_start + chrono::Duration::days(30);
+        let switch_at = cycle_start + chrono::Duration::days(10);
+
+        // Period 1: first 10 days, old usage (100 monitors).
+        let mut period1 = SubscriptionUsagePeriod::open(
+            SubscriptionUsagePeriodId::new(),
+            SubscriptionId::new(),
+            100,
+            60,
+            30,
+            cycle_start,
+        );
+        period1.close(switch_at).unwrap();
+
+        // Period 2: remaining 20 days, new usage (200 monitors) — still open
+        // at cycle end.
+        let period2 = SubscriptionUsagePeriod::open(
+            SubscriptionUsagePeriodId::new(),
+            period1.subscription_id,
+            200,
+            60,
+            30,
+            switch_at,
+        );
+
+        let cost1 = calculate_period_cost(&period1, &config, cycle_start, cycle_end).unwrap();
+        let cost2 = calculate_period_cost(&period2, &config, cycle_start, cycle_end).unwrap();
+        let total = cost1 + cost2;
+
+        // Sanity: total proration must NOT equal full-month billing of
+        // either the old usage alone or the new usage alone.
+        let old_full_month = calculate_price(
+            PricingInput {
+                monitors: 100,
+                interval_seconds: 60,
+                retention_days: 30,
+            },
+            &config,
+        )
+        .unwrap()
+        .monthly_price;
+        let new_full_month = calculate_price(
+            PricingInput {
+                monitors: 200,
+                interval_seconds: 60,
+                retention_days: 30,
+            },
+            &config,
+        )
+        .unwrap()
+        .monthly_price;
+
+        assert!(total > Decimal::ZERO);
+        assert_ne!(total, old_full_month);
+        assert_ne!(total, new_full_month);
+        assert!(total > old_full_month);
+        assert!(total < new_full_month);
+    }
+
+    #[test]
+    fn calculate_period_cost_returns_zero_for_a_period_outside_the_cycle() {
+        let config = test_config();
+        let cycle_start = Utc::now();
+        let cycle_end = cycle_start + chrono::Duration::days(30);
+
+        let mut period = SubscriptionUsagePeriod::open(
+            SubscriptionUsagePeriodId::new(),
+            SubscriptionId::new(),
+            100,
+            60,
+            30,
+            cycle_start - chrono::Duration::days(60),
+        );
+        period
+            .close(cycle_start - chrono::Duration::days(30))
+            .unwrap();
+
+        let cost = calculate_period_cost(&period, &config, cycle_start, cycle_end).unwrap();
+        assert_eq!(cost, Decimal::ZERO);
     }
 }

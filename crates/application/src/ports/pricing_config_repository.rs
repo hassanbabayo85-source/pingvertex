@@ -19,6 +19,8 @@ pub trait PricingConfigRepository: Send + Sync {
     /// Records an audit log entry for pricing config changes.
     async fn record_audit_log(&self, entry: &PricingAuditLogEntry) -> RepoResult<()>;
     async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>>;
+    /// Lists all pricing audit log entries, most recent first.
+    async fn list_audit_logs(&self) -> RepoResult<Vec<PricingAuditLogEntry>>;
 }
 
 #[async_trait]
@@ -48,5 +50,9 @@ where
 
     async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>> {
         (**self).list_versions().await
+    }
+
+    async fn list_audit_logs(&self) -> RepoResult<Vec<PricingAuditLogEntry>> {
+        (**self).list_audit_logs().await
     }
 }

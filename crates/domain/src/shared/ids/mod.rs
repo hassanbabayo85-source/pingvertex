@@ -67,3 +67,7 @@ pub use subscription_id::SubscriptionId;
 // B14 — Billing Provider Abstraction & Checkout:
 pub mod checkout_session_id;
 pub use checkout_session_id::CheckoutSessionId;
+
+// H12 — Proration Service:
+mod subscription_usage_period_id;
+pub use subscription_usage_period_id::SubscriptionUsagePeriodId;

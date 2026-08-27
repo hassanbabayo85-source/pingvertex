@@ -269,4 +269,20 @@ pub enum DomainError {
     // B15 — Billing Webhooks:
     #[error("invalid billing webhook event type: {0}")]
     InvalidBillingWebhookEventType(String),
+
+    // H12 — Proration Service:
+    #[error("subscription usage monitors must be greater than zero")]
+    SubscriptionUsageMonitorsZero,
+
+    #[error("subscription usage interval_seconds must be greater than zero")]
+    SubscriptionUsageIntervalSecondsZero,
+
+    #[error("subscription usage retention_days must be greater than zero")]
+    SubscriptionUsageRetentionDaysZero,
+
+    #[error("usage period is already closed")]
+    UsagePeriodAlreadyClosed,
+
+    #[error("usage period end_at must be after start_at")]
+    UsagePeriodEndBeforeStart,
 }
