@@ -19,3 +19,4 @@ pub use shared::ids::*;
 pub use value_objects::*;
 
 pub mod pricing;
+pub use pricing::*;

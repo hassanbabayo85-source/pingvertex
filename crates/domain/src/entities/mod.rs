@@ -1,22 +1,3 @@
-mod check;
-mod check_result;
-mod incident;
-mod monitor;
-mod monitor_builder;
-mod notification_channel;
-mod subscriber;
-mod user;
-mod user_builder;
-
-pub use check::*;
-pub use check_result::*;
-pub use incident::*;
-pub use monitor::*;
-pub use monitor_builder::*;
-pub use notification_channel::*;
-pub use subscriber::*;
-pub use user::*;
-pub use user_builder::*;
 pub mod assertion;
 pub use assertion::*;
 pub mod api_flow_step;
@@ -90,3 +71,29 @@ pub use pricing_audit_log_entry::PricingAuditLogEntry;
 
 mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;
+
+// H12 — Proration Service:
+mod subscription_usage_period;
+pub use subscription_usage_period::SubscriptionUsagePeriod;
+
+// Gyara: an manta da bayyana wadannan modules
+mod check;
+pub use check::Check;
+mod check_result;
+pub use check_result::CheckResult;
+mod monitor;
+pub use monitor::*;
+mod monitor_builder;
+pub use monitor_builder::MonitorBuilder;
+mod user;
+pub use user::User;
+mod user_builder;
+pub use user_builder::UserBuilder;
+
+// Gyara: an manta da bayyana wadannan modules
+mod incident;
+pub use incident::*;
+mod notification_channel;
+pub use notification_channel::{NotificationChannel, CreateEmailChannel, CreateWebhookChannel};
+mod subscriber;
+pub use subscriber::*;
