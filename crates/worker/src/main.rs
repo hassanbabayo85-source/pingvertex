@@ -14,6 +14,7 @@ use infra::{
     PostgresSubscriptionRepository, PostgresTenantRepository, RedisStatusPageCache,
     UuidIdGenerator, create_pool,
 };
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
@@ -71,6 +72,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let worker_config = config::WorkerConfig::from_env();
     let pool = create_pool(&worker_config.database_url).await?;
+
+    let cancel_token = CancellationToken::new();
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
     let check_repository = Arc::new(PostgresCheckRepository::new(pool.clone()));
@@ -140,16 +143,21 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         notification_channel_repository.clone(),
         notification_service.clone(),
     );
+    let escalation_cancel = cancel_token.clone();
     tokio::spawn(async move {
-        if let Err(err) = escalation_worker.run_forever().await {
+        if let Err(err) = escalation_worker.run_forever(escalation_cancel).await {
             tracing::error!(error = %err, "escalation worker stopped unexpectedly");
         }
     });
 
     let custom_domain_verification_worker =
         CustomDomainVerificationWorker::new(status_page_repository, custom_domain_verifier);
+    let custom_domain_cancel = cancel_token.clone();
     tokio::spawn(async move {
-        if let Err(err) = custom_domain_verification_worker.run_forever().await {
+        if let Err(err) = custom_domain_verification_worker
+            .run_forever(custom_domain_cancel)
+            .await
+        {
             tracing::error!(
                 error = %err,
                 "custom domain verification worker stopped unexpectedly"
@@ -158,8 +166,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     });
 
     let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository);
+    let proxy_check_cancel = cancel_token.clone();
     tokio::spawn(async move {
-        if let Err(err) = proxy_check_worker.run_forever().await {
+        if let Err(err) = proxy_check_worker.run_forever(proxy_check_cancel).await {
             tracing::error!(
                 error = %err,
                 "proxy check worker stopped unexpectedly"
@@ -173,9 +182,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         history_retention_repository,
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
+        worker_config.retention_max_concurrent_tenants,
     );
+    let retention_cancel = cancel_token.clone();
     tokio::spawn(async move {
-        if let Err(err) = retention_worker.run_forever().await {
+        if let Err(err) = retention_worker.run_forever(retention_cancel).await {
             tracing::error!(
                 error = %err,
                 "retention worker stopped unexpectedly"
@@ -184,9 +195,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     });
 
     let heartbeat_sweeper = HeartbeatSweeper::new(monitor_repository.clone());
+    let heartbeat_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = heartbeat_sweeper
-            .run_forever(Duration::from_secs(worker_config.lease_seconds / 2))
+            .run_forever(
+                Duration::from_secs(worker_config.lease_seconds / 2),
+                heartbeat_cancel,
+            )
             .await
         {
             tracing::error!(
@@ -215,8 +230,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     ));
     let notification_outbox_worker =
         OutboxWorker::new(notification_outbox_repository, notification_outbox_sender);
+    let outbox_cancel = cancel_token.clone();
     tokio::spawn(async move {
-        if let Err(err) = notification_outbox_worker.run_forever().await {
+        if let Err(err) = notification_outbox_worker.run_forever(outbox_cancel).await {
             tracing::error!(
                 error = %err,
                 "notification outbox worker stopped unexpectedly"
@@ -236,9 +252,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             result?;
         }
         _ = shutdown_signal() => {
-            tracing::info!("shutdown signal received, stopping scheduler loop");
+            tracing::info!("shutdown signal received, cancelling background workers");
         }
     }
+
+    cancel_token.cancel();
+    tracing::info!(
+        "cancellation token triggered; waiting briefly for background workers to finish"
+    );
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     tracing::info!("worker shut down");
 

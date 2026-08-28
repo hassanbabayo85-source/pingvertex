@@ -1,8 +1,10 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use application::ports::{HistoryRetentionRepository, SubscriptionRepository, TenantRepository};
-use chrono::{Duration as ChronoDuration, Utc};
+use async_trait::async_trait;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use domain::{
     Check, CheckStatus, ErrorType, PlanTier, RegionCode, Subscription, Tenant,
     shared::ids::{CheckId, MonitorId, SubscriptionId, TenantId, UserId},
@@ -75,6 +77,7 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
         history_repo.clone(),
         100,
         Duration::from_secs(3600),
+        2,
     );
 
     let summary = worker.run_sweep().await.unwrap();
@@ -150,6 +153,7 @@ async fn running_twice_is_idempotent() {
         history_repo.clone(),
         DEFAULT_BATCH_SIZE,
         Duration::from_secs(3600),
+        2,
     );
 
     let first = worker.run_sweep().await.unwrap();
@@ -161,4 +165,102 @@ async fn running_twice_is_idempotent() {
     let remaining = history_repo.list_check_ids();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0], recent.id);
+}
+
+/// H16 Task A regression test: wraps `HistoryRetentionRepository` and
+/// records how many `delete_older_than_batch` calls are in flight at
+/// once. Proves `RetentionWorker::run_sweep`'s semaphore actually caps
+/// concurrent per-tenant work at `max_concurrent_tenants` — not just
+/// that the code compiles with a `Semaphore` in it — and that every
+/// tenant still gets processed despite the bound (no starvation /
+/// resource exhaustion).
+struct ConcurrencyTrackingHistoryRepository<H> {
+    inner: Arc<H>,
+    in_flight: Arc<AtomicUsize>,
+    max_observed: Arc<AtomicUsize>,
+    delay: Duration,
+}
+
+#[async_trait]
+impl<H> HistoryRetentionRepository for ConcurrencyTrackingHistoryRepository<H>
+where
+    H: HistoryRetentionRepository + Send + Sync,
+{
+    async fn delete_older_than_batch(
+        &self,
+        tenant_id: TenantId,
+        cutoff: DateTime<Utc>,
+        batch_size: u32,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let current = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_observed.fetch_max(current, Ordering::SeqCst);
+
+        tokio::time::sleep(self.delay).await;
+
+        let result = self
+            .inner
+            .delete_older_than_batch(tenant_id, cutoff, batch_size)
+            .await;
+
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        result
+    }
+}
+
+#[tokio::test]
+async fn bounded_concurrency_never_exceeds_configured_limit() {
+    const TENANT_COUNT: usize = 12;
+    const MAX_CONCURRENT_TENANTS: usize = 3;
+
+    let tenant_repo = Arc::new(InMemoryTenantRepository::new());
+    let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
+    let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
+
+    for i in 0..TENANT_COUNT {
+        let t = tenant(&format!("Concurrency Tenant {i}"));
+        tenant_repo.create(&t).await.unwrap();
+        subscription_repo
+            .create(&Subscription::new(
+                SubscriptionId::new(),
+                t.id,
+                PlanTier::Free,
+            ))
+            .await
+            .unwrap();
+        history_repo.seed_check(sample_check_older_than_days(10), t.id);
+    }
+
+    let tracking_repo = Arc::new(ConcurrencyTrackingHistoryRepository {
+        inner: history_repo,
+        in_flight: Arc::new(AtomicUsize::new(0)),
+        max_observed: Arc::new(AtomicUsize::new(0)),
+        delay: Duration::from_millis(50),
+    });
+
+    let worker = RetentionWorker::new(
+        tenant_repo,
+        subscription_repo,
+        tracking_repo.clone(),
+        100,
+        Duration::from_secs(3600),
+        MAX_CONCURRENT_TENANTS,
+    );
+
+    let summary = worker.run_sweep().await.unwrap();
+
+    assert_eq!(summary.tenants_processed, TENANT_COUNT as u64);
+    assert_eq!(summary.checks_deleted, TENANT_COUNT as u64);
+
+    let max_observed = tracking_repo.max_observed.load(Ordering::SeqCst);
+    assert!(
+        max_observed <= MAX_CONCURRENT_TENANTS,
+        "observed {max_observed} tenants being processed concurrently, expected at most \
+         {MAX_CONCURRENT_TENANTS} — bounded concurrency is not being respected \
+         (resource exhaustion risk)"
+    );
+    assert!(
+        max_observed >= 2,
+        "expected genuine concurrent processing (at least 2 tenants in flight at once), \
+         only observed {max_observed} — sweep may have regressed to fully sequential"
+    );
 }

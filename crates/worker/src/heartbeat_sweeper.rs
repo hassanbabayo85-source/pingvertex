@@ -1,4 +1,5 @@
 use std::{error::Error, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 use application::ports::MonitorRepository;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -29,15 +30,21 @@ impl HeartbeatSweeper {
     }
 
     /// Runs forever, sweeping once every `interval`.
-    pub async fn run_forever(&self, interval: Duration) -> Result<()> {
+    pub async fn run_forever(&self, interval: Duration, token: CancellationToken) -> Result<()> {
         let mut ticker = time::interval(interval);
         ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
         loop {
-            ticker.tick().await;
-
-            if let Err(err) = self.sweep_once().await {
-                error!(error = %err, "heartbeat sweep failed");
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("heartbeat sweeper cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = ticker.tick() => {
+                    if let Err(err) = self.sweep_once().await {
+                        error!(error = %err, "heartbeat sweep failed");
+                    }
+                }
             }
         }
     }

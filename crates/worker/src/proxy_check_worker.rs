@@ -1,7 +1,8 @@
 use std::{error::Error, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 use application::ports::ProxyCheckJobRepository;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::proxy_checker::run_proxy_check_job;
 
@@ -57,15 +58,21 @@ impl ProxyCheckWorker {
         Ok(())
     }
 
-    pub async fn run_forever(&self) -> Result<()> {
+    pub async fn run_forever(&self, token: CancellationToken) -> Result<()> {
         let mut interval =
             tokio::time::interval(Duration::from_secs(PROXY_CHECK_POLL_INTERVAL_SECS));
 
         loop {
-            interval.tick().await;
-
-            if let Err(err) = self.run_once().await {
-                error!(error = %err, "proxy check worker sweep failed");
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("proxy check worker cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = interval.tick() => {
+                    if let Err(err) = self.run_once().await {
+                        error!(error = %err, "proxy check worker sweep failed");
+                    }
+                }
             }
         }
     }
