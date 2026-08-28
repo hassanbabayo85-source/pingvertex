@@ -22,6 +22,17 @@ pub struct CheckFilters {
 pub trait CheckRepository: Send + Sync {
     async fn save(&self, check: &Check) -> RepoResult<()>;
 
+    /// Saves multiple checks atomically where the backing store supports
+    /// it (e.g. a single multi-row INSERT on Postgres). The default
+    /// implementation falls back to individual saves, so existing
+    /// in-memory/mock implementations continue to work unchanged.
+    async fn save_batch(&self, checks: &[Check]) -> RepoResult<()> {
+        for check in checks {
+            self.save(check).await?;
+        }
+        Ok(())
+    }
+
     async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>>;
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Check>>;
@@ -67,6 +78,10 @@ where
 {
     async fn save(&self, check: &Check) -> RepoResult<()> {
         (**self).save(check).await
+    }
+
+    async fn save_batch(&self, checks: &[Check]) -> RepoResult<()> {
+        (**self).save_batch(checks).await
     }
 
     async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>> {

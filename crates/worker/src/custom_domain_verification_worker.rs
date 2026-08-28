@@ -1,4 +1,5 @@
 use std::{error::Error, sync::Arc, time::Duration as StdDuration};
+use tokio_util::sync::CancellationToken;
 
 use application::ports::{CustomDomainVerifier, StatusPageRepository};
 use chrono::{Duration as ChronoDuration, Utc};
@@ -156,12 +157,19 @@ impl CustomDomainVerificationWorker {
     /// sweeps for a given pending domain will simply find nothing new —
     /// that's expected and cheap (a single indexed query), not a
     /// problem to tune away.
-    pub async fn run_forever(&self) -> Result<()> {
+    pub async fn run_forever(&self, token: CancellationToken) -> Result<()> {
         let mut interval = tokio::time::interval(StdDuration::from_secs(60));
         loop {
-            interval.tick().await;
-            if let Err(err) = self.run_once().await {
-                error!(error = %err, "custom domain verification sweep failed");
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("custom domain verification worker cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = interval.tick() => {
+                    if let Err(err) = self.run_once().await {
+                        error!(error = %err, "custom domain verification sweep failed");
+                    }
+                }
             }
         }
     }

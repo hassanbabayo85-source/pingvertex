@@ -1,4 +1,5 @@
 use std::{error::Error, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 use application::ports::{
     EscalationPolicyRepository, IncidentRepository, MonitorRepository,
@@ -197,12 +198,19 @@ impl EscalationWorker {
     }
 
     /// Runs forever, sleeping 60 seconds between sweeps.
-    pub async fn run_forever(&self) -> Result<()> {
+    pub async fn run_forever(&self, token: CancellationToken) -> Result<()> {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
-            interval.tick().await;
-            if let Err(err) = self.run_once().await {
-                error!(error = %err, "escalation sweep failed");
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("escalation worker cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = interval.tick() => {
+                    if let Err(err) = self.run_once().await {
+                        error!(error = %err, "escalation sweep failed");
+                    }
+                }
             }
         }
     }

@@ -5,6 +5,9 @@ pub struct WorkerConfig {
     pub database_url: String,
     pub lease_seconds: u64,
     pub max_concurrent_checks: usize,
+    /// Maximum number of tenants processed concurrently during a retention
+    /// sweep.
+    pub retention_max_concurrent_tenants: usize,
     /// B23: consecutive failing checks required before an incident opens.
     pub incident_failure_threshold: u32,
     /// B23: consecutive successful checks required before an open
@@ -26,6 +29,7 @@ pub enum WorkerConfigError {
     MissingDatabaseUrl,
     InvalidLeaseSeconds(String),
     InvalidMaxConcurrentChecks(String),
+    InvalidRetentionMaxConcurrentTenants(String),
     InvalidIncidentFailureThreshold(String),
     InvalidIncidentRecoveryThreshold(String),
 }
@@ -43,6 +47,10 @@ impl std::fmt::Display for WorkerConfigError {
             Self::InvalidMaxConcurrentChecks(v) => write!(
                 f,
                 "WORKER_MAX_CONCURRENT_CHECKS must be a positive integer, got: {v}"
+            ),
+            Self::InvalidRetentionMaxConcurrentTenants(v) => write!(
+                f,
+                "RETENTION_MAX_CONCURRENT_TENANTS must be a positive integer, got: {v}"
             ),
             Self::InvalidIncidentFailureThreshold(v) => write!(
                 f,
@@ -81,18 +89,16 @@ fn parse_env_u64(key: &str, default: u64) -> Result<u64, WorkerConfigError> {
     }
 }
 
-fn parse_env_usize(key: &str, default: usize) -> Result<usize, WorkerConfigError> {
+fn parse_env_usize(
+    key: &str,
+    default: usize,
+    err: impl Fn(String) -> WorkerConfigError,
+) -> Result<usize, WorkerConfigError> {
     match non_empty_env(key) {
         Some(v) => v
             .parse::<usize>()
-            .map_err(|_| WorkerConfigError::InvalidMaxConcurrentChecks(v.clone()))
-            .and_then(|n| {
-                if n == 0 {
-                    Err(WorkerConfigError::InvalidMaxConcurrentChecks(v))
-                } else {
-                    Ok(n)
-                }
-            }),
+            .map_err(|_| err(v.clone()))
+            .and_then(|n| if n == 0 { Err(err(v)) } else { Ok(n) }),
         None => Ok(default),
     }
 }
@@ -120,7 +126,16 @@ impl WorkerConfig {
         let database_url =
             non_empty_env("DATABASE_URL").ok_or(WorkerConfigError::MissingDatabaseUrl)?;
         let lease_seconds = parse_env_u64("WORKER_LEASE_SECONDS", 60)?;
-        let max_concurrent_checks = parse_env_usize("WORKER_MAX_CONCURRENT_CHECKS", 10)?;
+        let max_concurrent_checks = parse_env_usize(
+            "WORKER_MAX_CONCURRENT_CHECKS",
+            10,
+            WorkerConfigError::InvalidMaxConcurrentChecks,
+        )?;
+        let retention_max_concurrent_tenants = parse_env_usize(
+            "RETENTION_MAX_CONCURRENT_TENANTS",
+            4,
+            WorkerConfigError::InvalidRetentionMaxConcurrentTenants,
+        )?;
         let incident_failure_threshold = parse_env_u32(
             "INCIDENT_FAILURE_THRESHOLD",
             3,
@@ -137,6 +152,7 @@ impl WorkerConfig {
             database_url,
             lease_seconds,
             max_concurrent_checks,
+            retention_max_concurrent_tenants,
             incident_failure_threshold,
             incident_recovery_threshold,
             redis_url,
@@ -168,6 +184,7 @@ mod tests {
             env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db");
             env::remove_var("WORKER_LEASE_SECONDS");
             env::remove_var("WORKER_MAX_CONCURRENT_CHECKS");
+            env::remove_var("RETENTION_MAX_CONCURRENT_TENANTS");
             env::remove_var("INCIDENT_FAILURE_THRESHOLD");
             env::remove_var("INCIDENT_RECOVERY_THRESHOLD");
             env::remove_var("REDIS_URL");
@@ -179,6 +196,7 @@ mod tests {
         );
         assert_eq!(config.lease_seconds, 60);
         assert_eq!(config.max_concurrent_checks, 10);
+        assert_eq!(config.retention_max_concurrent_tenants, 4);
         assert_eq!(config.incident_failure_threshold, 3);
         assert_eq!(config.incident_recovery_threshold, 2);
         assert_eq!(config.redis_url, None);

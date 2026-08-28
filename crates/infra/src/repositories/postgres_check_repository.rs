@@ -112,42 +112,60 @@ impl CheckRow {
 #[async_trait]
 impl CheckRepository for PostgresCheckRepository {
     async fn save(&self, check: &Check) -> RepoResult<()> {
-        let row = CheckRow::from_domain(check);
+        self.save_batch(std::slice::from_ref(check)).await
+    }
 
-        sqlx::query(
-            r#"
-            INSERT INTO checks (
-                id,
-                monitor_id,
-                region,
-                status,
-                http_status,
-                response_time_ms,
-                error_type,
-                error_message,
-                checked_at,
-                cert_expires_at,
-                cert_days_remaining,
-                country_code
-            )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-            "#,
-        )
-        .bind(row.id)
-        .bind(row.monitor_id)
-        .bind(row.region)
-        .bind(row.status)
-        .bind(row.http_status)
-        .bind(row.response_time_ms)
-        .bind(row.error_type)
-        .bind(row.error_message)
-        .bind(row.checked_at)
-        .bind(row.cert_expires_at)
-        .bind(row.cert_days_remaining)
-        .bind(row.country_code)
-        .execute(&self.pool)
-        .await?;
+    async fn save_batch(&self, checks: &[Check]) -> RepoResult<()> {
+        if checks.is_empty() {
+            return Ok(());
+        }
 
+        // Multi-row INSERT for efficient batch writes.
+        // Number of checks per batch is bounded by caller; we use the
+        // standard sqlx bind-per-placeholder approach.
+        let mut query = String::from(
+            "INSERT INTO checks (id,monitor_id,region,status,http_status,response_time_ms,error_type,error_message,checked_at,cert_expires_at,cert_days_remaining,country_code) VALUES ",
+        );
+        let mut params: Vec<String> = Vec::with_capacity(checks.len());
+        for i in 0..checks.len() {
+            let base = i * 12;
+            params.push(format!(
+                "(${},${},${},${},${},${},${},${},${},${},${},${})",
+                base + 1,
+                base + 2,
+                base + 3,
+                base + 4,
+                base + 5,
+                base + 6,
+                base + 7,
+                base + 8,
+                base + 9,
+                base + 10,
+                base + 11,
+                base + 12
+            ));
+        }
+        query.push_str(&params.join(","));
+
+        let mut q = sqlx::query(&query);
+        for check in checks {
+            let row = CheckRow::from_domain(check);
+            q = q
+                .bind(row.id)
+                .bind(row.monitor_id)
+                .bind(row.region)
+                .bind(row.status)
+                .bind(row.http_status)
+                .bind(row.response_time_ms)
+                .bind(row.error_type)
+                .bind(row.error_message)
+                .bind(row.checked_at)
+                .bind(row.cert_expires_at)
+                .bind(row.cert_days_remaining)
+                .bind(row.country_code);
+        }
+
+        q.execute(&self.pool).await?;
         Ok(())
     }
 

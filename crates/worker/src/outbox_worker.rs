@@ -1,11 +1,12 @@
 use std::{error::Error, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 use application::ports::{NotificationOutboxRepository, NotificationOutboxSender};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::NotificationOutboxEntry;
 use tokio::{sync::Semaphore, task::JoinSet};
-use tracing::error;
+use tracing::{error, info};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -191,15 +192,21 @@ impl OutboxWorker {
     }
 
     /// Runs forever, sweeping once every `config.poll_interval`.
-    pub async fn run_forever(&self) -> Result<()> {
+    pub async fn run_forever(&self, token: CancellationToken) -> Result<()> {
         let mut ticker = tokio::time::interval(self.config.poll_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
-            ticker.tick().await;
-
-            if let Err(err) = self.run_once().await {
-                error!(error = %err, "notification outbox sweep failed");
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("notification outbox worker cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = ticker.tick() => {
+                    if let Err(err) = self.run_once().await {
+                        error!(error = %err, "notification outbox sweep failed");
+                    }
+                }
             }
         }
     }

@@ -195,9 +195,6 @@ where
             continue;
         }
 
-        // Heartbeat monitors are never actively checked on the normal
-        // interval/JoinSet path below: they are evaluated every sweep for
-        // overdue-ness, and no Check/CheckResult is ever produced for them.
         if monitor.kind == MonitorKind::Heartbeat {
             if let Err(err) = evaluate_heartbeat_monitor(incident_manager, &monitor).await {
                 error!(
@@ -237,6 +234,15 @@ where
             (monitor, result)
         });
     }
+
+    struct BatchEntry {
+        check: Check,
+        monitor: domain::Monitor,
+        diagnostic_steps: Vec<domain::DiagnosticStep>,
+        diagnostic_summary: String,
+    }
+
+    let mut batch = Vec::<BatchEntry>::new();
 
     while let Some(join_result) = tasks.join_next().await {
         match join_result {
@@ -292,50 +298,12 @@ where
                 )
                 .with_cert_info(result.cert_expires_at, result.cert_days_remaining);
 
-                if let Err(err) = check_repository.save(&check).await {
-                    counter!("worker_check_save_errors_total").increment(1);
-
-                    error!(
-                        monitor_id = %monitor.id.0,
-                        error = %err,
-                        "failed to save check"
-                    );
-                    continue;
-                }
-
-                // Save the diagnostic report (if the check failed and a
-                // diagnostic run was performed). Non-fatal: a failure to
-                // persist the diagnostic report must never block the
-                // sweep, exactly like notification failures in
-                // `incident_manager.rs`.
-                if !diagnostic_steps.is_empty() {
-                    let diagnostic_report_id = id_generator.next_diagnostic_report_id().await;
-                    let report = DiagnosticReport::new(
-                        diagnostic_report_id,
-                        check.id,
-                        diagnostic_steps,
-                        diagnostic_summary.unwrap_or_default(),
-                    );
-
-                    if let Err(err) = diagnostic_report_repository.save(&report).await {
-                        error!(
-                            monitor_id = %monitor.id.0,
-                            check_id = %check.id.0,
-                            error = %err,
-                            "failed to save diagnostic report"
-                        );
-                    }
-                }
-
-                if let Err(err) =
-                    evaluate_monitor_incident(check_repository, incident_manager, &monitor).await
-                {
-                    error!(
-                        monitor_id = %monitor.id.0,
-                        error = %err,
-                        "failed to evaluate multi-region incident status"
-                    );
-                }
+                batch.push(BatchEntry {
+                    check,
+                    monitor: monitor.clone(),
+                    diagnostic_steps,
+                    diagnostic_summary: diagnostic_summary.unwrap_or_default(),
+                });
             }
 
             Ok((monitor, Err(err))) => {
@@ -351,6 +319,48 @@ where
             Err(err) => {
                 error!(error = %err, "worker task panicked");
             }
+        }
+    }
+
+    if !batch.is_empty() {
+        let checks: Vec<Check> = batch.iter().map(|entry| entry.check.clone()).collect();
+        if let Err(err) = check_repository.save_batch(&checks).await {
+            counter!("worker_check_save_errors_total").increment(1);
+            error!(
+                error = %err,
+                "failed to save check batch"
+            );
+        }
+    }
+
+    for entry in batch {
+        if !entry.diagnostic_steps.is_empty() {
+            let diagnostic_report_id = id_generator.next_diagnostic_report_id().await;
+            let report = DiagnosticReport::new(
+                diagnostic_report_id,
+                entry.check.id,
+                entry.diagnostic_steps,
+                entry.diagnostic_summary,
+            );
+
+            if let Err(err) = diagnostic_report_repository.save(&report).await {
+                error!(
+                    monitor_id = %entry.monitor.id.0,
+                    check_id = %entry.check.id.0,
+                    error = %err,
+                    "failed to save diagnostic report"
+                );
+            }
+        }
+
+        if let Err(err) =
+            evaluate_monitor_incident(check_repository, incident_manager, &entry.monitor).await
+        {
+            error!(
+                monitor_id = %entry.monitor.id.0,
+                error = %err,
+                "failed to evaluate multi-region incident status"
+            );
         }
     }
 
