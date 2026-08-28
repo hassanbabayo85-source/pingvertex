@@ -3,15 +3,17 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use application::ports::{
-    AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
-    BillingAuditLogRepository, BillingWebhookIdempotencyRepository, CheckRepository,
-    CheckoutDetails, CheckoutRequest, CheckoutSessionRepository, CustomDomainVerifier,
-    DashboardRepository, DiagnosticReportRepository, EscalationPolicyRepository, HealthCheckPort,
-    HealthCheckResult, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
+    AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
+    AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
+    CheckRepository, CheckoutDetails, CheckoutRequest, CheckoutSessionRepository,
+    CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
+    EscalationPolicyRepository, HealthCheckPort, HealthCheckResult, HelpArticleRepository,
+    HelpCategoryRepository, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
     MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
     PaymentProvider, PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository,
-    SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
-    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
+    SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
+    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
+    SupportTicketRepository,
 };
 
 use async_trait::async_trait;
@@ -80,6 +82,11 @@ pub struct AppState {
     pub subscription_usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
     /// H12 — Proration Service.
     pub subscription_usage_transaction: Arc<dyn SubscriptionUsageTransaction>,
+    pub add_on_subscription_repository: Arc<dyn AddOnSubscriptionRepository>,
+    pub sms_provider_pricing: Arc<dyn SmsProviderPricing>,
+    pub help_category_repository: Arc<dyn HelpCategoryRepository>,
+    pub help_article_repository: Arc<dyn HelpArticleRepository>,
+    pub support_ticket_repository: Arc<dyn SupportTicketRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -452,6 +459,135 @@ impl SubscriptionUsageTransaction for NoopSubscriptionUsageTransaction {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopAddOnSubscriptionRepository;
+#[async_trait]
+impl AddOnSubscriptionRepository for NoopAddOnSubscriptionRepository {
+    async fn create(&self, _: &domain::AddOnSubscription) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_id(
+        &self,
+        _: domain::AddOnSubscriptionId,
+    ) -> RepoResult<Option<domain::AddOnSubscription>> {
+        Ok(None)
+    }
+    async fn list_active_by_tenant(
+        &self,
+        _: TenantId,
+    ) -> RepoResult<Vec<domain::AddOnSubscription>> {
+        Ok(vec![])
+    }
+    async fn list_by_tenant_and_type(
+        &self,
+        _: TenantId,
+        _: domain::AddOnType,
+    ) -> RepoResult<Vec<domain::AddOnSubscription>> {
+        Ok(vec![])
+    }
+}
+#[derive(Clone, Default)]
+struct NoopSmsProviderPricing;
+
+#[derive(Clone, Default)]
+struct NoopHelpCategoryRepository;
+
+#[async_trait]
+impl HelpCategoryRepository for NoopHelpCategoryRepository {
+    async fn create(&self, _: &domain::entities::HelpCategory) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_id(
+        &self,
+        _: domain::shared::ids::HelpCategoryId,
+    ) -> RepoResult<Option<domain::entities::HelpCategory>> {
+        Ok(None)
+    }
+    async fn find_by_slug(&self, _: &str) -> RepoResult<Option<domain::entities::HelpCategory>> {
+        Ok(None)
+    }
+    async fn list_all(&self) -> RepoResult<Vec<domain::entities::HelpCategory>> {
+        Ok(vec![])
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopHelpArticleRepository;
+
+#[async_trait]
+impl HelpArticleRepository for NoopHelpArticleRepository {
+    async fn create(&self, _: &domain::entities::HelpArticle) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_slug(&self, _: &str) -> RepoResult<Option<domain::entities::HelpArticle>> {
+        Ok(None)
+    }
+    async fn list_by_category(
+        &self,
+        _: domain::shared::ids::HelpCategoryId,
+        _: bool,
+    ) -> RepoResult<Vec<domain::entities::HelpArticle>> {
+        Ok(vec![])
+    }
+    async fn search(&self, _: &str) -> RepoResult<Vec<domain::entities::HelpArticle>> {
+        Ok(vec![])
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSupportTicketRepository;
+
+#[async_trait]
+impl SupportTicketRepository for NoopSupportTicketRepository {
+    async fn create_ticket(&self, _: &domain::entities::SupportTicket) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_ticket(
+        &self,
+        _: domain::shared::ids::SupportTicketId,
+    ) -> RepoResult<Option<domain::entities::SupportTicket>> {
+        Ok(None)
+    }
+    async fn list_user_tickets(
+        &self,
+        _: domain::shared::ids::TenantId,
+        _: domain::shared::ids::UserId,
+    ) -> RepoResult<Vec<domain::entities::SupportTicket>> {
+        Ok(vec![])
+    }
+    async fn list_tenant_tickets(
+        &self,
+        _: domain::shared::ids::TenantId,
+    ) -> RepoResult<Vec<domain::entities::SupportTicket>> {
+        Ok(vec![])
+    }
+    async fn create_message(&self, _: &domain::entities::SupportMessage) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn list_messages(
+        &self,
+        _: domain::shared::ids::SupportTicketId,
+    ) -> RepoResult<Vec<domain::entities::SupportMessage>> {
+        Ok(vec![])
+    }
+    async fn update_ticket_status(
+        &self,
+        _: domain::shared::ids::SupportTicketId,
+        _: domain::enums::SupportTicketStatus,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+}
+#[async_trait]
+impl SmsProviderPricing for NoopSmsProviderPricing {
+    async fn outbound_sms_unit_price(
+        &self,
+        _: &str,
+    ) -> Result<(rust_decimal::Decimal, String), Box<dyn std::error::Error + Send + Sync>> {
+        Err(std::io::Error::other("SMS provider pricing is not configured").into())
+    }
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -513,6 +649,11 @@ impl AppState {
             dashboard_repository: Arc::new(NoopDashboardRepository),
             subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
             subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
+            add_on_subscription_repository: Arc::new(NoopAddOnSubscriptionRepository),
+            sms_provider_pricing: Arc::new(NoopSmsProviderPricing),
+            help_category_repository: Arc::new(NoopHelpCategoryRepository),
+            help_article_repository: Arc::new(NoopHelpArticleRepository),
+            support_ticket_repository: Arc::new(NoopSupportTicketRepository),
         }
     }
 
@@ -586,6 +727,11 @@ impl AppState {
             dashboard_repository: Arc::new(NoopDashboardRepository),
             subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
             subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
+            add_on_subscription_repository: Arc::new(NoopAddOnSubscriptionRepository),
+            sms_provider_pricing: Arc::new(NoopSmsProviderPricing),
+            help_category_repository: Arc::new(NoopHelpCategoryRepository),
+            help_article_repository: Arc::new(NoopHelpArticleRepository),
+            support_ticket_repository: Arc::new(NoopSupportTicketRepository),
         }
     }
 
@@ -700,11 +846,51 @@ impl AppState {
     }
 
     /// H12 — Proration Service.
+    pub fn with_add_on_subscription_repository<R>(mut self, repo: R) -> Self
+    where
+        R: AddOnSubscriptionRepository + 'static,
+    {
+        self.add_on_subscription_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_sms_provider_pricing<P>(mut self, provider: P) -> Self
+    where
+        P: SmsProviderPricing + 'static,
+    {
+        self.sms_provider_pricing = Arc::new(provider);
+        self
+    }
+
     pub fn with_subscription_usage_transaction<T>(mut self, transaction: T) -> Self
     where
         T: SubscriptionUsageTransaction + 'static,
     {
         self.subscription_usage_transaction = Arc::new(transaction);
+        self
+    }
+
+    pub fn with_help_category_repository<R>(mut self, repo: R) -> Self
+    where
+        R: HelpCategoryRepository + 'static,
+    {
+        self.help_category_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_help_article_repository<R>(mut self, repo: R) -> Self
+    where
+        R: HelpArticleRepository + 'static,
+    {
+        self.help_article_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_support_ticket_repository<R>(mut self, repo: R) -> Self
+    where
+        R: SupportTicketRepository + 'static,
+    {
+        self.support_ticket_repository = Arc::new(repo);
         self
     }
 }

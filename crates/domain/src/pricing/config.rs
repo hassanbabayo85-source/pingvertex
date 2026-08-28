@@ -24,6 +24,8 @@ pub struct PricingConfig {
     pub avg_billable_network_bytes_per_check: u64,
     pub cost_per_gb_egress: Decimal,
     pub cost_safety_buffer: Decimal,
+    pub sms_markup_multiplier: Decimal,
+    pub enterprise_sla_monthly_price: Decimal,
     pub created_by: Option<UserId>,
 }
 
@@ -59,6 +61,8 @@ impl PricingConfig {
             avg_billable_network_bytes_per_check: 512,
             cost_per_gb_egress: Decimal::new(12, 2),  // $0.12
             cost_safety_buffer: Decimal::new(120, 2), // 1.20
+            sms_markup_multiplier: Decimal::new(200, 2), // 2.00
+            enterprise_sla_monthly_price: Decimal::new(9900, 2), // $99.00 initial default
             created_by: None,
         }
     }

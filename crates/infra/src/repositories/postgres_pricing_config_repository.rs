@@ -70,6 +70,8 @@ struct PricingConfigRow {
     avg_billable_network_bytes_per_check: i64,
     cost_per_gb_egress: Decimal,
     cost_safety_buffer: Decimal,
+    sms_markup_multiplier: Decimal,
+    enterprise_sla_monthly_price: Decimal,
     created_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,
     created_by: Option<Uuid>,
@@ -100,6 +102,8 @@ impl PricingConfigRow {
             avg_billable_network_bytes_per_check: self.avg_billable_network_bytes_per_check as u64,
             cost_per_gb_egress: self.cost_per_gb_egress,
             cost_safety_buffer: self.cost_safety_buffer,
+            sms_markup_multiplier: self.sms_markup_multiplier,
+            enterprise_sla_monthly_price: self.enterprise_sla_monthly_price,
             created_by: self.created_by.map(UserId),
         }
     }
@@ -140,7 +144,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \
              FROM pricing_configs \
              WHERE effective_at <= now() \
@@ -157,7 +161,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \
              FROM pricing_configs \
              WHERE version = $1",
@@ -187,8 +191,8 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_cold, backup_multiplier, markup_multiplier, min_interval_seconds, \
              max_monitors, max_retention_days, min_paid_monthly_price, free_monitors, \
              free_interval_seconds, free_retention_days, avg_billable_network_bytes_per_check, \
-             cost_per_gb_egress, cost_safety_buffer, effective_at, created_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
+             cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, effective_at, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
         )
         .bind(Uuid::new_v4())
         .bind(config.version as i32)
@@ -210,6 +214,8 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         .bind(config.avg_billable_network_bytes_per_check as i64)
         .bind(config.cost_per_gb_egress)
         .bind(config.cost_safety_buffer)
+        .bind(config.sms_markup_multiplier)
+        .bind(config.enterprise_sla_monthly_price)
         .bind(config.effective_at)
         .bind(config.created_by.map(|u| u.0))
         .execute(&mut *tx)
@@ -241,7 +247,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
              markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
-             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, \
+             avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \
              FROM pricing_configs ORDER BY version",
         )

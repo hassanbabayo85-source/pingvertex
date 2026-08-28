@@ -45,6 +45,11 @@ pub mod health_check;
 // H6 — Dashboard Overview:
 pub mod dashboard_repository;
 
+// H14 — Help Center & Support:
+pub mod help_article_repository;
+pub mod help_category_repository;
+pub mod support_ticket_repository;
+
 pub use api_flow_repository::ApiFlowRepository;
 pub use check_repository::CheckRepository;
 pub use diagnostic_report_repository::DiagnosticReportRepository;
@@ -149,3 +154,14 @@ pub use subscription_usage_period_repository::SubscriptionUsagePeriodRepository;
 pub use subscription_usage_transaction::{
     SubscriptionUsageTransaction, SubscriptionUsageTransactionResult,
 };
+
+pub mod add_on_subscription_repository;
+pub use add_on_subscription_repository::AddOnSubscriptionRepository;
+
+pub mod sms_provider_pricing;
+pub use sms_provider_pricing::{SmsPricingResult, SmsProviderPricing};
+
+// H14 — Help Center & Support:
+pub use help_article_repository::HelpArticleRepository;
+pub use help_category_repository::HelpCategoryRepository;
+pub use support_ticket_repository::SupportTicketRepository;

@@ -19,9 +19,9 @@ use crate::{
         jwt_auth::jwt_auth, metrics::record_http_metrics,
     },
     routes::{
-        api_flows, api_keys, auth, billing, checks, dashboard, health, internal_agents,
+        api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
         invitations, members, monitors, notifications, pricing, proxy_checks, public, status_pages,
-        subscription,
+        subscription, support,
     },
     state::AppState,
 };
@@ -325,6 +325,27 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let help_routes = help::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(60)
+                .finish()
+                .expect("valid help rate-limit configuration"),
+        ))
+        .with_state(app_state.clone());
+
+    let support_routes = support::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(30)
+                .finish()
+                .expect("valid support rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     Router::new()
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
@@ -341,6 +362,8 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", billing_routes)
         .nest("/api/v1", subscription_routes)
         .nest("/api/v1", pricing_routes)
+        .nest("/api/v1", help_routes)
+        .nest("/api/v1", support_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
@@ -486,6 +509,12 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
     // already does the same for `auth_routes`.
     let pricing_routes = pricing::router().with_state(app_state.clone());
 
+    let help_routes = help::router().with_state(app_state.clone());
+
+    let support_routes = support::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // Admin pricing routes for test router: JWT only, permission check in handlers.
     let admin_pricing_routes = pricing::admin_router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
@@ -507,6 +536,8 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", billing_routes)
         .nest("/api/v1", subscription_routes)
         .nest("/api/v1", pricing_routes)
+        .nest("/api/v1", help_routes)
+        .nest("/api/v1", support_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
