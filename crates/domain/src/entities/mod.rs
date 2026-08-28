@@ -97,3 +97,17 @@ mod notification_channel;
 pub use notification_channel::{CreateEmailChannel, CreateWebhookChannel, NotificationChannel};
 mod subscriber;
 pub use subscriber::*;
+
+// H14 — Help Center & Support:
+mod help_article;
+mod help_category;
+mod support_message;
+mod support_ticket;
+
+pub use help_article::{CreateHelpArticle, HelpArticle};
+pub use help_category::{CreateHelpCategory, HelpCategory};
+pub use support_message::{CreateSupportMessage, SupportMessage};
+pub use support_ticket::{CreateSupportTicket, SupportTicket};
+
+mod add_on_subscription;
+pub use add_on_subscription::{AddOnStatus, AddOnSubscription, AddOnType};

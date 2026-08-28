@@ -285,4 +285,57 @@ pub enum DomainError {
 
     #[error("usage period end_at must be after start_at")]
     UsagePeriodEndBeforeStart,
+    #[error("help article status is invalid: {0}")]
+    InvalidHelpArticleStatus(String),
+
+    #[error("help article title cannot be empty")]
+    EmptyHelpArticleTitle,
+
+    #[error("help article title cannot exceed 200 characters")]
+    HelpArticleTitleTooLong,
+
+    #[error("help article content cannot be empty")]
+    EmptyHelpArticleContent,
+
+    #[error("help article content cannot exceed 100000 characters")]
+    HelpArticleContentTooLong,
+
+    #[error("help article slug is invalid")]
+    InvalidHelpArticleSlug,
+
+    #[error("help category name cannot be empty")]
+    EmptyHelpCategoryName,
+
+    #[error("help category name cannot exceed 100 characters")]
+    HelpCategoryNameTooLong,
+
+    #[error("help category slug is invalid")]
+    InvalidHelpCategorySlug,
+
+    #[error("support subject cannot be empty")]
+    EmptySupportSubject,
+
+    #[error("support subject cannot exceed 200 characters")]
+    SupportSubjectTooLong,
+
+    #[error("support message cannot be empty")]
+    EmptySupportMessage,
+
+    #[error("ticket number cannot be empty")]
+    EmptySupportTicketNumber,
+
+    #[error("ticket number cannot exceed 50 characters")]
+    SupportTicketNumberTooLong,
+
+    #[error("support message cannot exceed 20000 characters")]
+    SupportMessageTooLong,
+
+    #[error("support ticket cannot transition from {0} to {1}")]
+    InvalidSupportTicketTransition(String, String),
+
+    #[error("support ticket status is invalid: {0}")]
+    InvalidSupportTicketStatus(String),
+
+    #[error("support category is invalid: {0}")]
+    InvalidSupportCategory(String),
 }

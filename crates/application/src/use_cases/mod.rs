@@ -70,6 +70,16 @@ pub mod verify_checkout;
 pub mod verify_email;
 pub mod verify_totp_and_login;
 
+// H14 — Help Center & Support:
+pub mod create_support_ticket;
+pub mod get_help_article;
+pub mod get_support_ticket;
+pub mod list_help_categories;
+pub mod list_my_support_tickets;
+pub mod reply_to_support_ticket;
+pub mod search_help_articles;
+pub mod update_support_ticket_status;
+
 pub use accept_invitation::*;
 pub use acknowledge_incident::*;
 pub use add_member::*;
@@ -146,3 +156,15 @@ pub mod calculate_subscription_cycle_cost;
 pub mod update_subscription_usage;
 pub use calculate_subscription_cycle_cost::*;
 pub use update_subscription_usage::*;
+
+pub mod add_on_subscription;
+
+// H14 — Help Center & Support:
+pub use create_support_ticket::{CreateSupportTicketError, CreateSupportTicketUseCase};
+pub use get_help_article::GetHelpArticleUseCase;
+pub use get_support_ticket::GetSupportTicketUseCase;
+pub use list_help_categories::ListHelpCategoriesUseCase;
+pub use list_my_support_tickets::ListMySupportTicketsUseCase;
+pub use reply_to_support_ticket::ReplyToSupportTicketUseCase;
+pub use search_help_articles::SearchHelpArticlesUseCase;
+pub use update_support_ticket_status::UpdateSupportTicketStatusUseCase;

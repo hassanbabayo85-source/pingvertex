@@ -4,6 +4,7 @@ pub mod repositories;
 pub mod s3_config;
 pub mod services;
 pub mod twilio_config;
+pub mod twilio_pricing;
 // B34 — Public Endpoint Security & Efficiency: readiness-endpoint DB check.
 pub mod postgres_health_check;
 pub use config::{NotificationConfigError, SmtpConfig};
@@ -24,6 +25,7 @@ pub use services::{
     WebhookNotificationService,
 };
 pub use twilio_config::{TwilioConfig, TwilioConfigError};
+pub use twilio_pricing::TwilioPricingService;
 
 // B14 — Billing Provider Abstraction & Checkout:
 pub mod billing_config;

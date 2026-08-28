@@ -71,3 +71,17 @@ pub use checkout_session_id::CheckoutSessionId;
 // H12 — Proration Service:
 mod subscription_usage_period_id;
 pub use subscription_usage_period_id::SubscriptionUsagePeriodId;
+
+pub mod add_on_subscription_id;
+pub use add_on_subscription_id::AddOnSubscriptionId;
+
+// H14 — Help Center & Support:
+pub mod help_article_id;
+pub mod help_category_id;
+pub mod support_message_id;
+pub mod support_ticket_id;
+
+pub use help_article_id::HelpArticleId;
+pub use help_category_id::HelpCategoryId;
+pub use support_message_id::SupportMessageId;
+pub use support_ticket_id::SupportTicketId;

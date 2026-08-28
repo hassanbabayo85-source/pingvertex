@@ -40,6 +40,14 @@ fn validate_config_request(req: &CreatePricingConfigRequest) -> Result<(), ApiEr
     if req.cost_per_gb_egress < rust_decimal::Decimal::ZERO {
         return Err(ApiError::bad_request("cost_per_gb_egress must be >= 0"));
     }
+    if req.sms_markup_multiplier < rust_decimal::Decimal::ZERO {
+        return Err(ApiError::bad_request("sms_markup_multiplier must be >= 0"));
+    }
+    if req.enterprise_sla_monthly_price < rust_decimal::Decimal::ZERO {
+        return Err(ApiError::bad_request(
+            "enterprise_sla_monthly_price must be >= 0",
+        ));
+    }
     if req.cost_safety_buffer < rust_decimal::Decimal::ZERO {
         return Err(ApiError::bad_request("cost_safety_buffer must be >= 0"));
     }
@@ -169,6 +177,8 @@ pub async fn create_pricing_config(
         avg_billable_network_bytes_per_check: payload.avg_billable_network_bytes_per_check,
         cost_per_gb_egress: payload.cost_per_gb_egress,
         cost_safety_buffer: payload.cost_safety_buffer,
+        sms_markup_multiplier: payload.sms_markup_multiplier,
+        enterprise_sla_monthly_price: payload.enterprise_sla_monthly_price,
         created_by: Some(authenticated_user.user_id()),
     };
 

@@ -15,3 +15,7 @@ pub mod proxy_checks;
 pub mod public;
 pub mod status_pages;
 pub mod subscription;
+
+// H14 — Help Center & Support:
+pub mod help;
+pub mod support;

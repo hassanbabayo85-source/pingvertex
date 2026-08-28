@@ -48,6 +48,14 @@ pub enum CheckErrorKind {
 pub mod user_role;
 pub use user_role::UserRole;
 pub mod user_status;
+
+// H14 — Help Center & Support:
+pub mod help_article_status;
+pub mod support_category;
+pub mod support_ticket_status;
+pub use help_article_status::HelpArticleStatus;
+pub use support_category::SupportCategory;
+pub use support_ticket_status::SupportTicketStatus;
 pub use user_status::UserStatus;
 pub mod response_part;
 pub use response_part::*;

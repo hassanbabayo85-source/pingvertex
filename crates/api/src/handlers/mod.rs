@@ -78,6 +78,12 @@ pub mod admin_pricing;
 pub mod pricing_quote;
 pub mod pricing_types;
 
+// H14 — Help Center & Support:
+pub mod help_center;
+pub mod help_types;
+pub mod support;
+pub mod support_types;
+
 pub use acknowledge_incident::*;
 pub use api_key_types::*;
 pub use change_password::*;
@@ -160,3 +166,20 @@ pub mod subscription_types;
 pub mod update_subscription_usage;
 pub use subscription_types::*;
 pub use update_subscription_usage::*;
+
+pub mod add_on_billing;
+pub use add_on_billing::{billing_summary, create_add_on};
+
+// H14 — Help Center & Support:
+pub use help_center::{
+    get_help_article, list_help_articles, list_help_categories, search_help_articles,
+};
+pub use help_types::{HelpArticleResponse, HelpCategoryResponse};
+pub use support::{
+    create_support_ticket, get_support_ticket, list_my_support_tickets, reply_to_support_ticket,
+    update_support_ticket_status,
+};
+pub use support_types::{
+    CreateSupportTicketRequest, ReplyToSupportTicketRequest, SupportMessageResponse,
+    SupportTicketResponse, UpdateSupportTicketStatusRequest,
+};

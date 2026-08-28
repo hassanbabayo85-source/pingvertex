@@ -18,21 +18,23 @@ use infra::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
     DisabledEmailVerificationMailer, DisabledPasswordResetMailer, FakeBillingProvider,
     HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
-    PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
+    PostgresAddOnSubscriptionRepository, PostgresAgentLeaseRepository, PostgresApiFlowRepository,
+    PostgresApiKeyRepository, PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
     PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
     PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
-    PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresIncidentRepository,
+    PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
+    PostgresHelpCategoryRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresPricingConfigRepository,
     PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
     PostgresResetPasswordTokenRepository, PostgresStatusPageRepository,
     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
-    PostgresSubscriptionUsageTransaction, PostgresTenantInvitationRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUserRepository,
-    RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
-    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
+    PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
+    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
+    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -140,10 +142,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
     .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()))
+    .with_add_on_subscription_repository(PostgresAddOnSubscriptionRepository::new(pool.clone()))
+    .with_sms_provider_pricing(TwilioPricingService::new())
     .with_subscription_usage_period_repository(PostgresSubscriptionUsagePeriodRepository::new(
         pool.clone(),
     ))
-    .with_subscription_usage_transaction(PostgresSubscriptionUsageTransaction::new(pool.clone()));
+    .with_subscription_usage_transaction(PostgresSubscriptionUsageTransaction::new(pool.clone()))
+    .with_help_category_repository(PostgresHelpCategoryRepository::new(pool.clone()))
+    .with_help_article_repository(PostgresHelpArticleRepository::new(pool.clone()))
+    .with_support_ticket_repository(PostgresSupportTicketRepository::new(pool.clone()));
 
     let app_state = match billing_config.webhook_secret {
         Some(secret) => app_state.with_billing_webhook_secret(secret),

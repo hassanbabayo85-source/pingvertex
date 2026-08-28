@@ -109,6 +109,13 @@ impl From<PricingQuote> for PricingQuoteResponse {
 
 // ===== Admin Pricing Types =====
 
+fn default_sms_markup_multiplier() -> Decimal {
+    Decimal::new(200, 2)
+}
+fn default_enterprise_sla_price() -> Decimal {
+    Decimal::new(9900, 2)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreatePricingConfigRequest {
     pub cost_per_check: Decimal,
@@ -127,6 +134,10 @@ pub struct CreatePricingConfigRequest {
     pub avg_billable_network_bytes_per_check: u64,
     pub cost_per_gb_egress: Decimal,
     pub cost_safety_buffer: Decimal,
+    #[serde(default = "default_sms_markup_multiplier")]
+    pub sms_markup_multiplier: Decimal,
+    #[serde(default = "default_enterprise_sla_price")]
+    pub enterprise_sla_monthly_price: Decimal,
     pub effective_at: Option<DateTime<Utc>>,
     pub reason: String,
 }
@@ -158,6 +169,8 @@ pub struct PricingConfigResponse {
     pub avg_billable_network_bytes_per_check: u64,
     pub cost_per_gb_egress: String,
     pub cost_safety_buffer: String,
+    pub sms_markup_multiplier: String,
+    pub enterprise_sla_monthly_price: String,
     pub created_by: Option<String>,
 }
 
@@ -194,6 +207,8 @@ impl From<PricingConfig> for PricingConfigResponse {
             avg_billable_network_bytes_per_check: config.avg_billable_network_bytes_per_check,
             cost_per_gb_egress: decimal_to_string(config.cost_per_gb_egress),
             cost_safety_buffer: decimal_to_string(config.cost_safety_buffer),
+            sms_markup_multiplier: decimal_to_string(config.sms_markup_multiplier),
+            enterprise_sla_monthly_price: decimal_to_string(config.enterprise_sla_monthly_price),
             created_by: config.created_by.map(|u| u.0.to_string()),
         }
     }

@@ -137,3 +137,23 @@ pub use in_memory_subscription_usage_period_repository::InMemorySubscriptionUsag
 pub use in_memory_subscription_usage_transaction::InMemorySubscriptionUsageTransaction;
 pub use postgres_subscription_usage_period_repository::PostgresSubscriptionUsagePeriodRepository;
 pub use postgres_subscription_usage_transaction::PostgresSubscriptionUsageTransaction;
+
+pub mod in_memory_add_on_subscription_repository;
+pub mod postgres_add_on_subscription_repository;
+pub use in_memory_add_on_subscription_repository::InMemoryAddOnSubscriptionRepository;
+pub use postgres_add_on_subscription_repository::PostgresAddOnSubscriptionRepository;
+
+// H14 — Help Center & Support:
+pub mod in_memory_help_article_repository;
+pub mod in_memory_help_category_repository;
+pub mod in_memory_support_ticket_repository;
+pub mod postgres_help_article_repository;
+pub mod postgres_help_category_repository;
+pub mod postgres_support_ticket_repository;
+
+pub use in_memory_help_article_repository::InMemoryHelpArticleRepository;
+pub use in_memory_help_category_repository::InMemoryHelpCategoryRepository;
+pub use in_memory_support_ticket_repository::InMemorySupportTicketRepository;
+pub use postgres_help_article_repository::PostgresHelpArticleRepository;
+pub use postgres_help_category_repository::PostgresHelpCategoryRepository;
+pub use postgres_support_ticket_repository::PostgresSupportTicketRepository;

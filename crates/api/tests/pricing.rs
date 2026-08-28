@@ -2,11 +2,11 @@ use axum::http::StatusCode;
 use serde_json::json;
 use tower::util::ServiceExt;
 
-mod test_app;
+mod common;
 
 #[tokio::test]
 async fn pricing_quote_returns_full_breakdown() {
-    let app = test_app::build().await;
+    let app = common::build().await;
     let response = app
         .oneshot(
             axum::http::Request::builder()
@@ -39,7 +39,7 @@ async fn pricing_quote_returns_full_breakdown() {
 
 #[tokio::test]
 async fn pricing_quote_validation_error() {
-    let app = test_app::build().await;
+    let app = common::build().await;
     let response = app
         .oneshot(
             axum::http::Request::builder()
