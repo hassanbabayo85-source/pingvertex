@@ -276,6 +276,13 @@ foreign key from `diagnostic_reports` depends on; user could not confirm
 production database existence or size). See "Task B — Full Assessment"
 below for why, and what to do before revisiting this.
 
+**UPDATE (2026-08-29): Task B has since been implemented — see the "H15
+— Task B Retrofit: Partitioning Implementation (COMPLETE)" section
+further down this file, immediately before H16. The assessment below is
+kept as-written for its original reasoning; the retrofit section
+documents what actually changed, why it was safe to proceed, and how it
+was verified.**
+
 ## Scope
 - Task A: Batch check writes (`CheckRepository::save_batch`), bounded to
   avoid PostgreSQL's bind-parameter limit, with tests and a real
@@ -547,9 +554,208 @@ CARGO_TARGET_DIR="$PWD/target_local" cargo test --release -p infra --test postgr
 - [x] Task B: full written assessment (partition strategy, query pattern
       analysis, retention interaction, FK blocker, migration strategy,
       rollback plan) — no migration executed, per Non-Negotiable Rule 25.
+- [x] Task B: implemented and verified 2026-08-29 — see "H15 — Task B
+      Retrofit: Partitioning Implementation (COMPLETE)" section below.
 - [x] H15 section in HANDOVER.md replaced in full — no remnant of the old
       unverified one-line claim.
 
+
+# H15 — Task B Retrofit: Partitioning Implementation (COMPLETE)
+
+## Worker/Phase
+Follow-up to H15. The original H15 worker stopped Task B at a written
+assessment (see above) and did not implement partitioning, citing two
+blockers: (1) a foreign key from `diagnostic_reports.check_id` into
+`checks.id` that would break once `checks`' primary key became composite,
+and (2) inability to confirm whether a production database existed.
+
+This retrofit resolves both blockers and implements Task B in full:
+1. A separate, preparatory migration (0060) added `check_checked_at` to
+   `diagnostic_reports` and repointed its FK at a composite
+   `(check_id, check_checked_at)` key, without touching `checks` itself.
+2. The production question was resolved directly with the project owner:
+   there is no production deployment yet — the project is still under
+   active development, pre-launch. `docker-compose.prod.yml` and
+   `deploy/systemd/*` exist as prepared infrastructure-as-code, not as
+   configuration for a currently-running server (confirmed via: no CD/
+   deploy workflow in `.github/workflows/`, an empty `README.md`, a
+   template `pingvertex-backup.service` still containing its "EDIT
+   WorkingDirectory before installing" placeholder comment, and a
+   placeholder `api.example.com` default in the Caddyfile).
+3. With no live production data anywhere and the dev database's `checks`
+   and `diagnostic_reports` tables both independently verified empty (0
+   rows each, checked directly via `psql` immediately before writing this
+   migration), a direct drop-and-recreate migration was used instead of
+   the dual-write/backfill strategy the original assessment scoped for a
+   populated table. This is a strictly simpler and lower-risk path that
+   was not available to the original H15 worker because it could not
+   confirm the empty-production precondition.
+
+## Status
+Task B: COMPLETE. `checks` is now a native PostgreSQL RANGE-partitioned
+table on `checked_at`, monthly partitions, with a `DEFAULT` partition as
+a safety net. Migration applied and verified against both a scratch
+database (full migration history 1→61 replayed from empty) and the real
+dev database. Full workspace test suite passes on both.
+
+## Files Modified
+- `migrations/0061_partition_checks_by_checked_at.sql` (new):
+  - A `DO $$ ... $$` safety check at the top aborts the migration with a
+    clear error if `checks` or `diagnostic_reports` is ever found
+    non-empty when this runs — this migration must never silently drop
+    real rows; if the precondition no longer holds, this file needs to
+    be replaced with a dual-write/backfill migration instead of being
+    run as-is.
+  - Drops the FK from `diagnostic_reports` (added in migration 0060),
+    drops the old unpartitioned `checks` table, and recreates `checks`
+    as `PARTITION BY RANGE (checked_at)` with `PRIMARY KEY (id,
+    checked_at)` — a partitioned table's primary key (and anything
+    referencing it) must include the partition key column, which is why
+    the composite key from migration 0060 was a prerequisite.
+  - Recreates all three pre-existing indexes
+    (`idx_checks_monitor_id`, `idx_checks_checked_at`,
+    `idx_checks_monitor_checked_at`) and the `checks_monitor_id_fkey`
+    foreign key into `monitors`, unchanged in shape from before
+    partitioning.
+  - Creates 6 monthly partitions (`checks_p2026_06` through
+    `checks_p2026_11` — 2 months back through 3 months ahead of the date
+    this migration was written) plus a `checks_default` `DEFAULT`
+    partition, so no insert can ever fail for lack of a matching
+    partition.
+  - Re-adds the FK from `diagnostic_reports` onto the new
+    `checks(id, checked_at)`.
+- No application code changes were needed for this migration itself:
+  `postgres_check_repository.rs`'s `INSERT`/`SELECT` statements all name
+  columns explicitly (not `SELECT *` / positional), so they are unaffected
+  by the underlying table becoming partitioned.
+
+## Backend/Database/API/Security Changes
+- `checks`' physical storage changed from a single heap table to a
+  partitioned table; its logical shape (columns, indexes, FK into
+  `monitors`) is unchanged. No API changes. No security-boundary changes.
+- `diagnostic_reports`' FK now targets the new, partitioned `checks`
+  table's composite key instead of the old single-column one (already
+  the case since migration 0060; migration 0061 just re-points it at the
+  new table with the same shape).
+
+## Tests
+- **Full migration history replay**: applied migrations 1 through 61
+  from a completely empty scratch database
+  (`uptime_monitor_test_partition`) — all 61 applied cleanly, confirming
+  a brand-new environment can still be set up from scratch after this
+  change.
+- **Schema verification** (scratch DB): `\d checks` confirms
+  `Partition key: RANGE (checked_at)`, `PRIMARY KEY (id, checked_at)`,
+  all three original indexes present, `checks_monitor_id_fkey` intact,
+  and `diagnostic_reports`'s FK correctly pointing at
+  `checks(id, checked_at)`. `\dt checks*` confirms 7 partitions exist
+  (6 monthly + `checks_default`).
+- **Partition pruning verification** (scratch DB): `EXPLAIN SELECT *
+  FROM checks WHERE checked_at >= '2026-08-01' AND checked_at 
+  '2026-09-01'` produces a plan rooted at `Bitmap Heap Scan on
+  checks_p2026_08 checks` only — the planner prunes to the single
+  matching partition rather than scanning all seven. This is the actual
+  performance benefit partitioning was assessed for.
+- **`cargo test -p infra --test postgres_check_repository`** (scratch
+  DB, `--test-threads=1`): all 7 non-ignored tests pass, including
+  `list_checks_filtered_query_plan_uses_index` (asserts no `Seq Scan on
+  checks` in the plan — still holds post-partitioning) and
+  `save_batch_persists_more_rows_than_a_single_chunk` (1,200 rows
+  spanning multiple 500-row chunks, which now also spread across
+  multiple time partitions depending on each row's `checked_at` —
+  confirms chunked batch inserts route correctly regardless of which
+  partition each row lands in).
+- **`cargo test --workspace -- --test-threads=1`** against the scratch
+  DB: every crate's tests pass, 0 failures, including doc-tests.
+- **Migration re-applied against the real dev database** (`sqlx migrate
+  run`), then **`cargo test --workspace -- --test-threads=1`** run again
+  against it: 0 failures across the entire workspace (94
+  `test result: ok` lines, zero `FAILED`/`error` lines).
+- Scratch database dropped after verification
+  (`DROP DATABASE uptime_monitor_test_partition`) — it was a temporary
+  artifact of this verification process, not a new permanent fixture.
+
+## Deviations from Prompt
+1. Used a direct drop-and-recreate migration instead of the
+   dual-write/backfill/cutover strategy outlined in the original Task B
+   assessment above. Justified because both `checks` and
+   `diagnostic_reports` were independently verified empty immediately
+   before this migration was written, and there is no production
+   deployment to protect — the assessment's more elaborate strategy was
+   scoped for a populated table, which does not apply here. If real data
+   ever exists in `checks` before a similar migration is needed again
+   (e.g. re-partitioning on a different scheme), the dual-write strategy
+   from the original assessment should be used instead — do NOT reuse
+   this drop-and-recreate approach against a non-empty table. The
+   migration's own `DO $$ ... $$` safety check enforces this by refusing
+   to run if either table is non-empty.
+2. Created a temporary scratch database
+   (`uptime_monitor_test_partition`) to replay the full migration history
+   and run the full test suite before touching the real dev database.
+   Not requested explicitly, but a low-cost way to catch a broken
+   migration before it touched the only database that existed — dropped
+   afterward, no permanent trace left.
+
+## Known Issues/Risks
+- **Future partition maintenance is NOT automated.** This migration
+  creates partitions for a fixed rolling window (2026-06 through
+  2026-11). The `checks_default` partition catches any row outside that
+  window so writes never fail, but rows landing in `checks_default`
+  don't get the pruning benefit partitioning exists for. Before
+  2026-12, something (an ops runbook step, a scheduled job, or a future
+  worker) needs to create the next month's partition ahead of time, and
+  ideally move forward to detaching old partitions once retention allows
+  it (see the per-tenant retention vs. shared-time-bucket tension
+  documented in the original assessment above — that reasoning is
+  unchanged by this implementation and still applies to any future
+  partition-drop-based retention work).
+- The `checks_default` partition itself is unindexed beyond what it
+  inherits structurally from being a child of `checks` — if it ever
+  accumulates a meaningful number of rows (which would only happen if
+  partition maintenance is neglected past the created window), it would
+  behave like an unpartitioned table for anything landing in it. This is
+  expected and is the intended fallback behavior, not a bug — but it's
+  worth alerting on `pg_partition` row counts for `checks_default`
+  staying near zero as an operational health signal.
+- Collation version mismatch warnings
+  (`WARNING: database "uptime_monitor" has a collation version
+  mismatch`) appeared on every `psql` connection during this work. Not
+  related to this migration or any change in this session — pre-existing
+  environment issue (OS collation library version vs. the version the
+  database cluster was initialized with). Flagged here since it was
+  visible throughout this session's terminal output; not investigated or
+  fixed as it's out of scope for H15/partitioning.
+
+## Notes for Next Worker
+- If/when this project has a real production database, do not run
+  `0061_partition_checks_by_checked_at.sql`'s approach against it if it
+  is non-empty by then — the file's own safety check will refuse and
+  explain why; replace it with a proper dual-write/backfill migration
+  using the strategy already documented in the original Task B
+  assessment above.
+- Add partition-maintenance automation (create-next-month's-partition
+  ahead of time, at minimum) before this rolling window runs out
+  (2026-11 is the last explicitly created month).
+- `postgres_dashboard_repository.rs`'s exact SQL against `checks` was
+  still not read as part of this retrofit (out of scope — this retrofit
+  only implemented the partitioning scheme the original assessment
+  already worked out; it did not re-open the query-pattern analysis).
+  Read it if/when evaluating whether the dashboard overview query
+  benefits from partition pruning specifically.
+
+## Completion Criteria
+- [x] Migration replayed cleanly from an empty database (all 61
+      migrations, scratch DB).
+- [x] Schema verified: `checks` is `PARTITION BY RANGE (checked_at)`,
+      `PRIMARY KEY (id, checked_at)`, all pre-existing indexes and the
+      `monitors` FK intact, 7 partitions present.
+- [x] Partition pruning confirmed via `EXPLAIN` (single-partition plan
+      for a time-bounded query).
+- [x] `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D
+      warnings`, `cargo test --workspace` all pass against the scratch DB.
+- [x] Migration applied to the real dev database; `cargo test
+      --workspace` passes against it too (0 failures workspace-wide).
+- [x] Scratch database dropped; no leftover test artifacts.
 # H16 — Retention Worker Bounded Concurrency & Graceful Shutdown via CancellationToken
 ## Status
 COMPLETE
