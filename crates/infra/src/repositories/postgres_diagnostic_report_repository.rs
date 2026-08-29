@@ -27,6 +27,7 @@ impl PostgresDiagnosticReportRepository {
 struct DiagnosticReportRow {
     id: Uuid,
     check_id: Uuid,
+    check_checked_at: DateTime<Utc>,
     steps: Json<Vec<DiagnosticStep>>,
     root_cause_summary: String,
     created_at: DateTime<Utc>,
@@ -37,6 +38,7 @@ impl DiagnosticReportRow {
         Self {
             id: report.id.0,
             check_id: report.check_result_id.0,
+            check_checked_at: report.check_checked_at,
             steps: Json(report.steps.clone()),
             root_cause_summary: report.root_cause_summary.clone(),
             created_at: report.created_at,
@@ -47,6 +49,7 @@ impl DiagnosticReportRow {
         DiagnosticReport {
             id: DiagnosticReportId(self.id),
             check_result_id: CheckId(self.check_id),
+            check_checked_at: self.check_checked_at,
             steps: self.steps.0,
             root_cause_summary: self.root_cause_summary,
             created_at: self.created_at,
@@ -67,11 +70,12 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
             INSERT INTO diagnostic_reports (
                 id,
                 check_id,
+                check_checked_at,
                 steps,
                 root_cause_summary,
                 created_at
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (check_id) DO UPDATE SET
                 steps = EXCLUDED.steps,
                 root_cause_summary = EXCLUDED.root_cause_summary
@@ -79,6 +83,7 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
         )
         .bind(row.id)
         .bind(row.check_id)
+        .bind(row.check_checked_at)
         .bind(&row.steps)
         .bind(&row.root_cause_summary)
         .bind(row.created_at)
@@ -94,6 +99,7 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
             SELECT
                 id,
                 check_id,
+                check_checked_at,
                 steps,
                 root_cause_summary,
                 created_at
@@ -126,6 +132,7 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
             SELECT
                 id,
                 check_id,
+                check_checked_at,
                 steps,
                 root_cause_summary,
                 created_at

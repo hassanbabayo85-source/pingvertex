@@ -99,6 +99,18 @@ impl DiagnosticStep {
 pub struct DiagnosticReport {
     pub id: DiagnosticReportId,
     pub check_result_id: CheckId,
+    /// Denormalized copy of the referenced `Check`'s `checked_at`.
+    ///
+    /// Exists so `(check_id, check_checked_at)` can serve as a foreign
+    /// key into `checks`. `checks.id` alone is sufficient today, but if
+    /// `checks` is later partitioned by `checked_at` (see HANDOVER.md
+    /// H15 assessment), PostgreSQL requires a partitioned table's primary
+    /// key to include the partition key — forcing the primary key on
+    /// `checks` to become `(id, checked_at)` and any foreign key into it
+    /// to reference that whole composite key. Carrying this value here
+    /// now means that future migration will not need to touch every
+    /// existing `diagnostic_reports` row again.
+    pub check_checked_at: DateTime<Utc>,
     pub steps: Vec<DiagnosticStep>,
     pub root_cause_summary: String,
     pub created_at: DateTime<Utc>,
@@ -109,9 +121,15 @@ impl DiagnosticReport {
     /// (on a char boundary) to `MAX_ROOT_CAUSE_SUMMARY_LENGTH` if it
     /// somehow exceeds it — enforced here so the cap can never be
     /// bypassed regardless of what future call sites pass in.
+    ///
+    /// `check_checked_at` must be the `checked_at` value of the exact
+    /// `Check` referenced by `check_result_id` — it is written verbatim
+    /// alongside `check_id` and is what the composite foreign key into
+    /// `checks(id, checked_at)` validates against.
     pub fn new(
         id: DiagnosticReportId,
         check_result_id: CheckId,
+        check_checked_at: DateTime<Utc>,
         steps: Vec<DiagnosticStep>,
         root_cause_summary: impl Into<String>,
     ) -> Self {
@@ -126,6 +144,7 @@ impl DiagnosticReport {
         Self {
             id,
             check_result_id,
+            check_checked_at,
             steps,
             root_cause_summary: summary,
             created_at: Utc::now(),
@@ -144,6 +163,7 @@ mod tests {
         let report = DiagnosticReport::new(
             DiagnosticReportId::new(),
             CheckId(Uuid::new_v4()),
+            Utc::now(),
             vec![],
             long_summary,
         );
@@ -175,6 +195,7 @@ mod tests {
         let report = DiagnosticReport::new(
             DiagnosticReportId::new(),
             CheckId(Uuid::new_v4()),
+            Utc::now(),
             vec![],
             "DNS resolution failed after 5000ms",
         );
