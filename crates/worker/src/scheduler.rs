@@ -339,6 +339,7 @@ where
             let report = DiagnosticReport::new(
                 diagnostic_report_id,
                 entry.check.id,
+                entry.check.checked_at,
                 entry.diagnostic_steps,
                 entry.diagnostic_summary,
             );
