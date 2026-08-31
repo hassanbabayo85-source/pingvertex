@@ -157,3 +157,11 @@ pub use in_memory_support_ticket_repository::InMemorySupportTicketRepository;
 pub use postgres_help_article_repository::PostgresHelpArticleRepository;
 pub use postgres_help_category_repository::PostgresHelpCategoryRepository;
 pub use postgres_support_ticket_repository::PostgresSupportTicketRepository;
+
+// RUM (Real User Monitoring):
+pub mod postgres_rum_analytics_repository;
+pub mod postgres_rum_event_repository;
+pub mod postgres_rum_site_repository;
+pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
+pub use postgres_rum_event_repository::PostgresRumEventRepository;
+pub use postgres_rum_site_repository::PostgresRumSiteRepository;

@@ -13,6 +13,7 @@ pub mod notifications;
 pub mod pricing;
 pub mod proxy_checks;
 pub mod public;
+pub mod rum_dashboard;
 pub mod status_pages;
 pub mod subscription;
 

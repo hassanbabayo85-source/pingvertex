@@ -51,3 +51,7 @@ pub mod disabled_billing_provider;
 pub mod fake_billing_provider;
 pub use disabled_billing_provider::DisabledBillingProvider;
 pub use fake_billing_provider::FakeBillingProvider;
+
+// RUM (Real User Monitoring):
+pub mod maxmind_geo_ip_lookup;
+pub use maxmind_geo_ip_lookup::MaxMindGeoIpLookup;

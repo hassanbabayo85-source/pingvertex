@@ -21,6 +21,27 @@ type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// incident evaluation) need.
 const LIST_BY_MONITOR_LIMIT: i64 = 1000;
 
+/// Number of bind parameters written per check row by the multi-row
+/// INSERT in `insert_chunk`. Must match the column list in that query.
+const COLUMNS_PER_CHECK: usize = 12;
+
+/// H15: safe ceiling on rows per multi-row INSERT statement.
+///
+/// PostgreSQL hard-limits a single statement to 65,535 bind parameters.
+/// At `COLUMNS_PER_CHECK` (12) params/row that ceiling is ~5,461 rows —
+/// past that, `execute` returns an error and (before this change) the
+/// *entire* batch was lost, because the old implementation issued one
+/// unbounded multi-row INSERT for whatever slice `save_batch` was given.
+///
+/// `scheduler.rs::process_sweep` calls `save_batch` once per sweep tick
+/// with every monitor that came due in that tick, with no caller-side
+/// cap on how large that slice can get. 500 rows/chunk (500 * 12 = 6,000
+/// params) stays far below the PostgreSQL limit, keeps each statement's
+/// text size and lock/transaction time bounded, and still cuts DB
+/// round-trips by ~500x versus one INSERT per check. If a chunk fails,
+/// only that chunk's checks are lost — not the whole sweep.
+const MAX_BATCH_ROWS: usize = 500;
+
 #[derive(Debug, Clone)]
 pub struct PostgresCheckRepository {
     pool: PgPool,
@@ -29,6 +50,61 @@ pub struct PostgresCheckRepository {
 impl PostgresCheckRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Inserts one chunk (<= `MAX_BATCH_ROWS` rows) via a single
+    /// multi-row INSERT. A multi-row INSERT is one SQL statement, so
+    /// PostgreSQL commits or rejects the whole chunk atomically — there
+    /// is no partial-row failure *within* a chunk.
+    async fn insert_chunk(&self, checks: &[Check]) -> RepoResult<()> {
+        if checks.is_empty() {
+            return Ok(());
+        }
+
+        let mut query = String::from(
+            "INSERT INTO checks (id,monitor_id,region,status,http_status,response_time_ms,error_type,error_message,checked_at,cert_expires_at,cert_days_remaining,country_code) VALUES ",
+        );
+        let mut params: Vec<String> = Vec::with_capacity(checks.len());
+        for i in 0..checks.len() {
+            let base = i * COLUMNS_PER_CHECK;
+            params.push(format!(
+                "(${},${},${},${},${},${},${},${},${},${},${},${})",
+                base + 1,
+                base + 2,
+                base + 3,
+                base + 4,
+                base + 5,
+                base + 6,
+                base + 7,
+                base + 8,
+                base + 9,
+                base + 10,
+                base + 11,
+                base + 12
+            ));
+        }
+        query.push_str(&params.join(","));
+
+        let mut q = sqlx::query(&query);
+        for check in checks {
+            let row = CheckRow::from_domain(check);
+            q = q
+                .bind(row.id)
+                .bind(row.monitor_id)
+                .bind(row.region)
+                .bind(row.status)
+                .bind(row.http_status)
+                .bind(row.response_time_ms)
+                .bind(row.error_type)
+                .bind(row.error_message)
+                .bind(row.checked_at)
+                .bind(row.cert_expires_at)
+                .bind(row.cert_days_remaining)
+                .bind(row.country_code);
+        }
+
+        q.execute(&self.pool).await?;
+        Ok(())
     }
 }
 
@@ -115,58 +191,33 @@ impl CheckRepository for PostgresCheckRepository {
         self.save_batch(std::slice::from_ref(check)).await
     }
 
+    /// H15: chunks the input into bounded-size multi-row INSERTs (see
+    /// `MAX_BATCH_ROWS`). Each chunk is attempted independently — a
+    /// failure in one chunk does not prevent the remaining chunks from
+    /// being attempted (best-effort; checks are telemetry data, and
+    /// losing an entire sweep's checks because one chunk failed would be
+    /// a worse outcome than losing just that chunk). The first error
+    /// encountered, if any, is returned to the caller after every chunk
+    /// has been attempted, so callers still observe and log the failure.
     async fn save_batch(&self, checks: &[Check]) -> RepoResult<()> {
         if checks.is_empty() {
             return Ok(());
         }
 
-        // Multi-row INSERT for efficient batch writes.
-        // Number of checks per batch is bounded by caller; we use the
-        // standard sqlx bind-per-placeholder approach.
-        let mut query = String::from(
-            "INSERT INTO checks (id,monitor_id,region,status,http_status,response_time_ms,error_type,error_message,checked_at,cert_expires_at,cert_days_remaining,country_code) VALUES ",
-        );
-        let mut params: Vec<String> = Vec::with_capacity(checks.len());
-        for i in 0..checks.len() {
-            let base = i * 12;
-            params.push(format!(
-                "(${},${},${},${},${},${},${},${},${},${},${},${})",
-                base + 1,
-                base + 2,
-                base + 3,
-                base + 4,
-                base + 5,
-                base + 6,
-                base + 7,
-                base + 8,
-                base + 9,
-                base + 10,
-                base + 11,
-                base + 12
-            ));
-        }
-        query.push_str(&params.join(","));
+        let mut first_err: Option<Box<dyn Error + Send + Sync>> = None;
 
-        let mut q = sqlx::query(&query);
-        for check in checks {
-            let row = CheckRow::from_domain(check);
-            q = q
-                .bind(row.id)
-                .bind(row.monitor_id)
-                .bind(row.region)
-                .bind(row.status)
-                .bind(row.http_status)
-                .bind(row.response_time_ms)
-                .bind(row.error_type)
-                .bind(row.error_message)
-                .bind(row.checked_at)
-                .bind(row.cert_expires_at)
-                .bind(row.cert_days_remaining)
-                .bind(row.country_code);
+        for chunk in checks.chunks(MAX_BATCH_ROWS) {
+            if let Err(err) = self.insert_chunk(chunk).await
+                && first_err.is_none()
+            {
+                first_err = Some(err);
+            }
         }
 
-        q.execute(&self.pool).await?;
-        Ok(())
+        match first_err {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>> {

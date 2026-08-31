@@ -7,13 +7,14 @@ use application::ports::{
     AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
     CheckRepository, CheckoutDetails, CheckoutRequest, CheckoutSessionRepository,
     CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
-    EscalationPolicyRepository, HealthCheckPort, HealthCheckResult, HelpArticleRepository,
-    HelpCategoryRepository, IncidentRepository, LogoStorage, MaintenanceWindowRepository,
-    MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
-    PaymentProvider, PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository,
-    SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
-    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
-    SupportTicketRepository,
+    EscalationPolicyRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
+    HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
+    MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
+    NotificationService, PasswordHasher, PaymentProvider, PaymentVerification,
+    PricingConfigRepository, ProxyCheckJobRepository, RateLimiter, RateLimiterResult,
+    RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
+    SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
+    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
 };
 
 use async_trait::async_trait;
@@ -87,6 +88,22 @@ pub struct AppState {
     pub help_category_repository: Arc<dyn HelpCategoryRepository>,
     pub help_article_repository: Arc<dyn HelpArticleRepository>,
     pub support_ticket_repository: Arc<dyn SupportTicketRepository>,
+
+    // RUM (Real User Monitoring):
+    pub rum_site_repository: Arc<dyn RumSiteRepository>,
+    pub rum_event_repository: Arc<dyn RumEventRepository>,
+    /// Read-only aggregation queries backing the RUM dashboard (Task F).
+    /// Defaults to a no-op (all-zero/empty) implementation until
+    /// `.with_rum_analytics_repository(...)` wires a real one (e.g.
+    /// `infra::PostgresRumAnalyticsRepository`).
+    pub rum_analytics_repository: Arc<dyn RumAnalyticsRepository>,
+    /// Server-side, country-only geo-IP lookup used by RUM ingestion to
+    /// populate `RumSession.country_code` from the connection's IP — the
+    /// browser SDK never sends geography (see Task D). Defaults to a
+    /// no-op (always `None`) until `.with_geo_ip_lookup(...)` wires a
+    /// real one (e.g. `infra::MaxMindGeoIpLookup`).
+    pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
+    pub rate_limiter: Arc<dyn RateLimiter>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -588,6 +605,204 @@ impl SmsProviderPricing for NoopSmsProviderPricing {
     }
 }
 
+/// Default RUM site repository until a real one (e.g.
+/// `infra::PostgresRumSiteRepository`) is wired via
+/// `AppState::with_rum_site_repository`. Always reports no sites found —
+/// safe because `IngestRumEventUseCase` treats "unknown site" as a plain
+/// rejection, never a panic or a bypass.
+#[derive(Clone, Default)]
+struct NoopRumSiteRepository;
+
+#[async_trait]
+impl RumSiteRepository for NoopRumSiteRepository {
+    async fn create(&self, _site: &domain::RumSite) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn find_by_site_key(&self, _site_key: &str) -> RepoResult<Option<domain::RumSite>> {
+        Ok(None)
+    }
+
+    async fn find_by_id(
+        &self,
+        _id: domain::shared::ids::RumSiteId,
+        _tenant_id: TenantId,
+    ) -> RepoResult<Option<domain::RumSite>> {
+        Ok(None)
+    }
+
+    async fn list_by_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<domain::RumSite>> {
+        Ok(vec![])
+    }
+}
+
+/// Default RUM event repository until a real one (e.g.
+/// `infra::PostgresRumEventRepository`) is wired via
+/// `AppState::with_rum_event_repository`. Writes are silently accepted
+/// and discarded — acceptable only because, paired with
+/// `NoopRumSiteRepository` above, `find_by_site_key` always returns
+/// `None`, so `IngestRumEventUseCase` never actually reaches these calls
+/// in the unconfigured default state.
+#[derive(Clone, Default)]
+struct NoopRumEventRepository;
+
+#[async_trait]
+impl RumEventRepository for NoopRumEventRepository {
+    async fn upsert_session(&self, session: &domain::RumSession) -> RepoResult<domain::RumSession> {
+        Ok(session.clone())
+    }
+
+    async fn insert_page_view(&self, _page_view: &domain::RumPageView) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn insert_js_error(&self, _error: &domain::RumJsError) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn insert_resource_error(&self, _error: &domain::RumResourceError) -> RepoResult<()> {
+        Ok(())
+    }
+}
+
+/// Default rate limiter until a real distributed one (e.g.
+/// `infra::RedisRateLimiter`) is wired via `AppState::with_rate_limiter`.
+/// Allows every request. Intended only for tests/dev; production wiring
+/// in `main.rs` MUST call `.with_rate_limiter(...)` before serving
+/// traffic, since RUM ingestion has no other request-volume control of
+/// its own besides the IP-based governor layer on the public router.
+#[derive(Clone, Default)]
+struct NoopRateLimiter;
+
+#[async_trait]
+impl RateLimiter for NoopRateLimiter {
+    async fn check_and_record(
+        &self,
+        _namespace: &str,
+        _key: &str,
+        _max_requests: u32,
+        _window_seconds: u64,
+    ) -> RateLimiterResult<bool> {
+        Ok(true)
+    }
+}
+
+/// Default RUM analytics repository until a real one (e.g.
+/// `infra::PostgresRumAnalyticsRepository`) is wired via
+/// `AppState::with_rum_analytics_repository`. Returns all-zero/empty
+/// results rather than an error, so an unconfigured dashboard shows
+/// "no data yet" instead of a 500.
+#[derive(Clone, Default)]
+struct NoopRumAnalyticsRepository;
+
+#[async_trait]
+impl RumAnalyticsRepository for NoopRumAnalyticsRepository {
+    async fn overview(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+    ) -> RepoResult<application::dto::RumOverview> {
+        Ok(application::dto::RumOverview {
+            page_view_count: 0,
+            session_count: 0,
+            avg_load_time_ms: None,
+            p95_load_time_ms: None,
+            p75_lcp_ms: None,
+            p75_inp_ms: None,
+            p75_cls: None,
+            js_error_count: 0,
+            resource_error_count: 0,
+            error_rate: None,
+        })
+    }
+
+    async fn slow_pages(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+        _limit: i64,
+    ) -> RepoResult<Vec<application::dto::PagePerformanceRow>> {
+        Ok(vec![])
+    }
+
+    async fn error_breakdown(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+        _top_n: i64,
+    ) -> RepoResult<application::dto::RumErrorBreakdown> {
+        Ok(application::dto::RumErrorBreakdown {
+            js_error_count: 0,
+            resource_error_count: 0,
+            page_view_count: 0,
+            error_rate: None,
+            top_js_errors: vec![],
+            top_resource_errors: vec![],
+        })
+    }
+
+    async fn browser_device_breakdown(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+    ) -> RepoResult<application::dto::BrowserDeviceBreakdown> {
+        Ok(application::dto::BrowserDeviceBreakdown {
+            browsers: vec![],
+            devices: vec![],
+        })
+    }
+
+    async fn geo_breakdown(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+        _limit: i64,
+    ) -> RepoResult<Vec<application::dto::GeoBreakdownRow>> {
+        Ok(vec![])
+    }
+
+    async fn performance_trend(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+    ) -> RepoResult<Vec<application::dto::PerformanceTrendPoint>> {
+        Ok(vec![])
+    }
+
+    async fn session_stats(
+        &self,
+        _tenant_id: TenantId,
+        _site_id: domain::shared::ids::RumSiteId,
+        _range: application::dto::RumTimeRange,
+    ) -> RepoResult<application::dto::SessionStats> {
+        Ok(application::dto::SessionStats {
+            session_count: 0,
+            avg_page_views_per_session: None,
+            avg_session_duration_secs: None,
+        })
+    }
+}
+
+/// Default geo-IP lookup until a real one (e.g.
+/// `infra::MaxMindGeoIpLookup`) is wired via
+/// `AppState::with_geo_ip_lookup`. Always reports "unknown" — RUM
+/// ingestion must work identically whether or not geo-IP is configured,
+/// just with `country_code = None` on every session until it is.
+#[derive(Clone, Default)]
+struct NoopGeoIpLookup;
+
+impl GeoIpLookup for NoopGeoIpLookup {
+    fn lookup_country_code(&self, _ip: std::net::IpAddr) -> Option<String> {
+        None
+    }
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -654,6 +869,11 @@ impl AppState {
             help_category_repository: Arc::new(NoopHelpCategoryRepository),
             help_article_repository: Arc::new(NoopHelpArticleRepository),
             support_ticket_repository: Arc::new(NoopSupportTicketRepository),
+            rum_site_repository: Arc::new(NoopRumSiteRepository),
+            rum_event_repository: Arc::new(NoopRumEventRepository),
+            rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
+            geo_ip_lookup: Arc::new(NoopGeoIpLookup),
+            rate_limiter: Arc::new(NoopRateLimiter),
         }
     }
 
@@ -732,6 +952,11 @@ impl AppState {
             help_category_repository: Arc::new(NoopHelpCategoryRepository),
             help_article_repository: Arc::new(NoopHelpArticleRepository),
             support_ticket_repository: Arc::new(NoopSupportTicketRepository),
+            rum_site_repository: Arc::new(NoopRumSiteRepository),
+            rum_event_repository: Arc::new(NoopRumEventRepository),
+            rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
+            geo_ip_lookup: Arc::new(NoopGeoIpLookup),
+            rate_limiter: Arc::new(NoopRateLimiter),
         }
     }
 
@@ -891,6 +1116,47 @@ impl AppState {
         R: SupportTicketRepository + 'static,
     {
         self.support_ticket_repository = Arc::new(repo);
+        self
+    }
+
+    // RUM (Real User Monitoring):
+    pub fn with_rum_site_repository<R>(mut self, repo: R) -> Self
+    where
+        R: RumSiteRepository + 'static,
+    {
+        self.rum_site_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_rum_event_repository<R>(mut self, repo: R) -> Self
+    where
+        R: RumEventRepository + 'static,
+    {
+        self.rum_event_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_rate_limiter<R>(mut self, rate_limiter: R) -> Self
+    where
+        R: RateLimiter + 'static,
+    {
+        self.rate_limiter = Arc::new(rate_limiter);
+        self
+    }
+
+    pub fn with_rum_analytics_repository<R>(mut self, repo: R) -> Self
+    where
+        R: RumAnalyticsRepository + 'static,
+    {
+        self.rum_analytics_repository = Arc::new(repo);
+        self
+    }
+
+    pub fn with_geo_ip_lookup<G>(mut self, geo_ip_lookup: G) -> Self
+    where
+        G: GeoIpLookup + 'static,
+    {
+        self.geo_ip_lookup = Arc::new(geo_ip_lookup);
         self
     }
 }

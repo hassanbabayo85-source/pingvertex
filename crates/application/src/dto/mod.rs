@@ -57,3 +57,15 @@ pub mod dashboard_overview;
 pub use dashboard_overview::{
     DashboardOverview, IncidentSummary, IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
 };
+
+// RUM (Real User Monitoring):
+pub mod rum_analytics;
+pub mod rum_ingest_request;
+pub use rum_analytics::{
+    BrowserBreakdownRow, BrowserDeviceBreakdown, DeviceBreakdownRow, GeoBreakdownRow,
+    PagePerformanceRow, PerformanceTrendPoint, RumErrorBreakdown, RumOverview, RumTimeRange,
+    SessionStats, TopJsErrorRow, TopResourceErrorRow,
+};
+pub use rum_ingest_request::{
+    RumIngestJsError, RumIngestPageView, RumIngestRequest, RumIngestResourceError,
+};

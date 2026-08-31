@@ -20,8 +20,8 @@ use crate::{
     },
     routes::{
         api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
-        invitations, members, monitors, notifications, pricing, proxy_checks, public, status_pages,
-        subscription, support,
+        invitations, members, monitors, notifications, pricing, proxy_checks, public,
+        rum_dashboard, status_pages, subscription, support,
     },
     state::AppState,
 };
@@ -140,6 +140,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 .burst_size(30)
                 .finish()
                 .expect("valid status page rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let rum_dashboard_routes = rum_dashboard::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(30)
+                .finish()
+                .expect("valid rum dashboard rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -357,6 +368,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", api_flow_routes)
         .nest("/api/v1", proxy_check_routes)
         .nest("/api/v1", status_page_routes)
+        .nest("/api/v1", rum_dashboard_routes)
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
@@ -452,6 +464,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let rum_dashboard_routes = rum_dashboard::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let custom_domain_routes = status_pages::custom_domain_router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -531,6 +547,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", api_flow_routes)
         .nest("/api/v1", proxy_check_routes)
         .nest("/api/v1", status_page_routes)
+        .nest("/api/v1", rum_dashboard_routes)
         .nest("/api/v1", custom_domain_routes)
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)

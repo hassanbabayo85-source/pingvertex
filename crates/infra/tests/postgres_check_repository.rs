@@ -263,3 +263,126 @@ async fn list_checks_filtered_query_plan_uses_index() {
         "plan did not reference an index on checks:\n{plan}"
     );
 }
+
+#[serial]
+#[tokio::test]
+async fn save_batch_persists_all_checks_in_one_call() {
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let check_repository = PostgresCheckRepository::new(pool.clone());
+
+    let monitor = sample_monitor(&pool, "Batch Monitor", "https://batch.example.com").await;
+    monitor_repository.save(&monitor).await.unwrap();
+
+    let checks: Vec<_> = (0..5).map(|_| sample_check(monitor.id)).collect();
+    check_repository.save_batch(&checks).await.unwrap();
+
+    for check in &checks {
+        let found = check_repository
+            .find_by_id(check.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.id, check.id);
+    }
+}
+
+/// H15: `save_batch` must chunk internally so a caller-supplied slice
+/// larger than PostgreSQL's 65,535-bind-parameter ceiling (~5,461 rows
+/// at 12 params/row) still succeeds instead of failing the entire
+/// batch. 1,200 rows crosses the repository's internal 500-row chunk
+/// boundary at least twice, proving multiple chunks are all applied.
+#[serial]
+#[tokio::test]
+async fn save_batch_persists_more_rows_than_a_single_chunk() {
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let check_repository = PostgresCheckRepository::new(pool.clone());
+
+    let monitor = sample_monitor(
+        &pool,
+        "Large Batch Monitor",
+        "https://large-batch.example.com",
+    )
+    .await;
+    monitor_repository.save(&monitor).await.unwrap();
+
+    const N: usize = 1_200;
+    let checks: Vec<_> = (0..N).map(|_| sample_check(monitor.id)).collect();
+    check_repository.save_batch(&checks).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM checks WHERE monitor_id = $1")
+        .bind(monitor.id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(count, N as i64);
+}
+
+/// H15 PERFORMANCE RULE — before/after benchmark.
+///
+/// Not run by default (`#[ignore]`) since it writes/measures 500 rows
+/// and is timing-sensitive, not a correctness check. Run explicitly:
+///
+///   cargo test --release -p infra --test postgres_check_repository \
+///       -- --ignored --nocapture benchmark_save_batch_vs_individual_saves
+///
+/// Prints wall-clock time for N individual `save()` calls (N DB
+/// round-trips, the pre-H15/naive approach) versus one `save_batch()`
+/// call (chunked multi-row INSERTs, this worker's approach) writing the
+/// same N checks. Record the printed numbers in HANDOVER.md — do not
+/// report this as "improved" without them.
+#[serial]
+#[tokio::test]
+#[ignore]
+async fn benchmark_save_batch_vs_individual_saves() {
+    use std::time::Instant;
+
+    const N: usize = 500;
+
+    let pool = setup_pool().await;
+    let monitor_repository = PostgresMonitorRepository::new(pool.clone());
+    let check_repository = PostgresCheckRepository::new(pool.clone());
+
+    let monitor_individual = sample_monitor(
+        &pool,
+        "Benchmark Individual",
+        "https://bench-individual.example.com",
+    )
+    .await;
+    let monitor_batch =
+        sample_monitor(&pool, "Benchmark Batch", "https://bench-batch.example.com").await;
+    monitor_repository.save(&monitor_individual).await.unwrap();
+    monitor_repository.save(&monitor_batch).await.unwrap();
+
+    let individual_checks: Vec<_> = (0..N)
+        .map(|_| sample_check(monitor_individual.id))
+        .collect();
+    let batch_checks: Vec<_> = (0..N).map(|_| sample_check(monitor_batch.id)).collect();
+
+    let start_individual = Instant::now();
+    for check in &individual_checks {
+        check_repository.save(check).await.unwrap();
+    }
+    let individual_elapsed = start_individual.elapsed();
+
+    let start_batch = Instant::now();
+    check_repository.save_batch(&batch_checks).await.unwrap();
+    let batch_elapsed = start_batch.elapsed();
+
+    println!("=== H15 save_batch benchmark (N = {N}) ===");
+    println!(
+        "Individual save() x{N} (naive, {N} DB round-trips): {:?}",
+        individual_elapsed
+    );
+    println!(
+        "save_batch() (chunked multi-row INSERT, {} round-trip(s)): {:?}",
+        N.div_ceil(500),
+        batch_elapsed
+    );
+    println!(
+        "Speedup: {:.1}x",
+        individual_elapsed.as_secs_f64() / batch_elapsed.as_secs_f64().max(0.000_001)
+    );
+}

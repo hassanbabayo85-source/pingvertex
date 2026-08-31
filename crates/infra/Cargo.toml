@@ -57,5 +57,12 @@ redis = { version = "1.5.0", features = ["tokio-comp", "connection-manager"] }
 rust-s3 = { version = "0.37.2", default-features = false, features = ["tokio-rustls-tls"] }
 aes-gcm = { version = "0.10", features = ["zeroize"] }
 
+# RUM (Real User Monitoring): reuses the SAME GeoIP database/library
+# already used by crates/agent for check-region country codes, rather
+# than introducing a second geo-IP mechanism. See
+# crates/agent/src/checker.rs's `lookup_country_code` — this is the same
+# function, ported here.
+maxminddb = "0.30.0"
+
 [dev-dependencies]
 serial_test = "3.1"

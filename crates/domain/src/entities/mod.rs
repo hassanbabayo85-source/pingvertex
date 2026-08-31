@@ -111,3 +111,15 @@ pub use support_ticket::{CreateSupportTicket, SupportTicket};
 
 mod add_on_subscription;
 pub use add_on_subscription::{AddOnStatus, AddOnSubscription, AddOnType};
+
+// RUM (Real User Monitoring):
+mod rum_site;
+pub use rum_site::RumSite;
+mod rum_session;
+pub use rum_session::{DeviceType, RumSession};
+mod rum_page_view;
+pub use rum_page_view::{RumPageView, RumVitals};
+mod rum_js_error;
+pub use rum_js_error::RumJsError;
+mod rum_resource_error;
+pub use rum_resource_error::{RumResourceError, RumResourceType};

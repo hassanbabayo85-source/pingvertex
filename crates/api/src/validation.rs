@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use domain::CheckStatus;
 use domain::shared::ids::{
     ApiKeyId, EscalationPolicyId, IncidentId, MaintenanceWindowId, MonitorId,
-    NotificationChannelId, UserId,
+    NotificationChannelId, RumSiteId, UserId,
 };
 use domain::shared::types::Role;
 use uuid::Uuid;
@@ -11,6 +11,10 @@ use crate::error::ApiError;
 
 pub fn parse_uuid(value: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value).map_err(|_| ApiError::bad_request("invalid uuid"))
+}
+
+pub fn parse_rum_site_id(value: &str) -> Result<RumSiteId, ApiError> {
+    Ok(RumSiteId(parse_uuid(value)?))
 }
 
 pub fn parse_monitor_id(value: &str) -> Result<MonitorId, ApiError> {

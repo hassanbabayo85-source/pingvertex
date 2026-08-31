@@ -338,4 +338,37 @@ pub enum DomainError {
 
     #[error("support category is invalid: {0}")]
     InvalidSupportCategory(String),
+
+    #[error("RUM site name cannot be empty")]
+    EmptyRumSiteName,
+
+    #[error("RUM site name cannot exceed 200 characters")]
+    RumSiteNameTooLong,
+
+    #[error("RUM site domain cannot be empty")]
+    EmptyRumSiteDomain,
+
+    #[error("RUM site domain cannot exceed 255 characters")]
+    RumSiteDomainTooLong,
+
+    #[error("RUM page view path cannot be empty")]
+    EmptyRumPageViewPath,
+
+    #[error("RUM page view path cannot exceed 2048 characters")]
+    RumPageViewPathTooLong,
+
+    #[error("RUM page view path must not contain a query string or fragment")]
+    RumPageViewPathContainsQuery,
+
+    #[error("RUM Core Web Vital value cannot be negative")]
+    NegativeRumMetricValue,
+
+    #[error("RUM JS error message cannot be empty")]
+    EmptyRumJsErrorMessage,
+
+    #[error("RUM resource error URL cannot be empty")]
+    EmptyRumResourceUrl,
+
+    #[error("RUM resource error URL cannot exceed 2048 characters")]
+    RumResourceUrlTooLong,
 }
