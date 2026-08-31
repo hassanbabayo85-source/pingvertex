@@ -165,3 +165,13 @@ pub use sms_provider_pricing::{SmsPricingResult, SmsProviderPricing};
 pub use help_article_repository::HelpArticleRepository;
 pub use help_category_repository::HelpCategoryRepository;
 pub use support_ticket_repository::SupportTicketRepository;
+
+// RUM (Real User Monitoring):
+pub mod geo_ip_lookup;
+pub mod rum_analytics_repository;
+pub mod rum_event_repository;
+pub mod rum_site_repository;
+pub use geo_ip_lookup::GeoIpLookup;
+pub use rum_analytics_repository::RumAnalyticsRepository;
+pub use rum_event_repository::RumEventRepository;
+pub use rum_site_repository::RumSiteRepository;

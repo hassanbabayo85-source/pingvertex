@@ -57,3 +57,5 @@ sashi-*.xml
 *.cdx.json
 .metrics_token
 .env.test
+node_modules/
+target/

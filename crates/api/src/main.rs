@@ -14,6 +14,7 @@ use application::ports::{
 };
 use axum_server::tls_rustls::RustlsAcceptor;
 use axum_server_mtls::MtlsAcceptor;
+use infra::services::MaxMindGeoIpLookup;
 use infra::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
     DisabledEmailVerificationMailer, DisabledPasswordResetMailer, FakeBillingProvider,
@@ -28,7 +29,8 @@ use infra::{
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresPricingConfigRepository,
     PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
-    PostgresResetPasswordTokenRepository, PostgresStatusPageRepository,
+    PostgresResetPasswordTokenRepository, PostgresRumAnalyticsRepository,
+    PostgresRumEventRepository, PostgresRumSiteRepository, PostgresStatusPageRepository,
     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
     PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
     PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
@@ -111,7 +113,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let secret_cipher_for_auth = secret_cipher.clone();
 
-    let app_state = AppState::new_with_feature_repos(
+    // Shared distributed rate limiter. Constructed once and cloned into
+    // both `AppState` (RUM ingestion) and `AuthState` (auth endpoints)
+    // below — `RedisRateLimiter` is `Clone` (cheap: it only wraps a
+    // `redis::Client`, which is itself a lightweight connection-info
+    // handle, not an open connection) and both states key their own
+    // requests under distinct namespaces ("rum_ingest" vs
+    // "forgot_password"/"resend_verification"), so sharing one instance
+    // is equivalent to constructing two and cannot cross-contaminate
+    // either's counters.
+    let redis_rate_limiter = RedisRateLimiter::new(
+        &std::env::var("REDIS_URL")
+            .map_err(|_| anyhow::anyhow!("REDIS_URL is required for rate limiting"))?,
+    )?;
+
+    let mut app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
         PostgresCheckRepository::new(pool.clone()),
         PostgresDiagnosticReportRepository::new(pool.clone()),
@@ -150,7 +166,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_subscription_usage_transaction(PostgresSubscriptionUsageTransaction::new(pool.clone()))
     .with_help_category_repository(PostgresHelpCategoryRepository::new(pool.clone()))
     .with_help_article_repository(PostgresHelpArticleRepository::new(pool.clone()))
-    .with_support_ticket_repository(PostgresSupportTicketRepository::new(pool.clone()));
+    .with_support_ticket_repository(PostgresSupportTicketRepository::new(pool.clone()))
+    .with_rum_site_repository(PostgresRumSiteRepository::new(pool.clone()))
+    .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
+    .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
+    .with_rate_limiter(redis_rate_limiter.clone());
+
+    // Geo-IP lookup for RUM sessions is best-effort: reuses the same
+    // GeoLite2 database `crates/agent` already requires, but unlike the
+    // agent (where a missing DB is a fatal startup error), a missing/
+    // unreadable DB here must NOT stop the API server from starting —
+    // RUM ingestion is fully functional without it, just with
+    // `country_code = None` on every session (see `NoopGeoIpLookup` in
+    // `state.rs`). Defaults to the same path `crates/agent` defaults to,
+    // so a single `GEOIP_DB_PATH` env var (or the same default file
+    // location) covers both processes.
+    let geoip_db_path = std::env::var("GEOIP_DB_PATH")
+        .unwrap_or_else(|_| "data/geoip/GeoLite2-Country.mmdb".to_string());
+    match MaxMindGeoIpLookup::open(&geoip_db_path) {
+        Ok(geo_ip_lookup) => {
+            app_state = app_state.with_geo_ip_lookup(geo_ip_lookup);
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                path = %geoip_db_path,
+                "RUM geo-IP database unavailable; RUM sessions will have no country_code until this is fixed"
+            );
+        }
+    }
 
     let app_state = match billing_config.webhook_secret {
         Some(secret) => app_state.with_billing_webhook_secret(secret),
@@ -223,10 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pending_auth_cache,
         PostgresBackupCodeRepository::new(pool.clone()),
     )
-    .with_rate_limiter(RedisRateLimiter::new(
-        &std::env::var("REDIS_URL")
-            .map_err(|_| anyhow::anyhow!("REDIS_URL is required for rate limiting"))?,
-    )?)
+    .with_rate_limiter(redis_rate_limiter)
     .with_email_verification(
         email_verification_token_repository,
         email_verification_mailer,

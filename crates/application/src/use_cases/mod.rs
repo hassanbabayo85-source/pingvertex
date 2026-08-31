@@ -168,3 +168,11 @@ pub use list_my_support_tickets::ListMySupportTicketsUseCase;
 pub use reply_to_support_ticket::ReplyToSupportTicketUseCase;
 pub use search_help_articles::SearchHelpArticlesUseCase;
 pub use update_support_ticket_status::UpdateSupportTicketStatusUseCase;
+
+// RUM (Real User Monitoring):
+pub mod ingest_rum_event;
+pub mod manage_rum_sites;
+pub mod rum_dashboard_queries;
+pub use ingest_rum_event::{IngestRumEventError, IngestRumEventUseCase};
+pub use manage_rum_sites::{CreateRumSiteError, CreateRumSiteUseCase, ListRumSitesUseCase};
+pub use rum_dashboard_queries::{RumDashboardError, RumDashboardQueriesUseCase};
