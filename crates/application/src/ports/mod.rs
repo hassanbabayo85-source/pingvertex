@@ -36,6 +36,9 @@ pub mod tenant_repository;
 pub mod email_verification_mailer;
 pub mod email_verification_token_repository;
 
+// OAuth — Continue with Google / Apple:
+pub mod id_token_verifier;
+
 // B9 — Tenant invitations:
 pub mod tenant_invitation_repository;
 
@@ -88,7 +91,7 @@ pub use registration_transaction::{RegistrationTransaction, RegistrationTransact
 // both the API (get_public_status) and the worker (IncidentManager).
 pub use status_page_cache::{CacheResult, PUBLIC_STATUS_LIST_CACHE_KEY, StatusPageCache};
 pub use status_page_repository::StatusPageRepository;
-pub use tenant_membership_repository::TenantMembershipRepository;
+pub use tenant_membership_repository::{LastOwnerGuardOutcome, TenantMembershipRepository};
 pub use tenant_repository::TenantRepository;
 
 pub mod logo_storage;
@@ -97,6 +100,9 @@ pub use logo_storage::{LogoStorage, StorageResult};
 // B5 — Email verification re-exports:
 pub use email_verification_mailer::{EmailVerificationMailer, MailerResult};
 pub use email_verification_token_repository::EmailVerificationTokenRepository;
+
+// OAuth re-exports:
+pub use id_token_verifier::{IdTokenVerifier, OidcVerifierResult, VerifiedIdentity};
 
 // B6 — Password reset:
 pub mod password_reset_mailer;

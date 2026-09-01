@@ -17,7 +17,7 @@ use domain::{
     Host, Monitor, MonitorBuilder, MonitorKind, MonitorName, Timeout, Url,
     entities::Assertion,
     shared::ids::{TenantId, UserId},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -33,6 +33,7 @@ pub const MAX_ASSERTIONS_PER_MONITOR: usize = 20;
 
 #[derive(Debug)]
 pub enum CreateMonitorError {
+    Forbidden,
     QuotaExceeded { limit: usize },
     TooManyAssertions { limit: usize },
     IntervalBelowPlanMinimum { min: u32 },
@@ -42,6 +43,10 @@ pub enum CreateMonitorError {
 impl fmt::Display for CreateMonitorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create monitors"
+            ),
             Self::QuotaExceeded { limit } => {
                 write!(
                     f,
@@ -68,6 +73,7 @@ impl fmt::Display for CreateMonitorError {
 impl Error for CreateMonitorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::QuotaExceeded { .. } => None,
             Self::TooManyAssertions { .. } => None,
             Self::IntervalBelowPlanMinimum { .. } => None,
@@ -120,6 +126,10 @@ where
         request: CreateMonitorRequest,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Monitor, CreateMonitorError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateMonitorError::Forbidden);
+        }
+
         if request.assertions.len() > MAX_ASSERTIONS_PER_MONITOR {
             return Err(CreateMonitorError::TooManyAssertions {
                 limit: MAX_ASSERTIONS_PER_MONITOR,

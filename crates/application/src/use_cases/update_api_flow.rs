@@ -12,7 +12,7 @@ use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, ExtractSource,
     entities::{ApiFlow, ApiFlowStep, Assertion},
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
     value_objects::{FlowStepName, VariableExtraction},
 };
 
@@ -46,6 +46,8 @@ where
         command: UpdateApiFlow,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<ApiFlow>> {
+        authenticated_user.require(Permission::UpdateMonitor)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

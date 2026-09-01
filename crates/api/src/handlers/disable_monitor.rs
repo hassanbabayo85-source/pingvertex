@@ -35,7 +35,7 @@ pub async fn disable_monitor(
             authenticated_user,
         )
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to disable monitor", err))?
+        .map_err(|err| ApiError::forbidden_or_internal("failed to disable monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     Ok(Json(MonitorResponse::from(monitor)))

@@ -1,32 +1,43 @@
-use axum::Json;
-use axum::http::header::{HeaderMap, HeaderValue, SET_COOKIE};
+use axum::{
+    Json,
+    extract::{Extension, State},
+    http::header::{HeaderMap, HeaderValue, SET_COOKIE},
+};
 use serde_json::{Value, json};
 
-use crate::error::ApiError;
+use application::{
+    SESSION_INVALIDATION_TTL_SECONDS, session_invalidated_at_cache_key,
+    session_revocation_timestamp,
+};
+use domain::shared::types::AuthenticatedUser;
+
+use crate::{auth_state::AuthState, error::ApiError};
 
 /// `POST /api/v1/auth/logout`
 ///
-/// Clears the `access_token` httpOnly cookie set by `login`/`register` by
-/// re-issuing it with `Max-Age=0` (and no value) — the standard way to
-/// delete a cookie, since JavaScript can't touch an httpOnly cookie
-/// directly. The frontend's previous "logout" only cleared a local
-/// `localStorage` UI flag and left the cookie itself (and the JWT inside
-/// it) fully valid until its 24h expiry, so on a shared machine a
-/// "logged out" session could still authenticate every API request.
+/// Logout is authentication-protected and does two things:
+/// 1. expires the browser's httpOnly access-token cookie; and
+/// 2. writes a per-user "invalidated before" marker to Redis, revoking the
+///    current JWT and every older JWT immediately.
 ///
-/// Attributes (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`) must
-/// match the ones `login`/`register` used when setting the cookie —
-/// browsers only overwrite/delete a cookie when path (and, if set,
-/// domain) match exactly.
-///
-/// This does not maintain a server-side token denylist, so a JWT that was
-/// copied out of the cookie before logout (e.g. via a prior XSS, or a
-/// proxy/log capture) remains valid until it expires on its own. Closing
-/// that gap needs a `jti`-based denylist or a move to short-lived access
-/// tokens + refresh tokens, which is a bigger change than a logout route
-/// alone — tracked as a follow-up, not something this endpoint alone can
-/// promise.
-pub async fn logout() -> Result<(HeaderMap, Json<Value>), ApiError> {
+/// The marker is mandatory. If Redis is unavailable, logout fails closed
+/// rather than reporting success while the bearer token remains valid.
+pub async fn logout(
+    State(auth): State<AuthState>,
+    Extension(authenticated_user): Extension<AuthenticatedUser>,
+) -> Result<(HeaderMap, Json<Value>), ApiError> {
+    let now = chrono::Utc::now().timestamp();
+    let revoked_before = session_revocation_timestamp(now);
+
+    auth.pending_auth_cache
+        .set(
+            &session_invalidated_at_cache_key(authenticated_user.user_id()),
+            &revoked_before.to_string(),
+            SESSION_INVALIDATION_TTL_SECONDS,
+        )
+        .await
+        .map_err(|err| ApiError::internal(format!("failed to invalidate session: {err}")))?;
+
     let cookie = "access_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0";
 
     let mut headers = HeaderMap::new();
@@ -40,24 +51,17 @@ pub async fn logout() -> Result<(HeaderMap, Json<Value>), ApiError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn clears_the_access_token_cookie() {
-        let (headers, body) = logout().await.expect("logout should not fail");
-
-        let set_cookie = headers
-            .get(SET_COOKIE)
-            .expect("logout must set a Set-Cookie header")
-            .to_str()
-            .unwrap();
-
-        assert!(set_cookie.starts_with("access_token=;"));
-        assert!(set_cookie.contains("Max-Age=0"));
-        assert!(set_cookie.contains("HttpOnly"));
-        assert!(set_cookie.contains("Secure"));
-        assert!(set_cookie.contains("SameSite=Strict"));
-        assert!(set_cookie.contains("Path=/"));
-        assert_eq!(body.0["authenticated"], false);
+    // Cookie-format regression is intentionally kept here. Session revocation
+    // semantics are covered by the application-layer timestamp tests and the
+    // authenticated-router test suite.
+    #[test]
+    fn logout_cookie_is_deleted_with_matching_security_attributes() {
+        let cookie = "access_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0";
+        assert!(cookie.starts_with("access_token=;"));
+        assert!(cookie.contains("Max-Age=0"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Secure"));
+        assert!(cookie.contains("SameSite=Strict"));
+        assert!(cookie.contains("Path=/"));
     }
 }

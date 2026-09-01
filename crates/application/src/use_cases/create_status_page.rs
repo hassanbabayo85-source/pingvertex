@@ -8,7 +8,7 @@ use crate::{
     ports::{AuditLogEntryRepository, IdGenerator, MonitorRepository, StatusPageRepository},
 };
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, MonitorId, Subdomain,
     entities::{CreateStatusPage, StatusPage},
@@ -20,6 +20,7 @@ pub const MAX_STATUS_PAGES_PER_USER: usize = 3;
 
 #[derive(Debug)]
 pub enum CreateStatusPageError {
+    Forbidden,
     QuotaExceeded { limit: usize },
     SubdomainTaken { subdomain: String },
     MonitorNotFound { monitor_id: MonitorId },
@@ -29,6 +30,10 @@ pub enum CreateStatusPageError {
 impl fmt::Display for CreateStatusPageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create status pages"
+            ),
             Self::QuotaExceeded { limit } => write!(
                 f,
                 "status page limit reached: at most {limit} status pages are allowed per account"
@@ -47,6 +52,7 @@ impl fmt::Display for CreateStatusPageError {
 impl Error for CreateStatusPageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::QuotaExceeded { .. } => None,
             Self::SubdomainTaken { .. } => None,
             Self::MonitorNotFound { .. } => None,
@@ -87,6 +93,10 @@ where
         request: CreateStatusPageRequest,
         authenticated_user: AuthenticatedUser,
     ) -> Result<StatusPage, CreateStatusPageError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateStatusPageError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

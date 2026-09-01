@@ -50,9 +50,28 @@ impl UserRepository for NoopUserRepository {
     }
     async fn find_by_id(
         &self,
-        _: &domain::UserId,
+        id: &domain::UserId,
     ) -> Result<Option<User>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(None)
+        // jwt_auth middleware reloads the user on every request to check
+        // `status` (P0 fix: suspended/deleted accounts must lose access
+        // immediately). This stub hands back an Active user for whichever
+        // id the middleware asks about.
+        let now = chrono::Utc::now();
+        let user = domain::UserBuilder::new()
+            .id(*id)
+            .username(
+                domain::Username::new(format!("u{}", &id.0.simple().to_string()[..8])).unwrap(),
+            )
+            .email(domain::Email::new(format!("user-{}@example.test", id.0.simple())).unwrap())
+            .password_hash(domain::PasswordHash::new("test-hash-not-checked").unwrap())
+            .role(domain::UserRole::User)
+            .status(domain::UserStatus::Active)
+            .email_verified_at(Some(now))
+            .created_at(now)
+            .updated_at(now)
+            .build()
+            .unwrap();
+        Ok(Some(user))
     }
     async fn find_by_email(
         &self,
@@ -344,7 +363,12 @@ async fn owner_without_existing_subscription_gets_not_found() {
 }
 
 #[tokio::test]
-async fn owner_can_update_usage_to_a_valid_tier_and_response_reflects_plan_limits() {
+async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan_tier() {
+    // SECURITY (H13): the endpoint no longer trusts `plan_tier` from the
+    // request body -- it reads the tenant's actual plan tier from the
+    // subscription in the database. Here the DB has Tier5, and the body
+    // requests a different tier ("tier_1"), to prove the body value is
+    // ignored and the response reflects the DB's tier instead.
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -354,7 +378,7 @@ async fn owner_can_update_usage_to_a_valid_tier_and_response_reflects_plan_limit
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
     let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
 
-    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Free);
+    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
     subscription_repo.create(&subscription).await.unwrap();
 
     let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
@@ -366,7 +390,7 @@ async fn owner_can_update_usage_to_a_valid_tier_and_response_reflects_plan_limit
                 .uri("/api/v1/subscription/usage")
                 .header("content-type", "application/json")
                 .header("authorization", auth_header(owner_user.0))
-                .body(Body::from(json!({ "plan_tier": "tier_5" }).to_string()))
+                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
                 .unwrap(),
         )
         .await
@@ -382,7 +406,13 @@ async fn owner_can_update_usage_to_a_valid_tier_and_response_reflects_plan_limit
 }
 
 #[tokio::test]
-async fn invalid_plan_tier_is_rejected() {
+async fn client_supplied_plan_tier_in_body_is_ignored() {
+    // SECURITY (H13, fixed): the endpoint used to trust `plan_tier` from
+    // the request body, letting any caller with ManageBilling permission
+    // downgrade their own tenant's tier. It now ignores the body entirely
+    // and always reflects the subscription's tier as stored in the DB.
+    // A garbage tier in the body must NOT cause a 400 -- there is nothing
+    // left to validate, since the body is never read.
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -411,5 +441,7 @@ async fn invalid_plan_tier_is_rejected() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = read_json(response).await;
+    assert_eq!(body["plan_tier"], "free");
 }

@@ -7,7 +7,7 @@ use application::ports::ApiFlowRepository;
 use async_trait::async_trait;
 use domain::{
     entities::ApiFlow,
-    shared::ids::{ApiFlowId, MonitorId},
+    shared::ids::{ApiFlowId, MonitorId, TenantId},
 };
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -41,6 +41,21 @@ impl ApiFlowRepository for InMemoryApiFlowRepository {
 
     async fn delete(&self, id: ApiFlowId) -> RepoResult<bool> {
         Ok(self.flows.write().unwrap().remove(&id).is_some())
+    }
+
+    async fn delete_for_tenant(&self, id: ApiFlowId, tenant_id: TenantId) -> RepoResult<bool> {
+        let mut flows = self.flows.write().unwrap();
+
+        let belongs_to_tenant = flows
+            .get(&id)
+            .map(|flow| flow.tenant_id == tenant_id)
+            .unwrap_or(false);
+
+        if belongs_to_tenant {
+            Ok(flows.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
     }
 
     async fn find_by_id(&self, id: ApiFlowId) -> RepoResult<Option<ApiFlow>> {

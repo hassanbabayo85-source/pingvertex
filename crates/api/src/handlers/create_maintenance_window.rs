@@ -48,6 +48,9 @@ pub async fn create_maintenance_window(
         )
         .await
         .map_err(|err| match err {
+            CreateMaintenanceWindowError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create maintenance windows")
+            }
             CreateMaintenanceWindowError::MonitorNotFound => {
                 ApiError::not_found("monitor not found")
             }

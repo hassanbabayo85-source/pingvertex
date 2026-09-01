@@ -499,6 +499,24 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn delete_for_tenant(&self, id: ApiFlowId, tenant_id: TenantId) -> RepoResult<bool> {
+        // ON DELETE CASCADE (migration 0014) removes the flow's api_flow_steps,
+        // which in turn cascades the deletion of their monitor_assertions rows.
+        let result = sqlx::query(
+            r#"
+            DELETE FROM api_flows
+            WHERE id = $1
+              AND tenant_id = $2
+            "#,
+        )
+        .bind(id.0)
+        .bind(tenant_id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn find_by_id(&self, id: ApiFlowId) -> RepoResult<Option<ApiFlow>> {
         let row = sqlx::query_as::<_, ApiFlowRow>(
             r#"

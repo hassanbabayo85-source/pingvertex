@@ -54,6 +54,9 @@ pub async fn create_monitor(
         .execute(request, authenticated_user)
         .await
         .map_err(|err| match err {
+            CreateMonitorError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create monitors")
+            }
             CreateMonitorError::QuotaExceeded { limit } => ApiError::too_many_requests(format!(
                 "monitor limit reached: your plan allows at most {limit} monitors"
             )),

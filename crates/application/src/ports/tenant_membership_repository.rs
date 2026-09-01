@@ -12,6 +12,25 @@ use domain::{
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// Outcome of a "last owner" guarded mutation (`remove_member_if_not_last_owner`,
+/// `update_role_if_not_last_owner`).
+///
+/// These operations must check-and-act atomically (locking the tenant's
+/// membership rows for the duration of the check) so that two concurrent
+/// requests can never both observe "owners > 1" and both proceed, which
+/// would leave the tenant with zero Owners. See the 2026-09 security
+/// review: SEC-P0-4 (Last Owner Race Condition).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastOwnerGuardOutcome {
+    /// The mutation was applied.
+    Applied,
+    /// No membership row existed for that tenant/user pair.
+    NotFound,
+    /// The mutation was refused because it would have left the tenant
+    /// with zero Owners.
+    WouldRemoveLastOwner,
+}
+
 /// Persistence port for `TenantMembership`.
 ///
 /// `find_by_tenant_and_user` is deliberately first-class here because
@@ -41,6 +60,34 @@ pub trait TenantMembershipRepository: Send + Sync {
     /// is left to the caller; this method performs a `DELETE ... WHERE ...`
     /// and does not error when 0 rows were affected.
     async fn delete(&self, tenant_id: TenantId, user_id: UserId) -> RepoResult<()>;
+
+    /// Atomically deletes `user_id`'s membership in `tenant_id`, refusing
+    /// if — and only if — the target is an `Owner` and is the tenant's
+    /// last remaining `Owner`.
+    ///
+    /// The check (counting current Owners) and the act (deleting the row)
+    /// MUST happen under the same row lock / transaction so that two
+    /// concurrent calls targeting two different Owners can never both
+    /// succeed and leave the tenant ownerless. Implementations backed by
+    /// Postgres should lock the tenant's membership rows (e.g. `SELECT
+    /// ... FOR UPDATE`) before counting.
+    async fn remove_member_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> RepoResult<LastOwnerGuardOutcome>;
+
+    /// Atomically changes `user_id`'s role to `new_role` in `tenant_id`,
+    /// refusing if — and only if — the target is currently the tenant's
+    /// last remaining `Owner` and `new_role` is not `Owner`.
+    ///
+    /// Same atomicity requirement as `remove_member_if_not_last_owner`.
+    async fn update_role_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        new_role: Role,
+    ) -> RepoResult<LastOwnerGuardOutcome>;
 }
 
 #[async_trait]
@@ -79,5 +126,26 @@ where
 
     async fn delete(&self, tenant_id: TenantId, user_id: UserId) -> RepoResult<()> {
         (**self).delete(tenant_id, user_id).await
+    }
+
+    async fn remove_member_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> RepoResult<LastOwnerGuardOutcome> {
+        (**self)
+            .remove_member_if_not_last_owner(tenant_id, user_id)
+            .await
+    }
+
+    async fn update_role_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        new_role: Role,
+    ) -> RepoResult<LastOwnerGuardOutcome> {
+        (**self)
+            .update_role_if_not_last_owner(tenant_id, user_id, new_role)
+            .await
     }
 }

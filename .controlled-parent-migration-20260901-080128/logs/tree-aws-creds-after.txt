@@ -1,0 +1,10 @@
+aws-creds v0.39.1
+└── rust-s3 v0.37.2
+    └── infra v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/infra)
+        ├── api v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/api)
+        └── worker v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/worker)
+        [dev-dependencies]
+        └── application v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/application)
+            ├── api v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/api)
+            ├── infra v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/infra) (*)
+            └── worker v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/worker)

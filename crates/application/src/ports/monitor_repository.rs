@@ -36,6 +36,17 @@ pub trait MonitorRepository: Send + Sync {
 
     async fn delete(&self, id: MonitorId) -> RepoResult<bool>;
 
+    /// SECURITY (P0): tenant-scoped delete. Deletes the monitor only
+    /// if it belongs to `tenant_id`; returns `Ok(false)` (not an
+    /// error) if the id doesn't exist or belongs to a different
+    /// tenant. Prefer this over `delete` for anything reachable from
+    /// an authenticated HTTP request, so tenant isolation is
+    /// enforced at the SQL layer itself rather than depending solely
+    /// on an application-layer check performed before the call.
+    async fn delete_for_tenant(&self, _id: MonitorId, _tenant_id: TenantId) -> RepoResult<bool> {
+        unimplemented!()
+    }
+
     async fn find_by_id(&self, id: MonitorId) -> RepoResult<Option<Monitor>>;
 
     async fn find_all(&self) -> RepoResult<Vec<Monitor>>;
@@ -147,6 +158,10 @@ where
 
     async fn delete(&self, id: MonitorId) -> RepoResult<bool> {
         (**self).delete(id).await
+    }
+
+    async fn delete_for_tenant(&self, id: MonitorId, tenant_id: TenantId) -> RepoResult<bool> {
+        (**self).delete_for_tenant(id, tenant_id).await
     }
 
     async fn find_by_id(&self, id: MonitorId) -> RepoResult<Option<Monitor>> {

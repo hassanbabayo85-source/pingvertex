@@ -6,7 +6,7 @@ use serde_json::json;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, MaintenanceWindow,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum CreateMaintenanceWindowError {
+    Forbidden,
     MonitorNotFound,
     InvalidWindow(String),
     Other(Box<dyn Error + Send + Sync>),
@@ -24,6 +25,10 @@ pub enum CreateMaintenanceWindowError {
 impl fmt::Display for CreateMaintenanceWindowError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create maintenance windows"
+            ),
             Self::MonitorNotFound => write!(f, "monitor not found or access denied"),
             Self::InvalidWindow(msg) => write!(f, "{msg}"),
             Self::Other(err) => write!(f, "{err}"),
@@ -60,6 +65,10 @@ impl CreateMaintenanceWindowUseCase {
         command: CreateMaintenanceWindow,
         authenticated_user: AuthenticatedUser,
     ) -> Result<MaintenanceWindow, CreateMaintenanceWindowError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateMaintenanceWindowError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

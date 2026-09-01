@@ -3,7 +3,7 @@ use std::{error::Error, fmt, sync::Arc};
 use chrono::Utc;
 use domain::shared::ids::{TenantId, UserId};
 use domain::shared::policies::TenantOwned;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, Incident};
 use serde_json::json;
 
@@ -15,6 +15,7 @@ use crate::{
 /// Error returned by `AcknowledgeIncidentUseCase`.
 #[derive(Debug)]
 pub enum AcknowledgeIncidentError {
+    Forbidden,
     /// Incident doesn't exist, or exists but belongs to a monitor the user
     /// doesn't own. Deliberately the same outward result either way.
     NotFound,
@@ -27,6 +28,10 @@ pub enum AcknowledgeIncidentError {
 impl fmt::Display for AcknowledgeIncidentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to acknowledge incidents"
+            ),
             Self::NotFound => write!(f, "incident not found or access denied"),
             Self::AlreadyResolved => write!(f, "incident is already resolved"),
             Self::Other(err) => write!(f, "{err}"),
@@ -62,6 +67,10 @@ impl AcknowledgeIncidentUseCase {
         command: AcknowledgeIncident,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Incident, AcknowledgeIncidentError> {
+        if !authenticated_user.can(Permission::AcknowledgeIncident) {
+            return Err(AcknowledgeIncidentError::Forbidden);
+        }
+
         self.execute_for_tenant(
             command,
             authenticated_user.tenant_context().tenant_id(),

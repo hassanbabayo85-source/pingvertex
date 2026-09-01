@@ -692,6 +692,22 @@ impl MonitorRepository for PostgresMonitorRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn delete_for_tenant(&self, id: MonitorId, tenant_id: TenantId) -> RepoResult<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM monitors
+            WHERE id = $1
+              AND tenant_id = $2
+            "#,
+        )
+        .bind(id.0)
+        .bind(tenant_id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn find_by_heartbeat_token(&self, token: &str) -> RepoResult<Option<Monitor>> {
         let query = format!("SELECT {MONITOR_COLUMNS} FROM monitors WHERE heartbeat_token = $1");
         let row = sqlx::query_as::<_, MonitorRow>(&query)

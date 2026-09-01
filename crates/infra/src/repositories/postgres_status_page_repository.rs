@@ -258,6 +258,16 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn delete_for_tenant(&self, id: StatusPageId, tenant_id: TenantId) -> RepoResult<bool> {
+        let result = sqlx::query("DELETE FROM status_pages WHERE id = $1 AND tenant_id = $2")
+            .bind(id.0)
+            .bind(tenant_id.0)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
         let rows = sqlx::query_as::<_, StatusPageRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM status_pages WHERE tenant_id = $1 ORDER BY created_at DESC"

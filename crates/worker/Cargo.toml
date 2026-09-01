@@ -51,17 +51,17 @@ rustls-native-certs = "0.8"
 x509-parser = "0.16"
 async-trait.workspace = true
 hickory-resolver = "0.26.1"
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio", "tls-native-tls", "macros", "chrono", "uuid", "migrate", "runtime-tokio-rustls"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "chrono", "uuid", "migrate"] }
 
 # Proxy-Authorization header generation for proxy check protocol verification.
 base64 = "0.22"
 
 [dev-dependencies]
 async-trait = { workspace = true }
-rcgen = "0.13"
+rcgen = "0.14.10"
 time = "0.3"
 # Used by crates/worker/src/config.rs's env-var-mutating unit tests, same
 # as crates/infra already uses for its own env-var-mutating tests
 # (S3Config, SmtpConfig).
 serial_test = "3.1"
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }

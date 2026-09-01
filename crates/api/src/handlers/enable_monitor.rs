@@ -35,7 +35,7 @@ pub async fn enable_monitor(
             authenticated_user,
         )
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to enable monitor", err))?
+        .map_err(|err| ApiError::forbidden_or_internal("failed to enable monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     Ok(Json(MonitorResponse::from(monitor)))

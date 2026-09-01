@@ -3,7 +3,7 @@ use std::error::Error;
 use domain::entities::{CreateSupportMessage, SupportMessage};
 use domain::shared::ids::{SupportMessageId, SupportTicketId};
 use domain::shared::policies::AuthorizationPolicy;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 
 use crate::ports::SupportTicketRepository;
 
@@ -28,6 +28,10 @@ where
         authenticated_user: AuthenticatedUser,
         message: String,
     ) -> UseCaseResult<Option<SupportMessage>> {
+        if !authenticated_user.can(Permission::ReplySupportTicket) {
+            return Ok(None);
+        }
+
         let ticket = match self.repository.find_ticket(ticket_id).await? {
             Some(ticket) => ticket,
             None => return Ok(None),

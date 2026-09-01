@@ -1,0 +1,14 @@
+rust_decimal #decimal #financial #fixed #precision #number
+Decimal number implementation written in pure Rust suitable for financial and fixed-precision calculations.
+version: 1.42.1
+license: MIT
+rust-version: 1.67.1
+documentation: https://docs.rs/rust_decimal/
+repository: https://github.com/paupino/rust-decimal
+crates.io: https://crates.io/crates/rust_decimal/1.42.1
+features:
+ +default                        = [serde, std]
+  serde                          = [dep:serde, wasm-bindgen?/serde]
+  std                            = [arrayvec/std, wasm-bindgen?/std, borsh?/std, bytes?/std, rand?/std, rkyv?/std, serde?/std, serde_json?/std]
+  35 deactivated features
+note: to see how you depend on rust_decimal, run `cargo tree --invert rust_decimal@1.42.1`

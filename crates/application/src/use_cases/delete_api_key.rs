@@ -4,7 +4,7 @@ use chrono::Utc;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 use serde_json::json;
 
@@ -17,12 +17,12 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Deletes an API key through the application layer.
 ///
-/// Tenant-wide access is enforced via `AuthorizationPolicy::same_tenant`
-/// after fetching the entity — any member of the tenant may revoke any
-/// key belonging to that tenant, not just its creator — then the key is
-/// deleted and an audit entry is written. Mirrors
-/// `DeleteNotificationChannelUseCase` exactly, minus that use case's
-/// legacy single-owner check.
+/// Requires `Permission::ManageApiKeys`.
+///
+/// Tenant isolation is enforced after fetching the entity so that a key
+/// belonging to another tenant is never revealed through this endpoint.
+/// Permission is checked before the lookup to prevent low-privilege users
+/// from using known key ids to revoke credentials.
 pub struct DeleteApiKeyUseCase {
     api_key_repository: Arc<dyn ApiKeyRepository>,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
@@ -44,6 +44,12 @@ impl DeleteApiKeyUseCase {
         command: DeleteApiKey,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<bool> {
+        // Security: revoking API keys is a privileged tenant-management
+        // operation. Check permission BEFORE loading the key so a
+        // low-privilege user cannot use the endpoint even when they know
+        // a valid key id.
+        authenticated_user.require(Permission::ManageApiKeys)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

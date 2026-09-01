@@ -12,7 +12,7 @@ use domain::{
     entities::StatusPage,
     errors::DomainError,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
     value_objects::LogoImage,
 };
 
@@ -20,6 +20,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug)]
 pub enum UploadStatusPageLogoError {
+    Forbidden,
     InvalidLogo(DomainError),
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -27,6 +28,10 @@ pub enum UploadStatusPageLogoError {
 impl fmt::Display for UploadStatusPageLogoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to update status pages"
+            ),
             Self::InvalidLogo(err) => write!(f, "{err}"),
             Self::Other(err) => write!(f, "{err}"),
         }
@@ -36,6 +41,7 @@ impl fmt::Display for UploadStatusPageLogoError {
 impl Error for UploadStatusPageLogoError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::InvalidLogo(err) => Some(err),
             Self::Other(err) => Some(err.as_ref()),
         }
@@ -70,6 +76,10 @@ where
         command: UploadStatusPageLogo,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Option<StatusPage>, UploadStatusPageLogoError> {
+        if !authenticated_user.can(Permission::UpdateMonitor) {
+            return Err(UploadStatusPageLogoError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

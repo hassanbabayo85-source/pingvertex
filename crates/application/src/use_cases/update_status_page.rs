@@ -12,13 +12,14 @@ use domain::{
     entities::StatusPage,
     shared::ids::{TenantId, UserId},
     shared::policies::TenantOwned,
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug)]
 pub enum UpdateStatusPageError {
+    Forbidden,
     MonitorNotFound { monitor_id: MonitorId },
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -26,6 +27,10 @@ pub enum UpdateStatusPageError {
 impl fmt::Display for UpdateStatusPageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to update status pages"
+            ),
             Self::MonitorNotFound { monitor_id } => {
                 write!(f, "monitor {monitor_id} not found or access denied")
             }
@@ -37,6 +42,7 @@ impl fmt::Display for UpdateStatusPageError {
 impl Error for UpdateStatusPageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::MonitorNotFound { .. } => None,
             Self::Other(err) => Some(err.as_ref()),
         }
@@ -83,6 +89,10 @@ where
         command: UpdateStatusPage,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Option<StatusPage>, UpdateStatusPageError> {
+        if !authenticated_user.can(Permission::UpdateMonitor) {
+            return Err(UpdateStatusPageError::Forbidden);
+        }
+
         self.execute_for_tenant(
             command,
             authenticated_user.tenant_context().tenant_id(),

@@ -3,7 +3,7 @@ use std::error::Error;
 use domain::enums::SupportTicketStatus;
 use domain::shared::ids::SupportTicketId;
 use domain::shared::policies::AuthorizationPolicy;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 
 use crate::ports::SupportTicketRepository;
 
@@ -28,6 +28,10 @@ where
         target_status: SupportTicketStatus,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<()>> {
+        if !authenticated_user.can(Permission::ManageSupportTicketStatus) {
+            return Ok(None);
+        }
+
         let ticket = match self.repository.find_ticket(ticket_id).await? {
             Some(ticket) => ticket,
             None => return Ok(None),

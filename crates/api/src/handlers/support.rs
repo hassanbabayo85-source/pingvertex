@@ -42,14 +42,10 @@ pub async fn create_support_ticket(
 
     let use_case = CreateSupportTicketUseCase::new(state.support_ticket_repository.clone());
     let ticket = use_case
-        .execute(
-            authenticated_user.tenant_context().tenant_id(),
-            authenticated_user.user_id(),
-            payload.subject,
-            category,
-        )
+        .execute(authenticated_user, payload.subject, category)
         .await
         .map_err(|err| match err {
+            CreateSupportTicketError::Forbidden => ApiError::forbidden(err.to_string()),
             CreateSupportTicketError::Validation(msg) => ApiError::bad_request(msg),
             CreateSupportTicketError::Other(err) => {
                 ApiError::internal_with_source("failed to create support ticket", err)

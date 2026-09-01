@@ -36,6 +36,9 @@ pub async fn acknowledge_incident(
         .execute(AcknowledgeIncident { incident_id }, authenticated_user)
         .await
         .map_err(|err| match err {
+            AcknowledgeIncidentError::Forbidden => {
+                ApiError::forbidden("you do not have permission to acknowledge incidents")
+            }
             AcknowledgeIncidentError::NotFound => ApiError::not_found("incident not found"),
             AcknowledgeIncidentError::AlreadyResolved => {
                 ApiError::bad_request("incident is already resolved")

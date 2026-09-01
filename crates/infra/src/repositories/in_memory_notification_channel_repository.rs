@@ -8,7 +8,7 @@ use application::ports::{MonitorRepository, NotificationChannelRepository};
 use async_trait::async_trait;
 use domain::{
     entities::NotificationChannel,
-    shared::ids::{MonitorId, NotificationChannelId, UserId},
+    shared::ids::{MonitorId, NotificationChannelId, TenantId, UserId},
 };
 
 use crate::repositories::InMemoryMonitorRepository;
@@ -141,6 +141,25 @@ impl NotificationChannelRepository for InMemoryNotificationChannelRepository {
 
     async fn delete(&self, id: NotificationChannelId) -> RepoResult<bool> {
         Ok(self.channels.write().unwrap().remove(&id).is_some())
+    }
+
+    async fn delete_for_tenant(
+        &self,
+        id: NotificationChannelId,
+        tenant_id: TenantId,
+    ) -> RepoResult<bool> {
+        let mut channels = self.channels.write().unwrap();
+
+        let belongs_to_tenant = channels
+            .get(&id)
+            .map(|channel| channel.tenant_id == tenant_id)
+            .unwrap_or(false);
+
+        if belongs_to_tenant {
+            Ok(channels.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {

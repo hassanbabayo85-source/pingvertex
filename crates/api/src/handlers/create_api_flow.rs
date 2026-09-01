@@ -42,6 +42,9 @@ pub async fn create_api_flow(
         .execute(request, authenticated_user)
         .await
         .map_err(|err| match err {
+            CreateApiFlowError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create api flows")
+            }
             CreateApiFlowError::MonitorNotFound => ApiError::not_found("monitor not found"),
             CreateApiFlowError::FlowAlreadyExists => {
                 ApiError::conflict("an api flow already exists for this monitor")

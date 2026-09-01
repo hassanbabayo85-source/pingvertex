@@ -81,6 +81,13 @@ pub async fn update_status_page_via_api_key(
         .execute_for_tenant(command, principal.tenant_id, principal.user_id)
         .await
         .map_err(|err| match err {
+            // `execute_for_tenant` never constructs `Forbidden` — that
+            // check only runs in `execute`'s `AuthenticatedUser` wrapper,
+            // which this API-key-authenticated path doesn't call. Kept
+            // here only because the match must be exhaustive.
+            UpdateStatusPageError::Forbidden => {
+                ApiError::internal("unexpected authorization error")
+            }
             UpdateStatusPageError::MonitorNotFound { .. } => {
                 ApiError::not_found("monitor not found")
             }

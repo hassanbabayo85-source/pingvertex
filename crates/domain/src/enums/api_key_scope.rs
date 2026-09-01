@@ -73,6 +73,36 @@ impl ApiKeyScope {
     pub fn from_str_opt(value: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|s| s.as_str() == value)
     }
+
+    /// The `Permission` a tenant member must hold on their own `Role` in
+    /// order to be allowed to mint a key carrying this scope.
+    ///
+    /// This is what makes `CreateApiKeyUseCase` enforce "an API key must
+    /// never have more power than its creator": every scope maps back to
+    /// the same coarse-grained permission that gates the equivalent
+    /// first-party action, so a role that can't perform an action itself
+    /// can't hand a key that grants it either. See P0/P1 "API Key
+    /// Authorization Parity" / "API Key Scope Escalation" in the 2026-09
+    /// security review.
+    ///
+    /// Deliberately exhaustive (no wildcard fallback) so that adding a
+    /// new `ApiKeyScope` variant without adding an arm here is a compile
+    /// error, not a silently-unguarded scope.
+    pub fn required_permission(&self) -> crate::shared::types::Permission {
+        use crate::shared::types::Permission;
+        match self {
+            Self::MonitorRead => Permission::ViewMonitor,
+            Self::MonitorWrite => Permission::UpdateMonitor,
+            Self::StatusPageRead => Permission::ViewMonitor,
+            Self::StatusPageWrite => Permission::UpdateMonitor,
+            Self::IncidentRead => Permission::ViewIncident,
+            Self::IncidentWrite => Permission::AcknowledgeIncident,
+            Self::NotificationRead => Permission::ViewMonitor,
+            Self::NotificationWrite => Permission::UpdateMonitor,
+            Self::ApiFlowRead => Permission::ViewMonitor,
+            Self::ApiFlowWrite => Permission::UpdateMonitor,
+        }
+    }
 }
 
 impl std::fmt::Display for ApiKeyScope {

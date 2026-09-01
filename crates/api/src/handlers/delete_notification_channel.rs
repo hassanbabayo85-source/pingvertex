@@ -32,7 +32,7 @@ pub async fn delete_notification_channel(
         .execute(DeleteNotificationChannel { id }, authenticated_user)
         .await
         .map_err(|err| {
-            ApiError::internal_with_source("failed to delete notification channel", err)
+            ApiError::forbidden_or_internal("failed to delete notification channel", err)
         })?;
 
     if deleted {

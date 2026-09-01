@@ -105,6 +105,25 @@ impl StatusPageRepository for InMemoryStatusPageRepository {
         Ok(self.status_pages.write().unwrap().remove(&id).is_some())
     }
 
+    async fn delete_for_tenant(
+        &self,
+        id: StatusPageId,
+        tenant_id: TenantId,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let mut status_pages = self.status_pages.write().unwrap();
+
+        let belongs_to_tenant = status_pages
+            .get(&id)
+            .map(|status_page| status_page.tenant_id == tenant_id)
+            .unwrap_or(false);
+
+        if belongs_to_tenant {
+            Ok(status_pages.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
+    }
+
     async fn find_all_for_tenant(
         &self,
         tenant_id: TenantId,

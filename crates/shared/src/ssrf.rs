@@ -318,25 +318,47 @@ impl std::fmt::Display for SsrfConfigError {
 
 impl std::error::Error for SsrfConfigError {}
 
-/// P0 hardening: refuse to boot if `PINGVERTEX_SSRF_ALLOW_PRIVATE=true`
-/// in production.
+/// P0 hardening: refuse to boot with `PINGVERTEX_SSRF_ALLOW_PRIVATE=true`
+/// unless `ENVIRONMENT` is explicitly set to a recognized non-production
+/// value.
 ///
-/// RATIONALE: allowing private/internal IPs in production gives any
-/// authenticated user with monitor/webhook creation rights a direct SSRF
-/// bridge to cloud metadata endpoints and internal services. It must be
-/// a boot-time failure, not a warning, because it's too dangerous to run
-/// by mistake.
+/// RATIONALE: allowing private/internal IPs gives any authenticated user
+/// with monitor/webhook creation rights a direct SSRF bridge to cloud
+/// metadata endpoints and internal services, so this must be a boot-time
+/// failure, not a warning.
+///
+/// FAIL-CLOSED, not fail-open: earlier this only refused to boot when
+/// `ENVIRONMENT == "production"` exactly, which meant an unset
+/// `ENVIRONMENT` (the default in every `docker-compose*.yml` in this
+/// repo — none of them set it) or any typo/variant ("prod", "Production",
+/// "staging") silently skipped the check entirely and let the server boot
+/// with private-IP SSRF enabled. This inverts the check to an explicit
+/// allowlist of known-safe non-production values instead: anything NOT
+/// on that list is treated as production for this guard's purposes,
+/// including an unset `ENVIRONMENT`.
 ///
 /// Error message deliberately does NOT include any secret values.
 pub fn validate_production_ssrf_config() -> Result<(), SsrfConfigError> {
-    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
-    let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
+    const SAFE_NON_PRODUCTION_ENVIRONMENTS: &[&str] = &["development", "dev", "test", "local"];
 
-    if environment == "production" && allow_private {
+    let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
+    if !allow_private {
+        return Ok(());
+    }
+
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_default();
+    let is_safe = SAFE_NON_PRODUCTION_ENVIRONMENTS
+        .iter()
+        .any(|safe| safe.eq_ignore_ascii_case(environment.trim()));
+
+    if !is_safe {
         return Err(SsrfConfigError {
-            message: "refusing to boot: PINGVERTEX_SSRF_ALLOW_PRIVATE=true is not allowed in \
-                      production because it enables SSRF access to private/internal IPs"
-                .to_string(),
+            message: format!(
+                "refusing to boot: PINGVERTEX_SSRF_ALLOW_PRIVATE=true is only allowed when \
+                 ENVIRONMENT is explicitly one of {SAFE_NON_PRODUCTION_ENVIRONMENTS:?} \
+                 (got {environment:?}); this enables SSRF access to private/internal IPs and \
+                 must never run in production"
+            ),
         });
     }
 
@@ -535,6 +557,70 @@ mod tests {
         }
 
         assert!(validate_production_ssrf_config().is_ok());
+
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+    }
+
+    #[test]
+    fn unset_environment_with_private_true_fails() {
+        // Regression test for the fail-open bug: an unset `ENVIRONMENT`
+        // (the default in every docker-compose*.yml here) must NOT
+        // silently allow private-IP SSRF. This is the scenario that
+        // slipped through the old `environment == "production"` check.
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
+        }
+
+        assert!(validate_production_ssrf_config().is_err());
+
+        unsafe {
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+    }
+
+    #[test]
+    fn unrecognized_environment_value_with_private_true_fails() {
+        // Regression test: a typo'd or non-listed ENVIRONMENT value
+        // (e.g. "prod", "staging", "Production") must fail closed too,
+        // not just the exact unset/"production" cases.
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for bad_value in ["prod", "staging", "Production", "PRODUCTION "] {
+            unsafe {
+                std::env::set_var("ENVIRONMENT", bad_value);
+                std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
+            }
+
+            assert!(
+                validate_production_ssrf_config().is_err(),
+                "expected ENVIRONMENT={bad_value:?} with ALLOW_PRIVATE=true to fail"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("ENVIRONMENT");
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+    }
+
+    #[test]
+    fn every_safe_environment_value_with_private_true_allows() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        for good_value in ["development", "dev", "test", "local", "DEV", "Test"] {
+            unsafe {
+                std::env::set_var("ENVIRONMENT", good_value);
+                std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
+            }
+
+            assert!(
+                validate_production_ssrf_config().is_ok(),
+                "expected ENVIRONMENT={good_value:?} with ALLOW_PRIVATE=true to succeed"
+            );
+        }
 
         unsafe {
             std::env::remove_var("ENVIRONMENT");

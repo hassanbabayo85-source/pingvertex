@@ -15,7 +15,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-rust_decimal = { version = "1.37", features = ["serde"] }
+rust_decimal = { version = "1.42.1", default-features = false, features = ["serde"] }
 
 totp-rs = { version = "5", features = ["otpauth", "gen_secret"] }
 base64 = "0.22"

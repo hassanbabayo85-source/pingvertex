@@ -34,10 +34,10 @@ impl RumVitals {
         if non_negative_ints.iter().flatten().any(|v| *v < 0) {
             return Err(DomainError::NegativeRumMetricValue);
         }
-        if let Some(cls) = self.cls {
-            if cls < 0.0 {
-                return Err(DomainError::NegativeRumMetricValue);
-            }
+        if let Some(cls) = self.cls
+            && cls < 0.0
+        {
+            return Err(DomainError::NegativeRumMetricValue);
         }
         Ok(())
     }

@@ -57,7 +57,7 @@ pub async fn update_api_flow(
             authenticated_user,
         )
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to update api flow", err))?
+        .map_err(|err| ApiError::forbidden_or_internal("failed to update api flow", err))?
         .ok_or_else(|| ApiError::not_found("api flow not found"))?;
 
     Ok(Json(ApiFlowHttpResponse::from(flow)))

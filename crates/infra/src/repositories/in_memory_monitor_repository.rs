@@ -126,6 +126,25 @@ impl MonitorRepository for InMemoryMonitorRepository {
         Ok(self.monitors.write().unwrap().remove(&id).is_some())
     }
 
+    async fn delete_for_tenant(
+        &self,
+        id: MonitorId,
+        tenant_id: TenantId,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let mut monitors = self.monitors.write().unwrap();
+
+        let belongs_to_tenant = monitors
+            .get(&id)
+            .map(|monitor| monitor.tenant_id == tenant_id)
+            .unwrap_or(false);
+
+        if belongs_to_tenant {
+            Ok(monitors.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
+    }
+
     async fn find_by_heartbeat_token(
         &self,
         token: &str,

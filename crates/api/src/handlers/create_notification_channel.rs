@@ -49,6 +49,9 @@ pub async fn create_notification_channel(
         )
         .await
         .map_err(|err| match err {
+            CreateNotificationChannelError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create notification channels")
+            }
             CreateNotificationChannelError::MonitorNotFound => {
                 ApiError::not_found("monitor not found")
             }

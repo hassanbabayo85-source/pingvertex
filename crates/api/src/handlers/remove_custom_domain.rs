@@ -31,7 +31,7 @@ pub async fn remove_custom_domain(
     let status_page = use_case
         .execute(command, authenticated_user)
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to remove custom domain", err))?
+        .map_err(|err| ApiError::forbidden_or_internal("failed to remove custom domain", err))?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;
 
     Ok(Json(StatusPageResponse::from(status_page)))

@@ -78,6 +78,10 @@ pub async fn check_monitor(
     let client = match Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: see the matching comment in worker::checker — without
+        // this, a configured HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env var on
+        // this agent host bypasses the `.resolve()` DNS pinning above.
+        .no_proxy()
         .build()
     {
         Ok(client) => client,

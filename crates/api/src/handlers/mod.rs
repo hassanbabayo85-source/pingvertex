@@ -43,6 +43,8 @@ pub mod list_notification_channels;
 pub mod list_status_pages;
 pub mod login;
 pub mod logout;
+pub mod oauth_apple;
+pub mod oauth_google;
 pub mod proxy_check_types;
 pub mod public_status_page;
 pub mod register;

@@ -308,6 +308,12 @@ async fn execute_step(
     let pinned_client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: see the matching comment in `checker.rs` —
+        // without `.no_proxy()`, a configured HTTP_PROXY/HTTPS_PROXY/
+        // ALL_PROXY env var bypasses the `.resolve()` DNS pinning above,
+        // reopening the SSRF/DNS-rebinding hole the destination
+        // validation exists to close.
+        .no_proxy()
         .build()
     {
         Ok(c) => c,

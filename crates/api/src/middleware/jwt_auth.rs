@@ -7,6 +7,7 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 
+use domain::UserStatus;
 use domain::shared::types::{AuthenticatedUser, TenantContext};
 use uuid::Uuid;
 
@@ -40,6 +41,30 @@ pub async fn jwt_auth(
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let user_id = verified.user_id;
+
+    // SECURITY (P0 — fixed): reload the user's CURRENT account status on
+    // every authenticated request. Without this, a JWT issued before an
+    // account was suspended or soft-deleted stayed valid until it
+    // naturally expired (up to 24h), regardless of any subsequent
+    // administrator action or incident-response decision. Suspension
+    // and deletion are authorization events and must take effect
+    // immediately — not "the next time the user happens to log in
+    // again". This check runs BEFORE `AuthenticatedUser` is
+    // constructed, so a non-active account never even reaches a
+    // handler.
+    let user = auth
+        .user_repository
+        .find_by_id(&user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // PendingVerification is treated as authorized, matching
+    // LoginUserUseCase — email verification gates specific actions, not
+    // basic authenticated access. Only Suspended/Deleted revoke access.
+    if matches!(user.status(), UserStatus::Suspended | UserStatus::Deleted) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let invalidated_at = auth
         .pending_auth_cache

@@ -81,6 +81,17 @@ pub trait NotificationChannelRepository: Send + Sync {
         unimplemented!()
     }
 
+    /// SECURITY (P0): tenant-scoped delete — deletes only if the
+    /// channel belongs to `tenant_id`. Prefer this over `delete` for
+    /// anything reachable from an authenticated HTTP request.
+    async fn delete_for_tenant(
+        &self,
+        _id: NotificationChannelId,
+        _tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<bool> {
+        unimplemented!()
+    }
+
     /// Lists every channel configured for `monitor_id`, with no
     /// ownership check. Safe to use once the caller has already verified
     /// `monitor_id` belongs to their tenant (e.g. via
@@ -144,6 +155,14 @@ where
 
     async fn delete(&self, id: NotificationChannelId) -> RepoResult<bool> {
         (**self).delete(id).await
+    }
+
+    async fn delete_for_tenant(
+        &self,
+        id: NotificationChannelId,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<bool> {
+        (**self).delete_for_tenant(id, tenant_id).await
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {

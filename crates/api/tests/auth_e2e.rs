@@ -445,6 +445,51 @@ async fn e2e_logout_clears_cookie_and_then_401() {
 }
 
 #[tokio::test]
+async fn e2e_logout_revokes_copied_bearer_token() {
+    let (addr, _ctx) = spawn_test_server().await;
+    let base = format!("http://{}", addr);
+    let client = client_with_cookies();
+
+    let (username, email) = unique_user();
+    let register = post_json(
+        &client,
+        &format!("{}/api/v1/auth/register", base),
+        register_payload(&username, &email, STRONG_PASSWORD),
+    )
+    .await;
+    assert_eq!(register.status(), reqwest::StatusCode::CREATED);
+
+    let set_cookie = register
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let token = set_cookie
+        .strip_prefix("access_token=")
+        .and_then(|value| value.split(';').next())
+        .expect("registration must return an access token cookie")
+        .to_owned();
+
+    let logout = client
+        .post(format!("{}/api/v1/auth/logout", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), reqwest::StatusCode::OK);
+
+    // The attacker does not depend on the browser cookie jar. A copied JWT
+    // presented as a bearer token must be rejected after logout.
+    let resp = client
+        .get(format!("{}/api/v1/auth/me", base))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn e2e_revoked_session_is_rejected() {
     let (addr, ctx) = spawn_test_server().await;
     let base = format!("http://{}", addr);

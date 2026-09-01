@@ -8,7 +8,7 @@ use crate::{
     ports::{AuditLogEntryRepository, StatusPageRepository},
 };
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, entities::StatusPage};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -41,6 +41,8 @@ where
         command: RemoveCustomDomain,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<StatusPage>> {
+        authenticated_user.require(Permission::UpdateTenantSettings)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

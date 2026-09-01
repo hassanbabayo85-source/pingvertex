@@ -1,0 +1,19 @@
+rcgen #mkcert #ca #certificate
+Rust X.509 certificate generator
+version: 0.14.10
+license: MIT OR Apache-2.0
+rust-version: 1.88
+documentation: https://docs.rs/rcgen
+repository: https://github.com/rustls/rcgen
+crates.io: https://crates.io/crates/rcgen/0.14.10
+features:
+ +default            = [crypto, pem, ring]
+  crypto             = []
+  pem                = [dep:pem]
+  ring               = [crypto, dep:ring, x509-parser?/verify]
+  aws_lc_rs          = [crypto, dep:aws-lc-rs, aws-lc-rs/aws-lc-sys, x509-parser?/verify-aws]
+  aws_lc_rs_unstable = [aws_lc_rs]
+  fips               = [crypto, dep:aws-lc-rs, aws-lc-rs/fips]
+  x509-parser        = [dep:x509-parser]
+  zeroize            = [dep:zeroize]
+note: to see how you depend on rcgen, run `cargo tree --invert rcgen@0.14.10`

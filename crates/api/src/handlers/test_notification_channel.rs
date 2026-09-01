@@ -49,6 +49,9 @@ pub async fn test_notification_channel(
         .execute(id, authenticated_user)
         .await
         .map_err(|err| match err {
+            SendTestNotificationError::Forbidden => {
+                ApiError::forbidden("you do not have permission to send test notifications")
+            }
             SendTestNotificationError::ChannelNotFound => {
                 ApiError::not_found("notification channel not found")
             }

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use application::ports::TenantMembershipRepository;
+use application::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
@@ -162,5 +162,93 @@ impl TenantMembershipRepository for PostgresTenantMembershipRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn remove_member_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> RepoResult<LastOwnerGuardOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        // Lock EVERY membership row for this tenant for the duration of
+        // the transaction. This serializes concurrent calls to
+        // `remove_member_if_not_last_owner` / `update_role_if_not_last_owner`
+        // against each other (they all take the same row locks), which is
+        // exactly what closes the last-owner race: a second concurrent
+        // caller blocks here until the first transaction commits or rolls
+        // back, and then re-reads the post-commit state.
+        let rows = sqlx::query_as::<_, TenantMembershipRow>(
+            "SELECT tenant_id, user_id, role, invited_at, joined_at \
+             FROM tenant_memberships WHERE tenant_id = $1 FOR UPDATE",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let Some(target) = rows.iter().find(|r| r.user_id == user_id.0) else {
+            return Ok(LastOwnerGuardOutcome::NotFound);
+        };
+
+        if target.role == "Owner" {
+            let owner_count = rows.iter().filter(|r| r.role == "Owner").count();
+            if owner_count <= 1 {
+                return Ok(LastOwnerGuardOutcome::WouldRemoveLastOwner);
+            }
+        }
+
+        sqlx::query("DELETE FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2")
+            .bind(tenant_id.0)
+            .bind(user_id.0)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(LastOwnerGuardOutcome::Applied)
+    }
+
+    async fn update_role_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        new_role: Role,
+    ) -> RepoResult<LastOwnerGuardOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        // Same row-locking strategy as `remove_member_if_not_last_owner`
+        // — see comment there. Locking here matters just as much: a
+        // self-demotion (`update_role`) racing a peer Owner's
+        // self-demotion is the exact scenario that previously allowed a
+        // tenant to end up with zero Owners.
+        let rows = sqlx::query_as::<_, TenantMembershipRow>(
+            "SELECT tenant_id, user_id, role, invited_at, joined_at \
+             FROM tenant_memberships WHERE tenant_id = $1 FOR UPDATE",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let Some(target) = rows.iter().find(|r| r.user_id == user_id.0) else {
+            return Ok(LastOwnerGuardOutcome::NotFound);
+        };
+
+        if target.role == "Owner" && new_role != Role::Owner {
+            let owner_count = rows.iter().filter(|r| r.role == "Owner").count();
+            if owner_count <= 1 {
+                return Ok(LastOwnerGuardOutcome::WouldRemoveLastOwner);
+            }
+        }
+
+        sqlx::query(
+            "UPDATE tenant_memberships SET role = $3 WHERE tenant_id = $1 AND user_id = $2",
+        )
+        .bind(tenant_id.0)
+        .bind(user_id.0)
+        .bind(role_to_db(&new_role))
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(LastOwnerGuardOutcome::Applied)
     }
 }

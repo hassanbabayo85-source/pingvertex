@@ -3,7 +3,7 @@ use std::error::Error;
 use domain::entities::{SupportMessage, SupportTicket};
 use domain::shared::ids::SupportTicketId;
 use domain::shared::policies::AuthorizationPolicy;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 
 use crate::ports::SupportTicketRepository;
 
@@ -27,6 +27,10 @@ where
         id: SupportTicketId,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<(SupportTicket, Vec<SupportMessage>)>> {
+        if !authenticated_user.can(Permission::ViewSupportTickets) {
+            return Ok(None);
+        }
+
         let ticket = match self.repository.find_ticket(id).await? {
             Some(ticket) => ticket,
             None => return Ok(None),

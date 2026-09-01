@@ -1,6 +1,9 @@
 use std::{error::Error, sync::Arc};
 
-use domain::{entities::ApiKey, shared::types::AuthenticatedUser};
+use domain::{
+    entities::ApiKey,
+    shared::types::{AuthenticatedUser, Permission},
+};
 
 use crate::ports::ApiKeyRepository;
 
@@ -28,6 +31,10 @@ impl ListApiKeysUseCase {
         &self,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Vec<ApiKey>> {
+        // Security: API keys are privileged tenant credentials.
+        // Only roles carrying ManageApiKeys may enumerate them.
+        authenticated_user.require(Permission::ManageApiKeys)?;
+
         let tenant_id = authenticated_user.tenant_context().tenant_id();
         self.api_key_repository.list_by_tenant(tenant_id).await
     }

@@ -168,6 +168,15 @@ async fn check_http_real(monitor: &Monitor) -> HttpCheckOutcome {
     let pinned_client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: without this, reqwest honors HTTP_PROXY/HTTPS_PROXY/
+        // ALL_PROXY from the process environment and hands the request's
+        // destination host+port to that proxy verbatim — bypassing the
+        // `.resolve()` DNS pinning above entirely, since the proxy (not
+        // this process) does its own DNS resolution. That reopens the
+        // exact SSRF/DNS-rebinding hole `resolve_and_validate_destination`
+        // exists to close: a monitor target could resolve to a public IP
+        // at validation time and a private one at proxy-connect time.
+        .no_proxy()
         .build()
     {
         Ok(client) => client,

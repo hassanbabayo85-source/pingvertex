@@ -8,7 +8,7 @@ use application::ports::MaintenanceWindowRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::MaintenanceWindow;
-use domain::shared::ids::{MaintenanceWindowId, MonitorId};
+use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -56,12 +56,23 @@ impl MaintenanceWindowRepository for InMemoryMaintenanceWindowRepository {
         Ok(windows)
     }
 
-    async fn find_by_id(&self, id: MaintenanceWindowId) -> RepoResult<Option<MaintenanceWindow>> {
-        Ok(self.windows.read().unwrap().get(&id).cloned())
-    }
+    async fn delete_for_tenant(
+        &self,
+        id: MaintenanceWindowId,
+        tenant_id: TenantId,
+    ) -> RepoResult<bool> {
+        let mut windows = self.windows.write().unwrap();
 
-    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool> {
-        Ok(self.windows.write().unwrap().remove(&id).is_some())
+        let belongs_to_tenant = windows
+            .get(&id)
+            .map(|window| window.tenant_id == tenant_id)
+            .unwrap_or(false);
+
+        if belongs_to_tenant {
+            Ok(windows.remove(&id).is_some())
+        } else {
+            Ok(false)
+        }
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {

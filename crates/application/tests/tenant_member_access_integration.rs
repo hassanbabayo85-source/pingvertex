@@ -16,7 +16,9 @@ use application::{
         DeleteMonitorUseCase, DeleteNotificationChannelUseCase, DeleteStatusPageUseCase,
         GetMonitorUseCase, ListNotificationChannelsUseCase, ListStatusPagesUseCase,
         RequestCustomDomainUseCase, SendTestNotificationUseCase, UpdateMonitorUseCase,
-        UpdateStatusPageUseCase,
+        UpdateStatusPageUseCase, request_custom_domain::RequestCustomDomainError,
+        send_test_notification::SendTestNotificationError,
+        update_status_page::UpdateStatusPageError,
     },
 };
 use async_trait::async_trait;
@@ -25,7 +27,7 @@ use domain::{
     enums::{HttpMethod, MonitorKind, NotificationChannelKind},
     notification::NotificationEvent,
     shared::ids::{TenantId, UserId},
-    shared::types::{AuthenticatedUser, Role, TenantContext},
+    shared::types::{AuthenticatedUser, PermissionDenied, Role, TenantContext},
 };
 use infra::{
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository, InMemoryStatusPageRepository,
@@ -33,6 +35,11 @@ use infra::{
 };
 use uuid::Uuid;
 
+/// `Role::Member` is intentionally read-only tenant-wide (see `role.rs`).
+/// Per-resource ACLs that would let an Admin grant a specific Member
+/// read+write on a *specific* monitor are a planned follow-up (the
+/// "755/600"-style grants) and don't exist yet — until then, Member means
+/// read-only, full stop, even for resources in the member's own tenant.
 fn auth_member(user_id: UserId, tenant_id: TenantId) -> AuthenticatedUser {
     AuthenticatedUser::new(
         user_id,
@@ -95,8 +102,18 @@ impl NotificationService for StubNotificationService {
     }
 }
 
+/// Asserts `err` is (or wraps) `PermissionDenied` — the shape every
+/// `UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>` use case
+/// returns when `AuthenticatedUser::require(...)` fails.
+fn assert_permission_denied(err: &(dyn std::error::Error + Send + Sync + 'static)) {
+    assert!(
+        err.downcast_ref::<PermissionDenied>().is_some(),
+        "expected PermissionDenied, got: {err}"
+    );
+}
+
 #[tokio::test]
-async fn member_can_read_update_and_delete_monitor_in_same_tenant() {
+async fn member_can_read_but_not_write_monitor_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());
@@ -113,7 +130,7 @@ async fn member_can_read_update_and_delete_monitor_in_same_tenant() {
         .await
         .unwrap();
 
-    // Bob na iya ganin monitor din Alice
+    // Bob (Member) can VIEW Alice's monitor — Member keeps ViewMonitor.
     let get_use_case = GetMonitorUseCase::new(monitor_repo.clone());
     let fetched = get_use_case
         .execute(GetMonitor { id: monitor.id }, auth_member(bob_id, tid))
@@ -121,9 +138,9 @@ async fn member_can_read_update_and_delete_monitor_in_same_tenant() {
         .unwrap();
     assert_eq!(fetched.unwrap().id, monitor.id);
 
-    // Bob na iya gyara monitor din Alice
+    // Bob (Member) CANNOT update Alice's monitor — Member is read-only.
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
-    let updated = update_use_case
+    let update_err = update_use_case
         .execute(
             UpdateMonitor {
                 id: monitor.id,
@@ -147,16 +164,31 @@ async fn member_can_read_update_and_delete_monitor_in_same_tenant() {
             auth_member(bob_id, tid),
         )
         .await
-        .unwrap();
-    assert_eq!(updated.unwrap().name.as_str(), "Bob Updated");
+        .unwrap_err();
+    assert_permission_denied(&*update_err);
 
-    // Bob na iya share monitor din Alice
+    // Confirm the monitor was NOT actually changed by the rejected update.
+    let still_original = get_use_case
+        .execute(GetMonitor { id: monitor.id }, auth_owner(alice_id, tid))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still_original.name.as_str(), "Alice Monitor");
+
+    // Bob (Member) CANNOT delete Alice's monitor either.
     let delete_use_case = DeleteMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
-    let deleted = delete_use_case
+    let delete_err = delete_use_case
         .execute(DeleteMonitor { id: monitor.id }, auth_member(bob_id, tid))
         .await
+        .unwrap_err();
+    assert_permission_denied(&*delete_err);
+
+    // Still there afterwards.
+    let still_exists = get_use_case
+        .execute(GetMonitor { id: monitor.id }, auth_owner(alice_id, tid))
+        .await
         .unwrap();
-    assert!(deleted);
+    assert!(still_exists.is_some());
 }
 
 #[tokio::test]
@@ -189,7 +221,9 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
         .unwrap();
     assert!(fetched.is_none());
 
-    // Outsider ba zai iya gyara ba
+    // Outsider ba zai iya gyara ba — even though this outsider is an Owner
+    // (so has UpdateMonitor), tenant isolation still blocks cross-tenant
+    // access and returns None, same as before this permission patch.
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
     let updated = update_use_case
         .execute(
@@ -231,7 +265,7 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
 }
 
 #[tokio::test]
-async fn member_can_access_status_pages_and_custom_domain_in_same_tenant() {
+async fn member_can_read_but_not_write_status_pages_or_custom_domain_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());
@@ -267,7 +301,7 @@ async fn member_can_access_status_pages_and_custom_domain_in_same_tenant() {
         .await
         .unwrap();
 
-    // Bob na iya lissafa status pages
+    // Bob (Member) can LIST status pages — read access is unaffected.
     let list_use_case = ListStatusPagesUseCase::new(status_page_repo.clone());
     let pages = list_use_case
         .execute(auth_member(bob_id, tid))
@@ -275,13 +309,13 @@ async fn member_can_access_status_pages_and_custom_domain_in_same_tenant() {
         .unwrap();
     assert_eq!(pages.len(), 1);
 
-    // Bob na iya gyara status page
+    // Bob (Member) CANNOT update the status page.
     let update_use_case = UpdateStatusPageUseCase::new(
         status_page_repo.clone(),
         monitor_repo.clone(),
         new_audit_repo(),
     );
-    let updated_page = update_use_case
+    let update_err = update_use_case
         .execute(
             UpdateStatusPage {
                 id: status_page.id,
@@ -293,14 +327,13 @@ async fn member_can_access_status_pages_and_custom_domain_in_same_tenant() {
             auth_member(bob_id, tid),
         )
         .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(updated_page.name, "Bob Updated Status");
+        .unwrap_err();
+    assert!(matches!(update_err, UpdateStatusPageError::Forbidden));
 
-    // Bob na iya buƙatar custom domain
+    // Bob (Member) CANNOT request a custom domain.
     let request_domain_use_case =
         RequestCustomDomainUseCase::new(status_page_repo.clone(), new_audit_repo());
-    let page_with_domain = request_domain_use_case
+    let domain_err = request_domain_use_case
         .execute(
             RequestCustomDomain {
                 id: status_page.id,
@@ -309,21 +342,35 @@ async fn member_can_access_status_pages_and_custom_domain_in_same_tenant() {
             auth_member(bob_id, tid),
         )
         .await
-        .unwrap()
-        .unwrap();
-    assert!(page_with_domain.custom_domain.is_some());
+        .unwrap_err();
+    assert!(matches!(domain_err, RequestCustomDomainError::Forbidden));
 
-    // Bob na iya share status page
-    let delete_use_case = DeleteStatusPageUseCase::new(status_page_repo.clone(), new_audit_repo());
-    let deleted = delete_use_case
-        .execute(status_page.id, auth_member(bob_id, tid))
+    // Confirm nothing actually changed under Bob's rejected requests.
+    let unchanged = list_use_case
+        .execute(auth_owner(alice_id, tid))
         .await
         .unwrap();
-    assert!(deleted);
+    assert_eq!(unchanged[0].name, "Alice Status");
+    assert!(unchanged[0].custom_domain.is_none());
+
+    // Bob (Member) CANNOT delete the status page.
+    let delete_use_case = DeleteStatusPageUseCase::new(status_page_repo.clone(), new_audit_repo());
+    let delete_err = delete_use_case
+        .execute(status_page.id, auth_member(bob_id, tid))
+        .await
+        .unwrap_err();
+    assert_permission_denied(&*delete_err);
+
+    // Still there afterwards.
+    let still_there = list_use_case
+        .execute(auth_owner(alice_id, tid))
+        .await
+        .unwrap();
+    assert_eq!(still_there.len(), 1);
 }
 
 #[tokio::test]
-async fn member_can_access_notification_channels_in_same_tenant() {
+async fn member_can_read_but_not_write_notification_channels_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());
@@ -361,7 +408,8 @@ async fn member_can_access_notification_channels_in_same_tenant() {
         .await
         .unwrap();
 
-    // Bob na iya lissafa notification channels
+    // Bob (Member) can LIST notification channels — read access is
+    // unaffected.
     let list_use_case = ListNotificationChannelsUseCase::new(
         Arc::new(monitor_repo.clone()),
         Arc::new(notification_repo.clone()),
@@ -372,26 +420,83 @@ async fn member_can_access_notification_channels_in_same_tenant() {
         .unwrap();
     assert_eq!(channels.len(), 1);
 
-    // Bob na iya aika test notification
+    // Bob (Member) CANNOT send a test notification.
     let send_test_use_case = SendTestNotificationUseCase::new(
         Arc::new(notification_repo.clone()),
         Arc::new(monitor_repo.clone()),
         Arc::new(StubNotificationService),
     );
-    send_test_use_case
+    let send_err = send_test_use_case
         .execute(channel.id, auth_member(bob_id, tid))
         .await
-        .unwrap();
+        .unwrap_err();
+    assert!(matches!(send_err, SendTestNotificationError::Forbidden));
 
-    // Bob na iya share notification channel
+    // Bob (Member) CANNOT delete the notification channel.
     let delete_use_case =
         DeleteNotificationChannelUseCase::new(notification_repo.clone(), new_audit_repo());
-    let deleted = delete_use_case
+    let delete_err = delete_use_case
         .execute(
             DeleteNotificationChannel { id: channel.id },
             auth_member(bob_id, tid),
         )
         .await
+        .unwrap_err();
+    assert_permission_denied(&*delete_err);
+
+    // Still there afterwards.
+    let still_there = list_use_case
+        .execute(monitor.id, auth_owner(alice_id, tid))
+        .await
         .unwrap();
-    assert!(deleted);
+    assert_eq!(still_there.len(), 1);
+}
+
+/// Owner (and, by the same `Role::permissions()` table, Admin) retains
+/// full write access within their own tenant — this patch only tightens
+/// `Member`/`Viewer`/`Auditor`, it doesn't touch what privileged roles can
+/// already do.
+#[tokio::test]
+async fn owner_can_still_write_monitor_in_own_tenant() {
+    let tid = tenant_id();
+    let alice_id = UserId(Uuid::new_v4());
+
+    let monitor_repo = InMemoryMonitorRepository::new();
+    let create_monitor = CreateMonitorUseCase::new(
+        monitor_repo.clone(),
+        UuidIdGenerator::new(),
+        new_audit_repo(),
+    );
+    let monitor = create_monitor
+        .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
+        .await
+        .unwrap();
+
+    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
+    let updated = update_use_case
+        .execute(
+            UpdateMonitor {
+                id: monitor.id,
+                name: "Alice Updated".to_string(),
+                url: "https://example.com".to_string(),
+                method: HttpMethod::Get,
+                expected_status: 200,
+                interval_seconds: 60,
+                timeout_seconds: 30,
+                assertions: vec![],
+                is_public: false,
+                ssl_check_enabled: false,
+                ssl_expiry_warning_days: 30,
+                kind: MonitorKind::Http,
+                tcp_port: None,
+                dns_record_type: None,
+                dns_expected_value: None,
+                heartbeat_interval_seconds: None,
+                heartbeat_grace_period_seconds: None,
+            },
+            auth_owner(alice_id, tid),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.unwrap().name.as_str(), "Alice Updated");
 }

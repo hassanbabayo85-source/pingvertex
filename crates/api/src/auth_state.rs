@@ -11,10 +11,11 @@ use domain::{
 
 use application::ports::{
     BackupCodeRepository, EmailVerificationMailer, EmailVerificationTokenRepository,
-    PasswordHasher, PasswordResetMailer, PasswordResetMailerResult, PendingAuthCache,
-    PendingAuthCacheResult, RateLimiter, RateLimiterResult, RegistrationTransaction,
-    ResetPasswordTokenRepository, SecretCipher, SecretCipherError, TenantInvitationRepository,
-    TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
+    IdTokenVerifier, PasswordHasher, PasswordResetMailer, PasswordResetMailerResult,
+    PendingAuthCache, PendingAuthCacheResult, RateLimiter, RateLimiterResult,
+    RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher, SecretCipherError,
+    TenantInvitationRepository, TenantMembershipRepository, TenantRepository, TokenService,
+    UserRepository,
 };
 use infra::UuidIdGenerator;
 
@@ -36,6 +37,24 @@ impl PendingAuthCache for NoopPendingAuthCache {
     }
     async fn delete(&self, _key: &str) -> PendingAuthCacheResult<()> {
         Ok(())
+    }
+}
+
+/// Default OAuth id_token verifier until a real one (e.g.
+/// `infra::OidcIdTokenVerifier` or `infra::DisabledIdTokenVerifier`) is
+/// wired via `AuthState::with_oauth`. Never accepts a token — a missing
+/// verifier must fail closed, not silently authenticate anyone.
+#[derive(Clone, Default)]
+struct NoopIdTokenVerifier;
+
+#[async_trait]
+impl IdTokenVerifier for NoopIdTokenVerifier {
+    async fn verify(
+        &self,
+        _id_token: &str,
+    ) -> Result<application::ports::VerifiedIdentity, Box<dyn std::error::Error + Send + Sync>>
+    {
+        Err("OAuth sign-in is not configured on this AuthState".into())
     }
 }
 
@@ -282,6 +301,9 @@ pub struct AuthState {
     pub password_reset_mailer: Arc<dyn PasswordResetMailer>,
     /// B9 — Tenant invitations:
     pub invitation_repository: Arc<dyn TenantInvitationRepository>,
+    /// OAuth — Continue with Google / Apple:
+    pub google_id_token_verifier: Arc<dyn IdTokenVerifier>,
+    pub apple_id_token_verifier: Arc<dyn IdTokenVerifier>,
 }
 
 impl AuthState {
@@ -319,6 +341,8 @@ impl AuthState {
             reset_password_token_repository: Arc::new(NoopResetPasswordTokenRepository),
             password_reset_mailer: Arc::new(NoopPasswordResetMailer),
             invitation_repository: Arc::new(NoopTenantInvitationRepository),
+            google_id_token_verifier: Arc::new(NoopIdTokenVerifier),
+            apple_id_token_verifier: Arc::new(NoopIdTokenVerifier),
         }
     }
 
@@ -372,6 +396,23 @@ impl AuthState {
         IR: TenantInvitationRepository + 'static,
     {
         self.invitation_repository = Arc::new(invitation_repository);
+        self
+    }
+
+    /// Wires the Google and Apple `id_token` verifiers used by
+    /// `POST /auth/oauth/google` and `POST /auth/oauth/apple`. Pass
+    /// `infra::DisabledIdTokenVerifier` for a provider that isn't
+    /// configured in this deployment (see `main.rs`) rather than
+    /// omitting the call — that keeps the failure mode explicit
+    /// ("Google sign-in is not configured") instead of falling back to
+    /// the default `NoopIdTokenVerifier`'s generic message.
+    pub fn with_oauth<G, A>(mut self, google_verifier: G, apple_verifier: A) -> Self
+    where
+        G: IdTokenVerifier + 'static,
+        A: IdTokenVerifier + 'static,
+    {
+        self.google_id_token_verifier = Arc::new(google_verifier);
+        self.apple_id_token_verifier = Arc::new(apple_verifier);
         self
     }
 }

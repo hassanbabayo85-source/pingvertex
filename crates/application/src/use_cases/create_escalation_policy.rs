@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, EscalationPolicy};
 use serde_json::json;
 
@@ -17,6 +17,7 @@ use crate::{
 /// Error returned by `CreateEscalationPolicyUseCase`.
 #[derive(Debug)]
 pub enum CreateEscalationPolicyError {
+    Forbidden,
     MonitorNotFound,
     ChannelNotFound,
     InvalidSteps(String),
@@ -26,6 +27,10 @@ pub enum CreateEscalationPolicyError {
 impl fmt::Display for CreateEscalationPolicyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create escalation policies"
+            ),
             Self::MonitorNotFound => write!(f, "monitor not found or access denied"),
             Self::ChannelNotFound => write!(f, "notification channel not found or access denied"),
             Self::InvalidSteps(msg) => write!(f, "{msg}"),
@@ -66,6 +71,10 @@ impl CreateEscalationPolicyUseCase {
         command: CreateEscalationPolicy,
         authenticated_user: AuthenticatedUser,
     ) -> Result<EscalationPolicy, CreateEscalationPolicyError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateEscalationPolicyError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

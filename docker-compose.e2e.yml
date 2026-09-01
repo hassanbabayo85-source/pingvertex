@@ -45,5 +45,11 @@ services:
       SMTP_FROM_NAME: PingVertex E2E
       SMTP_STARTTLS: "false"
       SMTP_ALLOW_EMPTY_CREDENTIALS: "true"
+      # ENVIRONMENT must be explicitly set here: `validate_production_ssrf_config`
+      # now fails closed (refuses to boot) when PINGVERTEX_SSRF_ALLOW_PRIVATE=true
+      # unless ENVIRONMENT is explicitly "development"/"dev"/"test"/"local" —
+      # an unset ENVIRONMENT is no longer treated as safe. This is a real,
+      # intentional test-only value, not the account role "Member"/etc.
+      ENVIRONMENT: "test"
       PINGVERTEX_SSRF_ALLOW_PRIVATE: "true"
       METRICS_TOKEN: e2e-worker-metrics-token

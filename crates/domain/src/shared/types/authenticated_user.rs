@@ -60,4 +60,40 @@ impl AuthenticatedUser {
     pub fn can(&self, permission: Permission) -> bool {
         self.role.has_permission(permission)
     }
+
+    /// Enforces that this actor holds `permission`, returning
+    /// [`PermissionDenied`] if not.
+    ///
+    /// Use-cases that perform a write or otherwise privileged action MUST
+    /// call this (or check `can(...)` directly) before doing any work.
+    /// `jwt_auth` only proves *who* the caller is (authentication); it does
+    /// not know which permission a given route requires, so authorization
+    /// has to happen here, in the use case / application layer.
+    pub fn require(&self, permission: Permission) -> Result<(), PermissionDenied> {
+        if self.can(permission) {
+            Ok(())
+        } else {
+            Err(PermissionDenied { permission })
+        }
+    }
 }
+
+/// Returned by [`AuthenticatedUser::require`] when the actor's role does not
+/// grant the requested [`Permission`]. Callers should map this to an HTTP
+/// 403, never a 500 — see `ApiError::forbidden`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PermissionDenied {
+    pub permission: Permission,
+}
+
+impl std::fmt::Display for PermissionDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "forbidden: your role does not have the {:?} permission",
+            self.permission
+        )
+    }
+}
+
+impl std::error::Error for PermissionDenied {}

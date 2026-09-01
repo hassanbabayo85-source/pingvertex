@@ -8,7 +8,7 @@ use crate::{
     ports::{AuditLogEntryRepository, StatusPageRepository},
 };
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AuditAction, AuditLogEntry, AuditLogEntryId, CustomDomain, entities::StatusPage};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -18,6 +18,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// `CreateStatusPageError` for status page creation).
 #[derive(Debug)]
 pub enum RequestCustomDomainError {
+    Forbidden,
     /// The requested domain is already `Verified` on a DIFFERENT status
     /// page. Deliberately does NOT block a `Pending` claim by another
     /// tenant on the same domain string — see the SECURITY/rationale
@@ -36,6 +37,10 @@ pub enum RequestCustomDomainError {
 impl fmt::Display for RequestCustomDomainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to manage custom domains"
+            ),
             Self::AlreadyClaimed { domain } => write!(
                 f,
                 "custom domain \"{domain}\" is already verified for another status page"
@@ -48,6 +53,7 @@ impl fmt::Display for RequestCustomDomainError {
 impl Error for RequestCustomDomainError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::AlreadyClaimed { .. } => None,
             Self::Other(err) => Some(err.as_ref()),
         }
@@ -78,6 +84,10 @@ where
         command: RequestCustomDomain,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Option<StatusPage>, RequestCustomDomainError> {
+        if !authenticated_user.can(Permission::UpdateTenantSettings) {
+            return Err(RequestCustomDomainError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

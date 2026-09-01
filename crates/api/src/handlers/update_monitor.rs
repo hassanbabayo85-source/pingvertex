@@ -54,6 +54,13 @@ pub async fn update_monitor(
         .execute(command, authenticated_user)
         .await
         .map_err(|err| {
+            if err
+                .downcast_ref::<domain::shared::types::PermissionDenied>()
+                .is_some()
+            {
+                return ApiError::forbidden(err.to_string());
+            }
+
             let msg = err.to_string();
             let is_validation_error = msg.contains("invalid")
                 || msg.contains("cannot")

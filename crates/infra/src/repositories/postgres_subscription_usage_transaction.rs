@@ -66,10 +66,20 @@ impl SubscriptionUsageTransaction for PostgresSubscriptionUsageTransaction {
         .await?;
 
         // 3. Update the subscription's current usage snapshot.
-        sqlx::query(
+        //
+        // SECURITY (defense-in-depth): `subscription` is always the row
+        // `UpdateSubscriptionUsageUseCase` loaded via
+        // `find_by_tenant_id(caller's own tenant_id)`, so `subscription.id`
+        // cannot currently be attacker-controlled across tenants. The
+        // `AND tenant_id = $7` predicate is a second, independent guard at
+        // the SQL layer, and `rows_affected() == 0` is treated as a hard
+        // error rather than a silent no-op so a tenant mismatch can never
+        // pass as success.
+        let result = sqlx::query(
             "UPDATE subscriptions SET \
              monitors = $2, interval_seconds = $3, retention_days = $4, pricing_version = $5, updated_at = $6 \
-             WHERE id = $1",
+             WHERE id = $1 \
+               AND tenant_id = $7",
         )
         .bind(subscription.id.0)
         .bind(subscription.monitors.map(|m| m as i64))
@@ -77,8 +87,13 @@ impl SubscriptionUsageTransaction for PostgresSubscriptionUsageTransaction {
         .bind(subscription.retention_days.map(|r| r as i32))
         .bind(subscription.pricing_version.map(|v| v as i32))
         .bind(subscription.updated_at)
+        .bind(subscription.tenant_id.0)
         .execute(&mut *tx)
         .await?;
+
+        if result.rows_affected() == 0 {
+            return Err("subscription usage update affected no rows (id/tenant mismatch)".into());
+        }
 
         tx.commit().await?;
 

@@ -16,13 +16,13 @@ pub use repositories::*;
 pub use s3_config::{S3Config, S3ConfigError};
 pub use services::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, Claims, DisabledEmailNotificationService,
-    DisabledEmailVerificationMailer, DisabledPasswordResetMailer, DiscordNotificationService,
-    HickoryCustomDomainVerifier, InMemoryLogoStorage, JsonWebTokenService, NoopNotificationService,
-    NotificationDispatcher, ProxyCredentialEncryptionKeyError, RedisPendingAuthCache,
-    RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SlackNotificationService,
-    SmsNotificationService, SmtpEmailNotificationService, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, TelegramNotificationService, UuidIdGenerator,
-    WebhookNotificationService,
+    DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
+    DiscordNotificationService, HickoryCustomDomainVerifier, InMemoryLogoStorage,
+    JsonWebTokenService, NoopNotificationService, NotificationDispatcher, OidcIdTokenVerifier,
+    ProxyCredentialEncryptionKeyError, RedisPendingAuthCache, RedisRateLimiter,
+    RedisStatusPageCache, S3LogoStorage, SlackNotificationService, SmsNotificationService,
+    SmtpEmailNotificationService, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
+    TelegramNotificationService, UuidIdGenerator, WebhookNotificationService,
 };
 pub use twilio_config::{TwilioConfig, TwilioConfigError};
 pub use twilio_pricing::TwilioPricingService;

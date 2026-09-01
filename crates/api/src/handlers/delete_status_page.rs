@@ -27,7 +27,7 @@ pub async fn delete_status_page(
     let deleted = use_case
         .execute(status_page_id, authenticated_user)
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to delete status page", err))?;
+        .map_err(|err| ApiError::forbidden_or_internal("failed to delete status page", err))?;
 
     if deleted {
         // B34: see the matching comment in `update_status_page` — this

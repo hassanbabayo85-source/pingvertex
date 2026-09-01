@@ -15,7 +15,7 @@ use application::use_cases::{
     RumDashboardQueriesUseCase,
 };
 use domain::RumSite;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -96,7 +96,7 @@ impl RumLimitQuery {
         .resolve()?;
 
         let limit = self.limit.unwrap_or(DEFAULT_LIMIT);
-        if limit < 1 || limit > MAX_LIMIT {
+        if !(1..=MAX_LIMIT).contains(&limit) {
             return Err(ApiError::bad_request(format!(
                 "`limit` must be between 1 and {MAX_LIMIT}"
             )));
@@ -142,6 +142,21 @@ pub async fn create_rum_site(
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(body): Json<CreateRumSiteBody>,
 ) -> Result<(StatusCode, Json<RumSiteResponse>), ApiError> {
+    // NOTE: `CreateRumSiteUseCase::execute` takes `TenantId` directly, not
+    // `AuthenticatedUser`, so — unlike every other write use case in this
+    // codebase — the permission check has to live here at the handler
+    // layer instead of inside the use case. That's the exact pattern the
+    // rest of this audit fix moved away from, because it means a second
+    // caller of `CreateRumSiteUseCase` (a future internal job, a different
+    // handler) would silently miss this check. Consider changing the use
+    // case to accept `AuthenticatedUser` and call `.require(...)`
+    // internally, matching `CreateMonitorUseCase` et al.
+    if !authenticated_user.can(Permission::CreateMonitor) {
+        return Err(ApiError::forbidden(
+            "you do not have permission to create RUM sites",
+        ));
+    }
+
     let use_case = CreateRumSiteUseCase::new(state.rum_site_repository.clone());
 
     let site = use_case
