@@ -7,7 +7,7 @@ use crate::ports::{AuditLogEntryRepository, MonitorRepository};
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -41,6 +41,8 @@ where
         command: SetMonitorEnabledCommand,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<domain::Monitor>> {
+        authenticated_user.require(Permission::PauseMonitor)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

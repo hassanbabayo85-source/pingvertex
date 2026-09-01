@@ -4,7 +4,7 @@ use chrono::Utc;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 use serde_json::json;
 
@@ -44,6 +44,8 @@ where
         command: DeleteNotificationChannel,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<bool> {
+        authenticated_user.require(Permission::DeleteMonitor)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
@@ -59,7 +61,10 @@ where
             return Ok(false);
         }
 
-        let deleted = self.repository.delete(command.id).await?;
+        let deleted = self
+            .repository
+            .delete_for_tenant(command.id, tenant_id)
+            .await?;
 
         if deleted {
             let entry = AuditLogEntry {

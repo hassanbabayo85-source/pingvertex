@@ -137,9 +137,28 @@ impl UserRepository for NoopUserRepository {
     }
     async fn find_by_id(
         &self,
-        _: &domain::UserId,
+        id: &domain::UserId,
     ) -> Result<Option<User>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(None)
+        // jwt_auth middleware reloads the user on every request to check
+        // `status` (P0 fix: suspended/deleted accounts must lose access
+        // immediately). This stub hands back an Active user for whichever
+        // id the middleware asks about.
+        let now = chrono::Utc::now();
+        let user = domain::UserBuilder::new()
+            .id(*id)
+            .username(
+                domain::Username::new(format!("u{}", &id.0.simple().to_string()[..8])).unwrap(),
+            )
+            .email(domain::Email::new(format!("user-{}@example.test", id.0.simple())).unwrap())
+            .password_hash(domain::PasswordHash::new("test-hash-not-checked").unwrap())
+            .role(domain::UserRole::User)
+            .status(domain::UserStatus::Active)
+            .email_verified_at(Some(now))
+            .created_at(now)
+            .updated_at(now)
+            .build()
+            .unwrap();
+        Ok(Some(user))
     }
     async fn find_by_email(
         &self,

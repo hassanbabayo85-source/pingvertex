@@ -146,6 +146,13 @@ async fn send_once(
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: see the matching comment in `worker::checker` — without
+        // this, a configured HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env var
+        // bypasses the `.resolve()` DNS pinning above, which matters even
+        // more here than for monitor checks: this destination URL is
+        // fully user-supplied (a customer's webhook endpoint), not just
+        // re-validated against an existing monitor target.
+        .no_proxy()
         .timeout(WEBHOOK_TIMEOUT)
         .build()?;
 

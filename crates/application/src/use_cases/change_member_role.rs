@@ -5,7 +5,7 @@ use domain::shared::{
     types::{AuthenticatedUser, Permission, Role},
 };
 
-use crate::ports::TenantMembershipRepository;
+use crate::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
 
 use super::membership_common::MembershipError;
 
@@ -67,29 +67,26 @@ impl ChangeMemberRoleUseCase {
             return Err(MembershipError::Forbidden);
         }
 
-        // Last-owner guard for self-demotion
-        if actor.user_id() == command.user_id
-            && target.role == Role::Owner
-            && command.new_role != Role::Owner
-        {
-            let owners = self
-                .tenant_membership_repository
-                .list_by_tenant(tenant_id)
-                .await
-                .map_err(MembershipError::Other)?
-                .into_iter()
-                .filter(|m| m.role == Role::Owner)
-                .count();
-            if owners <= 1 {
-                return Err(MembershipError::InvalidOperation(
-                    "cannot demote the last Owner".to_string(),
-                ));
-            }
-        }
-
-        self.tenant_membership_repository
-            .update_role(tenant_id, command.user_id, command.new_role)
+        // The last-Owner guard applies whenever an Owner is being moved
+        // to a non-Owner role — not only on self-demotion. (An Owner
+        // demoting a *peer* Owner is just as capable of leaving the
+        // tenant ownerless as self-demotion is, once two such calls race
+        // each other.) The check and the write happen atomically in the
+        // repository (row-locked transaction for Postgres, single mutex
+        // critical section in-memory), which is what actually closes the
+        // race: two concurrent calls can no longer both observe
+        // "owners > 1" and both proceed.
+        match self
+            .tenant_membership_repository
+            .update_role_if_not_last_owner(tenant_id, command.user_id, command.new_role)
             .await
-            .map_err(MembershipError::Other)
+            .map_err(MembershipError::Other)?
+        {
+            LastOwnerGuardOutcome::Applied => Ok(()),
+            LastOwnerGuardOutcome::NotFound => Err(MembershipError::NotFound),
+            LastOwnerGuardOutcome::WouldRemoveLastOwner => Err(MembershipError::InvalidOperation(
+                "cannot demote the last Owner".to_string(),
+            )),
+        }
     }
 }

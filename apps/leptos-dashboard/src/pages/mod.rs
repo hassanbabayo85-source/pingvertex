@@ -1,0 +1,12 @@
+pub mod dashboard_overview;
+pub mod forgot_password;
+pub mod login;
+pub mod logout;
+pub mod monitor_detail;
+pub mod monitor_form;
+pub mod monitors;
+pub mod not_found;
+pub mod register;
+pub mod reset_password;
+pub mod rum_dashboard;
+pub mod status;

@@ -52,6 +52,10 @@ pub mod reset_password_request;
 pub use forgot_password_request::ForgotPasswordRequest;
 pub use reset_password_request::ResetPasswordRequest;
 
+// OAuth — Continue with Google / Apple:
+pub mod oauth_login_request;
+pub use oauth_login_request::OAuthLoginRequest;
+
 // H6 — Dashboard Overview Aggregated Backend API:
 pub mod dashboard_overview;
 pub use dashboard_overview::{

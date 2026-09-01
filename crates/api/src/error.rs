@@ -90,6 +90,26 @@ impl ApiError {
         Self::Internal(context.to_string())
     }
 
+    /// Maps a use-case error to `403 Forbidden` when it is (or wraps) a
+    /// [`domain::shared::types::PermissionDenied`], otherwise falls back to
+    /// [`ApiError::internal_with_source`].
+    ///
+    /// Use cases enforce authorization by calling `AuthenticatedUser::require`,
+    /// which returns `PermissionDenied` on a boxed `dyn Error`. Handlers must
+    /// route that through here (or an equivalent explicit check) rather than
+    /// letting it fall into a generic 500 — a permission failure is a client
+    /// error, and treating it as an opaque internal error also makes such
+    /// bypasses harder to notice in logs/monitoring.
+    pub fn forbidden_or_internal(
+        context: &str,
+        err: Box<dyn std::error::Error + Send + Sync>,
+    ) -> Self {
+        if let Some(denied) = err.downcast_ref::<domain::shared::types::PermissionDenied>() {
+            return Self::forbidden(denied.to_string());
+        }
+        Self::internal_with_source(context, err)
+    }
+
     fn status_code(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,

@@ -10,19 +10,20 @@ use api::{
     state::{AppState, NoopLogoStorage, NoopStatusPageCache},
 };
 use application::ports::{
-    EmailVerificationMailer, PasswordResetMailer, PaymentProvider, StatusPageCache,
+    EmailVerificationMailer, IdTokenVerifier, PasswordResetMailer, PaymentProvider, StatusPageCache,
 };
 use axum_server::tls_rustls::RustlsAcceptor;
 use axum_server_mtls::MtlsAcceptor;
 use infra::services::MaxMindGeoIpLookup;
 use infra::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
-    DisabledEmailVerificationMailer, DisabledPasswordResetMailer, FakeBillingProvider,
-    HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    PostgresAddOnSubscriptionRepository, PostgresAgentLeaseRepository, PostgresApiFlowRepository,
-    PostgresApiKeyRepository, PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
-    PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
-    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
+    DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
+    FakeBillingProvider, HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
+    OidcIdTokenVerifier, PostgresAddOnSubscriptionRepository, PostgresAgentLeaseRepository,
+    PostgresApiFlowRepository, PostgresApiKeyRepository, PostgresAuditLogEntryRepository,
+    PostgresBackupCodeRepository, PostgresBillingAuditLogRepository,
+    PostgresBillingWebhookIdempotencyRepository, PostgresCheckRepository,
+    PostgresCheckoutSessionRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
     PostgresHelpCategoryRepository, PostgresIncidentRepository,
@@ -61,6 +62,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_metrics();
 
     let config = Config::from_env();
+
+    // Session invalidation (logout/password changes) and TOTP's pending
+    // authentication state are security-sensitive. In production they must
+    // have a real shared cache; the test/development no-op implementation
+    // would otherwise make revocation silently ineffective.
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_default();
+    if matches!(
+        environment.to_ascii_lowercase().as_str(),
+        "production" | "prod"
+    ) && config.redis_url.is_none()
+    {
+        return Err(
+            "REDIS_URL must be configured in production for session invalidation and TOTP".into(),
+        );
+    }
 
     let pool = create_pool(&config.database_url).await?;
 
@@ -253,6 +269,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let invitation_repository = PostgresTenantInvitationRepository::new(pool.clone());
 
+    // OAuth — Continue with Google / Apple. Both are optional: a
+    // deployment that only wants email/password auth doesn't need to
+    // set these. Same "fail loud, not silently disabled" shape as the
+    // SMTP mailers above — a missing client ID yields a
+    // `DisabledIdTokenVerifier` that clearly refuses every request
+    // instead of pretending to work.
+    let google_id_token_verifier: Arc<dyn IdTokenVerifier> = match std::env::var("GOOGLE_CLIENT_ID")
+    {
+        Ok(client_id) if !client_id.trim().is_empty() => {
+            Arc::new(OidcIdTokenVerifier::google(client_id))
+        }
+        _ => {
+            tracing::warn!("GOOGLE_CLIENT_ID not set; Google sign-in will be disabled");
+            Arc::new(DisabledIdTokenVerifier::new("Google"))
+        }
+    };
+
+    let apple_id_token_verifier: Arc<dyn IdTokenVerifier> = match std::env::var("APPLE_CLIENT_ID") {
+        Ok(client_id) if !client_id.trim().is_empty() => {
+            Arc::new(OidcIdTokenVerifier::apple(client_id))
+        }
+        _ => {
+            tracing::warn!("APPLE_CLIENT_ID not set; Apple sign-in will be disabled");
+            Arc::new(DisabledIdTokenVerifier::new("Apple"))
+        }
+    };
+
     let auth_state = AuthState::new(
         PostgresUserRepository::new(pool.clone()),
         Argon2PasswordHasher,
@@ -273,7 +316,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         email_verification_mailer,
     )
     .with_password_reset(reset_password_token_repository, password_reset_mailer)
-    .with_invitation_repository(invitation_repository);
+    .with_invitation_repository(invitation_repository)
+    .with_oauth(google_id_token_verifier, apple_id_token_verifier);
 
     let plain_app = build_router(app_state.clone(), auth_state);
     let internal_agent_app = build_internal_agent_router(app_state);

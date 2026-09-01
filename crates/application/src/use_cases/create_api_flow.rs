@@ -11,7 +11,7 @@ use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, ExtractSource,
     entities::{ApiFlow, ApiFlowStep, Assertion},
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
     value_objects::{FlowStepName, VariableExtraction},
 };
 
@@ -25,6 +25,7 @@ pub enum CreateApiFlowError {
     /// mapping this to an HTTP response returns 404 either way — a 403
     /// would confirm to an attacker that the monitor_id exists but
     /// belongs to someone else.
+    Forbidden,
     MonitorNotFound,
     FlowAlreadyExists,
     Other(Box<dyn Error + Send + Sync>),
@@ -33,6 +34,10 @@ pub enum CreateApiFlowError {
 impl fmt::Display for CreateApiFlowError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create api flows"
+            ),
             Self::MonitorNotFound => write!(f, "monitor not found"),
             Self::FlowAlreadyExists => write!(f, "an api flow already exists for this monitor"),
             Self::Other(err) => write!(f, "{err}"),
@@ -43,6 +48,7 @@ impl fmt::Display for CreateApiFlowError {
 impl Error for CreateApiFlowError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Forbidden => None,
             Self::MonitorNotFound => None,
             Self::FlowAlreadyExists => None,
             Self::Other(err) => Some(err.as_ref()),
@@ -82,6 +88,10 @@ where
         request: CreateApiFlowRequest,
         authenticated_user: AuthenticatedUser,
     ) -> Result<ApiFlow, CreateApiFlowError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateApiFlowError::Forbidden);
+        }
+
         // Authorization: the monitor must exist and belong to the
         // actor's tenant. This is enforced HERE, in the use case, not
         // left to the HTTP handler layer — a use case must not depend on

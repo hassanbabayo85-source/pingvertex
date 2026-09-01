@@ -47,6 +47,9 @@ pub async fn create_status_page(
         .execute(request, authenticated_user)
         .await
         .map_err(|err| match err {
+            CreateStatusPageError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create status pages")
+            }
             CreateStatusPageError::QuotaExceeded { .. }
             | CreateStatusPageError::SubdomainTaken { .. } => ApiError::conflict(err.to_string()),
             CreateStatusPageError::MonitorNotFound { .. } => ApiError::not_found(err.to_string()),

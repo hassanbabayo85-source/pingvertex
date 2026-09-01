@@ -27,7 +27,7 @@ pub async fn delete_monitor(
     let deleted = use_case
         .execute(DeleteMonitor { id }, authenticated_user)
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to delete monitor", err))?;
+        .map_err(|err| ApiError::forbidden_or_internal("failed to delete monitor", err))?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)

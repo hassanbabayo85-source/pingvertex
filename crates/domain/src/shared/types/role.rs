@@ -27,6 +27,9 @@ impl Role {
                 ChangeOwnPassword,
                 ViewMonitor,
                 ViewIncident,
+                ViewSupportTickets,
+                CreateSupportTicket,
+                ReplySupportTicket,
             ],
             Role::Admin => &[
                 ViewOwnProfile,
@@ -44,6 +47,10 @@ impl Role {
                 UpdateTenantSettings,
                 ManageUsers,
                 ManageApiKeys,
+                ViewSupportTickets,
+                CreateSupportTicket,
+                ReplySupportTicket,
+                ManageSupportTicketStatus,
             ],
             Role::Owner => &[
                 ViewOwnProfile,
@@ -62,14 +69,24 @@ impl Role {
                 ManageUsers,
                 ManageApiKeys,
                 ManageBilling,
+                ViewSupportTickets,
+                CreateSupportTicket,
+                ReplySupportTicket,
+                ManageSupportTicketStatus,
             ],
             Role::Auditor => &[
                 ViewOwnProfile,
                 ViewMonitor,
                 ViewIncident,
                 ViewTenantSettings,
+                ViewSupportTickets,
             ],
-            Role::Viewer => &[ViewOwnProfile, ViewMonitor, ViewIncident],
+            Role::Viewer => &[
+                ViewOwnProfile,
+                ViewMonitor,
+                ViewIncident,
+                ViewSupportTickets,
+            ],
         }
     }
 

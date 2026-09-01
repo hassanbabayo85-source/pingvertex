@@ -54,6 +54,9 @@ pub async fn create_escalation_policy(
         )
         .await
         .map_err(|err| match err {
+            CreateEscalationPolicyError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create escalation policies")
+            }
             CreateEscalationPolicyError::MonitorNotFound => {
                 ApiError::not_found("monitor not found")
             }

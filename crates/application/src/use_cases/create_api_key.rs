@@ -4,6 +4,7 @@ use chrono::Utc;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
     entities::{ApiKey, CreateApiKey as CreateApiKeyEntity},
+    enums::ApiKeyScope,
     shared::types::{AuthenticatedUser, Permission},
 };
 use serde_json::json;
@@ -34,6 +35,14 @@ pub enum CreateApiKeyError {
     /// guarantee entirely. See the 2026-08-20 security review of
     /// Feature 10.
     Forbidden,
+    /// One or more requested scopes grant more than the caller's own
+    /// `Role` permits (e.g. a `Role::Member` — which lacks
+    /// `ManageApiKeys` and so can't even reach this far — or, more
+    /// realistically, an `Admin` requesting a scope this codebase later
+    /// gates behind an Owner-only permission). Kept distinct from
+    /// `Forbidden` so the caller gets an actionable message naming the
+    /// offending scope rather than a generic "not allowed".
+    ScopeExceedsPermissions(ApiKeyScope),
     EmptyName,
     NameTooLong,
     EmptyScopes,
@@ -47,6 +56,10 @@ impl fmt::Display for CreateApiKeyError {
             Self::Forbidden => write!(
                 f,
                 "you do not have permission to create api keys for this tenant"
+            ),
+            Self::ScopeExceedsPermissions(scope) => write!(
+                f,
+                "requested scope '{scope}' exceeds your own role's permissions"
             ),
             Self::EmptyName => write!(f, "api key name cannot be empty"),
             Self::NameTooLong => write!(
@@ -128,6 +141,18 @@ impl CreateApiKeyUseCase {
         // their request otherwise is.
         if !authenticated_user.can(Permission::ManageApiKeys) {
             return Err(CreateApiKeyError::Forbidden);
+        }
+
+        // Defense in depth for "an API key must never have more power
+        // than its creator": even though every scope that exists today
+        // maps to a permission already implied by `ManageApiKeys`
+        // (Admin/Owner), this check is what keeps that true automatically
+        // as new, more powerful scopes are added later — see
+        // `ApiKeyScope::required_permission`.
+        for scope in &command.scopes {
+            if !authenticated_user.can(scope.required_permission()) {
+                return Err(CreateApiKeyError::ScopeExceedsPermissions(*scope));
+            }
         }
 
         let name = command.name.trim();

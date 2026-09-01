@@ -48,7 +48,9 @@ pub async fn create_api_key(
         )
         .await
         .map_err(|err| match err {
-            CreateApiKeyError::Forbidden => ApiError::forbidden(err.to_string()),
+            CreateApiKeyError::Forbidden | CreateApiKeyError::ScopeExceedsPermissions(_) => {
+                ApiError::forbidden(err.to_string())
+            }
             CreateApiKeyError::EmptyName
             | CreateApiKeyError::NameTooLong
             | CreateApiKeyError::EmptyScopes

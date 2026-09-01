@@ -93,6 +93,13 @@ pub async fn acknowledge_incident_via_api_key(
         )
         .await
         .map_err(|err| match err {
+            // `execute_for_tenant` never constructs `Forbidden` — that
+            // check only runs in `execute`'s `AuthenticatedUser` wrapper,
+            // which this API-key-authenticated path doesn't call. Kept
+            // here only because the match must be exhaustive.
+            AcknowledgeIncidentError::Forbidden => {
+                ApiError::internal("unexpected authorization error")
+            }
             AcknowledgeIncidentError::NotFound => ApiError::not_found("incident not found"),
             AcknowledgeIncidentError::AlreadyResolved => {
                 ApiError::bad_request("incident is already resolved")

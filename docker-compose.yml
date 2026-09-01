@@ -1,11 +1,20 @@
 services:
+  # ⚠️  DEVELOPMENT/LOCAL USE ONLY. The `POSTGRES_PASSWORD`/
+  # `GF_SECURITY_ADMIN_PASSWORD` defaults below (`postgres`/`admin`) are
+  # intentionally weak, predictable dev credentials and MUST NOT reach
+  # production. `docker-compose.prod.yml` overrides both to fail closed
+  # (`${VAR:?must be set}`) if unset — always deploy with:
+  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+  # Never run `docker compose up` with only this base file against a
+  # production/internet-reachable host. See `.env.example` for the
+  # variables to set for local development.
   postgres:
     image: postgres:16.6
     container_name: uptime-monitor-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: uptime_monitor
     ports:
       - "127.0.0.1:5433:5432"
@@ -24,7 +33,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
     volumes:
       - .:/app
     command: >
@@ -51,7 +60,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
       RUST_LOG: info
     ports:
       - "127.0.0.1:3000:3000"
@@ -71,7 +80,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
       RUST_LOG: info
       METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
     ports:
@@ -103,7 +112,7 @@ services:
       - prometheus
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
     ports:
       - "127.0.0.1:3002:3000"
 

@@ -1,0 +1,68 @@
+[package]
+name = "infra"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+application = { path = "../application" }
+domain = { path = "../domain" }
+shared = { path = "../shared" }
+
+async-trait.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+rust_decimal = { version = "1.42.1", features = ["serde"] }
+
+jsonwebtoken = "9"
+argon2 = "0.5"
+password-hash = "0.5"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "rust_decimal",
+    "macros"
+] }
+
+# --- Notification adapters ---
+lettre = { version = "0.11.23", default-features = false, features = [
+    "tokio1-rustls-tls",
+    "smtp-transport",
+    "builder",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "json",
+    "gzip",
+    "brotli",
+    "zstd",
+] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+hickory-resolver = "0.26.1"
+redis = { version = "1.5.0", features = ["tokio-comp", "connection-manager"] }
+rust-s3 = { version = "0.37.2", default-features = false, features = ["tokio-rustls-tls"] }
+aes-gcm = { version = "0.10", features = ["zeroize"] }
+
+# RUM (Real User Monitoring): reuses the SAME GeoIP database/library
+# already used by crates/agent for check-region country codes, rather
+# than introducing a second geo-IP mechanism. See
+# crates/agent/src/checker.rs's `lookup_country_code` — this is the same
+# function, ported here.
+maxminddb = "0.30.0"
+
+[dev-dependencies]
+serial_test = "3.1"

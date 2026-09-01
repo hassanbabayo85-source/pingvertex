@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
-use application::ports::TenantMembershipRepository;
+use application::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::TenantMembership;
@@ -123,5 +123,60 @@ impl TenantMembershipRepository for InMemoryTenantMembershipRepository {
             .unwrap()
             .remove(&(tenant_id, user_id));
         Ok(())
+    }
+
+    async fn remove_member_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+    ) -> Result<LastOwnerGuardOutcome, Box<dyn Error + Send + Sync>> {
+        // A single `std::sync::Mutex` guard held across the check-then-act
+        // below makes this atomic with respect to any other call on this
+        // repository instance — no `.await` happens while the lock is
+        // held, so no other task can interleave.
+        let mut map = self.memberships.lock().unwrap();
+        let Some(target) = map.get(&(tenant_id, user_id)) else {
+            return Ok(LastOwnerGuardOutcome::NotFound);
+        };
+
+        if target.role == Role::Owner {
+            let owner_count = map
+                .values()
+                .filter(|m| m.tenant_id == tenant_id && m.role == Role::Owner)
+                .count();
+            if owner_count <= 1 {
+                return Ok(LastOwnerGuardOutcome::WouldRemoveLastOwner);
+            }
+        }
+
+        map.remove(&(tenant_id, user_id));
+        Ok(LastOwnerGuardOutcome::Applied)
+    }
+
+    async fn update_role_if_not_last_owner(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        new_role: Role,
+    ) -> Result<LastOwnerGuardOutcome, Box<dyn Error + Send + Sync>> {
+        let mut map = self.memberships.lock().unwrap();
+        let Some(target) = map.get(&(tenant_id, user_id)) else {
+            return Ok(LastOwnerGuardOutcome::NotFound);
+        };
+
+        if target.role == Role::Owner && new_role != Role::Owner {
+            let owner_count = map
+                .values()
+                .filter(|m| m.tenant_id == tenant_id && m.role == Role::Owner)
+                .count();
+            if owner_count <= 1 {
+                return Ok(LastOwnerGuardOutcome::WouldRemoveLastOwner);
+            }
+        }
+
+        if let Some(membership) = map.get_mut(&(tenant_id, user_id)) {
+            membership.role = new_role;
+        }
+        Ok(LastOwnerGuardOutcome::Applied)
     }
 }

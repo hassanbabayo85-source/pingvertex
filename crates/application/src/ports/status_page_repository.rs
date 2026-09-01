@@ -41,6 +41,13 @@ pub trait StatusPageRepository: Send + Sync {
         unimplemented!()
     }
 
+    /// SECURITY (P0): tenant-scoped delete — deletes only if the
+    /// status page belongs to `tenant_id`. Prefer this over `delete`
+    /// for anything reachable from an authenticated HTTP request.
+    async fn delete_for_tenant(&self, _id: StatusPageId, _tenant_id: TenantId) -> RepoResult<bool> {
+        unimplemented!()
+    }
+
     /// Tenant-scoped equivalent of `find_all_for_user`. Returns every
     /// status page belonging to `tenant_id`, regardless of which member
     /// of the tenant created it.
@@ -132,6 +139,10 @@ where
 
     async fn delete(&self, id: StatusPageId) -> RepoResult<bool> {
         (**self).delete(id).await
+    }
+
+    async fn delete_for_tenant(&self, id: StatusPageId, tenant_id: TenantId) -> RepoResult<bool> {
+        (**self).delete_for_tenant(id, tenant_id).await
     }
 
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {

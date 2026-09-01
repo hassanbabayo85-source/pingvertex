@@ -30,4 +30,17 @@ pub enum Permission {
 
     // Audit log actions
     ViewAuditLog,
+
+    // Support ticket actions
+    //
+    // Split into four permissions (view / create / reply / manage-status)
+    // rather than folded into `ManageUsers` because a tenant's read-only
+    // roles (`Auditor`, `Viewer`) should still be able to see the
+    // tenant's support conversations without being able to write to
+    // them, and status changes are a step further still — see the
+    // 2026-09 security review: P1 "Support Ticket Authorization".
+    ViewSupportTickets,
+    CreateSupportTicket,
+    ReplySupportTicket,
+    ManageSupportTicketStatus,
 }

@@ -2,3 +2,10 @@ target
 .git
 .github
 *.log
+# Security/source backups and generated aggregates must never enter build context
+.architecture-security-backup-*
+.security-patch-backup-*
+.dependency-security-backup-*
+overview.xml
+*.cdx.json
+.metrics_token

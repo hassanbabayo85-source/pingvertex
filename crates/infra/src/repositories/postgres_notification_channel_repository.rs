@@ -238,6 +238,21 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn delete_for_tenant(
+        &self,
+        id: NotificationChannelId,
+        tenant_id: TenantId,
+    ) -> RepoResult<bool> {
+        let result =
+            sqlx::query("DELETE FROM notification_channels WHERE id = $1 AND tenant_id = $2")
+                .bind(id.0)
+                .bind(tenant_id.0)
+                .execute(&self.pool)
+                .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Lists every channel for a monitor with NO ownership filtering. Safe
     /// once the caller has verified `monitor_id` belongs to their tenant.
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {

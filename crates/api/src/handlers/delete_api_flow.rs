@@ -53,7 +53,7 @@ pub async fn delete_api_flow(
             authenticated_user,
         )
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to delete api flow", err))?;
+        .map_err(|err| ApiError::forbidden_or_internal("failed to delete api flow", err))?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)

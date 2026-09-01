@@ -9,6 +9,7 @@ members = [
     "crates/worker",
     "crates/agent",
     "crates/shared",
+    "apps/leptos-dashboard",
 ]
 
 [workspace.package]
@@ -21,7 +22,7 @@ description = "PingVertex - Modern uptime monitoring platform."
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 async-trait = "0.1"

@@ -41,6 +41,9 @@ pub async fn request_custom_domain(
         .execute(command, authenticated_user)
         .await
         .map_err(|err| match err {
+            RequestCustomDomainError::Forbidden => {
+                ApiError::forbidden("you do not have permission to manage custom domains")
+            }
             RequestCustomDomainError::AlreadyClaimed { .. } => ApiError::conflict(err.to_string()),
             RequestCustomDomainError::Other(inner) => {
                 ApiError::internal_with_source("failed to request custom domain", inner)

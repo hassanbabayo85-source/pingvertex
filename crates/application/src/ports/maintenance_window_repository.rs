@@ -4,7 +4,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use domain::MaintenanceWindow;
-use domain::shared::ids::{MaintenanceWindowId, MonitorId};
+use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -20,18 +20,17 @@ pub trait MaintenanceWindowRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<MaintenanceWindow>>;
 
-    /// Fetches a single maintenance window with NO ownership filtering.
-    /// For callers that authorize the result themselves against the
-    /// caller's tenant (e.g. via `AuthorizationPolicy::same_tenant`)
-    /// instead of the single-owner `find_by_id_for_user` check.
-    async fn find_by_id(&self, _id: MaintenanceWindowId) -> RepoResult<Option<MaintenanceWindow>> {
-        unimplemented!()
-    }
-
-    /// Deletes a maintenance window by id with NO ownership filtering.
-    /// Callers must authorize the deletion themselves before calling
-    /// this (see `find_by_id` above).
-    async fn delete(&self, _id: MaintenanceWindowId) -> RepoResult<bool> {
+    /// SECURITY (hardening): deletes only when the window belongs to
+    /// `tenant_id`, enforced at the SQL layer. There is no HTTP endpoint
+    /// wired to maintenance-window deletion yet; keeping the repository
+    /// operation tenant-scoped prevents a future endpoint from gaining an
+    /// unscoped delete primitive by accident.
+    #[allow(unused_variables)]
+    async fn delete_for_tenant(
+        &self,
+        id: MaintenanceWindowId,
+        tenant_id: TenantId,
+    ) -> RepoResult<bool> {
         unimplemented!()
     }
 
@@ -66,12 +65,12 @@ where
         (**self).list_active_by_monitor(monitor_id, now).await
     }
 
-    async fn find_by_id(&self, id: MaintenanceWindowId) -> RepoResult<Option<MaintenanceWindow>> {
-        (**self).find_by_id(id).await
-    }
-
-    async fn delete(&self, id: MaintenanceWindowId) -> RepoResult<bool> {
-        (**self).delete(id).await
+    async fn delete_for_tenant(
+        &self,
+        id: MaintenanceWindowId,
+        tenant_id: TenantId,
+    ) -> RepoResult<bool> {
+        (**self).delete_for_tenant(id, tenant_id).await
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {

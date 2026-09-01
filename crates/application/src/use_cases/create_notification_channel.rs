@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
     entities::{CreateEmailChannel, CreateWebhookChannel, NotificationChannel},
@@ -26,6 +26,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug)]
 pub enum CreateNotificationChannelError {
+    Forbidden,
     MonitorNotFound,
     InvalidTarget(String),
     Other(Box<dyn Error + Send + Sync>),
@@ -34,6 +35,10 @@ pub enum CreateNotificationChannelError {
 impl fmt::Display for CreateNotificationChannelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to create notification channels"
+            ),
             Self::MonitorNotFound => write!(f, "monitor not found or access denied"),
             Self::InvalidTarget(msg) => write!(f, "{msg}"),
             Self::Other(err) => write!(f, "{err}"),
@@ -73,6 +78,10 @@ impl CreateNotificationChannelUseCase {
         command: CreateNotificationChannel,
         authenticated_user: AuthenticatedUser,
     ) -> Result<NotificationChannel, CreateNotificationChannelError> {
+        if !authenticated_user.can(Permission::CreateMonitor) {
+            return Err(CreateNotificationChannelError::Forbidden);
+        }
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

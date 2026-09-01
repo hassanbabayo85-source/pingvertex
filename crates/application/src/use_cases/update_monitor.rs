@@ -14,7 +14,7 @@ use domain::{
     MonitorKind, MonitorName, Timeout, Url,
     entities::Assertion,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -55,6 +55,8 @@ where
         command: UpdateMonitor,
         authenticated_user: AuthenticatedUser,
     ) -> UseCaseResult<Option<Monitor>> {
+        authenticated_user.require(Permission::UpdateMonitor)?;
+
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 

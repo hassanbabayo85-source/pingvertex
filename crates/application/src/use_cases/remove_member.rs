@@ -5,7 +5,7 @@ use domain::shared::{
     types::{AuthenticatedUser, Permission, Role},
 };
 
-use crate::ports::TenantMembershipRepository;
+use crate::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
 
 use super::membership_common::MembershipError;
 
@@ -66,26 +66,22 @@ impl RemoveMemberUseCase {
             }
         }
 
-        // Guard against removing the last Owner.
-        if target.role == Role::Owner {
-            let owners = self
-                .tenant_membership_repository
-                .list_by_tenant(tenant_id)
-                .await
-                .map_err(MembershipError::Other)?
-                .into_iter()
-                .filter(|m| m.role == Role::Owner)
-                .count();
-            if owners <= 1 {
-                return Err(MembershipError::InvalidOperation(
-                    "cannot remove the last Owner".to_string(),
-                ));
-            }
-        }
-
-        self.tenant_membership_repository
-            .delete(tenant_id, target_user_id)
+        // Removal + the last-Owner guard happen atomically in the
+        // repository (row-locked transaction for Postgres, single mutex
+        // critical section in-memory) so that two concurrent removals of
+        // two different Owners can't both observe "owners > 1" and both
+        // proceed, which would leave the tenant with zero Owners.
+        match self
+            .tenant_membership_repository
+            .remove_member_if_not_last_owner(tenant_id, target_user_id)
             .await
-            .map_err(MembershipError::Other)
+            .map_err(MembershipError::Other)?
+        {
+            LastOwnerGuardOutcome::Applied => Ok(()),
+            LastOwnerGuardOutcome::NotFound => Err(MembershipError::NotFound),
+            LastOwnerGuardOutcome::WouldRemoveLastOwner => Err(MembershipError::InvalidOperation(
+                "cannot remove the last Owner".to_string(),
+            )),
+        }
     }
 }

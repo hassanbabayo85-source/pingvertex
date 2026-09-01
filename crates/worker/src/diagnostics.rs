@@ -340,6 +340,10 @@ async fn probe_http(
     let pinned_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: see the matching comment in `checker.rs` — without
+        // this, a configured HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env var
+        // bypasses the `.resolve()` DNS pinning above.
+        .no_proxy()
         .build()?;
 
     let response = pinned_client

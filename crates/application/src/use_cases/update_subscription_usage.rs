@@ -1,7 +1,8 @@
 use std::{error::Error, fmt, sync::Arc};
 
 use chrono::Utc;
-use domain::entities::SubscriptionUsagePeriod;
+use domain::entities::{Plan, SubscriptionUsagePeriod};
+use domain::enums::PlanTier;
 use domain::shared::ids::TenantId;
 
 use crate::ports::{
@@ -9,11 +10,30 @@ use crate::ports::{
     SubscriptionUsageTransaction,
 };
 
-/// Command for H12 — Proration Service: a tenant changes monitors,
-/// interval, and/or retention mid-billing-cycle.
+/// Command for H12 — Proration Service: recomputes a tenant's usage
+/// snapshot mid-billing-cycle.
+///
+/// SECURITY (P0): this command intentionally carries NO plan tier or
+/// usage numbers. `monitors`/`interval_seconds`/`retention_days` are
+/// always derived, inside `execute`, from the tenant's OWN
+/// `Subscription::plan_tier` as already stored — never from caller
+/// input. A previous version of this command accepted
+/// monitors/interval_seconds/retention_days/plan_tier directly from the
+/// HTTP request, which let a caller holding `ManageBilling` overwrite
+/// their tenant's billing usage with arbitrary (e.g. cheaper) values,
+/// independent of what they actually pay for.
 #[derive(Debug, Clone)]
 pub struct UpdateSubscriptionUsageCommand {
     pub tenant_id: TenantId,
+    pub pricing_version: u32,
+}
+
+/// Result of a successful `UpdateSubscriptionUsageUseCase::execute` —
+/// the usage values that were actually applied, all derived from the
+/// subscription's own plan tier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateSubscriptionUsageOutcome {
+    pub plan_tier: PlanTier,
     pub monitors: u64,
     pub interval_seconds: u32,
     pub retention_days: u32,
@@ -61,23 +81,27 @@ impl From<Box<dyn Error + Send + Sync>> for UpdateSubscriptionUsageError {
 
 /// H12 — Proration Service.
 ///
-/// When a tenant changes monitors/interval_seconds/retention_days
-/// mid-cycle, applying the new config across the WHOLE billing month (or
-/// the OLD config across the whole month) would over- or under-charge
-/// them. This use case instead: closes whatever `SubscriptionUsagePeriod`
-/// is currently open, opens a new one with the new usage, and updates the
+/// When a tenant's usage needs recomputing mid-cycle, applying the new
+/// config across the WHOLE billing month (or the OLD config across the
+/// whole month) would over- or under-charge them. This use case
+/// instead: closes whatever `SubscriptionUsagePeriod` is currently
+/// open, opens a new one with the new usage, and updates the
 /// `subscriptions` row's usage snapshot — all atomically via
 /// `SubscriptionUsageTransaction`. Billing later sums
 /// `calculate_period_cost` across every period touched in a cycle
 /// (`list_periods_for_cycle`, see `CalculateSubscriptionCycleCostUseCase`)
 /// instead of charging a single flat rate for the whole month.
 ///
-/// NOTE: this is a new application-layer entry point — at the time this
-/// worker ran, no prior use case mutated a subscription's usage fields
-/// (they were added by migration 0053 but never wired to any domain/
-/// application code), so there was nothing existing to hook into. This
-/// was confirmed with, and explicitly authorized by, the human operator
-/// before implementation (see HANDOVER.md).
+/// SECURITY (P0 — fixed): `monitors`/`interval_seconds`/
+/// `retention_days` are computed here from `Plan::for_tier(subscription
+/// .plan_tier)` — i.e. the tenant's OWN, already-persisted plan
+/// assignment — and are NOT accepted from
+/// `UpdateSubscriptionUsageCommand`. The subscription's plan tier can
+/// only change through the dedicated plan-change/checkout flow, never
+/// through this use case. This closes a business-logic authorization
+/// gap where a caller holding `ManageBilling` could otherwise select an
+/// arbitrary plan tier here and have the billing engine charge for it
+/// instead of the tenant's real, paid-for plan.
 pub struct UpdateSubscriptionUsageUseCase<T> {
     subscription_repository: Arc<dyn SubscriptionRepository>,
     usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
@@ -106,19 +130,23 @@ where
     pub async fn execute(
         &self,
         command: UpdateSubscriptionUsageCommand,
-    ) -> Result<(), UpdateSubscriptionUsageError> {
+    ) -> Result<UpdateSubscriptionUsageOutcome, UpdateSubscriptionUsageError> {
         let mut subscription = self
             .subscription_repository
             .find_by_tenant_id(command.tenant_id)
             .await?
             .ok_or(UpdateSubscriptionUsageError::SubscriptionNotFound)?;
 
+        // SECURITY (P0): authoritative plan comes from the subscription
+        // itself, never from `command`.
+        let plan = Plan::for_tier(subscription.plan_tier);
+
         // Domain validation (monitors/interval/retention > 0) happens
         // here, BEFORE anything is persisted.
         subscription.update_usage(
-            command.monitors,
-            command.interval_seconds,
-            command.retention_days,
+            plan.max_monitors as u64,
+            plan.min_check_interval_seconds,
+            plan.history_retention_days,
             command.pricing_version,
         )?;
 
@@ -133,9 +161,9 @@ where
         let new_period = SubscriptionUsagePeriod::open(
             new_period_id,
             subscription.id,
-            command.monitors,
-            command.interval_seconds,
-            command.retention_days,
+            plan.max_monitors as u64,
+            plan.min_check_interval_seconds,
+            plan.history_retention_days,
             now,
         );
 
@@ -147,7 +175,13 @@ where
             )
             .await?;
 
-        Ok(())
+        Ok(UpdateSubscriptionUsageOutcome {
+            plan_tier: subscription.plan_tier,
+            monitors: plan.max_monitors as u64,
+            interval_seconds: plan.min_check_interval_seconds,
+            retention_days: plan.history_retention_days,
+            pricing_version: command.pricing_version,
+        })
     }
 }
 
@@ -155,31 +189,8 @@ where
 mod tests {
     use super::*;
     use domain::Subscription;
-    use domain::enums::PlanTier;
     use domain::shared::ids::SubscriptionId;
     use std::sync::Arc;
-
-    // A minimal, self-contained fake IdGenerator/repos are intentionally
-    // NOT built here to keep this unit test light; full behavioral
-    // coverage (including the transaction wiring) lives in the
-    // in-memory-backed integration test in `crates/infra/tests` and the
-    // domain-level `update_usage` tests in
-    // `crates/domain/src/entities/subscription.rs`. This test only
-    // exercises the pure validation short-circuit path.
-
-    struct RejectingTransaction;
-
-    #[async_trait::async_trait]
-    impl SubscriptionUsageTransaction for RejectingTransaction {
-        async fn change_usage(
-            &self,
-            _subscription: &Subscription,
-            _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
-            _new_period: &SubscriptionUsagePeriod,
-        ) -> Result<(), Box<dyn Error + Send + Sync>> {
-            panic!("transaction should never be called when domain validation fails");
-        }
-    }
 
     struct FixedSubscriptionRepository {
         subscription: Subscription,
@@ -290,34 +301,99 @@ mod tests {
         }
     }
 
+    struct AcceptingTransaction;
+
+    #[async_trait::async_trait]
+    impl SubscriptionUsageTransaction for AcceptingTransaction {
+        async fn change_usage(
+            &self,
+            _subscription: &Subscription,
+            _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
+            _new_period: &SubscriptionUsagePeriod,
+        ) -> Result<(), Box<dyn Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+
+    /// SECURITY (P0) regression test: the usage applied must come from
+    /// the subscription's OWN plan tier (Tier5 here), even though the
+    /// command itself carries no plan/usage fields at all for a caller
+    /// to tamper with in the first place.
     #[tokio::test]
-    async fn execute_rejects_zero_monitors_before_touching_the_transaction() {
+    async fn execute_derives_usage_only_from_the_subscriptions_own_plan_tier() {
         let subscription =
-            Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Tier1);
+            Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Tier5);
         let tenant_id = subscription.tenant_id;
+        let expected_plan = Plan::for_tier(PlanTier::Tier5);
 
         let use_case = UpdateSubscriptionUsageUseCase::new(
             Arc::new(FixedSubscriptionRepository { subscription }),
             Arc::new(EmptyUsagePeriodRepository),
             Arc::new(NoopIdGenerator),
-            RejectingTransaction,
+            AcceptingTransaction,
+        );
+
+        let outcome = use_case
+            .execute(UpdateSubscriptionUsageCommand {
+                tenant_id,
+                pricing_version: 3,
+            })
+            .await
+            .expect("usage update should succeed for an active subscription");
+
+        assert_eq!(outcome.plan_tier, PlanTier::Tier5);
+        assert_eq!(outcome.monitors, expected_plan.max_monitors as u64);
+        assert_eq!(
+            outcome.interval_seconds,
+            expected_plan.min_check_interval_seconds
+        );
+        assert_eq!(outcome.retention_days, expected_plan.history_retention_days);
+        assert_eq!(outcome.pricing_version, 3);
+    }
+
+    #[tokio::test]
+    async fn execute_fails_when_the_tenant_has_no_subscription() {
+        struct EmptySubscriptionRepository;
+
+        #[async_trait::async_trait]
+        impl SubscriptionRepository for EmptySubscriptionRepository {
+            async fn create(
+                &self,
+                _subscription: &Subscription,
+            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+                Ok(())
+            }
+            async fn find_by_tenant_id(
+                &self,
+                _tenant_id: TenantId,
+            ) -> Result<Option<Subscription>, Box<dyn Error + Send + Sync>> {
+                Ok(None)
+            }
+            async fn update(
+                &self,
+                _subscription: &Subscription,
+            ) -> Result<(), Box<dyn Error + Send + Sync>> {
+                Ok(())
+            }
+        }
+
+        let use_case = UpdateSubscriptionUsageUseCase::new(
+            Arc::new(EmptySubscriptionRepository),
+            Arc::new(EmptyUsagePeriodRepository),
+            Arc::new(NoopIdGenerator),
+            AcceptingTransaction,
         );
 
         let result = use_case
             .execute(UpdateSubscriptionUsageCommand {
-                tenant_id,
-                monitors: 0,
-                interval_seconds: 60,
-                retention_days: 30,
+                tenant_id: TenantId::new(),
                 pricing_version: 1,
             })
             .await;
 
         assert!(matches!(
             result,
-            Err(UpdateSubscriptionUsageError::InvalidUsage(
-                domain::DomainError::SubscriptionUsageMonitorsZero
-            ))
+            Err(UpdateSubscriptionUsageError::SubscriptionNotFound)
         ));
     }
 }

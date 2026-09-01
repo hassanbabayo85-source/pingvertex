@@ -145,13 +145,21 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
 
     async fn update(&self, subscription: &Subscription) -> RepoResult<()> {
         let row = SubscriptionRow::from_domain(subscription);
-        sqlx::query(
+        // SECURITY (defense-in-depth): every caller of `update` already
+        // loads the subscription via `find_by_tenant_id(caller's own
+        // tenant_id)` before mutating it, so `row.id` cannot currently be
+        // attacker-controlled across tenants. The `AND tenant_id = $14`
+        // predicate below is a second, independent guard at the SQL layer
+        // so that a future caller that forgets that invariant still can't
+        // update another tenant's subscription row.
+        let result = sqlx::query(
             "UPDATE subscriptions SET \
              plan_tier = $2, status = $3, trial_ends_at = $4, grace_period_ends_at = $5, \
              current_period_ends_at = $6, canceled_at = $7, cancel_at_period_end = $8, \
              monitors = $9, interval_seconds = $10, retention_days = $11, pricing_version = $12, \
              updated_at = $13 \
-             WHERE id = $1",
+             WHERE id = $1 \
+               AND tenant_id = $14",
         )
         .bind(row.id)
         .bind(row.plan_tier)
@@ -166,8 +174,14 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
         .bind(row.retention_days)
         .bind(row.pricing_version)
         .bind(row.updated_at)
+        .bind(row.tenant_id)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            return Err("subscription update affected no rows (id/tenant mismatch)".into());
+        }
+
         Ok(())
     }
 }

@@ -87,6 +87,11 @@ async fn send_once(url: &str, body: &[u8]) -> Result<(), Box<dyn std::error::Err
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
+        // SECURITY: see the matching comment in
+        // webhook_notification_service.rs — without this, a configured
+        // HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env var bypasses the
+        // `.resolve()` DNS pinning above.
+        .no_proxy()
         .timeout(TELEGRAM_TIMEOUT)
         .build()?;
     let response = client

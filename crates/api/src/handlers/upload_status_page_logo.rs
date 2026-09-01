@@ -56,6 +56,9 @@ pub async fn upload_status_page_logo(
         )
         .await
         .map_err(|err| match err {
+            UploadStatusPageLogoError::Forbidden => {
+                ApiError::forbidden("you do not have permission to update status pages")
+            }
             UploadStatusPageLogoError::InvalidLogo(domain_err) => {
                 ApiError::bad_request(domain_err.to_string())
             }

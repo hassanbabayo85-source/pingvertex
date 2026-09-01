@@ -4,7 +4,7 @@ use domain::{
     notification::NotificationEvent,
     shared::ids::NotificationChannelId,
     shared::policies::{AuthorizationPolicy, TenantOwned},
-    shared::types::AuthenticatedUser,
+    shared::types::{AuthenticatedUser, Permission},
 };
 
 use crate::ports::{MonitorRepository, NotificationChannelRepository, NotificationService};
@@ -14,6 +14,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// Error returned by `SendTestNotificationUseCase`.
 #[derive(Debug)]
 pub enum SendTestNotificationError {
+    Forbidden,
     /// The channel doesn't exist, or exists but isn't owned by this user.
     ChannelNotFound,
     /// The channel's monitor could not be found. Shouldn't normally
@@ -32,6 +33,10 @@ pub enum SendTestNotificationError {
 impl fmt::Display for SendTestNotificationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Forbidden => write!(
+                f,
+                "forbidden: you do not have permission to send test notifications"
+            ),
             Self::ChannelNotFound => write!(f, "notification channel not found or access denied"),
             Self::MonitorNotFound => write!(f, "monitor for this channel no longer exists"),
             Self::DeliveryFailed(err) => write!(f, "failed to deliver test notification: {err}"),
@@ -69,6 +74,10 @@ impl SendTestNotificationUseCase {
         id: NotificationChannelId,
         authenticated_user: AuthenticatedUser,
     ) -> Result<(), SendTestNotificationError> {
+        if !authenticated_user.can(Permission::UpdateMonitor) {
+            return Err(SendTestNotificationError::Forbidden);
+        }
+
         let channel = self
             .notification_channel_repository
             .find_by_id(id)

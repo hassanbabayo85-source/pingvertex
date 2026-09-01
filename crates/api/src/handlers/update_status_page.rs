@@ -50,6 +50,9 @@ pub async fn update_status_page(
         .execute(command, authenticated_user)
         .await
         .map_err(|err| match err {
+            UpdateStatusPageError::Forbidden => {
+                ApiError::forbidden("you do not have permission to update status pages")
+            }
             UpdateStatusPageError::MonitorNotFound { .. } => {
                 ApiError::not_found("monitor not found")
             }
