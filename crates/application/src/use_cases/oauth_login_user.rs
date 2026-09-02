@@ -185,10 +185,10 @@ where
                 format!("{base}{suffix}")
             };
 
-            if let Ok(username) = Username::new(candidate) {
-                if !self.repository.username_exists(&username).await? {
-                    return Ok(username);
-                }
+            if let Ok(username) = Username::new(candidate)
+                && !self.repository.username_exists(&username).await?
+            {
+                return Ok(username);
             }
         }
 

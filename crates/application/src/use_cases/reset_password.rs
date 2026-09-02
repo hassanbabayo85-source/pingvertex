@@ -145,14 +145,31 @@ where
             return Err(ResetPasswordError::InvalidOrExpiredToken);
         }
 
+        let now = Utc::now();
+
+        // SEC (race fix): atomically claim single-use status BEFORE any
+        // side effect (session invalidation, password change) happens.
+        // Two concurrent requests can both reach this point having
+        // passed the read-only checks above for the SAME token; only one
+        // of them can win this atomic `UPDATE ... WHERE used_at IS NULL`.
+        // The loser fails closed as InvalidOrExpiredToken instead of
+        // proceeding to also change the password.
+        let claimed = self
+            .token_repository
+            .try_consume(token.id, now)
+            .await
+            .map_err(ResetPasswordError::Internal)?;
+
+        if !claimed {
+            return Err(ResetPasswordError::InvalidOrExpiredToken);
+        }
+
         let mut user = self
             .user_repository
             .find_by_id(&token.user_id)
             .await
             .map_err(ResetPasswordError::Internal)?
             .ok_or(ResetPasswordError::InvalidOrExpiredToken)?;
-
-        let now = Utc::now();
 
         let hashed = self
             .password_hasher
@@ -182,13 +199,10 @@ where
             .await
             .map_err(ResetPasswordError::Internal)?;
 
-        // Single-use: mark THIS token used, and drop any other unused
-        // reset tokens for the account so an older, still-unexpired link
-        // can't also be redeemed afterward.
-        self.token_repository
-            .mark_used(token.id, now)
-            .await
-            .map_err(ResetPasswordError::Internal)?;
+        // This token was already atomically claimed via `try_consume`
+        // above. Now drop any OTHER unused reset tokens for the account
+        // so an older, still-unexpired link can't also be redeemed
+        // afterward.
         self.token_repository
             .delete_unused_for_user(token.user_id)
             .await

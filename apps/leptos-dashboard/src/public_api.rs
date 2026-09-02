@@ -1,6 +1,8 @@
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 
+const API_BASE: &str = "/api/v1/public";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PublicMonitor {
     pub id: i64,
@@ -30,10 +32,8 @@ pub struct PublicStatusResponse {
 }
 
 pub async fn get_public_status() -> Result<PublicStatusResponse, String> {
-    let resp = Request::get("/status")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let url = format!("{}/status", API_BASE);
+    let resp = Request::get(&url).send().await.map_err(|e| e.to_string())?;
     if resp.ok() {
         resp.json::<PublicStatusResponse>()
             .await
@@ -46,7 +46,7 @@ pub async fn get_public_status() -> Result<PublicStatusResponse, String> {
 pub async fn get_public_status_by_subdomain(
     subdomain: &str,
 ) -> Result<PublicStatusResponse, String> {
-    let url = format!("/status/{}", subdomain);
+    let url = format!("{}/status/{}", API_BASE, subdomain);
     let resp = Request::get(&url).send().await.map_err(|e| e.to_string())?;
     if resp.ok() {
         resp.json::<PublicStatusResponse>()

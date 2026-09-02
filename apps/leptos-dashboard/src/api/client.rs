@@ -63,5 +63,5 @@ pub async fn post_json<T: DeserializeOwned, B: Serialize>(
 }
 
 pub async fn health_check() -> Result<HealthResponse, ApiError> {
-    get_json::<HealthResponse>("/api/health").await
+    get_json::<HealthResponse>("/health").await
 }

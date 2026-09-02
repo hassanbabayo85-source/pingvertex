@@ -42,6 +42,17 @@ where
             return Ok(None);
         }
 
+        // SECURITY: same ownership rule as `GetSupportTicketUseCase` —
+        // only the ticket's own creator, or an Admin/Owner (via
+        // `ManageSupportTicketStatus`), may reply to it. Without this, any
+        // tenant member holding the base `ReplySupportTicket` permission
+        // could post messages onto another member's private ticket.
+        let is_owner = ticket.created_by == authenticated_user.user_id();
+        let is_tenant_manager = authenticated_user.can(Permission::ManageSupportTicketStatus);
+        if !is_owner && !is_tenant_manager {
+            return Ok(None);
+        }
+
         let message_id = SupportMessageId::new();
         let create = CreateSupportMessage {
             id: message_id,

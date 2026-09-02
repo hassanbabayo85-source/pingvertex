@@ -11,3 +11,11 @@ open = false
 [[proxy]]
 backend = "http://127.0.0.1:3000/api/"
 rewrite = "/api/"
+
+[[proxy]]
+backend = "http://127.0.0.1:3000/health"
+rewrite = "/health"
+
+[[proxy]]
+backend = "http://127.0.0.1:3000/ready"
+rewrite = "/ready"

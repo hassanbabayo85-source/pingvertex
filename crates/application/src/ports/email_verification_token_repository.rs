@@ -31,6 +31,19 @@ pub trait EmailVerificationTokenRepository: Send + Sync {
         used_at: DateTime<Utc>,
     ) -> RepoResult<()>;
 
+    /// SECURITY: atomic single-use claim, mirroring
+    /// `ResetPasswordTokenRepository::try_consume`. Marks the token used
+    /// ONLY if it is still unused, in one atomic statement, and returns
+    /// whether THIS call was the one that claimed it. Must be called
+    /// (and its `true` result checked) BEFORE `user.mark_email_verified`
+    /// is applied, so two concurrent requests racing on the same token
+    /// can't both pass verification before either consumes it.
+    async fn try_consume(
+        &self,
+        id: EmailVerificationTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool>;
+
     /// Deletes all unused tokens for a user. Called when issuing a fresh
     /// token (resend or initial registration), so only the latest token
     /// remains redeemable.
@@ -61,6 +74,14 @@ where
         used_at: DateTime<Utc>,
     ) -> RepoResult<()> {
         (**self).mark_used(id, used_at).await
+    }
+
+    async fn try_consume(
+        &self,
+        id: EmailVerificationTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        (**self).try_consume(id, used_at).await
     }
 
     async fn delete_unused_for_user(&self, user_id: UserId) -> RepoResult<()> {

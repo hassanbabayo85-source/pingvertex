@@ -2209,6 +2209,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "domain",
+ "dotenvy",
  "hex",
  "hickory-resolver",
  "hmac",

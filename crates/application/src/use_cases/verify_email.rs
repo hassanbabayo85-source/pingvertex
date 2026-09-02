@@ -80,6 +80,24 @@ where
             return Err(VerifyEmailError::InvalidOrExpiredToken);
         }
 
+        let now = Utc::now();
+
+        // SEC (race fix): atomically claim single-use status BEFORE
+        // mutating the user. Two concurrent requests can both reach this
+        // point having passed the read-only checks above for the SAME
+        // token; only one of them can win this atomic
+        // `UPDATE ... WHERE used_at IS NULL`. The loser fails closed as
+        // InvalidOrExpiredToken instead of also marking the user verified.
+        let claimed = self
+            .token_repository
+            .try_consume(token_id, now)
+            .await
+            .map_err(VerifyEmailError::Internal)?;
+
+        if !claimed {
+            return Err(VerifyEmailError::InvalidOrExpiredToken);
+        }
+
         let mut user = self
             .user_repository
             .find_by_id(&token_user_id)
@@ -87,14 +105,7 @@ where
             .map_err(VerifyEmailError::Internal)?
             .ok_or(VerifyEmailError::InvalidOrExpiredToken)?;
 
-        let mut token = token;
-        token.mark_used(Utc::now());
-        self.token_repository
-            .mark_used(token_id, Utc::now())
-            .await
-            .map_err(VerifyEmailError::Internal)?;
-
-        user.mark_email_verified(Utc::now());
+        user.mark_email_verified(now);
         self.user_repository
             .update(&user)
             .await

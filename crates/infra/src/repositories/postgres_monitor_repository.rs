@@ -634,7 +634,32 @@ impl MonitorRepository for PostgresMonitorRepository {
         if monitor_rows.is_empty() {
             return Ok(Vec::new());
         }
-        let assertion_rows = sqlx::query_as::<_, AssertionRow>("SELECT id, monitor_id, position, response_part, operator, target, expected_value, created_at, updated_at FROM monitor_assertions ORDER BY monitor_id, position").fetch_all(&self.pool).await?;
+        // SECURITY/PERF: scoped to this user's own monitors via the JOIN
+        // below (mirrors `find_all_for_tenant`'s pattern), rather than
+        // pulling every OTHER user's assertions into memory too and
+        // relying purely on the in-memory `HashMap::remove` filtering
+        // afterward to keep them out of the response.
+        let assertion_rows = sqlx::query_as::<_, AssertionRow>(
+            r#"
+            SELECT
+                monitor_assertions.id,
+                monitor_assertions.monitor_id,
+                monitor_assertions.position,
+                monitor_assertions.response_part,
+                monitor_assertions.operator,
+                monitor_assertions.target,
+                monitor_assertions.expected_value,
+                monitor_assertions.created_at,
+                monitor_assertions.updated_at
+            FROM monitor_assertions
+            INNER JOIN monitors ON monitors.id = monitor_assertions.monitor_id
+            WHERE monitors.user_id = $1
+            ORDER BY monitor_assertions.monitor_id, monitor_assertions.position
+            "#,
+        )
+        .bind(user_id.0)
+        .fetch_all(&self.pool)
+        .await?;
         let mut assertions_by_monitor: HashMap<Uuid, Vec<Assertion>> = HashMap::new();
         for row in assertion_rows {
             assertions_by_monitor

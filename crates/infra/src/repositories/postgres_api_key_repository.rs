@@ -150,6 +150,15 @@ impl ApiKeyRepository for PostgresApiKeyRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn delete_for_tenant(&self, id: ApiKeyId, tenant_id: TenantId) -> RepoResult<bool> {
+        let result = sqlx::query("DELETE FROM api_keys WHERE id = $1 AND tenant_id = $2")
+            .bind(id.0)
+            .bind(tenant_id.0)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn touch_last_used(&self, id: ApiKeyId, at: DateTime<Utc>) -> RepoResult<()> {
         sqlx::query("UPDATE api_keys SET last_used_at = $2 WHERE id = $1")
             .bind(id.0)

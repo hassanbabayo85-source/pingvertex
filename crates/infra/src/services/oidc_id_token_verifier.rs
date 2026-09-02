@@ -104,10 +104,10 @@ impl OidcIdTokenVerifier {
     async fn jwks(&self, force_refresh: bool) -> Result<JwkSet, Box<dyn Error + Send + Sync>> {
         if !force_refresh {
             let cached = self.cache.read().await;
-            if let Some(entry) = cached.as_ref() {
-                if entry.fetched_at.elapsed() < JWKS_CACHE_TTL {
-                    return Ok(entry.jwks.clone());
-                }
+            if let Some(entry) = cached.as_ref()
+                && entry.fetched_at.elapsed() < JWKS_CACHE_TTL
+            {
+                return Ok(entry.jwks.clone());
             }
         }
 
@@ -142,7 +142,7 @@ impl IdTokenVerifier for OidcIdTokenVerifier {
         let decoding_key = DecodingKey::from_jwk(&jwk)?;
 
         let mut validation = Validation::new(Algorithm::RS256);
-        validation.set_audience(&[self.client_id.clone()]);
+        validation.set_audience(std::slice::from_ref(&self.client_id));
         validation.set_issuer(&self.expected_issuers);
 
         let data = decode::<IdTokenClaims>(id_token, &decoding_key, &validation)?;

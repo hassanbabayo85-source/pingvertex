@@ -57,4 +57,21 @@ impl EmailVerificationTokenRepository for InMemoryEmailVerificationTokenReposito
         tokens.retain(|t| t.user_id != user_id || t.used_at.is_some());
         Ok(())
     }
+
+    async fn try_consume(
+        &self,
+        id: EmailVerificationTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        let mut tokens = self.tokens.lock().unwrap();
+        if let Some(token) = tokens
+            .iter_mut()
+            .find(|t| t.id == id && t.used_at.is_none())
+        {
+            token.used_at = Some(used_at);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }

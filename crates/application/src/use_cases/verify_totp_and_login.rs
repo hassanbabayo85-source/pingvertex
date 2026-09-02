@@ -60,15 +60,19 @@ where
     pub async fn execute(&self, request: VerifyTotpRequest) -> UseCaseResult<AuthResponse> {
         let cache_key = pending_login_cache_key(&request.pending_token);
 
-        // Atomic get-and-delete: the pending 2FA token is single-use.
-        // The first request that executes this line consumes the token;
-        // any concurrent request with the same pending_token now gets
-        // `None` and fails with `InvalidPendingTwoFactorToken`.
+        // SEC (DoS fix): PEEK the pending token first (non-destructive
+        // `get`), rather than consuming it immediately. Consuming before
+        // verification meant a single wrong/garbled code destroyed the
+        // token and forced the legitimate user to restart the whole
+        // login flow — a self-inflicted denial of service on typos, not
+        // an auth bypass, but still bad UX/availability. The token is
+        // only actually consumed (via `getdel` below) AFTER the TOTP/
+        // backup code has been verified.
         let user_id_str = self
             .pending_auth_cache
-            .getdel(&cache_key)
+            .get(&cache_key)
             .await
-            .map_err(|e| format!("failed to consume pending 2FA token: {e}"))?
+            .map_err(|e| format!("failed to read pending 2FA token: {e}"))?
             .ok_or(DomainError::InvalidPendingTwoFactorToken)?;
 
         let user_id = UserId(
@@ -140,6 +144,23 @@ where
 
         if !verified {
             return Err(DomainError::InvalidTotpCode.into());
+        }
+
+        // SEC: NOW atomically consume the pending token, after (not
+        // before) a successful code check. `getdel` still guarantees
+        // single-use: if a concurrent request already consumed this
+        // same pending_token (e.g. two requests both submitted the
+        // correct, still-valid code at the same time), this returns
+        // `None` and we fail closed rather than issuing a second
+        // session for one pending login.
+        let consumed = self
+            .pending_auth_cache
+            .getdel(&cache_key)
+            .await
+            .map_err(|e| format!("failed to consume pending 2FA token: {e}"))?;
+
+        if consumed.as_deref() != Some(user_id_str.as_str()) {
+            return Err(DomainError::InvalidPendingTwoFactorToken.into());
         }
 
         let token = self.token_service.generate(user.id()).await?;
