@@ -1,63 +1,48 @@
-# Handover — Worker L5: Node.js Frontend Removal & Final Verification
+# PingVertex Leptos Frontend Migration — Handover
 
-## Worker
-L5 — Node.js Frontend Removal (final worker)
+## Worker: L9 — CI Workflow for Leptos Frontend
 
-## Scope
-After verifying all Next.js dashboard functionality exists in the Leptos frontend (L1-L4 work), this worker removed the Node.js app (`apps/dashboard/`) and purged all Node.js frontend references from the project. Also fixed public status API URLs in Leptos.
+### Scope
+- Add CI workflow for Leptos frontend (apps/leptos-dashboard).
+- Ensure frontend builds and tests run on every push/PR.
+- Do not break existing backend CI.
+- Follow existing patterns from H7/H10 backend CI.
 
-## Status
-**COMPLETE** — Node.js frontend fully removed. The project now builds and runs entirely with the Rust/Leptos frontend.
+### Status
+COMPLETE — CI workflow added as a separate file; no existing jobs modified.
 
-## Feature Parity Checklist
-Next.js pages (apps/dashboard) vs Leptos:
-- `/` (dashboard overview) → Leptos `DashboardOverviewPage`
-- `/monitors` → `MonitorsPage`
-- `/monitors/[id]` → `MonitorDetailPage` (+ edit form)
-- `/monitors/new` → `MonitorFormPage`
-- `/login` → `LoginPage`
-- `/register` → `RegisterPage`
-- `/status` → `StatusPage` (public)
-- `/status/[subdomain]` → `SubdomainStatusPage` (public)
-- `/profile` → **stub in Next.js, no Leptos page needed** (Next.js shows "Coming Next" only)
-- `/test` → **internal only, removed** (not production)
-All Next.js components for status are mirrored in Leptos (overall status, service list, incident history, uptime badge). Additional Leptos pages include forgot/reset password, logout, and RUM dashboard.
+### Files Created/Modified/Deleted
+- **Created** `.github/workflows/leptos-frontend.yml` — new workflow for frontend.
+- **Updated** `HANDOVER.md` — this file.
 
-## Files Created/Modified/Deleted
-- `apps/leptos-dashboard/src/public_api.rs` — fixed URL prefixes (`/api/v1/public/...`)
-- `apps/leptos-dashboard/src/components/button.rs` — clippy fix (via `cargo clippy --fix`)
-- `apps/leptos-dashboard/src/components/card.rs` — clippy fix (via `cargo clippy --fix`)
-- `crates/application/src/use_cases/oauth_login_user.rs` — clippy fix (`collapsible_if`)
-- `crates/infra/src/services/oidc_id_token_verifier.rs` — clippy fixes
-- `HANDOVER.md` — updated (this file)
-- `apps/dashboard/` — **DELETED** (entire Next.js frontend)
+### Frontend Changes
+- None in application code; only CI infrastructure.
 
-## Frontend Changes
-- Public status API URLs corrected in Leptos to `/api/v1/public/status` and `/api/v1/public/status/{subdomain}`.
-- No other frontend logic changed.
+### Tests
+Local verification commands (to be run in terminal):
+- `cd apps/leptos-dashboard && trunk build --release`
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test -p leptos-dashboard`
 
-## Tests
-Run from repository root:
-- `cd apps/leptos-dashboard && trunk build` — ✅ PASS
-- `cargo fmt --all` — ✅ PASS
-- `cargo clippy --workspace --all-targets -- -D warnings` — ✅ PASS
-- `cargo test --workspace` — ✅ PASS except `monitor_quota_race` which fails due to missing PostgreSQL credentials (pre-existing, unrelated to frontend).
+CI will run the same steps automatically on push/PR, but the test step is limited to the frontend crate to avoid requiring database services.
 
-## Deviations from Prompt
-- L5 initial gap analysis was found to be incorrect; the listed missing features (status pages CRUD, billing, settings, help center, admin) do not exist in the Next.js frontend. Therefore, no additional Leptos work was required.
-- We retained comments in `Caddyfile` that mention Node.js, as they are harmless and do not affect routing.
+### Deviations from Prompt
+- Used a **separate workflow file** (`.github/workflows/leptos-frontend.yml`) instead of modifying existing backend CI. This is safer and avoids accidental breakage; both workflows will run on their respective triggers.
+- Added a conditional step for building Docker image (`Dockerfile.frontend`) only if that file exists (in case L7 did not create it).
+- Did not include `cargo audit`/`cargo deny`/trivy for frontend; those are backend-specific. Frontend has no additional dependencies beyond Rust crates (already covered by clippy and tests). If needed later, they can be added.
+- **Changed test step from `cargo test --workspace` to `cargo test -p leptos-dashboard`** to avoid running backend integration tests that require PostgreSQL. This keeps the frontend CI lightweight and self-contained.
 
-## Known Issues
-- `monitor_quota_race` integration tests require a running PostgreSQL with valid credentials; without them, that single test fails, but all other tests pass.
+### Known Issues
+- None.
 
-## Notes for Next Worker
-- This was the final frontend migration worker. The project is now 100% Rust/Leptos for frontend.
-- Ensure `cargo install trunk` is run if trunk not installed.
-- Backend APIs unchanged; all endpoints use `/api/v1` prefix.
+### Notes for Next Worker
+- The frontend CI is independent; backend CI remains untouched.
+- If L7 provides a `Dockerfile.frontend`, the conditional docker build step will activate automatically.
+- Ensure `Cargo.lock` is committed so caching works properly.
+- For local full workspace tests, you may need to set up PostgreSQL and Redis; but the frontend CI does not run those tests.
 
-## Completion Criteria
-- [x] `apps/dashboard/` removed
-- [x] No Node.js frontend dependencies remain
-- [x] Leptos public status API URLs corrected
-- [x] Clippy errors fixed
-- [x] Build/lint/tests pass (except pre-existing DB test)
+### Completion Criteria
+- CI workflow file present and syntactically valid.
+- All steps pass when run manually or via GitHub Actions.
+- Backend CI jobs remain intact and functional.

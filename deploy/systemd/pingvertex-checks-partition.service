@@ -1,0 +1,11 @@
+[Unit]
+Description=PingVertex checks table partition maintenance
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# EDIT WorkingDirectory to your actual deploy path before installing.
+WorkingDirectory=/opt/pingvertex/uptime-monitor
+ExecStart=/opt/pingvertex/uptime-monitor/scripts/ensure_checks_partitions.sh 3
+User=deploy
