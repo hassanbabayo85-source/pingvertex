@@ -124,4 +124,28 @@ impl ResetPasswordTokenRepository for PostgresResetPasswordTokenRepository {
         .await?;
         Ok(())
     }
+
+    async fn try_consume(
+        &self,
+        id: ResetPasswordTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        // SEC: single atomic statement — the WHERE clause is evaluated
+        // and the row updated by Postgres under the row's own lock, so
+        // two concurrent callers racing on the same id can never both
+        // get rows_affected() == 1. Whichever transaction commits second
+        // sees used_at already set and affects zero rows.
+        let result = sqlx::query(
+            r#"
+            UPDATE reset_password_tokens
+            SET used_at = $2
+            WHERE id = $1 AND used_at IS NULL
+            "#,
+        )
+        .bind(id.into_uuid())
+        .bind(used_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }

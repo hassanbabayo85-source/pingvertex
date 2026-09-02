@@ -67,7 +67,14 @@ impl DeleteApiKeyUseCase {
             return Ok(false);
         }
 
-        let deleted = self.api_key_repository.delete(command.id).await?;
+        // SECURITY: scoped at the SQL layer too (not just the
+        // `same_tenant` check above), so this can never delete a key
+        // belonging to a different tenant even if the check above were
+        // ever accidentally removed or bypassed.
+        let deleted = self
+            .api_key_repository
+            .delete_for_tenant(command.id, tenant_id)
+            .await?;
 
         if deleted {
             let entry = AuditLogEntry {

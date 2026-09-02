@@ -11,6 +11,13 @@ use uuid::Uuid;
 
 #[allow(dead_code)]
 pub async fn setup_pool() -> PgPool {
+    // Load DATABASE_URL (and any other vars) from the repo's .env file so
+    // `cargo test` works the same whether or not the shell has already
+    // exported these variables. Safe to call multiple times / in every
+    // test binary — dotenvy just no-ops if the vars are already set or
+    // if no .env file is found.
+    dotenvy::dotenv().ok();
+
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres@localhost:5432/uptime_monitor".to_string());
 

@@ -76,6 +76,17 @@ impl ApiKeyRepository for InMemoryApiKeyRepository {
         Ok(keys.len() != len_before)
     }
 
+    async fn delete_for_tenant(
+        &self,
+        id: ApiKeyId,
+        tenant_id: TenantId,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let mut keys = self.keys.lock().unwrap();
+        let len_before = keys.len();
+        keys.retain(|k| !(k.id == id && k.tenant_id == tenant_id));
+        Ok(keys.len() != len_before)
+    }
+
     async fn touch_last_used(
         &self,
         id: ApiKeyId,

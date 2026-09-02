@@ -34,6 +34,18 @@ pub async fn render_public_status_page(
             continue;
         };
 
+        // SECURITY (defense-in-depth): re-assert tenant ownership here at
+        // read time, not just at write time (`CreateStatusPageUseCase`/
+        // `UpdateStatusPageUseCase` already check this when monitor_ids
+        // is set). `status_page.monitor_ids` is a plain array with no
+        // database-level FK tying it to `monitors.tenant_id`, so a bad
+        // row (migration bug, manual DB edit, future write path that
+        // forgets the check) could otherwise leak another tenant's
+        // monitor data through this UNAUTHENTICATED public endpoint.
+        if monitor.tenant_id != status_page.tenant_id {
+            continue;
+        }
+
         let checks = state
             .check_repository
             .list_by_monitor(monitor.id)

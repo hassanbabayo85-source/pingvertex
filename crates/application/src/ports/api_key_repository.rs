@@ -18,6 +18,11 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// `AuthorizationPolicy::same_tenant` against the caller's
 /// `AuthenticatedUser`, matching `AuditLogEntryRepository` and
 /// `TenantMembershipRepository`.
+///
+/// SECURITY: the application-layer `same_tenant` check is not the only
+/// line of defense for deletion — `delete_for_tenant` below re-asserts
+/// tenant ownership at the SQL layer, so a future caller that forgets
+/// the application-layer check still cannot delete another tenant's key.
 #[async_trait]
 pub trait ApiKeyRepository: Send + Sync {
     async fn create(&self, api_key: &ApiKey) -> RepoResult<()>;
@@ -40,7 +45,22 @@ pub trait ApiKeyRepository: Send + Sync {
     /// Deletes a key by id, with no tenant filtering — same authorization
     /// contract as `find_by_id` above. Returns `Ok(false)` if no key with
     /// that id exists.
+    ///
+    /// Prefer `delete_for_tenant` for anything reachable from an
+    /// authenticated HTTP request; this method is kept only for internal/
+    /// administrative callers that have no tenant context to scope by.
     async fn delete(&self, id: ApiKeyId) -> RepoResult<bool>;
+
+    /// SECURITY (defense-in-depth): tenant-scoped delete. Deletes the key
+    /// only if it belongs to `tenant_id`; returns `Ok(false)` (not an
+    /// error) if the id doesn't exist or belongs to a different tenant.
+    /// Mirrors `MonitorRepository::delete_for_tenant` — enforces tenant
+    /// isolation at the SQL layer itself, rather than depending solely on
+    /// the application-layer `AuthorizationPolicy::same_tenant` check
+    /// already performed before this is called (see
+    /// `DeleteApiKeyUseCase`), so a future caller that forgets that check
+    /// still cannot delete another tenant's key.
+    async fn delete_for_tenant(&self, id: ApiKeyId, tenant_id: TenantId) -> RepoResult<bool>;
 
     /// Best-effort bookkeeping update, called by `ApiKeyAuthMiddleware`
     /// after a successful authentication. Given a default no-op
@@ -76,6 +96,10 @@ where
 
     async fn delete(&self, id: ApiKeyId) -> RepoResult<bool> {
         (**self).delete(id).await
+    }
+
+    async fn delete_for_tenant(&self, id: ApiKeyId, tenant_id: TenantId) -> RepoResult<bool> {
+        (**self).delete_for_tenant(id, tenant_id).await
     }
 
     async fn touch_last_used(&self, id: ApiKeyId, at: DateTime<Utc>) -> RepoResult<()> {

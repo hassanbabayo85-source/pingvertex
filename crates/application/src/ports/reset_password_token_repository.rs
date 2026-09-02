@@ -24,6 +24,23 @@ pub trait ResetPasswordTokenRepository: Send + Sync {
     /// full-token verification so replay is impossible.
     async fn mark_used(&self, id: ResetPasswordTokenId, used_at: DateTime<Utc>) -> RepoResult<()>;
 
+    /// SECURITY: atomic single-use claim. Marks the token used ONLY if it
+    /// is still unused (`used_at IS NULL`), in one atomic statement, and
+    /// returns whether THIS call was the one that claimed it.
+    ///
+    /// Must be called (and its `true` result checked) BEFORE the password
+    /// is actually changed. Without this, two concurrent requests can
+    /// both pass the earlier `find_by_prefix` + hash-verify checks before
+    /// either calls `mark_used`, letting the same token be redeemed twice
+    /// in a race. Doing the claim first and bailing out on `false` closes
+    /// that window: only one concurrent caller can ever proceed past this
+    /// point for a given token.
+    async fn try_consume(
+        &self,
+        id: ResetPasswordTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool>;
+
     /// Deletes all unused tokens for a user. Called both when issuing a
     /// fresh token (so only the latest link remains redeemable) and
     /// after a successful reset (so an older, still-unexpired link
@@ -48,6 +65,14 @@ where
 
     async fn mark_used(&self, id: ResetPasswordTokenId, used_at: DateTime<Utc>) -> RepoResult<()> {
         (**self).mark_used(id, used_at).await
+    }
+
+    async fn try_consume(
+        &self,
+        id: ResetPasswordTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        (**self).try_consume(id, used_at).await
     }
 
     async fn delete_unused_for_user(&self, user_id: UserId) -> RepoResult<()> {

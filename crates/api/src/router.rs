@@ -16,7 +16,7 @@ use crate::{
     middleware::{
         agent_auth::agent_auth, agent_id_key_extractor::AgentIdKeyExtractor,
         api_key_auth::api_key_auth, custom_domain_routing::custom_domain_routing,
-        jwt_auth::jwt_auth, metrics::record_http_metrics,
+        jwt_auth::jwt_auth, metrics::record_http_metrics, origin_check::require_matching_origin,
     },
     routes::{
         api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
@@ -206,6 +206,11 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 
     let auth_routes = auth::router()
         .layer(GovernorLayer::new(auth_rate_limit))
+        // SECURITY: reject cross-origin login/registration/oauth/
+        // password-reset submissions (see origin_check.rs doc comment).
+        // Applied as its own middleware, in addition to (not instead of)
+        // `cors_layer()`'s exact-origin allow-list.
+        .layer(from_fn(require_matching_origin))
         .with_state(auth_state.clone());
 
     let totp_verify_rate_limit = GovernorConfigBuilder::default()
@@ -216,6 +221,10 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 
     let totp_verify_routes = auth::totp_verify_router()
         .layer(GovernorLayer::new(totp_verify_rate_limit))
+        // SECURITY: same Origin check as `auth_routes` above — this is
+        // the unauthenticated leg of a 2FA login (pending_token + code),
+        // not yet behind `jwt_auth`.
+        .layer(from_fn(require_matching_origin))
         .with_state(auth_state.clone());
 
     let totp_protected_routes = auth::protected_router()

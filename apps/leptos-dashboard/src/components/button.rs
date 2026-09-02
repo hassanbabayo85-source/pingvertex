@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 #[component]
+#[allow(dead_code)] // clippy false positive: fields are used in view! macro
 pub fn Button(
     #[prop(optional, into)] class: Option<String>,
     #[prop(optional, into)] disabled: Option<bool>,

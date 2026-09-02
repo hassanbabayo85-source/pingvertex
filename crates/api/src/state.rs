@@ -155,6 +155,10 @@ impl ApiKeyRepository for NoopApiKeyRepository {
         Ok(false)
     }
 
+    async fn delete_for_tenant(&self, _id: ApiKeyId, _tenant_id: TenantId) -> RepoResult<bool> {
+        Ok(false)
+    }
+
     async fn touch_last_used(&self, _id: ApiKeyId, _at: DateTime<Utc>) -> RepoResult<()> {
         Ok(())
     }

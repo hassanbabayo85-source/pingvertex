@@ -131,4 +131,25 @@ impl EmailVerificationTokenRepository for PostgresEmailVerificationTokenReposito
         .await?;
         Ok(())
     }
+
+    async fn try_consume(
+        &self,
+        id: EmailVerificationTokenId,
+        used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        // SEC: single atomic statement, same pattern as
+        // PostgresResetPasswordTokenRepository::try_consume.
+        let result = sqlx::query(
+            r#"
+            UPDATE email_verification_tokens
+            SET used_at = $2
+            WHERE id = $1 AND used_at IS NULL
+            "#,
+        )
+        .bind(id.into_uuid())
+        .bind(used_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }

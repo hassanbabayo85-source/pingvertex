@@ -98,6 +98,13 @@ impl EmailVerificationTokenRepository for NoopEmailVerificationTokenRepository {
     ) -> RepoResult<()> {
         Ok(())
     }
+    async fn try_consume(
+        &self,
+        _id: EmailVerificationTokenId,
+        _used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        Ok(false)
+    }
     async fn delete_unused_for_user(&self, _user_id: UserId) -> RepoResult<()> {
         Ok(())
     }
@@ -134,6 +141,13 @@ impl ResetPasswordTokenRepository for NoopResetPasswordTokenRepository {
         _used_at: DateTime<Utc>,
     ) -> RepoResult<()> {
         Ok(())
+    }
+    async fn try_consume(
+        &self,
+        _id: ResetPasswordTokenId,
+        _used_at: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        Ok(false)
     }
     async fn delete_unused_for_user(&self, _user_id: UserId) -> RepoResult<()> {
         Ok(())

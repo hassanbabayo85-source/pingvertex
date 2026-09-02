@@ -41,6 +41,20 @@ where
             return Ok(None);
         }
 
+        // SECURITY: support tickets are USER-owned, not tenant-wide.
+        // `ViewSupportTickets` is granted to every role including plain
+        // Members, so without this check any member of a tenant could
+        // read another member's ticket (which may contain private
+        // account/billing details) just by knowing or guessing its id.
+        // Only the ticket's own creator, or someone with the elevated
+        // `ManageSupportTicketStatus` permission (Admin/Owner, who are
+        // meant to triage all tenant tickets), may view it.
+        let is_owner = ticket.created_by == authenticated_user.user_id();
+        let is_tenant_manager = authenticated_user.can(Permission::ManageSupportTicketStatus);
+        if !is_owner && !is_tenant_manager {
+            return Ok(None);
+        }
+
         let messages = self.repository.list_messages(id).await?;
         Ok(Some((ticket, messages)))
     }
