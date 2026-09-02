@@ -17,6 +17,7 @@
 #   4. `migrate` now builds from Dockerfile.migrate (pre-built sqlx-cli
 #      image) instead of `cargo install sqlx-cli`.
 #   5. A `caddy` reverse-proxy service for public HTTPS.
+#   6. Mount the `frontend_dist` volume into Caddy for static file serving.
 #
 # Backups: see scripts/backup.sh and scripts/restore.sh — NOT a compose
 # service.
@@ -138,6 +139,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - frontend_dist:/srv/frontend:ro
     logging: *default-logging
     deploy:
       resources:

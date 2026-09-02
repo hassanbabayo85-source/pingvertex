@@ -1,0 +1,68 @@
+name: Leptos Frontend CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "apps/leptos-dashboard/**"
+      - ".github/workflows/leptos-frontend.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "apps/leptos-dashboard/**"
+      - ".github/workflows/leptos-frontend.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  frontend:
+    name: Build & Test Leptos Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/leptos-dashboard
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-leptos-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-leptos-
+
+      - name: Install Rust toolchain with wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Install trunk
+        run: cargo install trunk --locked
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy (workspace, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run frontend tests (only leptos-dashboard crate)
+        run: cargo test -p leptos-dashboard
+
+      - name: Build release (trunk)
+        run: trunk build --release
+
+      # Optionally build Docker image if Dockerfile.frontend exists (from L7)
+      - name: Build frontend Docker image (if Dockerfile.frontend exists)
+        if: hashFiles('Dockerfile.frontend') != ''
+        run: |
+          cd ../..   # back to repo root
+          docker build -f Dockerfile.frontend -t pingvertex-frontend:ci .
