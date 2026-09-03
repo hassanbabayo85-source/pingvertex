@@ -56,14 +56,18 @@ breaking any existing logic. See the full audit findings document for
 the original issue numbering/severity used below.
 
 ### Status
-COMPLETE for issues #1, #2, #4–#12. Issue #3 is a documentation-only
-resolution (see below) — no schema change was required or made.
+COMPLETE for issues #1, #2, #4–#12. Issue #3 originally shipped as
+documentation-only (project was pre-production/fresh-DB-only at the
+time) — see its own section below for that background.
 Follow-up (2026-09): a post-remediation review flagged that
 `rum_js_errors`/`rum_resource_errors.page_view_id` was still a plain FK
 (not tenant/site composite) — closed by `migrations/0072_rum_page_view_composite_fk.sql`.
-Issue #3 (migration 0061 existing-data upgrade path) remains open by
-design — see its own section below; it needs a decision from whoever
-owns the production timeline, not just code.
+Second follow-up (2026-09): a real (not documentation-only) upgrade path
+for issue #3 was requested and added —
+`scripts/migrate_existing_checks_to_partitioned.sh`. It has NOT been run
+against a real database by whoever authored it; treat it as reviewed-but-
+unverified until it's been dry-run and then exercised against a staging
+copy of real data.
 
 ### Files Created/Modified
 - **Modified** `crates/domain/src/repositories/check_repository.rs`,
@@ -113,7 +117,25 @@ owns the production timeline, not just code.
   is not unique and offset pagination on a non-unique sort key can
   otherwise skip or duplicate rows across pages.
 
-### Issue #3 — no code change (documented here instead)
+### Issue #3 — real upgrade-path tool added (2026-09, follow-up)
+Originally resolved as documentation-only (see below), since this
+project's status at the time was pre-production/fresh-DB-only. A
+follow-up review requested a real, safe upgrade path regardless, so
+`scripts/migrate_existing_checks_to_partitioned.sh` was added: a
+manually-invoked (never auto-run), resumable, batched shadow-table
+copy + verified atomic swap that converts an existing, populated
+`checks` table into the exact partitioned structure migration 0061
+creates, without needing 0061 itself to touch non-empty tables. Full
+procedure, safety notes, and the required manual
+`_sqlx_migrations` reconciliation step (sqlx has no built-in "mark
+applied without running" command — the safe procedure is documented
+in the script's own header) are in the script itself. This was NOT
+added as a new numbered migration, and deliberately does not touch
+`_sqlx_migrations` programmatically — both by design, since this is a
+one-time, operator-supervised production data operation, not something
+safe to run unattended as part of a routine deploy.
+
+Original documentation-only resolution, still accurate as background:
 Migration 0061's safety guard (it refuses to run against non-empty
 `checks`/`diagnostic_reports` tables) was verified still intact and
 untouched. Per the audit's own required-fix options, and since this
