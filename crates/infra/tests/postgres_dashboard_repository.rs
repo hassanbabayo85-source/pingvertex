@@ -156,6 +156,33 @@ async fn get_overview_handles_1000_monitors_without_n_plus_one_queries() {
 
 #[tokio::test]
 #[serial_test::serial]
+async fn get_overview_counts_disabled_monitors_separately_from_up_down() {
+    let pool = common::setup_pool().await;
+    let repo = PostgresDashboardRepository::new(pool.clone());
+
+    let user_id = UserId(Uuid::new_v4());
+    let tenant_id = insert_user_and_tenant(&pool, user_id).await;
+
+    let mut tx = pool.begin().await.unwrap();
+    insert_monitor_with_data(&mut tx, tenant_id, user_id, "enabled").await;
+    insert_monitor_with_data(&mut tx, tenant_id, user_id, "disabled").await;
+    tx.commit().await.unwrap();
+
+    sqlx::query("UPDATE monitors SET enabled = FALSE WHERE tenant_id = $1 AND name = 'disabled'")
+        .bind(tenant_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let overview = repo.get_overview(tenant_id).await.unwrap();
+    assert_eq!(overview.monitor_summary.total, 2);
+    assert_eq!(overview.monitor_summary.up, 1);
+    assert_eq!(overview.monitor_summary.down, 0);
+    assert_eq!(overview.monitor_summary.disabled, 1);
+}
+
+#[tokio::test]
+#[serial_test::serial]
 async fn get_overview_respects_tenant_isolation() {
     let pool = common::setup_pool().await;
     let repo = PostgresDashboardRepository::new(pool.clone());

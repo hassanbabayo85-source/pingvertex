@@ -103,10 +103,13 @@ pub async fn complete_2fa(pending_token: &str, code: &str) -> Result<(), String>
     Ok(())
 }
 
-pub async fn fetch_current_user() -> Result<User, String> {
-    let parsed: CurrentSessionResponse =
-        client::get_json("/auth/me").await.map_err(to_string_err)?;
+pub async fn fetch_current_user_typed() -> Result<User, ApiError> {
+    let parsed: CurrentSessionResponse = client::get_json("/auth/me").await?;
     Ok(parsed.user)
+}
+
+pub async fn fetch_current_user() -> Result<User, String> {
+    fetch_current_user_typed().await.map_err(to_string_err)
 }
 
 // ---------------------------------------------------------------------

@@ -19,3 +19,20 @@ Passed (see root HANDOVER for details).
 
 ## Notes
 - Public status endpoints are now `/api/v1/public/status` and `/api/v1/public/status/{subdomain}`.
+
+## Phase 1 — Backend ↔ Frontend Integration Hardening (2026-09-03)
+
+### Status
+SOURCE CHANGES COMPLETE; LOCAL RUNTIME VERIFICATION REQUIRED.
+
+### Changes
+- Dashboard DTO now mirrors backend `DashboardOverview` exactly.
+- Dashboard uses one aggregated `/api/v1/dashboard/overview` request instead of overview + monitors.
+- API client explicitly handles 409 Conflict and 429 Rate Limited and parses structured backend errors.
+- 5xx details are sanitized before reaching UI; Retry-After is preserved when numeric.
+- `RequireAuth` redirects only on a real 401 and keeps network/server failures retryable.
+- Dashboard backend counts disabled monitors separately from up/down.
+
+### Verification
+Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `cd apps/leptos-dashboard && trunk build --release` locally.
+

@@ -1,6 +1,6 @@
 use gloo_net::http::Request;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use web_sys::{FormData, RequestCredentials};
 
 const API_BASE: &str = "/api/v1";
@@ -11,43 +11,94 @@ pub enum ApiError {
     Forbidden,
     Validation(String),
     NotFound,
+    Conflict(String),
+    RateLimited {
+        message: String,
+        retry_after: Option<u64>,
+    },
     Network(String),
     Server(u16, String),
+    Unknown(u16, String),
 }
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ApiError::Unauthorized => write!(f, "Unauthorized (401)"),
-            ApiError::Forbidden => write!(f, "Forbidden (403)"),
-            ApiError::Validation(msg) => write!(f, "Validation error: {msg}"),
-            ApiError::NotFound => write!(f, "Not found (404)"),
-            ApiError::Network(msg) => write!(f, "Network error: {msg}"),
-            ApiError::Server(status, msg) => write!(f, "Server error ({status}): {msg}"),
+            Self::Unauthorized => write!(f, "Unauthorized (401)"),
+            Self::Forbidden => write!(f, "Forbidden (403)"),
+            Self::Validation(msg) => write!(f, "Validation error: {msg}"),
+            Self::NotFound => write!(f, "Not found (404)"),
+            Self::Conflict(msg) => write!(f, "Conflict (409): {msg}"),
+            Self::RateLimited {
+                message,
+                retry_after,
+            } => match retry_after {
+                Some(seconds) => {
+                    write!(f, "Rate limited (429): {message} (retry after {seconds}s)")
+                }
+                None => write!(f, "Rate limited (429): {message}"),
+            },
+            Self::Network(msg) => write!(f, "Network error: {msg}"),
+            Self::Server(status, msg) => write!(f, "Server error ({status}): {msg}"),
+            Self::Unknown(status, msg) => write!(f, "Unexpected HTTP error ({status}): {msg}"),
         }
+    }
+}
+
+impl From<serde_json::Error> for ApiError {
+    fn from(_: serde_json::Error) -> Self {
+        ApiError::Unknown(0, "Invalid JSON response.".to_string())
     }
 }
 
 impl From<gloo_net::Error> for ApiError {
     fn from(err: gloo_net::Error) -> Self {
-        ApiError::Network(err.to_string())
+        Self::Network(err.to_string())
     }
 }
 
-impl From<serde_json::Error> for ApiError {
-    fn from(err: serde_json::Error) -> Self {
-        ApiError::Validation(format!("Invalid JSON: {err}"))
+#[derive(Debug, Deserialize)]
+struct ErrorBody {
+    message: Option<String>,
+}
+
+fn safe_message(status: u16, body: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<ErrorBody>(body) {
+        if let Some(message) = parsed.message.filter(|m| !m.trim().is_empty()) {
+            return if (500..=599).contains(&status) {
+                "The server could not complete the request.".to_string()
+            } else {
+                message
+            };
+        }
+    }
+    if (500..=599).contains(&status) {
+        "The server could not complete the request.".to_string()
+    } else if body.trim().is_empty() {
+        "The request could not be completed.".to_string()
+    } else {
+        body.trim().chars().take(500).collect()
     }
 }
 
-fn map_status(status: u16, body: String) -> ApiError {
+fn parse_retry_after(value: Option<&str>) -> Option<u64> {
+    value.and_then(|v| v.trim().parse::<u64>().ok())
+}
+
+fn map_status(status: u16, body: String, retry_after: Option<u64>) -> ApiError {
+    let message = safe_message(status, &body);
     match status {
         401 => ApiError::Unauthorized,
         403 => ApiError::Forbidden,
-        400 | 422 => ApiError::Validation(body),
+        400 | 422 => ApiError::Validation(message),
         404 => ApiError::NotFound,
-        500..=599 => ApiError::Server(status, body),
-        _ => ApiError::Server(status, body),
+        409 => ApiError::Conflict(message),
+        429 => ApiError::RateLimited {
+            message,
+            retry_after,
+        },
+        500..=599 => ApiError::Server(status, message),
+        _ => ApiError::Unknown(status, message),
     }
 }
 
@@ -63,10 +114,17 @@ async fn handle_response<T: DeserializeOwned>(
             .text()
             .await
             .map_err(|e| ApiError::Network(e.to_string()))?;
+        if text.trim().is_empty() {
+            return Err(ApiError::Unknown(
+                status,
+                "Expected a JSON response but received an empty body.".into(),
+            ));
+        }
         serde_json::from_str(&text).map_err(ApiError::from)
     } else {
+        let retry_after = parse_retry_after(resp.headers().get("retry-after").as_deref());
         let text = resp.text().await.unwrap_or_default();
-        Err(map_status(status, text))
+        Err(map_status(status, text, retry_after))
     }
 }
 
@@ -109,19 +167,23 @@ pub async fn put_json<T: DeserializeOwned, B: Serialize>(
     handle_response(resp).await
 }
 
+async fn handle_no_content_response(resp: gloo_net::http::Response) -> Result<(), ApiError> {
+    let status = resp.status();
+    if (200..300).contains(&status) {
+        return Ok(());
+    }
+    let retry_after = parse_retry_after(resp.headers().get("retry-after").as_deref());
+    let text = resp.text().await.unwrap_or_default();
+    Err(map_status(status, text, retry_after))
+}
+
 pub async fn post_json_no_content(path: &str) -> Result<(), ApiError> {
     let url = format!("{API_BASE}{path}");
     let resp = Request::post(&url)
         .credentials(RequestCredentials::Include)
         .send()
         .await?;
-    let status = resp.status();
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        let text = resp.text().await.unwrap_or_default();
-        Err(map_status(status, text))
-    }
+    handle_no_content_response(resp).await
 }
 
 pub async fn delete_json_no_content(path: &str) -> Result<(), ApiError> {
@@ -130,13 +192,7 @@ pub async fn delete_json_no_content(path: &str) -> Result<(), ApiError> {
         .credentials(RequestCredentials::Include)
         .send()
         .await?;
-    let status = resp.status();
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        let text = resp.text().await.unwrap_or_default();
-        Err(map_status(status, text))
-    }
+    handle_no_content_response(resp).await
 }
 
 pub async fn get_json_query<T: DeserializeOwned>(
@@ -186,13 +242,7 @@ pub async fn put_json_no_content<B: Serialize>(path: &str, body: &B) -> Result<(
         .map_err(|e| ApiError::Validation(e.to_string()))?
         .send()
         .await?;
-    let status = resp.status();
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        let text = resp.text().await.unwrap_or_default();
-        Err(map_status(status, text))
-    }
+    handle_no_content_response(resp).await
 }
 
 pub async fn patch_json_no_content<B: Serialize>(path: &str, body: &B) -> Result<(), ApiError> {
@@ -204,13 +254,7 @@ pub async fn patch_json_no_content<B: Serialize>(path: &str, body: &B) -> Result
         .map_err(|e| ApiError::Validation(e.to_string()))?
         .send()
         .await?;
-    let status = resp.status();
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        let text = resp.text().await.unwrap_or_default();
-        Err(map_status(status, text))
-    }
+    handle_no_content_response(resp).await
 }
 
 pub async fn post_multipart_file<T: DeserializeOwned>(
@@ -239,4 +283,35 @@ pub async fn post_multipart_file<T: DeserializeOwned>(
         .send()
         .await?;
     handle_response(resp).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn maps_conflict_and_rate_limit() {
+        assert!(matches!(
+            map_status(409, r#"{"message":"already exists"}"#.into(), None),
+            ApiError::Conflict(_)
+        ));
+        assert!(matches!(
+            map_status(429, r#"{"message":"slow down"}"#.into(), Some(12)),
+            ApiError::RateLimited {
+                retry_after: Some(12),
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn sanitizes_server_error_body() {
+        let err = map_status(
+            500,
+            r#"{"message":"relation monitors does not exist"}"#.into(),
+            None,
+        );
+        assert_eq!(
+            err.to_string(),
+            "Server error (500): The server could not complete the request."
+        );
+    }
 }

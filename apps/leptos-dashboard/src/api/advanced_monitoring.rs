@@ -35,10 +35,6 @@ pub async fn create_maintenance(
 ) -> Result<MaintenanceWindow, client::ApiError> {
     client::post_json(&format!("/monitors/{monitor_id}/maintenance-windows"), req).await
 }
-pub async fn delete_maintenance(id: &str) -> Result<(), client::ApiError> {
-    client::delete_json_no_content(&format!("/maintenance-windows/{id}")).await
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct EscalationPolicyPayload {
     pub monitor_id: Option<String>,
@@ -62,7 +58,4 @@ pub async fn update_escalation(
     req: &EscalationPolicyPayload,
 ) -> Result<EscalationPolicy, client::ApiError> {
     client::put_json(&format!("/escalation-policies/{id}"), req).await
-}
-pub async fn delete_escalation(id: &str) -> Result<(), client::ApiError> {
-    client::delete_json_no_content(&format!("/escalation-policies/{id}")).await
 }

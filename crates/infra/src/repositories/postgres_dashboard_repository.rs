@@ -127,14 +127,13 @@ impl DashboardRepository for PostgresDashboardRepository {
                 }
             });
 
-            if let Some(status) = status {
+            if !row.enabled {
+                disabled_count += 1;
+            } else if let Some(status) = status {
                 match status {
                     CheckStatus::Up => up_count += 1,
                     CheckStatus::Down => down_count += 1,
                 }
-            }
-            if !row.enabled {
-                disabled_count += 1;
             }
 
             if row.open_incident_id.is_some() {

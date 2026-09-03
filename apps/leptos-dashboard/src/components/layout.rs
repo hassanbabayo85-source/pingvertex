@@ -28,16 +28,6 @@ pub fn Layout() -> impl IntoView {
                                             NavStatus::Available => view! {
                                                 <A href=item.href>{item.label}</A>
                                             }.into_any(),
-                                            NavStatus::ComingSoon => view! {
-                                                <span
-                                                    class="sidebar-group-disabled"
-                                                    title="Coming soon"
-                                                    aria-disabled="true"
-                                                >
-                                                    {item.label}
-                                                    <span class="sidebar-soon-badge">"soon"</span>
-                                                </span>
-                                            }.into_any(),
                                         })
                                         .collect_view()}
                                 </div>

@@ -4,8 +4,8 @@
 //! exist, which route each one points at, and whether that route is
 //! registered yet. `components::layout::Layout` renders this data. Keeping
 //! the data separate from the render code means Path 10 (or any future
-//! integration pass) can flip an item from `NavStatus::ComingSoon` to
-//! `NavStatus::Available` in one place, in `routes/mod.rs`-adjacent order,
+//! integration pass) can add a future navigation item in one place, in
+//! `routes/mod.rs`-adjacent order.
 //! without touching rendering logic.
 //!
 //! IMPORTANT: adding an item here does NOT register a route. A route must
@@ -18,10 +18,6 @@
 pub enum NavStatus {
     /// The route is registered in `routes/mod.rs` and the page exists.
     Available,
-    /// The feature is planned (owned by another Path) but not routable yet.
-    /// Rendered as a disabled, non-navigating list item so it never becomes
-    /// a dead link.
-    ComingSoon,
 }
 
 #[derive(Clone, Copy)]

@@ -192,3 +192,31 @@ in (no `cargo`/toolchain available). Run before deploying:
 - `checks_partition_health(months_ahead)` (migration 0071) is meant to be
   wired into whatever metrics/alerting this project uses next; it
   currently only surfaces via `ensure_checks_partitions.sh`'s log output.
+
+## Worker: Phase 1 — Backend ↔ Frontend Integration Hardening (2026-09-03)
+
+### Scope
+- Align the dashboard frontend with the authoritative `DashboardOverview` backend DTO.
+- Remove the dashboard's duplicate `/monitors` request and consume the backend aggregate in one request.
+- Harden the frontend API error model for 409/429, structured error payloads, Retry-After, safe 5xx messages, and deterministic empty-body handling.
+- Separate actual 401 session expiry from network/server failures in `RequireAuth`.
+- Correct dashboard aggregation so disabled monitors are not counted as up/down.
+- Add source-derived contract audit documentation and an executable contract-audit helper.
+
+### Status
+SOURCE CHANGES COMPLETE; LOCAL RUNTIME VERIFICATION REQUIRED.
+
+### Verification
+The authoring environment does not contain the Rust toolchain (`cargo` was unavailable), so the required workspace checks could not be executed here. Run locally before release:
+- `cargo fmt --all`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `cd apps/leptos-dashboard && trunk build --release`
+
+### Architecture compliance
+- No rewrite of backend architecture.
+- Dashboard remains tenant-scoped through the existing authenticated use-case/repository chain.
+- Existing LATERAL aggregation and database indexes are preserved.
+- No unsafe automatic retries were introduced.
+- Existing UI primitives remain in use.
+
