@@ -486,6 +486,7 @@ mod tests {
         async fn find_by_id(
             &self,
             _id: CheckId,
+            _: chrono::DateTime<chrono::Utc>,
         ) -> std::result::Result<Option<Check>, Box<dyn Error + Send + Sync>> {
             Ok(None)
         }

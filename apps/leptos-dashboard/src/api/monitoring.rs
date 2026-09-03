@@ -1,54 +1,10 @@
 #![allow(dead_code)]
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use web_sys::RequestCredentials;
 
-const API_BASE: &str = "/api/v1";
+use crate::api::client::{self, ApiError};
 
-async fn send_request(method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
-    let url = format!("{}{}", API_BASE, path);
-    let builder = match method {
-        "GET" => Request::get(&url),
-        "POST" => Request::post(&url),
-        "PUT" => Request::put(&url),
-        "DELETE" => Request::delete(&url),
-        _ => return Err(format!("Unsupported method {method}")),
-    }
-    .header("Content-Type", "application/json")
-    .credentials(RequestCredentials::Include);
-
-    let request = if let Some(b) = body {
-        let json_str = serde_json::to_string(&b).map_err(|e| e.to_string())?;
-        builder.body(json_str).map_err(|e| e.to_string())?
-    } else {
-        builder.build().map_err(|e| e.to_string())?
-    };
-
-    let response = request.send().await.map_err(|e| e.to_string())?;
-    let status = response.status();
-    let text = response.text().await.map_err(|e| e.to_string())?;
-    if (200..300).contains(&status) {
-        serde_json::from_str(&text).map_err(|e| format!("Invalid JSON response: {e}"))
-    } else {
-        Err(format!("Request failed with status {status}: {text}"))
-    }
-}
-
-async fn get_json(path: &str) -> Result<Value, String> {
-    send_request("GET", path, None).await
-}
-
-async fn post_json(path: &str, body: Value) -> Result<Value, String> {
-    send_request("POST", path, Some(body)).await
-}
-
-async fn put_json(path: &str, body: Value) -> Result<Value, String> {
-    send_request("PUT", path, Some(body)).await
-}
-
-async fn delete_json(path: &str) -> Result<Value, String> {
-    send_request("DELETE", path, None).await
+fn to_string_err(e: ApiError) -> String {
+    e.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -109,10 +65,15 @@ pub struct Incident {
 #[serde(default)]
 pub struct NotificationChannel {
     pub id: String,
-    pub name: String,
+    pub monitor_id: String,
     pub kind: String,
     pub target: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub name: String,
+    pub has_signing_secret: bool,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -131,36 +92,60 @@ pub struct MonitorPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelPayload {
+    #[serde(default)]
     pub name: String,
     pub kind: String,
     pub target: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MaintenanceWindowPayload {
+    pub starts_at: String,
+    pub ends_at: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EscalationStepPayload {
+    pub delay_minutes: u32,
+    pub channel_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EscalationPolicyPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monitor_id: Option<String>,
+    pub steps: Vec<EscalationStepPayload>,
+}
+
 pub async fn fetch_monitors() -> Result<Vec<Monitor>, String> {
-    let value = get_json("/monitors").await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid monitors data: {e}"))
+    client::get_json::<Vec<Monitor>>("/monitors")
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn get_monitor(id: &str) -> Result<Monitor, String> {
-    let value = get_json(&format!("/monitors/{id}")).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid monitor data: {e}"))
+    client::get_json::<Monitor>(&format!("/monitors/{id}"))
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn create_monitor(payload: &MonitorPayload) -> Result<Monitor, String> {
-    let body = serde_json::to_value(payload).map_err(|e| e.to_string())?;
-    let value = post_json("/monitors", body).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid monitor data: {e}"))
+    client::post_json::<Monitor, _>("/monitors", payload)
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn update_monitor(id: &str, payload: &MonitorPayload) -> Result<Monitor, String> {
-    let body = serde_json::to_value(payload).map_err(|e| e.to_string())?;
-    let value = put_json(&format!("/monitors/{id}"), body).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid monitor data: {e}"))
+    client::put_json::<Monitor, _>(&format!("/monitors/{id}"), payload)
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn delete_monitor(id: &str) -> Result<(), String> {
-    delete_json(&format!("/monitors/{id}")).await?;
-    Ok(())
+    client::delete_json_no_content(&format!("/monitors/{id}"))
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn set_monitor_enabled(id: &str, enabled: bool) -> Result<(), String> {
@@ -169,42 +154,83 @@ pub async fn set_monitor_enabled(id: &str, enabled: bool) -> Result<(), String> 
     } else {
         format!("/monitors/{id}/disable")
     };
-    post_json(&path, json!({})).await?;
-    Ok(())
+    client::post_json_no_content(&path)
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn fetch_overview() -> Result<Overview, String> {
-    let value = get_json("/dashboard/overview").await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid overview data: {e}"))
+    client::get_json::<Overview>("/dashboard/overview")
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn fetch_incidents(monitor_id: &str) -> Result<Vec<Incident>, String> {
-    let value = get_json(&format!("/monitors/{monitor_id}/incidents")).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid incidents data: {e}"))
+    client::get_json::<Vec<Incident>>(&format!("/monitors/{monitor_id}/incidents"))
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn fetch_checks(monitor_id: &str) -> Result<Vec<Check>, String> {
-    let value = get_json(&format!("/monitors/{monitor_id}/checks")).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid checks data: {e}"))
+    client::get_json::<Vec<Check>>(&format!("/monitors/{monitor_id}/checks"))
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn list_notification_channels(
     monitor_id: &str,
 ) -> Result<Vec<NotificationChannel>, String> {
-    let value = get_json(&format!("/monitors/{monitor_id}/channels")).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid channels data: {e}"))
+    client::get_json::<Vec<NotificationChannel>>(&format!("/monitors/{monitor_id}/notifications"))
+        .await
+        .map_err(to_string_err)
 }
 
 pub async fn create_notification_channel(
     monitor_id: &str,
     payload: &ChannelPayload,
 ) -> Result<NotificationChannel, String> {
-    let body = serde_json::to_value(payload).map_err(|e| e.to_string())?;
-    let value = post_json(&format!("/monitors/{monitor_id}/channels"), body).await?;
-    serde_json::from_value(value).map_err(|e| format!("Invalid channel data: {e}"))
+    client::post_json::<NotificationChannel, _>(
+        &format!("/monitors/{monitor_id}/notifications"),
+        payload,
+    )
+    .await
+    .map_err(to_string_err)
 }
 
 pub async fn delete_notification_channel(channel_id: &str) -> Result<(), String> {
-    delete_json(&format!("/channels/{channel_id}")).await?;
+    client::delete_json_no_content(&format!("/notifications/{channel_id}"))
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn test_notification_channel(channel_id: &str) -> Result<(), String> {
+    client::post_json_no_content(&format!("/notifications/{channel_id}/test"))
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn create_maintenance_window(
+    monitor_id: &str,
+    payload: &MaintenanceWindowPayload,
+) -> Result<(), String> {
+    let _: serde_json::Value = client::post_json(
+        &format!("/monitors/{monitor_id}/maintenance-windows"),
+        payload,
+    )
+    .await
+    .map_err(to_string_err)?;
     Ok(())
+}
+
+pub async fn create_escalation_policy(payload: &EscalationPolicyPayload) -> Result<(), String> {
+    let _: serde_json::Value = client::post_json("/escalation-policies", payload)
+        .await
+        .map_err(to_string_err)?;
+    Ok(())
+}
+
+pub async fn acknowledge_incident(incident_id: &str) -> Result<(), String> {
+    client::post_json_no_content(&format!("/incidents/{incident_id}/acknowledge"))
+        .await
+        .map_err(to_string_err)
 }

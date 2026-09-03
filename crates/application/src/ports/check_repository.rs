@@ -33,7 +33,13 @@ pub trait CheckRepository: Send + Sync {
         Ok(())
     }
 
-    async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>>;
+    /// AUDIT ISSUE #1 fix: `Check`'s canonical identity is the composite
+    /// `(CheckId, checked_at)`, matching `checks`' actual PRIMARY KEY
+    /// since migration 0061 partitioned the table by `checked_at`. See
+    /// `domain::repositories::CheckRepository::find_by_id`'s doc comment
+    /// for the full rationale.
+    async fn find_by_id(&self, id: CheckId, checked_at: DateTime<Utc>)
+    -> RepoResult<Option<Check>>;
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Check>>;
 
@@ -84,8 +90,12 @@ where
         (**self).save_batch(checks).await
     }
 
-    async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>> {
-        (**self).find_by_id(id).await
+    async fn find_by_id(
+        &self,
+        id: CheckId,
+        checked_at: DateTime<Utc>,
+    ) -> RepoResult<Option<Check>> {
+        (**self).find_by_id(id, checked_at).await
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Check>> {

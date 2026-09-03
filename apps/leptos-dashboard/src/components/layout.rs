@@ -8,29 +8,47 @@ pub fn Layout() -> impl IntoView {
 
     view! {
         <div class="app-shell">
-            <header class="app-header">
-                <div class="app-brand">
+            <aside class="sidebar">
+                <div class="sidebar-brand">
                     <A href="/">"PingVertex"</A>
                 </div>
-                <nav class="app-nav">
-                    <A href="/">"Overview"</A>
-                    <A href="/monitors">"Monitors"</A>
-                    <A href="/rum">"Real User Monitoring"</A>
+
+                <nav class="sidebar-nav">
+                    <div class="sidebar-group">
+                        <span class="sidebar-group-label">"OVERVIEW"</span>
+                        <A href="/" exact=true>"Dashboard"</A>
+                    </div>
+                    <div class="sidebar-group">
+                        <span class="sidebar-group-label">"MONITORING"</span>
+                        <A href="/monitors">"Monitors"</A>
+                    </div>
+                    <div class="sidebar-group">
+                        <span class="sidebar-group-label">"USER EXPERIENCE"</span>
+                        <A href="/rum">"Real User Monitoring"</A>
+                    </div>
                 </nav>
-                <div class="app-user">
-                    {move || match auth.state.get() {
-                        AuthState::Authenticated(u) => u.email,
-                        _ => String::new(),
-                    }}
-                    <A href="/logout">"Sign out"</A>
+
+                <div class="sidebar-footer">
+                    <div class="sidebar-user">
+                        <span class="sidebar-user-email">
+                            {move || match auth.state.get() {
+                                AuthState::Authenticated(u) => u.email,
+                                _ => String::new(),
+                            }}
+                        </span>
+                    </div>
+                    <A href="/logout" attr:class="sidebar-signout">"Sign out"</A>
                 </div>
-            </header>
-            <main class="app-main">
-                <Outlet/>
-            </main>
-            <footer class="app-footer">
-                "PingVertex — Infrastructure Monitoring"
-            </footer>
+            </aside>
+
+            <div class="app-content">
+                <main class="app-main">
+                    <Outlet/>
+                </main>
+                <footer class="app-footer">
+                    "PingVertex — Infrastructure Monitoring"
+                </footer>
+            </div>
         </div>
     }
 }

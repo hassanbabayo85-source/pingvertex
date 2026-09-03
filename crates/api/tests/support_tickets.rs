@@ -153,6 +153,7 @@ impl CheckRepository for NoopCheckRepository {
     async fn find_by_id(
         &self,
         _: domain::shared::ids::CheckId,
+        _: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<domain::Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(None)
     }
