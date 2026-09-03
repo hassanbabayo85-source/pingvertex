@@ -5,7 +5,7 @@ use leptos::prelude::*;
 pub fn EmptyState(
     #[prop(into)] title: String,
     #[prop(optional, into)] description: Option<String>,
-    children: Option<Children>,
+    #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let desc = description.unwrap_or_default();
     let actions = match children {

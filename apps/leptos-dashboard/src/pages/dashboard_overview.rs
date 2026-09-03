@@ -60,22 +60,20 @@ pub fn DashboardOverviewPage() -> impl IntoView {
     let refresh_click = move |_| load_data();
 
     // Use PageHeader component via builder to satisfy required `children` prop.
-    // `PageHeader`'s `children: Option<Children>` (owned by Path 2, read-only
-    // here) is not marked `#[prop(optional)]`, so it resolves to
-    // `Option<Box<dyn FnOnce() -> AnyView + Send>>` rather than accepting a
-    // bare closure directly — wrap accordingly instead of touching Path 2's
-    // component file.
+    // `PageHeader`'s `children` is `#[prop(optional)] Option<Children>`
+    // (Path 2, read-only here), so its builder setter accepts the boxed
+    // closure directly (not wrapped in `Some(...)`).
     let page_header = PageHeader(
         PageHeaderProps::builder()
             .title("Overview".to_string())
-            .children(Some(Box::new(move || {
+            .children(Box::new(move || {
                 view! {
                     <button class="btn" on:click=refresh_click>
                         "Refresh"
                     </button>
                 }
                 .into_any()
-            })))
+            }))
             .build(),
     );
 
