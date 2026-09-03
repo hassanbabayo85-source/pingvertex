@@ -225,7 +225,7 @@ pub async fn post_multipart_file<T: DeserializeOwned>(
     let array = js_sys::Uint8Array::from(bytes.as_slice());
     let blob_parts = js_sys::Array::new();
     blob_parts.push(&array);
-    let mut options = web_sys::BlobPropertyBag::new();
+    let options = web_sys::BlobPropertyBag::new();
     options.set_type(mime);
     let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&blob_parts, &options)
         .map_err(|_| ApiError::Validation("could not create upload payload".into()))?;

@@ -51,8 +51,8 @@ pub fn StatusPagesPage() -> impl IntoView {
                                 {move || pages.get().into_iter().map(|p| {
                                     let id=p.id.clone();
                                     let id2=id.clone();
-                                    let id3=id.clone();
-                                    let nav = nav.clone();
+                                    let _id3=id.clone();
+                                    let _nav = nav.clone();
                                     view!{
                                         <article class="list-row">
                                             <div>
