@@ -40,12 +40,29 @@ pub struct IncidentSummaryData {
     pub recent: Vec<IncidentSummary>,
 }
 
-/// Full dashboard overview response.
+/// Hourly dashboard trend point.
+#[derive(Debug, Clone, Serialize)]
+pub struct DashboardTrendPoint {
+    pub bucket: DateTime<Utc>,
+    pub uptime_percentage: Option<f64>,
+    pub avg_latency_ms: Option<f64>,
+    pub checks_count: u64,
+    pub incident_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DashboardPerformance {
+    pub uptime_percentage: Option<f64>,
+    pub avg_latency_ms: Option<f64>,
+    pub trend: Vec<DashboardTrendPoint>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DashboardOverview {
     pub monitor_summary: MonitorSummary,
     pub monitors: Vec<MonitorOverviewItem>,
     pub incident_summary: IncidentSummaryData,
+    pub performance: DashboardPerformance,
 }
 
 impl From<&Monitor> for MonitorOverviewItem {

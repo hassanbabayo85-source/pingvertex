@@ -81,6 +81,7 @@ pub fn LoginPage() -> impl IntoView {
                                     <input
                                         type="text"
                                         id="two-factor-code"
+                                        autocomplete="one-time-code"
                                         prop:value=two_factor_code
                                         on:input=move |ev| two_factor_code.set(event_target_value(&ev))
                                         required
@@ -97,6 +98,7 @@ pub fn LoginPage() -> impl IntoView {
                                     <input
                                         type="email"
                                         id="email"
+                                        autocomplete="username"
                                         prop:value=email
                                         on:input=move |ev| email.set(event_target_value(&ev))
                                         required
@@ -107,6 +109,7 @@ pub fn LoginPage() -> impl IntoView {
                                     <input
                                         type="password"
                                         id="password"
+                                        autocomplete="current-password"
                                         prop:value=password
                                         on:input=move |ev| password.set(event_target_value(&ev))
                                         required

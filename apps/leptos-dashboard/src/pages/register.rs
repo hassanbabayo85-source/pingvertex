@@ -49,15 +49,15 @@ pub fn RegisterPage() -> impl IntoView {
                             <form on:submit=on_submit class="auth-form">
                                 <div class="field">
                                     <label for="name">"Name"</label>
-                                    <input type="text" id="name" prop:value=name on:input=move |ev| name.set(event_target_value(&ev)) required/>
+                                    <input type="text" id="name" autocomplete="name" prop:value=name on:input=move |ev| name.set(event_target_value(&ev)) required/>
                                 </div>
                                 <div class="field">
                                     <label for="email">"Email"</label>
-                                    <input type="email" id="email" prop:value=email on:input=move |ev| email.set(event_target_value(&ev)) required/>
+                                    <input type="email" id="email" autocomplete="email" prop:value=email on:input=move |ev| email.set(event_target_value(&ev)) required/>
                                 </div>
                                 <div class="field">
                                     <label for="password">"Password"</label>
-                                    <input type="password" id="password" prop:value=password on:input=move |ev| password.set(event_target_value(&ev)) required/>
+                                    <input type="password" id="password" autocomplete="new-password" prop:value=password on:input=move |ev| password.set(event_target_value(&ev)) required/>
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-block">"Create account"</button>
                             </form>

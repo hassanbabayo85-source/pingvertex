@@ -48,9 +48,16 @@ pub fn EscalationPage() -> impl IntoView {
             error.set(Some("Select a notification channel.".into()));
             return;
         }
+        let delay_minutes = match delay.get().trim().parse::<u32>() {
+            Ok(value) => value,
+            Err(_) => {
+                error.set(Some("Delay must be a valid non-negative number.".into()));
+                return;
+            }
+        };
         steps.update(|v| {
             v.push(api::EscalationStepPayload {
-                delay_minutes: delay.get().parse().unwrap_or(0),
+                delay_minutes,
                 channel_id: c,
             })
         });

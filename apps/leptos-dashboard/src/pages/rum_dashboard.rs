@@ -46,7 +46,15 @@ pub fn RumDashboardPage() -> impl IntoView {
             return;
         };
 
-        let days = range.get().parse::<f64>().unwrap_or(1.0);
+        let days = match range.get().as_str() {
+            "1" => 1.0,
+            "7" => 7.0,
+            "30" => 30.0,
+            _ => {
+                error.set(Some("Invalid analytics range.".into()));
+                return;
+            }
+        };
         loading.set(true);
 
         let now = js_sys::Date::new_0();
