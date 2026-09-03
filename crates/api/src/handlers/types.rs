@@ -14,7 +14,9 @@ pub struct MonitorResponse {
     pub user_id: String,
     pub name: String,
     pub url: String,
+    #[serde(default)]
     pub method: HttpMethod,
+    #[serde(default = "default_expected_status")]
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
@@ -94,7 +96,9 @@ impl MonitorCreateResponse {
 pub struct MonitorWriteRequest {
     pub name: String,
     pub url: String,
+    #[serde(default)]
     pub method: HttpMethod,
+    #[serde(default = "default_expected_status")]
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
@@ -136,6 +140,10 @@ pub struct MonitorWriteRequest {
 
 fn default_ssl_check_enabled() -> bool {
     true
+}
+
+fn default_expected_status() -> u16 {
+    200
 }
 
 fn default_ssl_expiry_warning_days() -> u32 {
