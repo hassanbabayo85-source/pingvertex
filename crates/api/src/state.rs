@@ -550,6 +550,9 @@ impl HelpArticleRepository for NoopHelpArticleRepository {
     ) -> RepoResult<Vec<domain::entities::HelpArticle>> {
         Ok(vec![])
     }
+    async fn list_published(&self) -> RepoResult<Vec<domain::entities::HelpArticle>> {
+        Ok(vec![])
+    }
     async fn search(&self, _: &str) -> RepoResult<Vec<domain::entities::HelpArticle>> {
         Ok(vec![])
     }

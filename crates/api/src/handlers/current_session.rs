@@ -23,6 +23,7 @@ pub struct CurrentSessionUser {
     pub email_verified: bool,
     pub tenant_id: String,
     pub role: domain::shared::types::Role,
+    pub totp_enabled: bool,
 }
 
 /// `GET /api/v1/auth/me`
@@ -56,6 +57,7 @@ pub async fn current_session(
                 .0
                 .to_string(),
             role: authenticated_user.role(),
+            totp_enabled: user.totp_enabled(),
         },
     }))
 }

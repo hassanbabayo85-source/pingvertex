@@ -66,14 +66,11 @@ pub async fn list_help_articles(
             .list_by_category(category_id, true)
             .await
             .map_err(|err| ApiError::internal_with_source("failed to list help articles", err))?,
-        None => {
-            // list all published articles across categories
-            // not implemented directly; return empty or use search with empty (but not good)
-            // We'll implement a simple repository method later if needed; for now empty.
-            // Better: use search with empty? No. Use list_by_category? Not possible.
-            // To keep within scope, this branch returns empty; frontend can use categories.
-            Vec::new()
-        }
+        None => state
+            .help_article_repository
+            .list_published()
+            .await
+            .map_err(|err| ApiError::internal_with_source("failed to list help articles", err))?,
     };
 
     Ok(Json(

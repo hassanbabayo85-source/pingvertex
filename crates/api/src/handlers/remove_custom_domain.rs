@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Extension, Path, State},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 use application::{commands::RemoveCustomDomain, use_cases::RemoveCustomDomainUseCase};
 use domain::shared::types::AuthenticatedUser;
@@ -33,6 +33,11 @@ pub async fn remove_custom_domain(
         .await
         .map_err(|err| ApiError::forbidden_or_internal("failed to remove custom domain", err))?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;
+
+    let cache_key = format!("status_page:id:{}", status_page.id.0);
+    if let Err(err) = state.status_page_cache.invalidate(&cache_key).await {
+        warn!(status_page_id = %status_page.id.0, error = %err, "failed to invalidate cached status page after custom-domain change");
+    }
 
     Ok(Json(StatusPageResponse::from(status_page)))
 }

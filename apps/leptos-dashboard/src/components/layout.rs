@@ -1,4 +1,5 @@
 use crate::auth::context::{use_auth, AuthState};
+use crate::components::navigation::{NavStatus, NAV_GROUPS};
 use leptos::prelude::*;
 use leptos_router::components::{Outlet, A};
 
@@ -14,18 +15,35 @@ pub fn Layout() -> impl IntoView {
                 </div>
 
                 <nav class="sidebar-nav">
-                    <div class="sidebar-group">
-                        <span class="sidebar-group-label">"OVERVIEW"</span>
-                        <A href="/" exact=true>"Dashboard"</A>
-                    </div>
-                    <div class="sidebar-group">
-                        <span class="sidebar-group-label">"MONITORING"</span>
-                        <A href="/monitors">"Monitors"</A>
-                    </div>
-                    <div class="sidebar-group">
-                        <span class="sidebar-group-label">"USER EXPERIENCE"</span>
-                        <A href="/rum">"Real User Monitoring"</A>
-                    </div>
+                    {NAV_GROUPS
+                        .iter()
+                        .map(|group| {
+                            view! {
+                                <div class="sidebar-group">
+                                    <span class="sidebar-group-label">{group.label}</span>
+                                    {group
+                                        .items
+                                        .iter()
+                                        .map(|item| match item.status {
+                                            NavStatus::Available => view! {
+                                                <A href=item.href>{item.label}</A>
+                                            }.into_any(),
+                                            NavStatus::ComingSoon => view! {
+                                                <span
+                                                    class="sidebar-group-disabled"
+                                                    title="Coming soon"
+                                                    aria-disabled="true"
+                                                >
+                                                    {item.label}
+                                                    <span class="sidebar-soon-badge">"soon"</span>
+                                                </span>
+                                            }.into_any(),
+                                        })
+                                        .collect_view()}
+                                </div>
+                            }
+                        })
+                        .collect_view()}
                 </nav>
 
                 <div class="sidebar-footer">

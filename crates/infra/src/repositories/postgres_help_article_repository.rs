@@ -102,11 +102,21 @@ impl HelpArticleRepository for PostgresHelpArticleRepository {
         rows.into_iter().map(HelpArticleRow::into_domain).collect()
     }
 
+    async fn list_published(&self) -> RepoResult<Vec<HelpArticle>> {
+        let rows = sqlx::query_as::<_, HelpArticleRow>(
+            "SELECT id, category_id, title, slug, content, status, created_at, updated_at \
+             FROM help_articles WHERE status = 'published' ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(HelpArticleRow::into_domain).collect()
+    }
+
     async fn search(&self, query: &str) -> RepoResult<Vec<HelpArticle>> {
         let pattern = format!("%{}%", query);
         let rows = sqlx::query_as::<_, HelpArticleRow>(
             "SELECT id, category_id, title, slug, content, status, created_at, updated_at \
-             FROM help_articles WHERE title ILIKE $1 OR content ILIKE $1 ORDER BY created_at DESC",
+             FROM help_articles WHERE status = 'published' AND (title ILIKE $1 OR content ILIKE $1) ORDER BY created_at DESC",
         )
         .bind(pattern)
         .fetch_all(&self.pool)

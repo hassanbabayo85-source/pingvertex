@@ -24,6 +24,15 @@ pub struct Monitor {
     pub status: Option<String>,
     pub uptime_percentage: Option<f64>,
     pub avg_response_time_ms: Option<f64>,
+    pub expected_status: u16,
+    pub is_public: bool,
+    pub ssl_check_enabled: bool,
+    pub ssl_expiry_warning_days: u32,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -76,18 +85,33 @@ pub struct NotificationChannel {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct NotificationChannelCreateResponse {
+    #[serde(flatten)]
+    pub channel: NotificationChannel,
+    pub signing_secret: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MonitorPayload {
     pub name: String,
     pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub port: Option<u16>,
-    pub interval_seconds: u64,
-    pub timeout_seconds: u64,
+    pub url: String,
+    pub method: String,
+    pub expected_status: u16,
+    pub interval_seconds: u32,
+    pub timeout_seconds: u32,
+    #[serde(default)]
+    pub assertions: Vec<serde_json::Value>,
+    pub is_public: bool,
+    pub ssl_check_enabled: bool,
+    pub ssl_expiry_warning_days: u32,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -96,6 +120,8 @@ pub struct ChannelPayload {
     pub name: String,
     pub kind: String,
     pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -188,8 +214,8 @@ pub async fn list_notification_channels(
 pub async fn create_notification_channel(
     monitor_id: &str,
     payload: &ChannelPayload,
-) -> Result<NotificationChannel, String> {
-    client::post_json::<NotificationChannel, _>(
+) -> Result<NotificationChannelCreateResponse, String> {
+    client::post_json::<NotificationChannelCreateResponse, _>(
         &format!("/monitors/{monitor_id}/notifications"),
         payload,
     )
