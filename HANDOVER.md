@@ -58,6 +58,12 @@ the original issue numbering/severity used below.
 ### Status
 COMPLETE for issues #1, #2, #4–#12. Issue #3 is a documentation-only
 resolution (see below) — no schema change was required or made.
+Follow-up (2026-09): a post-remediation review flagged that
+`rum_js_errors`/`rum_resource_errors.page_view_id` was still a plain FK
+(not tenant/site composite) — closed by `migrations/0072_rum_page_view_composite_fk.sql`.
+Issue #3 (migration 0061 existing-data upgrade path) remains open by
+design — see its own section below; it needs a decision from whoever
+owns the production timeline, not just code.
 
 ### Files Created/Modified
 - **Modified** `crates/domain/src/repositories/check_repository.rs`,
@@ -157,10 +163,10 @@ in (no `cargo`/toolchain available). Run before deploying:
   (unverified against a real toolchain/database in this environment).
 
 ### Notes for Next Worker
-- If a future migration needs `rum_page_views.page_view_id`-level
-  tenant/site composite FKs on `rum_js_errors`/`rum_resource_errors`,
-  see the follow-up note left at the bottom of migration 0069 — it was
-  deliberately scoped out of this remediation as lower marginal value.
+- **DONE (2026-09, follow-up):** `rum_page_views.page_view_id`-level
+  tenant/site composite FKs on `rum_js_errors`/`rum_resource_errors` were
+  added in `migrations/0072_rum_page_view_composite_fk.sql`, closing the
+  gap the note at the bottom of migration 0069 originally deferred.
 - `checks_partition_health(months_ahead)` (migration 0071) is meant to be
   wired into whatever metrics/alerting this project uses next; it
   currently only surfaces via `ensure_checks_partitions.sh`'s log output.
