@@ -152,10 +152,10 @@ fn StatusPageEditor(
     let error = RwSignal::new(None::<String>);
     let id = page.id.clone();
     let logo_url = page.logo_url.clone();
-    let save_callback = on_saved.clone();
-    let domain_callback = on_saved.clone();
-    let remove_callback = on_saved.clone();
-    let upload_callback = on_saved.clone();
+    let save_callback = on_saved;
+    let domain_callback = on_saved;
+    let remove_callback = on_saved;
+    let upload_callback = on_saved;
 
     let save = {
         let id = id.clone();

@@ -37,13 +37,46 @@ pub struct Monitor {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(default)]
-pub struct Overview {
-    pub total_monitors: u64,
-    pub up_monitors: u64,
-    pub down_monitors: u64,
-    pub uptime_percentage: f64,
-    pub average_response_time_ms: f64,
-    pub active_incidents: u64,
+pub struct MonitorSummary {
+    pub total: u32,
+    pub up: u32,
+    pub down: u32,
+    pub disabled: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IncidentSummary {
+    pub id: String,
+    pub monitor_id: String,
+    pub started_at: String,
+    pub acknowledged_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IncidentSummaryData {
+    pub open_count: u32,
+    pub recent: Vec<IncidentSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MonitorOverviewItem {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub enabled: bool,
+    pub status: Option<String>,
+    pub latency_ms: Option<u64>,
+    pub checked_at: Option<String>,
+    pub open_incident: Option<IncidentSummary>,
+}
+
+/// Exact wire contract of GET /api/v1/dashboard/overview.
+/// Keep this aligned with application::dto::DashboardOverview.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct DashboardOverview {
+    pub monitor_summary: MonitorSummary,
+    pub monitors: Vec<MonitorOverviewItem>,
+    pub incident_summary: IncidentSummaryData,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -185,8 +218,8 @@ pub async fn set_monitor_enabled(id: &str, enabled: bool) -> Result<(), String> 
         .map_err(to_string_err)
 }
 
-pub async fn fetch_overview() -> Result<Overview, String> {
-    client::get_json::<Overview>("/dashboard/overview")
+pub async fn fetch_overview() -> Result<DashboardOverview, String> {
+    client::get_json::<DashboardOverview>("/dashboard/overview")
         .await
         .map_err(to_string_err)
 }
