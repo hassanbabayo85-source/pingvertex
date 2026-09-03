@@ -1,4 +1,10 @@
 use crate::api::monitoring::{self, ChannelPayload, Check, Incident, Monitor, NotificationChannel};
+use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::empty_state::EmptyState;
+use crate::components::metric_card::MetricCard;
+use crate::components::page_header::PageHeader;
+use crate::components::status_badge::StatusBadge;
+use crate::components::table_shell::TableShell;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -50,8 +56,10 @@ pub fn MonitorDetailPage() -> impl IntoView {
         load_data();
     });
 
+    let show_delete_confirm = RwSignal::new(false);
+
     let navigate_for_delete = navigate.clone();
-    let delete_monitor = move |_| {
+    let confirm_delete_cb = Callback::new(move |_: ()| {
         let id = monitor_id();
         let navigate = navigate_for_delete.clone();
         spawn_local(async move {
@@ -61,7 +69,11 @@ pub fn MonitorDetailPage() -> impl IntoView {
                 navigate("/monitors", Default::default());
             }
         });
-    };
+        show_delete_confirm.set(false);
+    });
+    let cancel_delete_cb = Callback::new(move |_: ()| {
+        show_delete_confirm.set(false);
+    });
 
     let toggle_enabled = move |_| {
         let id = monitor_id();
@@ -71,6 +83,24 @@ pub fn MonitorDetailPage() -> impl IntoView {
                 error.set(Some(e));
             } else {
                 load_data();
+            }
+        });
+    };
+
+    let acknowledge = move |incident_id: String| {
+        spawn_local(async move {
+            if let Err(e) = monitoring::acknowledge_incident(&incident_id).await {
+                error.set(Some(e));
+            } else {
+                load_data();
+            }
+        });
+    };
+
+    let send_test = move |channel_id: String| {
+        spawn_local(async move {
+            if let Err(e) = monitoring::test_notification_channel(&channel_id).await {
+                error.set(Some(e));
             }
         });
     };
@@ -111,19 +141,46 @@ pub fn MonitorDetailPage() -> impl IntoView {
                 } else {
                     let m = monitor.get();
                     let navigate_edit = navigate.clone();
+                    let checks_count = checks.get().len();
+                    let incidents_count = incidents.get().len();
+                    let uptime_display = m
+                        .uptime_percentage
+                        .map(|v| format!("{v:.2}%"))
+                        .unwrap_or_else(|| "—".to_string());
+                    let avg_response_display = m
+                        .avg_response_time_ms
+                        .map(|v| format!("{v:.0} ms"))
+                        .unwrap_or_else(|| "—".to_string());
+
                     view! {
-                        <header class="page-header">
-                            <h1>{m.name.clone()}</h1>
-                            <div>
-                                <button on:click=move |_| navigate_edit(&format!("/monitors/{}/edit", monitor_id()), Default::default())>
-                                    "Edit"
-                                </button>
-                                <button on:click=delete_monitor.clone()>"Delete"</button>
-                                <button on:click=toggle_enabled>
-                                    {if m.enabled { "Disable" } else { "Enable" }}
-                                </button>
-                            </div>
-                        </header>
+                        <PageHeader title=m.name.clone()>
+                            <button on:click=move |_| navigate_edit(&format!("/monitors/{}/edit", monitor_id()), Default::default())>
+                                "Edit"
+                            </button>
+                            <button on:click=toggle_enabled>
+                                {if m.enabled { "Disable" } else { "Enable" }}
+                            </button>
+                            <button class="btn btn-danger" on:click=move |_| show_delete_confirm.set(true)>
+                                "Delete"
+                            </button>
+                        </PageHeader>
+
+                        {move || {
+                            if show_delete_confirm.get() {
+                                view! {
+                                    <ConfirmDialog
+                                        title="Delete monitor?"
+                                        body="This will permanently delete this monitor and its history. This cannot be undone."
+                                        on_confirm=confirm_delete_cb
+                                        on_cancel=cancel_delete_cb
+                                    />
+                                }
+                                    .into_any()
+                            } else {
+                                ().into_any()
+                            }
+                        }}
+
                         <div class="monitor-info">
                             <p><strong>"Kind: "</strong>{m.kind.clone()}</p>
                             <p><strong>"Status: "</strong>{m.status.clone().unwrap_or_else(|| "unknown".to_string())}</p>
@@ -134,83 +191,174 @@ pub fn MonitorDetailPage() -> impl IntoView {
                             <p><strong>"Timeout (s): "</strong>{m.timeout_seconds}</p>
                         </div>
 
-                        <h2>"Recent Checks"</h2>
-                        <div class="checks-list">
-                            {if checks.get().is_empty() {
-                                view! { <p>"No checks recorded."</p> }.into_any()
-                            } else {
-                                checks.get().into_iter().take(20).map(|c| {
-                                    view! {
-                                        <div class="check-item">
-                                            <span>{c.checked_at}</span>
-                                            <span>{c.status}</span>
-                                            <span>{c.response_time_ms.map(|v| format!("{v} ms")).unwrap_or_else(|| "—".into())}</span>
-                                            <span>{c.region.clone().unwrap_or_default()}</span>
-                                        </div>
-                                    }.into_any()
-                                }).collect_view().into_any()
-                            }}
+                        <div class="metric-strip">
+                            <MetricCard label="Uptime" value=uptime_display/>
+                            <MetricCard label="Avg Response" value=avg_response_display/>
+                            <MetricCard label="Checks" value=checks_count.to_string()/>
+                            <MetricCard label="Incidents" value=incidents_count.to_string()/>
                         </div>
+
+                        <h2>"Recent Checks"</h2>
+                        {move || {
+                            if checks.get().is_empty() {
+                                view! {
+                                    <EmptyState
+                                        title="No checks recorded"
+                                        description="Checks will appear here once this monitor runs."
+                                    />
+                                }
+                                    .into_any()
+                            } else {
+                                view! {
+                                    <TableShell headers=vec![
+                                        "Checked At".to_string(),
+                                        "Status".to_string(),
+                                        "Response Time".to_string(),
+                                        "Region".to_string(),
+                                    ]>
+                                        {checks
+                                            .get()
+                                            .into_iter()
+                                            .take(20)
+                                            .map(|c| {
+                                                view! {
+                                                    <tr>
+                                                        <td>{c.checked_at}</td>
+                                                        <td><StatusBadge status=c.status/></td>
+                                                        <td>
+                                                            {c
+                                                                .response_time_ms
+                                                                .map(|v| format!("{v} ms"))
+                                                                .unwrap_or_else(|| "—".into())}
+                                                        </td>
+                                                        <td>{c.region.clone().unwrap_or_default()}</td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </TableShell>
+                                }
+                                    .into_any()
+                            }
+                        }}
 
                         <h2>"Incidents"</h2>
-                        <div class="incidents-list">
-                            {if incidents.get().is_empty() {
-                                view! { <p>"No incidents."</p> }.into_any()
+                        {move || {
+                            if incidents.get().is_empty() {
+                                view! {
+                                    <EmptyState title="No incidents" description="This monitor has no recorded incidents."/>
+                                }
+                                    .into_any()
                             } else {
-                                incidents.get().into_iter().map(|inc| {
-                                    view! {
-                                        <div class="incident-item">
-                                            <span>{inc.started_at}</span>
-                                            <span>{inc.title}</span>
-                                            <span>{inc.status}</span>
-                                            <span>{inc.resolved_at.unwrap_or_else(|| "—".into())}</span>
-                                        </div>
-                                    }.into_any()
-                                }).collect_view().into_any()
-                            }}
-                        </div>
+                                view! {
+                                    <TableShell headers=vec![
+                                        "Started".to_string(),
+                                        "Title".to_string(),
+                                        "Status".to_string(),
+                                        "Resolved".to_string(),
+                                        "Actions".to_string(),
+                                    ]>
+                                        {incidents
+                                            .get()
+                                            .into_iter()
+                                            .map(|inc| {
+                                                let inc_id = inc.id.clone();
+                                                let status_lower = inc.status.to_lowercase();
+                                                let can_acknowledge = status_lower != "resolved"
+                                                    && status_lower != "acknowledged";
+                                                view! {
+                                                    <tr>
+                                                        <td>{inc.started_at}</td>
+                                                        <td>{inc.title}</td>
+                                                        <td><StatusBadge status=inc.status.clone()/></td>
+                                                        <td>{inc.resolved_at.clone().unwrap_or_else(|| "—".into())}</td>
+                                                        <td>
+                                                            {if can_acknowledge {
+                                                                let inc_id = inc_id.clone();
+                                                                view! {
+                                                                    <button on:click=move |_| acknowledge(inc_id.clone())>
+                                                                        "Acknowledge"
+                                                                    </button>
+                                                                }
+                                                                    .into_any()
+                                                            } else {
+                                                                ().into_any()
+                                                            }}
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </TableShell>
+                                }
+                                    .into_any()
+                            }
+                        }}
 
-                        <h2>"Notification Channels"</h2>
-                        <div class="channels-list">
-                            {if channels.get().is_empty() {
-                                view! { <p>"No channels configured."</p> }.into_any()
+                        <h2>"Notifications"</h2>
+                        {move || {
+                            if channels.get().is_empty() {
+                                view! {
+                                    <EmptyState
+                                        title="No notifications configured"
+                                        description="Add a notification below to be alerted when this monitor changes status."
+                                    />
+                                }
+                                    .into_any()
                             } else {
-                                channels.get().into_iter().map(|ch| {
-                                    let id = ch.id.clone();
-                                    let delete_channel = move |_| {
-                                        let id = id.clone();
-                                        spawn_local(async move {
-                                            if let Err(e) = monitoring::delete_notification_channel(&id).await {
-                                                error.set(Some(e));
-                                            } else {
-                                                load_data();
-                                            }
-                                        });
-                                    };
-                                    view! {
-                                        <div class="channel-item">
-                                            <span>{ch.name}</span>
-                                            <span>{ch.kind}</span>
-                                            <span>{ch.target}</span>
-                                            <button on:click=delete_channel.clone()>"Delete"</button>
-                                        </div>
-                                    }.into_any()
-                                }).collect_view().into_any()
-                            }}
-                        </div>
+                                view! {
+                                    <TableShell headers=vec![
+                                        "Name".to_string(),
+                                        "Kind".to_string(),
+                                        "Target".to_string(),
+                                        "Actions".to_string(),
+                                    ]>
+                                        {channels
+                                            .get()
+                                            .into_iter()
+                                            .map(|ch| {
+                                                let del_id = ch.id.clone();
+                                                let test_id = ch.id.clone();
+                                                let delete_channel = move |_| {
+                                                    let del_id = del_id.clone();
+                                                    spawn_local(async move {
+                                                        if let Err(e) = monitoring::delete_notification_channel(&del_id).await {
+                                                            error.set(Some(e));
+                                                        } else {
+                                                            load_data();
+                                                        }
+                                                    });
+                                                };
+                                                view! {
+                                                    <tr>
+                                                        <td>{ch.name}</td>
+                                                        <td>{ch.kind}</td>
+                                                        <td>{ch.target}</td>
+                                                        <td>
+                                                            <button on:click=move |_| send_test(test_id.clone())>
+                                                                "Send test"
+                                                            </button>
+                                                            <button on:click=delete_channel>"Delete"</button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </TableShell>
+                                }
+                                    .into_any()
+                            }
+                        }}
 
                         <form on:submit=create_channel class="channel-form">
                             <input
                                 type="text"
-                                placeholder="Channel name"
+                                placeholder="Notification name"
                                 prop:value=ch_name
                                 on:input=move |ev| ch_name.set(event_target_value(&ev))
                                 required
                             />
-                            <select
-                                prop:value=ch_kind
-                                on:change=move |ev| ch_kind.set(event_target_value(&ev))
-                            >
+                            <select prop:value=ch_kind on:change=move |ev| ch_kind.set(event_target_value(&ev))>
                                 <option value="">"Select type"</option>
                                 <option value="email">"Email"</option>
                                 <option value="webhook">"Webhook"</option>
@@ -223,10 +371,11 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                 on:input=move |ev| ch_target.set(event_target_value(&ev))
                                 required
                             />
-                            <button type="submit">"Add Channel"</button>
+                            <button type="submit">"Add Notification"</button>
                         </form>
                         {move || channel_error.get().map(|e| view! { <div class="error">{e}</div> })}
-                    }.into_any()
+                    }
+                        .into_any()
                 }
             }}
         </div>
