@@ -2,7 +2,10 @@ use leptos::prelude::*;
 
 #[allow(dead_code)]
 #[component]
-pub fn PageHeader(#[prop(into)] title: String, children: Option<Children>) -> impl IntoView {
+pub fn PageHeader(
+    #[prop(into)] title: String,
+    #[prop(optional)] children: Option<Children>,
+) -> impl IntoView {
     let actions = match children {
         Some(c) => view! { <div class="page-header-actions">{c()}</div> }.into_any(),
         None => ().into_any(),
