@@ -12,7 +12,7 @@ pub mod diagnostic_report;
 pub use diagnostic_report::*;
 
 // Sabbin modules:
-mod escalation_policy;
+pub mod escalation_policy;
 pub use escalation_policy::{EscalationPolicy, EscalationStep};
 
 mod maintenance_window;
