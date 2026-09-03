@@ -108,3 +108,95 @@ pub async fn fetch_current_user() -> Result<User, String> {
         client::get_json("/auth/me").await.map_err(to_string_err)?;
     Ok(parsed.user)
 }
+
+// ---------------------------------------------------------------------
+// Path 7 additions — email verification, password change, TOTP 2FA.
+// Same conventions as the functions above: thin wrappers over
+// `api::client`, errors flattened to `String` for simple form display,
+// no JWT/session token ever touches this module directly (the browser
+// only ever sees the HttpOnly `access_token` cookie set by the server).
+// ---------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct EnableTotpResponse {
+    otpauth_uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfirmTotpSetupResponse {
+    backup_codes: Vec<String>,
+}
+
+/// `POST /auth/verify-email` — public endpoint, proves ownership of the
+/// emailed token rather than an active session.
+pub async fn verify_email(token: &str) -> Result<(), String> {
+    let body = json!({ "token": token });
+    let _: Value = client::post_json("/auth/verify-email", &body)
+        .await
+        .map_err(to_string_err)?;
+    Ok(())
+}
+
+/// `POST /auth/resend-verification` — the backend intentionally returns
+/// the same 202 response whether or not the email exists/is already
+/// verified (anti-enumeration), so the frontend should show a single
+/// neutral "check your inbox" message regardless of the outcome here.
+pub async fn resend_verification(email: &str) -> Result<(), String> {
+    let body = json!({ "email": email });
+    let _: Value = client::post_json("/auth/resend-verification", &body)
+        .await
+        .map_err(to_string_err)?;
+    Ok(())
+}
+
+/// `POST /auth/password/change` — requires an authenticated session
+/// (cookie) AND the caller's current password.
+pub async fn change_password(current_password: &str, new_password: &str) -> Result<(), String> {
+    let body = json!({
+        "current_password": current_password,
+        "new_password": new_password,
+    });
+    // The backend returns `204 No Content` on success. `client::post_json`
+    // special-cases 204 by decoding an implied `null`, which deserializes
+    // fine into `Value`, so we reuse it here rather than
+    // `post_json_no_content` (which takes no request body — `/password/change`
+    // needs one).
+    let _: Value = client::post_json("/auth/password/change", &body)
+        .await
+        .map_err(to_string_err)?;
+    Ok(())
+}
+
+/// `POST /auth/totp/enable` — starts 2FA enrollment, returns an
+/// `otpauth://` URI to display for the user to add to their
+/// authenticator app. Does NOT turn 2FA on yet.
+pub async fn enable_totp() -> Result<String, String> {
+    let parsed: EnableTotpResponse = client::post_json("/auth/totp/enable", &Value::Null)
+        .await
+        .map_err(to_string_err)?;
+    Ok(parsed.otpauth_uri)
+}
+
+/// `POST /auth/totp/confirm` — verifies the first TOTP code and
+/// permanently enables 2FA. Returns 10 backup codes shown exactly once;
+/// the caller is responsible for making sure the user has a chance to
+/// save them before navigating away.
+pub async fn confirm_totp(totp_code: &str) -> Result<Vec<String>, String> {
+    let body = json!({ "totp_code": totp_code });
+    let parsed: ConfirmTotpSetupResponse = client::post_json("/auth/totp/confirm", &body)
+        .await
+        .map_err(to_string_err)?;
+    Ok(parsed.backup_codes)
+}
+
+/// `POST /auth/totp/disable` — step-up re-authentication: requires the
+/// account's CURRENT password in the body even though the caller already
+/// has a valid session cookie, because disabling 2FA is treated as
+/// sensitive as changing the password itself.
+pub async fn disable_totp(password: &str) -> Result<(), String> {
+    let body = json!({ "password": password });
+    let _: Value = client::post_json("/auth/totp/disable", &body)
+        .await
+        .map_err(to_string_err)?;
+    Ok(())
+}

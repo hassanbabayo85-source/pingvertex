@@ -61,6 +61,17 @@ impl HelpArticleRepository for InMemoryHelpArticleRepository {
             .collect())
     }
 
+    async fn list_published(&self) -> R<Vec<HelpArticle>> {
+        Ok(self
+            .items
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|a| a.status == HelpArticleStatus::Published)
+            .cloned()
+            .collect())
+    }
+
     async fn search(&self, query: &str) -> R<Vec<HelpArticle>> {
         let q = query.to_lowercase();
         Ok(self
@@ -69,7 +80,9 @@ impl HelpArticleRepository for InMemoryHelpArticleRepository {
             .unwrap()
             .values()
             .filter(|a| {
-                a.title.to_lowercase().contains(&q) || a.content.to_lowercase().contains(&q)
+                a.status == HelpArticleStatus::Published
+                    && (a.title.to_lowercase().contains(&q)
+                        || a.content.to_lowercase().contains(&q))
             })
             .cloned()
             .collect())

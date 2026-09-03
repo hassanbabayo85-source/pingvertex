@@ -1,13 +1,17 @@
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 
 use crate::{
     handlers::{
-        acknowledge_incident, create_escalation_policy, create_maintenance_window, create_monitor,
-        delete_monitor, disable_monitor, enable_monitor, get_monitor, list_incidents,
-        list_monitor_checks, list_monitors, update_monitor,
+        acknowledge_incident,
+        advanced_monitoring::{
+            list_escalation_policies, list_maintenance_windows, update_escalation_policy,
+        },
+        create_escalation_policy, create_maintenance_window, create_monitor, delete_monitor,
+        disable_monitor, enable_monitor, get_monitor, list_incidents, list_monitor_checks,
+        list_monitors, update_monitor,
     },
     state::AppState,
 };
@@ -25,9 +29,13 @@ pub fn router() -> Router<AppState> {
         .route("/monitors/{id}/incidents", get(list_incidents))
         .route(
             "/monitors/{id}/maintenance-windows",
-            post(create_maintenance_window),
+            post(create_maintenance_window).get(list_maintenance_windows),
         )
-        .route("/escalation-policies", post(create_escalation_policy))
+        .route(
+            "/escalation-policies",
+            post(create_escalation_policy).get(list_escalation_policies),
+        )
+        .route("/escalation-policies/{id}", put(update_escalation_policy))
         .route(
             "/incidents/{incident_id}/acknowledge",
             post(acknowledge_incident),

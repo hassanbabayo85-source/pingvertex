@@ -109,6 +109,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
     let ch_kind = RwSignal::new(String::new());
     let ch_target = RwSignal::new(String::new());
     let channel_error = RwSignal::new(None::<String>);
+    let channel_secret = RwSignal::new(None::<String>);
 
     let create_channel = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -117,10 +118,12 @@ pub fn MonitorDetailPage() -> impl IntoView {
             name: ch_name.get(),
             kind: ch_kind.get(),
             target: ch_target.get(),
+            chat_id: None,
         };
         spawn_local(async move {
             match monitoring::create_notification_channel(&id, &payload).await {
-                Ok(_) => {
+                Ok(created) => {
+                    channel_secret.set(created.signing_secret);
                     ch_name.set(String::new());
                     ch_kind.set(String::new());
                     ch_target.set(String::new());
@@ -374,6 +377,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
                             <button type="submit">"Add Notification"</button>
                         </form>
                         {move || channel_error.get().map(|e| view! { <div class="error">{e}</div> })}
+                        {move || channel_secret.get().map(|secret| view! { <div class="secret-box"><strong>"Webhook signing secret — save it now"</strong><code>{secret}</code></div> })}
                     }
                         .into_any()
                 }

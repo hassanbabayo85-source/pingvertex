@@ -20,6 +20,7 @@ pub struct User {
     pub email_verified: bool,
     pub tenant_id: String,
     pub role: Role,
+    pub totp_enabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

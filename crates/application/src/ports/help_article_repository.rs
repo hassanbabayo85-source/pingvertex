@@ -16,6 +16,7 @@ pub trait HelpArticleRepository: Send + Sync {
         category_id: HelpCategoryId,
         only_published: bool,
     ) -> RepoResult<Vec<HelpArticle>>;
+    async fn list_published(&self) -> RepoResult<Vec<HelpArticle>>;
     async fn search(&self, query: &str) -> RepoResult<Vec<HelpArticle>>;
 }
 
@@ -36,6 +37,9 @@ where
         only_published: bool,
     ) -> RepoResult<Vec<HelpArticle>> {
         (**self).list_by_category(category_id, only_published).await
+    }
+    async fn list_published(&self) -> RepoResult<Vec<HelpArticle>> {
+        (**self).list_published().await
     }
     async fn search(&self, query: &str) -> RepoResult<Vec<HelpArticle>> {
         (**self).search(query).await

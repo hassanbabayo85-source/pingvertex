@@ -189,3 +189,6 @@ pub use support_types::{
     CreateSupportTicketRequest, ReplyToSupportTicketRequest, SupportMessageResponse,
     SupportTicketResponse, UpdateSupportTicketStatusRequest,
 };
+
+pub mod advanced_monitoring;
+pub use advanced_monitoring::*;

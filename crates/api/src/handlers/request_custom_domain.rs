@@ -2,7 +2,7 @@ use axum::{
     Json,
     extract::{Extension, Path, State},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 use application::{
     commands::RequestCustomDomain,
@@ -50,6 +50,11 @@ pub async fn request_custom_domain(
             }
         })?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;
+
+    let cache_key = format!("status_page:id:{}", status_page.id.0);
+    if let Err(err) = state.status_page_cache.invalidate(&cache_key).await {
+        warn!(status_page_id = %status_page.id.0, error = %err, "failed to invalidate cached status page after custom-domain change");
+    }
 
     Ok(Json(StatusPageResponse::from(status_page)))
 }
