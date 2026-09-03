@@ -220,7 +220,17 @@ impl CheckRepository for PostgresCheckRepository {
         }
     }
 
-    async fn find_by_id(&self, id: CheckId) -> RepoResult<Option<Check>> {
+    /// AUDIT ISSUE #1 fix: `checks`' PRIMARY KEY has been the composite
+    /// `(id, checked_at)` since migration 0061 partitioned the table by
+    /// `checked_at` — `id` alone is no longer guaranteed unique at the
+    /// database level. This query now filters on both columns so it can
+    /// never match more than one row, matching the trait's documented
+    /// canonical identity.
+    async fn find_by_id(
+        &self,
+        id: CheckId,
+        checked_at: DateTime<Utc>,
+    ) -> RepoResult<Option<Check>> {
         let row = sqlx::query_as::<_, CheckRow>(
             r#"
             SELECT
@@ -238,9 +248,11 @@ impl CheckRepository for PostgresCheckRepository {
                 country_code
             FROM checks
             WHERE id = $1
+              AND checked_at = $2
             "#,
         )
         .bind(id.0)
+        .bind(checked_at)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -273,7 +285,7 @@ impl CheckRepository for PostgresCheckRepository {
                 country_code
             FROM checks
             WHERE monitor_id = $1
-            ORDER BY checked_at DESC
+            ORDER BY checked_at DESC, id DESC
             LIMIT $2
             "#,
         )
@@ -309,7 +321,7 @@ impl CheckRepository for PostgresCheckRepository {
             FROM checks c
             JOIN monitors m ON c.monitor_id = m.id
             WHERE m.tenant_id = $1
-            ORDER BY c.checked_at DESC
+            ORDER BY c.checked_at DESC, c.id DESC
             LIMIT $2 OFFSET $3
             "#,
         )
@@ -362,7 +374,7 @@ impl CheckRepository for PostgresCheckRepository {
               AND ($3::smallint IS NULL OR c.status = $3)
               AND ($4::timestamptz IS NULL OR c.checked_at >= $4)
               AND ($5::timestamptz IS NULL OR c.checked_at <= $5)
-            ORDER BY c.checked_at DESC
+            ORDER BY c.checked_at DESC, c.id DESC
             LIMIT $6 OFFSET $7
             "#,
         )
@@ -416,7 +428,7 @@ impl CheckRepository for PostgresCheckRepository {
               AND ($2::smallint IS NULL OR status = $2)
               AND ($3::timestamptz IS NULL OR checked_at >= $3)
               AND ($4::timestamptz IS NULL OR checked_at <= $4)
-            ORDER BY checked_at DESC
+            ORDER BY checked_at DESC, id DESC
             LIMIT $5 OFFSET $6
             "#,
         )

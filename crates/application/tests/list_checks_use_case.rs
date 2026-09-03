@@ -22,7 +22,11 @@ impl CheckRepository for NoopCheckRepository {
         Ok(())
     }
 
-    async fn find_by_id(&self, _: CheckId) -> CheckRepoResult<Option<Check>> {
+    async fn find_by_id(
+        &self,
+        _: CheckId,
+        _: chrono::DateTime<chrono::Utc>,
+    ) -> CheckRepoResult<Option<Check>> {
         Ok(None)
     }
 

@@ -458,3 +458,494 @@ td button, td .btn { padding: 0.3rem 0.625rem; font-size: 0.8125rem; margin-righ
   .data-section.two-col { grid-template-columns: 1fr; }
   .monitor-info { grid-template-columns: 1fr; }
 }
+
+/* ==========================================================================
+   Path 2 additions — sidebar shell, status badges, metric cards, empty/error
+   states, confirm dialog, search input, filter bar, data-table convention
+   ========================================================================== */
+
+/* ---------- Sidebar app shell ---------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  background-color: var(--ink);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-3);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-brand {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: var(--space-4);
+}
+
+.sidebar-brand a {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 1.0625rem;
+  text-decoration: none;
+}
+
+.sidebar-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sidebar-group-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.sidebar-group a {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-group a:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.06);
+  text-decoration: none;
+}
+
+.sidebar-group a.active {
+  color: #fff;
+  background-color: var(--accent);
+}
+
+.sidebar-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar-user-email {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 0 var(--space-3);
+  word-break: break-all;
+}
+
+.sidebar-signout {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-signout:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.06);
+  text-decoration: none;
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+  padding: var(--space-6) var(--space-5);
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ---------- Status badge ---------- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.status-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.status-badge-label {
+  color: inherit;
+}
+
+.status-badge-up {
+  background-color: var(--up-soft);
+  color: var(--up);
+}
+
+.status-badge-down {
+  background-color: var(--down-soft);
+  color: var(--down);
+}
+
+.status-badge-degraded {
+  background-color: var(--degraded-soft);
+  color: var(--degraded);
+}
+
+.status-badge-neutral,
+.status-badge-paused {
+  background-color: var(--neutral-soft);
+  color: var(--neutral);
+}
+
+/* ---------- Metric card ---------- */
+
+.metric-card {
+  gap: var(--space-2);
+}
+
+.card-trend {
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--ink-muted);
+}
+
+.card-trend-up {
+  color: var(--up);
+}
+
+.card-trend-down {
+  color: var(--down);
+}
+
+.card-trend-flat {
+  color: var(--ink-faint);
+}
+
+/* ---------- Empty state ---------- */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+}
+
+.empty-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+.empty-state-description {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 420px;
+}
+
+.empty-state-actions {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ---------- Error state (inline, not boundary) ---------- */
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  background-color: var(--down-soft);
+  border: 1px solid rgba(194, 49, 31, 0.25);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+}
+
+.error-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--down);
+  margin: 0;
+}
+
+.error-state-description {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  margin: 0;
+  max-width: 420px;
+}
+
+.error-state .btn {
+  margin-top: var(--space-2);
+}
+
+/* ---------- Confirm dialog ---------- */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(18, 21, 28, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+
+.dialog-panel {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.24);
+  padding: var(--space-5);
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dialog-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+.dialog-body {
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+}
+
+/* ---------- Search input ---------- */
+
+.search-input {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+}
+
+.search-input input {
+  width: 100%;
+  padding-left: var(--space-4);
+  font-size: 0.875rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+.search-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Filter bar ---------- */
+
+.filter-bar {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.filter-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.filter-bar select,
+.filter-bar input {
+  width: auto;
+  min-width: 150px;
+  font-size: 0.875rem;
+}
+
+/* ---------- Data-table convention ---------- */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: var(--surface-sunken);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table td:first-child,
+.data-table th:first-child {
+  font-family: var(--font-sans);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr:hover td {
+  background-color: var(--surface-sunken);
+}
+
+/* ---------- Responsive updates for sidebar ---------- */
+
+@media (max-width: 720px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    position: static;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .sidebar-brand {
+    padding: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    gap: var(--space-4);
+    overflow-x: auto;
+  }
+
+  .sidebar-group {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .sidebar-group-label {
+    display: none;
+  }
+
+  .sidebar-group a {
+    white-space: nowrap;
+  }
+
+  .sidebar-footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: var(--space-3);
+  }
+
+  .app-content {
+    flex: 1;
+  }
+
+  .app-main {
+    padding: var(--space-4);
+  }
+}
+
+/* ---------- Page header actions slot (follow-up fix) ---------- */
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}

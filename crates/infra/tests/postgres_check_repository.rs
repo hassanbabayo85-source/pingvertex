@@ -22,7 +22,7 @@ async fn save_and_find_by_id_round_trips_check() {
     check_repository.save(&check).await.unwrap();
 
     let found = check_repository
-        .find_by_id(check.id)
+        .find_by_id(check.id, check.checked_at)
         .await
         .unwrap()
         .unwrap();
@@ -279,7 +279,7 @@ async fn save_batch_persists_all_checks_in_one_call() {
 
     for check in &checks {
         let found = check_repository
-            .find_by_id(check.id)
+            .find_by_id(check.id, check.checked_at)
             .await
             .unwrap()
             .unwrap();

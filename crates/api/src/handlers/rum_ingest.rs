@@ -4,12 +4,16 @@ use axum::{
     Json,
     body::Bytes,
     extract::{ConnectInfo, State},
-    http::StatusCode,
+    http::{
+        HeaderMap, StatusCode,
+        header::{ORIGIN, REFERER},
+    },
 };
 use serde_json::{Value, json};
 use tracing::warn;
 
 use application::dto::RumIngestRequest;
+use application::ports::RumSiteRepository;
 use application::use_cases::{IngestRumEventError, IngestRumEventUseCase};
 
 use crate::state::AppState;
@@ -41,6 +45,22 @@ const MAX_RUM_BEACON_BYTES: usize = 8 * 1024;
 const RUM_INGEST_MAX_REQUESTS_PER_SITE: u32 = 200;
 const RUM_INGEST_WINDOW_SECS: u64 = 10;
 
+/// AUDIT ISSUE #8 fix: per-(site_key, IP) ceiling layered UNDER the
+/// per-site limit above, using the same fixed window.
+///
+/// `site_key` is PUBLIC and non-secret by design (see module docs) —
+/// anyone who reads it off a page's source can use it as a rate-limit
+/// key. That means the per-site bucket alone can be exhausted by
+/// distributed traffic that simply knows a valid site_key, starving
+/// real visitors of that site's quota. This does not replace the
+/// per-site limit; it bounds how much of that shared budget any single
+/// source (by IP) can consume. Set to a fraction of the per-site
+/// ceiling so no single source can singlehandedly exhaust a site's
+/// whole window under normal traffic, while still comfortably covering
+/// one real, busy visitor's tab (a page-view beacon plus a handful of
+/// error beacons).
+const RUM_INGEST_MAX_REQUESTS_PER_SOURCE: u32 = 40;
+
 /// Checks that a string is shaped like a `RumSite::generate_site_key()`
 /// output (`rum_` + 32 lowercase hex chars) BEFORE it's used as a rate
 /// limiter key or a database query parameter.
@@ -55,6 +75,50 @@ fn is_well_formed_site_key(site_key: &str) -> bool {
     match site_key.strip_prefix("rum_") {
         Some(rest) => rest.len() == 32 && rest.chars().all(|c| c.is_ascii_hexdigit()),
         None => false,
+    }
+}
+
+/// AUDIT ISSUE #7: returns whether the request's `Origin`/`Referer`
+/// header (whichever is present) names the same host as `site_domain`.
+/// Absent of BOTH headers, this returns `true` (nothing to compare —
+/// see `collect_rum_event`'s doc comment on why this can't be the sole
+/// security control) so non-browser or header-stripping paths are never
+/// penalized by this advisory check.
+fn request_host_matches_site_domain(headers: &HeaderMap, site_domain: &str) -> bool {
+    match extract_request_host(headers) {
+        Some(host) => host.eq_ignore_ascii_case(site_domain.trim()),
+        None => true,
+    }
+}
+
+/// Extracts just the hostname (no scheme, no port, no path) from the
+/// request's `Origin` header, falling back to `Referer` when `Origin`
+/// is absent — mirroring `middleware::origin_check`'s same fallback
+/// reasoning for why both are checked.
+fn extract_request_host(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .and_then(host_from_url)
+        .or_else(|| {
+            headers
+                .get(REFERER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(host_from_url)
+        })
+}
+
+/// Extracts `host` (no scheme, no port, no path/query/fragment) from a
+/// full URL string, e.g. `"https://app.example.com:8443/page?x=1"` ->
+/// `"app.example.com"`.
+fn host_from_url(value: &str) -> Option<String> {
+    let after_scheme = value.split("://").nth(1)?;
+    let host_port = after_scheme.split(['/', '?', '#']).next()?;
+    let host = host_port.split(':').next()?;
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
     }
 }
 
@@ -99,6 +163,7 @@ fn is_well_formed_site_key(site_key: &str) -> bool {
 pub async fn collect_rum_event(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, Json<Value>) {
     if body.len() > MAX_RUM_BEACON_BYTES {
@@ -149,6 +214,64 @@ pub async fn collect_rum_event(
             StatusCode::TOO_MANY_REQUESTS,
             Json(json!({ "status": "rate_limited" })),
         );
+    }
+
+    // AUDIT ISSUE #8: second, finer-grained limiter keyed on
+    // (site_key, IP) — see `RUM_INGEST_MAX_REQUESTS_PER_SOURCE`'s doc
+    // comment for why the per-site limit above isn't sufficient on its
+    // own given that site_key is public.
+    let per_source_key = format!("{}:{}", payload.site_key, addr.ip());
+    let per_source_allowed = match state
+        .rate_limiter
+        .check_and_record(
+            "rum_ingest_source",
+            &per_source_key,
+            RUM_INGEST_MAX_REQUESTS_PER_SOURCE,
+            RUM_INGEST_WINDOW_SECS,
+        )
+        .await
+    {
+        Ok(allowed) => allowed,
+        Err(err) => {
+            warn!(
+                error = %err,
+                "RUM ingest per-source rate limiter unavailable; failing closed"
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "status": "unavailable" })),
+            );
+        }
+    };
+
+    if !per_source_allowed {
+        warn!("RUM ingest rate limit exceeded for a single source against one site");
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({ "status": "rate_limited" })),
+        );
+    }
+
+    // AUDIT ISSUE #7: advisory Origin/Referer vs `RumSite::domain`
+    // allow-list check. Migration 0062's schema comment documents this
+    // as the intended purpose of `rum_sites.domain`, but no handler
+    // previously implemented it. Deliberately non-blocking: Origin and
+    // Referer are client-controlled and are NOT a security boundary
+    // (site keys are already public/non-secret — see
+    // `is_well_formed_site_key`'s doc comment), and this service may
+    // sit behind a proxy/CDN that alters or strips these headers for
+    // legitimate traffic. A mismatch is therefore logged as a
+    // telemetry-integrity signal, not used to reject the beacon — the
+    // authoritative tenant/site resolution remains
+    // `RumSiteRepository::find_by_site_key` inside
+    // `IngestRumEventUseCase`, unchanged by this check.
+    if let Ok(Some(site)) = state
+        .rum_site_repository
+        .find_by_site_key(&payload.site_key)
+        .await
+        && !request_host_matches_site_domain(&headers, &site.domain)
+    {
+        warn!("RUM beacon Origin/Referer host did not match the site's configured domain");
     }
 
     let country_code = state.geo_ip_lookup.lookup_country_code(addr.ip());
@@ -213,6 +336,49 @@ mod tests {
     fn rejects_non_hex_characters() {
         assert!(!is_well_formed_site_key(
             "rum_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+        ));
+    }
+
+    #[test]
+    fn host_from_url_strips_scheme_port_and_path() {
+        assert_eq!(
+            host_from_url("https://app.example.com:8443/page?x=1"),
+            Some("app.example.com".to_string())
+        );
+        assert_eq!(
+            host_from_url("http://example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn host_from_url_rejects_malformed_input() {
+        assert_eq!(host_from_url("not-a-url"), None);
+    }
+
+    #[test]
+    fn request_host_matches_site_domain_true_when_no_headers_present() {
+        let headers = HeaderMap::new();
+        assert!(request_host_matches_site_domain(&headers, "example.com"));
+    }
+
+    #[test]
+    fn request_host_matches_site_domain_compares_case_insensitively() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, "https://App.Example.com".parse().unwrap());
+        assert!(request_host_matches_site_domain(
+            &headers,
+            "app.example.com"
+        ));
+    }
+
+    #[test]
+    fn request_host_matches_site_domain_detects_mismatch() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ORIGIN, "https://evil.example".parse().unwrap());
+        assert!(!request_host_matches_site_domain(
+            &headers,
+            "app.example.com"
         ));
     }
 }

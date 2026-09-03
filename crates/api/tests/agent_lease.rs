@@ -51,6 +51,7 @@ impl CheckRepository for MockCheckRepository {
     async fn find_by_id(
         &self,
         _id: domain::shared::ids::CheckId,
+        _: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<Check>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(None)
     }
