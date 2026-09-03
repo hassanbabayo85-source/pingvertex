@@ -2,8 +2,8 @@ use std::error::Error;
 
 use application::{
     dto::{
-        DashboardOverview, IncidentSummary, IncidentSummaryData, MonitorOverviewItem,
-        MonitorSummary,
+        DashboardOverview, DashboardPerformance, DashboardTrendPoint, IncidentSummary,
+        IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
     },
     ports::DashboardRepository,
 };
@@ -47,6 +47,16 @@ struct RecentIncidentRow {
     monitor_id: Uuid,
     started_at: DateTime<Utc>,
     acknowledged_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, FromRow)]
+struct TrendRow {
+    bucket: DateTime<Utc>,
+    up_checks: i64,
+    checks_count: i64,
+    latency_sum_ms: Option<f64>,
+    latency_count: i64,
+    incident_count: i64,
 }
 
 #[async_trait]
@@ -111,6 +121,60 @@ impl DashboardRepository for PostgresDashboardRepository {
         .fetch_all(&self.pool)
         .await?;
 
+        // Query 3: fixed-size, tenant-scoped hourly trend for the last 24 hours.
+        // `generate_series` preserves empty buckets so the UI can distinguish
+        // "no telemetry" from a healthy 100% bucket. This is one bounded query,
+        // not a per-monitor/per-bucket loop.
+        let trend_rows = sqlx::query_as::<_, TrendRow>(
+            r#"
+            WITH buckets AS (
+                SELECT generate_series(
+                    date_trunc('hour', NOW() - INTERVAL '23 hours'),
+                    date_trunc('hour', NOW()),
+                    INTERVAL '1 hour'
+                ) AS bucket
+            ),
+            check_stats AS (
+                SELECT
+                    date_trunc('hour', c.checked_at) AS bucket,
+                    COUNT(*)::bigint AS checks_count,
+                    COUNT(*) FILTER (WHERE c.status = 1)::bigint AS up_checks,
+                    SUM(c.response_time_ms)::double precision AS latency_sum_ms,
+                    COUNT(c.response_time_ms)::bigint AS latency_count
+                FROM checks c
+                JOIN monitors m ON m.id = c.monitor_id
+                WHERE m.tenant_id = $1
+                  AND m.enabled = TRUE
+                  AND c.checked_at >= date_trunc('hour', NOW() - INTERVAL '23 hours')
+                GROUP BY date_trunc('hour', c.checked_at)
+            ),
+            incident_stats AS (
+                SELECT
+                    date_trunc('hour', i.started_at) AS bucket,
+                    COUNT(*)::bigint AS incident_count
+                FROM incidents i
+                JOIN monitors m ON m.id = i.monitor_id
+                WHERE m.tenant_id = $1
+                  AND i.started_at >= date_trunc('hour', NOW() - INTERVAL '23 hours')
+                GROUP BY date_trunc('hour', i.started_at)
+            )
+            SELECT
+                b.bucket,
+                COALESCE(cs.up_checks, 0) AS up_checks,
+                COALESCE(cs.checks_count, 0) AS checks_count,
+                cs.latency_sum_ms,
+                COALESCE(cs.latency_count, 0) AS latency_count,
+                COALESCE(is_.incident_count, 0) AS incident_count
+            FROM buckets b
+            LEFT JOIN check_stats cs ON cs.bucket = b.bucket
+            LEFT JOIN incident_stats is_ ON is_.bucket = b.bucket
+            ORDER BY b.bucket ASC
+            "#,
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
         // Aggregate into response DTO
         let mut monitors = Vec::with_capacity(monitor_rows.len());
         let mut up_count = 0u32;
@@ -166,6 +230,45 @@ impl DashboardRepository for PostgresDashboardRepository {
             disabled: disabled_count,
         };
 
+        let mut total_checks = 0u64;
+        let mut total_up_checks = 0u64;
+        let mut total_latency_sum = 0.0f64;
+        let mut total_latency_count = 0u64;
+
+        let trend = trend_rows
+            .into_iter()
+            .map(|row| {
+                let checks_count = u64::try_from(row.checks_count).unwrap_or(0);
+                let up_checks = u64::try_from(row.up_checks).unwrap_or(0);
+                let latency_count = u64::try_from(row.latency_count).unwrap_or(0);
+
+                total_checks = total_checks.saturating_add(checks_count);
+                total_up_checks = total_up_checks.saturating_add(up_checks);
+                total_latency_count = total_latency_count.saturating_add(latency_count);
+                if let Some(sum) = row.latency_sum_ms {
+                    total_latency_sum += sum;
+                }
+
+                DashboardTrendPoint {
+                    bucket: row.bucket,
+                    uptime_percentage: (checks_count > 0)
+                        .then(|| (up_checks as f64 / checks_count as f64) * 100.0),
+                    avg_latency_ms: (latency_count > 0)
+                        .then(|| row.latency_sum_ms.unwrap_or(0.0) / latency_count as f64),
+                    checks_count,
+                    incident_count: u32::try_from(row.incident_count).unwrap_or(u32::MAX),
+                }
+            })
+            .collect();
+
+        let performance = DashboardPerformance {
+            uptime_percentage: (total_checks > 0)
+                .then(|| (total_up_checks as f64 / total_checks as f64) * 100.0),
+            avg_latency_ms: (total_latency_count > 0)
+                .then(|| total_latency_sum / total_latency_count as f64),
+            trend,
+        };
+
         let incident_summary = IncidentSummaryData {
             open_count,
             recent: recent_incidents
@@ -183,6 +286,7 @@ impl DashboardRepository for PostgresDashboardRepository {
             monitor_summary,
             monitors,
             incident_summary,
+            performance,
         })
     }
 }

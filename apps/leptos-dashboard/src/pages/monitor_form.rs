@@ -25,7 +25,27 @@ pub fn MonitorFormPage() -> impl IntoView {
     let ssl = RwSignal::new(true);
     let ssl_days = RwSignal::new("14".into());
     let error = RwSignal::new(None::<String>);
+    let submitting = RwSignal::new(false);
     let navigate = use_navigate();
+
+    fn parse_u64_field(
+        value: &str,
+        field: &str,
+        min: u64,
+        max: Option<u64>,
+    ) -> Result<u64, String> {
+        let parsed = value
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| format!("{field} must be a valid number."))?;
+        if parsed < min || max.is_some_and(|max| parsed > max) {
+            return Err(match max {
+                Some(max) => format!("{field} must be between {min} and {max}."),
+                None => format!("{field} must be at least {min}."),
+            });
+        }
+        Ok(parsed)
+    }
 
     Effect::new(move |_| {
         if edit() {
@@ -58,48 +78,130 @@ pub fn MonitorFormPage() -> impl IntoView {
     // Use `move` to take ownership of all captured variables.
     let submit = move |e: leptos::ev::SubmitEvent| {
         e.prevent_default();
+        error.set(None);
+
+        let expected_status =
+            match parse_u64_field(&expected.get(), "Expected status", 100, Some(599)) {
+                Ok(v) if v <= u16::MAX as u64 => v as u16,
+                Ok(_) => {
+                    error.set(Some("Expected status is too large.".into()));
+                    return;
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+        let interval_seconds =
+            match parse_u64_field(&interval.get(), "Check interval", 1, Some(u32::MAX as u64)) {
+                Ok(v) => v as u32,
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+        let timeout_seconds =
+            match parse_u64_field(&timeout.get(), "Timeout", 1, Some(u32::MAX as u64)) {
+                Ok(v) => v as u32,
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+        let ssl_expiry_warning_days =
+            match parse_u64_field(&ssl_days.get(), "Expiry warning", 1, Some(u32::MAX as u64)) {
+                Ok(v) => v as u32,
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+
+        let kind_value = kind.get();
+        let tcp_port_value = if kind_value == "tcp" {
+            match parse_u64_field(&tcp_port.get(), "TCP port", 1, Some(65535)) {
+                Ok(v) => Some(v as u16),
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let heartbeat_values = if kind_value == "heartbeat" {
+            let interval_value = match parse_u64_field(
+                &hb_interval.get(),
+                "Heartbeat interval",
+                1,
+                Some(u32::MAX as u64),
+            ) {
+                Ok(v) => v as u32,
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+            let grace_value = match parse_u64_field(
+                &hb_grace.get(),
+                "Heartbeat grace period",
+                1,
+                Some(u32::MAX as u64),
+            ) {
+                Ok(v) => v as u32,
+                Err(e) => {
+                    error.set(Some(e));
+                    return;
+                }
+            };
+            Some((interval_value, grace_value))
+        } else {
+            None
+        };
+
         let payload = MonitorPayload {
-            name: name.get(),
-            kind: kind.get(),
-            url: url.get(),
+            name: name.get().trim().to_string(),
+            kind: kind_value.clone(),
+            url: url.get().trim().to_string(),
             method: method.get(),
-            expected_status: expected.get().parse().unwrap_or(200),
-            interval_seconds: interval.get().parse().unwrap_or(60),
-            timeout_seconds: timeout.get().parse().unwrap_or(10),
+            expected_status,
+            interval_seconds,
+            timeout_seconds,
             assertions: Vec::new(),
             is_public: public.get(),
             ssl_check_enabled: ssl.get(),
-            ssl_expiry_warning_days: ssl_days.get().parse().unwrap_or(14),
-            tcp_port: tcp_port.get().parse().ok(),
-            dns_record_type: if kind.get() == "dns" {
+            ssl_expiry_warning_days,
+            tcp_port: tcp_port_value,
+            dns_record_type: if kind_value == "dns" {
                 Some(dns_type.get())
             } else {
                 None
             },
-            dns_expected_value: if kind.get() == "dns" && !dns_value.get().is_empty() {
-                Some(dns_value.get())
+            dns_expected_value: if kind_value == "dns" && !dns_value.get().trim().is_empty() {
+                Some(dns_value.get().trim().to_string())
             } else {
                 None
             },
-            heartbeat_interval_seconds: if kind.get() == "heartbeat" {
-                hb_interval.get().parse().ok()
-            } else {
-                None
-            },
-            heartbeat_grace_period_seconds: if kind.get() == "heartbeat" {
-                hb_grace.get().parse().ok()
-            } else {
-                None
-            },
+            heartbeat_interval_seconds: heartbeat_values.map(|v| v.0),
+            heartbeat_grace_period_seconds: heartbeat_values.map(|v| v.1),
         };
+
+        if payload.name.is_empty() {
+            error.set(Some("Name is required.".into()));
+            return;
+        }
+
         let mid = id();
         let nav = navigate.clone();
+        submitting.set(true);
         spawn_local(async move {
             let r = if edit() {
                 monitoring::update_monitor(&mid, &payload).await
             } else {
                 monitoring::create_monitor(&payload).await
             };
+            submitting.set(false);
             match r {
                 Ok(m) => nav(&format!("/monitors/{}", m.id), Default::default()),
                 Err(e) => error.set(Some(e)),
@@ -174,8 +276,10 @@ pub fn MonitorFormPage() -> impl IntoView {
                 } else {
                     ().into_any()
                 }}
-                <button class="btn btn-primary" type="submit">{move || if edit() { "Save changes" } else { "Create monitor" }}</button>
-                {move || error.get().map(|e| view! { <div class="form-error">{e}</div> })}
+                <button class="btn btn-primary" type="submit" disabled=submitting>
+                    {move || if submitting.get() { "Saving…" } else if edit() { "Save changes" } else { "Create monitor" }}
+                </button>
+                {move || error.get().map(|e| view! { <div class="alert alert-error" role="alert">{e}</div> })}
             </form>
         </div>
     }

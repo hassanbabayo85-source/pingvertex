@@ -42,7 +42,7 @@ pub fn ForgotPasswordPage() -> impl IntoView {
                             <form on:submit=on_submit class="auth-form">
                                 <div class="field">
                                     <label for="email">"Email"</label>
-                                    <input type="email" id="email" prop:value=email on:input=move |ev| email.set(event_target_value(&ev)) required/>
+                                    <input type="email" id="email" autocomplete="email" prop:value=email on:input=move |ev| email.set(event_target_value(&ev)) required/>
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-block">"Send reset link"</button>
                             </form>

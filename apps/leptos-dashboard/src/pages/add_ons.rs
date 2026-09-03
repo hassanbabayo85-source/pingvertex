@@ -16,9 +16,18 @@ pub fn AddOnsPage() -> impl IntoView {
     };
     let add = move |e: leptos::ev::SubmitEvent| {
         e.prevent_default();
+        let quantity = match qty.get().trim().parse::<u64>() {
+            Ok(v) if v >= 1 => v,
+            _ => {
+                error.set(Some(
+                    "Quantity must be a valid number of at least 1.".into(),
+                ));
+                return;
+            }
+        };
         let req = billing::AddOnRequest {
             addon_type: kind.get(),
-            quantity: qty.get().parse().unwrap_or(0),
+            quantity,
             country_code: if country.get().is_empty() {
                 None
             } else {

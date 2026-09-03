@@ -146,6 +146,25 @@ async fn get_overview_handles_1000_monitors_without_n_plus_one_queries() {
     assert_eq!(overview.monitors.len(), 1000);
     assert_eq!(overview.incident_summary.open_count, 1000);
     assert_eq!(overview.incident_summary.recent.len(), 5);
+    assert_eq!(overview.performance.trend.len(), 24);
+    assert_eq!(overview.performance.uptime_percentage, Some(100.0));
+    assert_eq!(overview.performance.avg_latency_ms, Some(100.0));
+    assert!(
+        overview
+            .performance
+            .trend
+            .iter()
+            .any(|point| point.checks_count == 1000),
+        "expected the current hourly bucket to contain all 1000 checks"
+    );
+    assert!(
+        overview
+            .performance
+            .trend
+            .iter()
+            .any(|point| point.incident_count == 1000),
+        "expected the current hourly bucket to contain all 1000 incidents"
+    );
 
     assert!(
         query_elapsed.as_secs_f64() < 2.0,

@@ -44,11 +44,11 @@ pub fn ResetPasswordPage() -> impl IntoView {
                 <form on:submit=on_submit class="auth-form">
                     <div class="field">
                         <label for="new-password">"New password"</label>
-                        <input type="password" id="new-password" prop:value=new_password on:input=move |ev| new_password.set(event_target_value(&ev)) required/>
+                        <input type="password" id="new-password" autocomplete="new-password" prop:value=new_password on:input=move |ev| new_password.set(event_target_value(&ev)) required/>
                     </div>
                     <div class="field">
                         <label for="confirm-password">"Confirm new password"</label>
-                        <input type="password" id="confirm-password" prop:value=confirm_password on:input=move |ev| confirm_password.set(event_target_value(&ev)) required/>
+                        <input type="password" id="confirm-password" autocomplete="new-password" prop:value=confirm_password on:input=move |ev| confirm_password.set(event_target_value(&ev)) required/>
                     </div>
                     <button type="submit" class="btn btn-primary btn-block">"Reset password"</button>
                 </form>

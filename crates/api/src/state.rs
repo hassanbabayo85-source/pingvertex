@@ -125,6 +125,11 @@ impl DashboardRepository for NoopDashboardRepository {
                 open_count: 0,
                 recent: Vec::new(),
             },
+            performance: application::dto::DashboardPerformance {
+                uptime_percentage: None,
+                avg_latency_ms: None,
+                trend: Vec::new(),
+            },
         })
     }
 }

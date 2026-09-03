@@ -9,10 +9,37 @@ pub fn PricingPage() -> impl IntoView {
     let quote = RwSignal::new(None::<billing::Quote>);
     let error = RwSignal::new(None::<String>);
     let refresh = move || {
+        let monitors_value = match monitors.get().trim().parse::<u64>() {
+            Ok(v) if v >= 1 => v,
+            _ => {
+                error.set(Some(
+                    "Monitors must be a valid number of at least 1.".into(),
+                ));
+                return;
+            }
+        };
+        let interval_value = match interval.get().trim().parse::<u32>() {
+            Ok(v) if v >= 1 => v,
+            _ => {
+                error.set(Some(
+                    "Interval must be a valid number of at least 1 second.".into(),
+                ));
+                return;
+            }
+        };
+        let retention_value = match retention.get().trim().parse::<u32>() {
+            Ok(v) if v >= 1 => v,
+            _ => {
+                error.set(Some(
+                    "Retention must be a valid number of at least 1 day.".into(),
+                ));
+                return;
+            }
+        };
         let req = billing::QuoteRequest {
-            monitors: monitors.get().parse().unwrap_or(1),
-            interval_seconds: interval.get().parse().unwrap_or(60),
-            retention_days: retention.get().parse().unwrap_or(30),
+            monitors: monitors_value,
+            interval_seconds: interval_value,
+            retention_days: retention_value,
         };
         spawn_local(async move {
             match billing::quote(&req).await {
