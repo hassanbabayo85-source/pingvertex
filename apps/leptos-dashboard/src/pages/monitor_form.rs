@@ -92,43 +92,76 @@ pub fn MonitorFormPage() -> impl IntoView {
                 </div>
                 <div>
                     <label for="kind">"Kind"</label>
-                    <select
-                        id="kind"
-                        prop:value=kind
-                        on:change=move |ev| kind.set(event_target_value(&ev))
-                    >
+                    <select id="kind" prop:value=kind on:change=move |ev| kind.set(event_target_value(&ev))>
                         <option value="http">"HTTP"</option>
                         <option value="tcp">"TCP"</option>
                         <option value="heartbeat">"Heartbeat"</option>
                     </select>
                 </div>
-                <div>
-                    <label for="url">"URL (for HTTP)"</label>
-                    <input
-                        type="text"
-                        id="url"
-                        prop:value=url
-                        on:input=move |ev| url.set(event_target_value(&ev))
-                    />
-                </div>
-                <div>
-                    <label for="host">"Host (for TCP/heartbeat)"</label>
-                    <input
-                        type="text"
-                        id="host"
-                        prop:value=host
-                        on:input=move |ev| host.set(event_target_value(&ev))
-                    />
-                </div>
-                <div>
-                    <label for="port">"Port (for TCP)"</label>
-                    <input
-                        type="number"
-                        id="port"
-                        prop:value=port
-                        on:input=move |ev| port.set(event_target_value(&ev))
-                    />
-                </div>
+
+                {move || {
+                    if kind.get() == "http" {
+                        view! {
+                            <div>
+                                <label for="url">"URL"</label>
+                                <input
+                                    type="text"
+                                    id="url"
+                                    prop:value=url
+                                    on:input=move |ev| url.set(event_target_value(&ev))
+                                    required
+                                />
+                            </div>
+                        }
+                            .into_any()
+                    } else {
+                        ().into_any()
+                    }
+                }}
+
+                {move || {
+                    if kind.get() == "tcp" {
+                        view! {
+                            <div>
+                                <label for="host">"Host"</label>
+                                <input
+                                    type="text"
+                                    id="host"
+                                    prop:value=host
+                                    on:input=move |ev| host.set(event_target_value(&ev))
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label for="port">"Port"</label>
+                                <input
+                                    type="number"
+                                    id="port"
+                                    prop:value=port
+                                    on:input=move |ev| port.set(event_target_value(&ev))
+                                    required
+                                />
+                            </div>
+                        }
+                            .into_any()
+                    } else {
+                        ().into_any()
+                    }
+                }}
+
+                {move || {
+                    if kind.get() == "heartbeat" {
+                        view! {
+                            <p class="form-note">
+                                "Heartbeat monitor configuration is not yet supported by this form. The monitor can be created with a name and schedule, but no heartbeat-specific fields are available here yet."
+                            </p>
+                        }
+                            .into_any()
+                    } else {
+                        ().into_any()
+                    }
+                }}
+
                 <div>
                     <label for="interval">"Interval (seconds)"</label>
                     <input
