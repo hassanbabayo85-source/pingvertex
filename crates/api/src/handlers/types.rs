@@ -31,6 +31,10 @@ pub struct MonitorResponse {
     pub heartbeat_interval_seconds: Option<u32>,
     pub heartbeat_grace_period_seconds: Option<u32>,
     pub last_heartbeat_at: Option<DateTime<Utc>>,
+    /// Authenticated clients need the existing assertions so an edit can
+    /// round-trip the monitor without silently deleting them.
+    #[serde(default)]
+    pub assertions: Vec<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -57,6 +61,21 @@ impl From<Monitor> for MonitorResponse {
             heartbeat_interval_seconds: monitor.heartbeat_interval_seconds,
             heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds,
             last_heartbeat_at: monitor.last_heartbeat_at,
+            assertions: monitor
+                .assertions
+                .iter()
+                .map(|assertion| {
+                    serde_json::json!({
+                        "id": assertion.id,
+                        "response_part": assertion.response_part,
+                        "operator": assertion.operator,
+                        "target": assertion.target,
+                        "expected_value": assertion.expected_value,
+                        "created_at": assertion.created_at,
+                        "updated_at": assertion.updated_at,
+                    })
+                })
+                .collect(),
             created_at: monitor.created_at,
             updated_at: monitor.updated_at,
         }

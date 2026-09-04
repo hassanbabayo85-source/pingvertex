@@ -61,6 +61,7 @@ pub fn StatusPagesPage() -> impl IntoView {
                                                 <div class="muted">{format!("{} monitor(s)", p.monitor_ids.len())}</div>
                                             </div>
                                             <div class="row-actions">
+                                                <a class="btn" href={format!("/status/{}", p.subdomain)}>"Preview"</a>
                                                 <button class="btn" on:click=move |_| {selected.set(Some(id.clone()));}>"Manage"</button>
                                                 <button class="btn btn-danger" on:click=move |_| pending_delete.set(Some(id2.clone()))>"Delete"</button>
                                             </div>

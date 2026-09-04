@@ -13,6 +13,7 @@ pub struct Monitor {
     pub id: String,
     pub name: String,
     pub kind: String,
+    pub method: String,
     pub url: Option<String>,
     pub host: Option<String>,
     pub port: Option<u16>,
@@ -33,6 +34,9 @@ pub struct Monitor {
     pub dns_expected_value: Option<String>,
     pub heartbeat_interval_seconds: Option<u32>,
     pub heartbeat_grace_period_seconds: Option<u32>,
+    /// Authenticated monitor response field used to preserve assertions during edits.
+    #[serde(default)]
+    pub assertions: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -105,10 +109,14 @@ pub struct Check {
     pub id: String,
     pub monitor_id: String,
     pub status: String,
-    pub response_time_ms: Option<u64>,
+    pub latency_ms: u128,
     pub checked_at: String,
-    pub region: Option<String>,
-    pub error: Option<String>,
+    pub region: String,
+    pub error_message: Option<String>,
+    #[serde(default)]
+    pub cert_expires_at: Option<String>,
+    #[serde(default)]
+    pub cert_days_remaining: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -116,11 +124,15 @@ pub struct Check {
 pub struct Incident {
     pub id: String,
     pub monitor_id: String,
-    pub status: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub started_at: String,
+    pub first_seen: String,
+    pub last_seen_at: Option<String>,
     pub resolved_at: Option<String>,
+    pub duration_ms: i64,
+    pub acknowledged_at: Option<String>,
+    pub acknowledged_by: Option<String>,
+    pub occurred_during_maintenance: bool,
+    pub escalation_step_index: u32,
+    pub last_escalation_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -131,8 +143,6 @@ pub struct NotificationChannel {
     pub kind: String,
     pub target: String,
     pub enabled: bool,
-    #[serde(default)]
-    pub name: String,
     pub has_signing_secret: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -144,6 +154,34 @@ pub struct NotificationChannelCreateResponse {
     #[serde(flatten)]
     pub channel: NotificationChannel,
     pub signing_secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct MaintenanceWindow {
+    pub id: String,
+    pub monitor_id: String,
+    pub starts_at: String,
+    pub ends_at: String,
+    pub reason: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct EscalationStep {
+    pub delay_minutes: u32,
+    pub channel_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct EscalationPolicy {
+    pub id: String,
+    pub monitor_id: Option<String>,
+    pub steps: Vec<EscalationStep>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -169,8 +207,6 @@ pub struct MonitorPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelPayload {
-    #[serde(default)]
-    pub name: String,
     pub kind: String,
     pub target: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -251,7 +287,7 @@ pub async fn fetch_incidents(monitor_id: &str) -> Result<Vec<Incident>, String> 
 }
 
 pub async fn fetch_checks(monitor_id: &str) -> Result<Vec<Check>, String> {
-    client::get_json::<Vec<Check>>(&format!("/monitors/{monitor_id}/checks"))
+    client::get_json::<Vec<Check>>(&format!("/monitors/{monitor_id}/checks?limit=50&offset=0"))
         .await
         .map_err(to_string_err)
 }
@@ -260,6 +296,20 @@ pub async fn list_notification_channels(
     monitor_id: &str,
 ) -> Result<Vec<NotificationChannel>, String> {
     client::get_json::<Vec<NotificationChannel>>(&format!("/monitors/{monitor_id}/notifications"))
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn list_maintenance_windows(monitor_id: &str) -> Result<Vec<MaintenanceWindow>, String> {
+    client::get_json::<Vec<MaintenanceWindow>>(&format!(
+        "/monitors/{monitor_id}/maintenance-windows"
+    ))
+    .await
+    .map_err(to_string_err)
+}
+
+pub async fn list_escalation_policies() -> Result<Vec<EscalationPolicy>, String> {
+    client::get_json::<Vec<EscalationPolicy>>("/escalation-policies")
         .await
         .map_err(to_string_err)
 }
