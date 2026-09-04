@@ -3,6 +3,7 @@
 use crate::api::monitoring::{self, DashboardOverview, DashboardTrendPoint, MonitorOverviewItem};
 use crate::components::error_state::ErrorState;
 use crate::components::loading::LoadingSpinner;
+use crate::components::polling;
 use crate::components::status_badge::StatusBadge;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -237,18 +238,28 @@ fn TrendChart(
 pub fn DashboardOverviewPage() -> impl IntoView {
     let overview = RwSignal::new(None::<DashboardOverview>);
     let loading = RwSignal::new(true);
+    let refreshing = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let last_updated = RwSignal::new(None::<String>);
+    let in_flight = RwSignal::new(false);
 
-    let load_data = move || {
-        if loading.get_untracked() {
-            return;
-        }
-        loading.set(true);
-        error.set(None);
+    let poll_data = move || {
+        let overview = overview;
+        let loading = loading;
+        let refreshing = refreshing;
+        let error = error;
+        let last_updated = last_updated;
+        let in_flight = in_flight;
 
-        spawn_local(async move {
-            match monitoring::fetch_overview().await {
+        async move {
+            if in_flight.get_untracked() {
+                return Ok(());
+            }
+            in_flight.set(true);
+            refreshing.set(true);
+
+            let result = monitoring::fetch_overview().await;
+            match result {
                 Ok(data) => {
                     overview.set(Some(data));
                     let updated = js_sys::Date::new_0()
@@ -256,31 +267,59 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                         .as_string()
                         .unwrap_or_else(|| "just now".to_string());
                     last_updated.set(Some(updated));
+                    error.set(None);
+                    loading.set(false);
+                    refreshing.set(false);
+                    in_flight.set(false);
+                    Ok(())
+                }
+                Err(e) => {
+                    error.set(Some(user_facing_error(&e)));
+                    loading.set(false);
+                    refreshing.set(false);
+                    in_flight.set(false);
+                    Err(())
+                }
+            }
+        }
+    };
+
+    // First request is immediate; subsequent requests are visibility-aware,
+    // single-flight and exponentially backed off after failures.
+    spawn_local(async move {
+        let _ = poll_data().await;
+    });
+    polling::start(poll_data);
+
+    let on_retry = Callback::new(move |_: ()| {
+        spawn_local(async move {
+            // Manual retry deliberately bypasses the normal polling delay.
+            if in_flight.get_untracked() {
+                return;
+            }
+            in_flight.set(true);
+            refreshing.set(true);
+            error.set(None);
+            match monitoring::fetch_overview().await {
+                Ok(data) => {
+                    overview.set(Some(data));
+                    last_updated.set(Some(
+                        js_sys::Date::new_0()
+                            .to_iso_string()
+                            .as_string()
+                            .unwrap_or_else(|| "just now".to_string()),
+                    ));
+                    loading.set(false);
                 }
                 Err(e) => error.set(Some(user_facing_error(&e))),
             }
+            refreshing.set(false);
             loading.set(false);
+            in_flight.set(false);
         });
-    };
-
-    // Initial load must run even though the refresh guard is enabled.
-    spawn_local(async move {
-        match monitoring::fetch_overview().await {
-            Ok(data) => {
-                overview.set(Some(data));
-                let updated = js_sys::Date::new_0()
-                    .to_iso_string()
-                    .as_string()
-                    .unwrap_or_else(|| "just now".to_string());
-                last_updated.set(Some(updated));
-            }
-            Err(e) => error.set(Some(user_facing_error(&e))),
-        }
-        loading.set(false);
     });
-
-    let on_retry = Callback::new(move |_: ()| load_data());
-    let refresh_click = move |_| load_data();
+    let refresh_click_cb = on_retry;
+    let refresh_click = move |_| refresh_click_cb.run(());
 
     view! {
         <div class="dashboard-overview">
@@ -298,10 +337,10 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                 <button
                     class="btn"
                     on:click=refresh_click
-                    disabled=move || loading.get()
+                    disabled=move || refreshing.get()
                     aria-label="Refresh dashboard"
                 >
-                    {move || if loading.get() { "Refreshing…" } else { "Refresh" }}
+                    {move || if refreshing.get() { "Refreshing…" } else { "Refresh" }}
                 </button>
             </header>
 
@@ -338,7 +377,7 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                             {move || error.get().map(|message| view! {
                                 <div class="dashboard-refresh-error" role="alert">
                                     <span>{message}</span>
-                                    <button class="btn" on:click=move |_| load_data() disabled=move || loading.get()>
+                                    <button class="btn" on:click=move |_| on_retry.clone().run(()) disabled=move || refreshing.get()>
                                         "Retry"
                                     </button>
                                 </div>
@@ -379,30 +418,9 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                                     </div>
                                 </div>
                                 <div class="dashboard-trend-grid">
-                                    <TrendChart
-                                        title="Uptime".to_string()
-                                        value=uptime
-                                        description="Observed successful checks".to_string()
-                                        trend=performance.trend.clone()
-                                        metric="uptime".to_string()
-                                        unit="".to_string()
-                                    />
-                                    <TrendChart
-                                        title="Response time".to_string()
-                                        value=latency
-                                        description="Observed check latency".to_string()
-                                        trend=performance.trend.clone()
-                                        metric="latency".to_string()
-                                        unit="".to_string()
-                                    />
-                                    <TrendChart
-                                        title="Incident activity".to_string()
-                                        value=incident_total_24h.to_string()
-                                        description="Incidents started in the last 24 hours".to_string()
-                                        trend=performance.trend.clone()
-                                        metric="incidents".to_string()
-                                        unit="".to_string()
-                                    />
+                                    <TrendChart title="Uptime".to_string() value=uptime description="Observed successful checks".to_string() trend=performance.trend.clone() metric="uptime".to_string() unit="".to_string()/>
+                                    <TrendChart title="Response time".to_string() value=latency description="Observed check latency".to_string() trend=performance.trend.clone() metric="latency".to_string() unit="".to_string()/>
+                                    <TrendChart title="Incident activity".to_string() value=incident_total_24h.to_string() description="Incidents started in the last 24 hours".to_string() trend=performance.trend.clone() metric="incidents".to_string() unit="".to_string()/>
                                 </div>
                             </section>
 
@@ -448,18 +466,13 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                                                         let checked_at = monitor.checked_at
                                                             .as_deref()
                                                             .map(format_timestamp)
-                                                            .unwrap_or_else(|| "No check yet".to_string());
-
+                                                            .unwrap_or_else(|| "—".to_string());
                                                         view! {
                                                             <tr>
-                                                                <td>
-                                                                    <A href=format!("/monitors/{id}") attr:class="monitor-link">
-                                                                        {name}
-                                                                    </A>
-                                                                </td>
+                                                                <td><A href=format!("/monitors/{id}") attr:class="monitor-link">{name}</A></td>
                                                                 <td><StatusBadge status=status/></td>
-                                                                <td class="data-cell">{latency}</td>
-                                                                <td class="data-cell muted-cell">{checked_at}</td>
+                                                                <td class="mono">{latency}</td>
+                                                                <td class="mono">{checked_at}</td>
                                                             </tr>
                                                         }
                                                     }).collect_view()}
@@ -474,49 +487,38 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                                 <div class="section-heading">
                                     <div>
                                         <p class="eyebrow">"INCIDENTS"</p>
-                                        <h2>"Incident activity"</h2>
+                                        <h2>"Recent incidents"</h2>
                                     </div>
                                     <A href="/monitors">"View monitors"</A>
                                 </div>
-
                                 {if incidents.is_empty() {
-                                    view! {
-                                        <div class="dashboard-empty compact">
-                                            <h3>"No incident activity"</h3>
-                                            <p>"No incidents have been recorded in the available history."</p>
-                                        </div>
-                                    }.into_any()
+                                    view! { <div class="dashboard-empty"><p>"No recent incidents."</p></div> }.into_any()
                                 } else {
                                     view! {
-                                        <ul class="incident-list">
+                                        <div class="incident-list">
                                             {incidents.into_iter().map(|incident| {
-                                                let monitor_id = incident.monitor_id.clone();
-                                                let started = format_timestamp(&incident.started_at);
+                                                let href = format!("/monitors/{}", incident.monitor_id);
+                                                let label = format_timestamp(&incident.started_at);
                                                 view! {
-                                                    <li class="incident-item">
-                                                        <A href=format!("/monitors/{monitor_id}") attr:class="incident-link">
-                                                            <span class="incident-marker" aria-hidden="true"></span>
-                                                            <span class="incident-copy">
-                                                                <strong>{format!("Incident {}", &incident.id[..8.min(incident.id.len())])}</strong>
-                                                                <small>{started}</small>
-                                                            </span>
-                                                            <span class="incident-arrow" aria-hidden="true">"→"</span>
-                                                        </A>
-                                                    </li>
+                                                    <div class="incident-row">
+                                                        <A href=href attr:class="incident-link">{incident.monitor_id}</A>
+                                                        <span class="mono">{label}</span>
+                                                        {if incident.acknowledged_at.is_some() {
+                                                            view! { <StatusBadge status="acknowledged"/> }.into_any()
+                                                        } else {
+                                                            view! { <StatusBadge status="open"/> }.into_any()
+                                                        }}
+                                                    </div>
                                                 }
                                             }).collect_view()}
-                                        </ul>
+                                        </div>
                                     }.into_any()
                                 }}
                             </section>
-
-                            <div class="dashboard-data-note">
-                                "Dashboard values are derived from live monitor checks and incident records. No client-side mock or placeholder telemetry is used."
-                            </div>
                         </div>
                     }.into_any()
                 } else {
-                    view! { <p class="widget-empty">"No dashboard data available."</p> }.into_any()
+                    view! { <ErrorState title="Dashboard unavailable" description="No dashboard data is currently available." on_retry=on_retry/> }.into_any()
                 }
             }}
         </div>

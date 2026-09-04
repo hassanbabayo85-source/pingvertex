@@ -2048,3 +2048,65 @@ textarea[aria-invalid="true"]:focus-visible {
     justify-content: flex-start;
   }
 }
+
+/* ---------- Realtime reliability ---------- */
+
+.network-status {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 0.45rem var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.network-status-offline {
+  color: var(--down);
+  background: var(--surface);
+}
+
+.network-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dashboard-refresh-error {
+  align-items: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .network-status-dot {
+    animation: none;
+  }
+}
+
+/* ---------- Phase 7 accessibility / interaction hardening ---------- */
+
+button, .btn, .sidebar-group a, .sidebar-signout, .icon-button {
+  min-height: 40px;
+}
+
+@media (max-width: 720px) {
+  button, .btn, .sidebar-group a, .sidebar-signout, .icon-button {
+    min-height: 44px;
+  }
+
+  .dialog-actions {
+    justify-content: stretch;
+  }
+
+  .dialog-actions > * {
+    flex: 1 1 140px;
+  }
+}

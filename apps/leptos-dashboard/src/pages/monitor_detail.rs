@@ -6,6 +6,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::empty_state::EmptyState;
 use crate::components::metric_card::MetricCard;
 use crate::components::page_header::PageHeader;
+use crate::components::polling;
 use crate::components::status_badge::StatusBadge;
 use crate::components::table_shell::TableShell;
 use leptos::prelude::*;
@@ -79,6 +80,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let notice = RwSignal::new(None::<String>);
     let action_busy = RwSignal::new(false);
+    let telemetry_in_flight = RwSignal::new(false);
     let show_delete_confirm = RwSignal::new(false);
     let channel_to_delete = RwSignal::new(None::<String>);
     let navigate = use_navigate();
@@ -100,8 +102,12 @@ pub fn MonitorDetailPage() -> impl IntoView {
             return;
         }
 
+        if telemetry_in_flight.get_untracked() {
+            return;
+        }
         loading.set(true);
         error.set(None);
+        telemetry_in_flight.set(true);
         spawn_local(async move {
             // Keep the existing per-resource endpoints. They are already tenant
             // scoped server-side; this page only composes them for the detail view.
@@ -111,6 +117,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
                 Err(e) => {
                     error.set(Some(e));
                     loading.set(false);
+                    telemetry_in_flight.set(false);
                     return;
                 }
             }
@@ -137,10 +144,60 @@ pub fn MonitorDetailPage() -> impl IntoView {
             }
 
             loading.set(false);
+            telemetry_in_flight.set(false);
         });
     };
 
     Effect::new(move |_| load_data());
+
+    // Keep only volatile telemetry on the realtime path. Notification,
+    // maintenance and escalation configuration are not refetched every tick.
+    polling::start(move || {
+        let id = monitor_id();
+        async move {
+            if id.is_empty() || telemetry_in_flight.get_untracked() {
+                return Ok(());
+            }
+            telemetry_in_flight.set(true);
+
+            let monitor_result = monitoring::get_monitor(&id).await;
+            let checks_result = monitoring::fetch_checks(&id).await;
+            let incidents_result = monitoring::fetch_incidents(&id).await;
+            let mut failed = false;
+
+            match monitor_result {
+                Ok(value) => monitor.set(Some(value)),
+                Err(e) => {
+                    error.set(Some(e));
+                    failed = true;
+                }
+            }
+            match checks_result {
+                Ok(value) => checks.set(value),
+                Err(e) => {
+                    error.set(Some(format!("Checks: {e}")));
+                    failed = true;
+                }
+            }
+            match incidents_result {
+                Ok(value) => incidents.set(value),
+                Err(e) => {
+                    error.set(Some(format!("Incidents: {e}")));
+                    failed = true;
+                }
+            }
+
+            if !failed {
+                error.set(None);
+            }
+            telemetry_in_flight.set(false);
+            if failed {
+                Err(())
+            } else {
+                Ok(())
+            }
+        }
+    });
 
     let navigate_for_delete = navigate.clone();
     let confirm_delete_cb = Callback::new(move |_: ()| {

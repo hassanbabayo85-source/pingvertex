@@ -54,10 +54,14 @@ pub fn ApiKeysPage() -> impl IntoView {
                 name: n,
                 scopes: s,
                 expires_at: None,
-            }).await {
+            })
+            .await
+            {
                 Ok(k) => {
                     secret.set(Some(k.key));
-                    notice.set(Some("API key created. Copy the secret now; it will not be shown again.".into()));
+                    notice.set(Some(
+                        "API key created. Copy the secret now; it will not be shown again.".into(),
+                    ));
                     reload();
                     name.set(String::new());
                     scopes.set(Vec::new());

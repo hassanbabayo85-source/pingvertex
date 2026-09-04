@@ -29,8 +29,7 @@ use crate::{
 const MAX_REQUEST_BODY_SIZE: usize = 16 * 1024;
 
 fn cors_layer() -> CorsLayer {
-    let allowed_origin = std::env::var("CORS_ALLOWED_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let allowed_origin = crate::config::cors_allowed_origin_from_env();
 
     CorsLayer::new()
         .allow_origin(AllowOrigin::exact(

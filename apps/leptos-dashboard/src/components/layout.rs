@@ -1,5 +1,6 @@
 use crate::auth::context::{use_auth, AuthState};
 use crate::components::navigation::{NavStatus, NAV_GROUPS};
+use crate::components::network_status::NetworkStatus;
 use leptos::prelude::*;
 use leptos_router::components::{Outlet, A};
 use wasm_bindgen::JsCast;
@@ -169,6 +170,7 @@ pub fn Layout() -> impl IntoView {
             ></div>
 
             <div class="app-content">
+                <NetworkStatus/>
                 <div class="mobile-nav-toolbar">
                     <button
                         id="mobile-nav-toggle"

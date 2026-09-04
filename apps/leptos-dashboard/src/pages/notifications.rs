@@ -52,7 +52,11 @@ pub fn NotificationsPage() -> impl IntoView {
         let req = monitoring::ChannelPayload {
             kind: kind_value.clone(),
             target: target_value,
-            chat_id: if kind_value == "telegram" { Some(chat_id.get().trim().to_string()) } else { None },
+            chat_id: if kind_value == "telegram" {
+                Some(chat_id.get().trim().to_string())
+            } else {
+                None
+            },
         };
         busy.set(true);
         spawn_local(async move {
@@ -103,7 +107,7 @@ pub fn NotificationsPage() -> impl IntoView {
                         } else {
                             view! { <div class="list-stack">{move || channels.get().into_iter().map(|c| {
                                 let id=c.id.clone();
-                                view! { <div class="list-row"><div><strong>{format!("{}",c.kind)}</strong><div class="muted">{c.target}</div></div><div class="row-actions"><span class="muted">{if c.enabled {"Enabled"} else {"Disabled"}}</span><button class="btn btn-danger" disabled=move || busy.get() on:click=move |_| pending_delete.set(Some(id.clone()))>"Delete"</button></div></div> }
+                                view! { <div class="list-row"><div><strong>{c.kind.to_string()}</strong><div class="muted">{c.target}</div></div><div class="row-actions"><span class="muted">{if c.enabled {"Enabled"} else {"Disabled"}}</span><button class="btn btn-danger" disabled=move || busy.get() on:click=move |_| pending_delete.set(Some(id.clone()))>"Delete"</button></div></div> }
                             }).collect_view()}</div> }.into_any()
                         }}
                     </> }.into_any()
