@@ -79,11 +79,13 @@ pub fn RumDashboardPage() -> impl IntoView {
                 Ok(value) => pages.set(value),
                 Err(e) => failures.push(format!("Pages: {e}")),
             }
-            match rum::rum_error_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await {
+            match rum::rum_error_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await
+            {
                 Ok(value) => errors.set(Some(value)),
                 Err(e) => failures.push(format!("Errors: {e}")),
             }
-            match rum::rum_browser_device_breakdown_typed(&site_id, Some(&start), Some(&end)).await {
+            match rum::rum_browser_device_breakdown_typed(&site_id, Some(&start), Some(&end)).await
+            {
                 Ok(value) => browsers.set(Some(value)),
                 Err(e) => failures.push(format!("Browser/device: {e}")),
             }
@@ -101,7 +103,10 @@ pub fn RumDashboardPage() -> impl IntoView {
             }
 
             if !failures.is_empty() {
-                error.set(Some(format!("Some RUM panels could not be loaded: {}", failures.join(" · "))));
+                error.set(Some(format!(
+                    "Some RUM panels could not be loaded: {}",
+                    failures.join(" · ")
+                )));
             }
             loading.set(false);
         });

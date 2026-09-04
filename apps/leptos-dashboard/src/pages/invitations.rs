@@ -44,14 +44,19 @@ pub fn InvitationsPage() -> impl IntoView {
             error.set(Some("Email is required.".into()));
             return;
         }
-        let req = team::CreateInvitationRequest { email: email_value, role: role.get() };
+        let req = team::CreateInvitationRequest {
+            email: email_value,
+            role: role.get(),
+        };
         busy.set(true);
         spawn_local(async move {
             match team::create_invitation(&req).await {
                 Ok(v) => {
                     created_token.set(Some(v.invitation_token));
                     email.set(String::new());
-                    notice.set(Some("Invitation created. Save the token now; it is returned only once.".into()));
+                    notice.set(Some(
+                        "Invitation created. Save the token now; it is returned only once.".into(),
+                    ));
                     reload();
                 }
                 Err(e) => error.set(Some(e.to_string())),

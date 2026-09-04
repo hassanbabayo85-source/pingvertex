@@ -1,6 +1,7 @@
 use crate::api::monitoring::{self, Monitor};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::filter_bar::FilterBar;
+use crate::components::polling;
 use crate::components::search_input::SearchInput;
 use crate::components::status_badge::StatusBadge;
 use leptos::prelude::*;
@@ -23,17 +24,41 @@ pub fn MonitorsPage() -> impl IntoView {
     let sort_asc = RwSignal::new(true);
     let page = RwSignal::new(0usize);
     let navigate = use_navigate();
+    let refresh_in_flight = RwSignal::new(false);
     let navigate_new = navigate.clone();
 
-    Effect::new(move |_| {
-        spawn_local(async move {
-            match monitoring::fetch_monitors().await {
-                Ok(data) => monitors.set(data),
-                Err(e) => error.set(Some(e)),
+    let poll_monitors = move || {
+        let monitors = monitors;
+        let error = error;
+        let loading = loading;
+        let refresh_in_flight = refresh_in_flight;
+        async move {
+            if refresh_in_flight.get_untracked() {
+                return Ok(());
             }
-            loading.set(false);
-        });
+            refresh_in_flight.set(true);
+            match monitoring::fetch_monitors().await {
+                Ok(data) => {
+                    monitors.set(data);
+                    error.set(None);
+                    loading.set(false);
+                    refresh_in_flight.set(false);
+                    Ok(())
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                    loading.set(false);
+                    refresh_in_flight.set(false);
+                    Err(())
+                }
+            }
+        }
+    };
+
+    spawn_local(async move {
+        let _ = poll_monitors().await;
     });
+    polling::start(poll_monitors);
 
     let set_sort = move |key: &'static str| {
         if sort_key.get_untracked() == key {

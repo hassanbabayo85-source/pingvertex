@@ -44,8 +44,7 @@ pub async fn require_matching_origin(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    let configured = std::env::var("CORS_ALLOWED_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let configured = crate::config::cors_allowed_origin_from_env();
 
     let header_origin = request
         .headers()

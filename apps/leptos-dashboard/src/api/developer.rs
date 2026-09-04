@@ -133,7 +133,6 @@ pub async fn update_flow(
     client::put_json(&format!("/monitors/{monitor_id}/flows/{flow_id}"), request).await
 }
 
-
 pub async fn delete_flow(monitor_id: &str, flow_id: &str) -> Result<(), ApiError> {
     client::delete_json_no_content(&format!("/monitors/{monitor_id}/flows/{flow_id}")).await
 }

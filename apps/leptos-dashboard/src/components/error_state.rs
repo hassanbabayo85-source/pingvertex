@@ -19,7 +19,7 @@ pub fn ErrorState(
     };
 
     view! {
-        <div class="error-state">
+        <div class="error-state" role="alert" aria-live="assertive">
             <h3 class="error-state-title">{title}</h3>
             {move || {
                 if desc.is_empty() {

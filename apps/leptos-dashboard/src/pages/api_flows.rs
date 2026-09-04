@@ -15,25 +15,40 @@ struct StepDraft {
 }
 
 fn flow_steps_to_drafts(steps: &[developer::ApiFlowStep]) -> Vec<StepDraft> {
-    steps.iter().map(|s| StepDraft {
-        name: s.name.clone(),
-        method: s.method.clone(),
-        url: s.url_template.clone(),
-        headers: s.headers.clone(),
-        body: s.body.clone(),
-        extract: s.extract.iter().map(|x| match x {
-            developer::Extraction::StatusCode => developer::ExtractionRequest::StatusCode,
-            developer::Extraction::Header { name } => developer::ExtractionRequest::Header { name: name.clone() },
-            developer::Extraction::JsonPath { path } => developer::ExtractionRequest::JsonPath { path: path.clone() },
-            developer::Extraction::Body => developer::ExtractionRequest::Body,
-        }).collect(),
-        assertions: s.assertions.iter().map(|x| developer::AssertionRequest {
-            response_part: x.response_part.clone(),
-            operator: x.operator.clone(),
-            target: x.target.clone(),
-            expected_value: x.expected_value.clone(),
-        }).collect(),
-    }).collect()
+    steps
+        .iter()
+        .map(|s| StepDraft {
+            name: s.name.clone(),
+            method: s.method.clone(),
+            url: s.url_template.clone(),
+            headers: s.headers.clone(),
+            body: s.body.clone(),
+            extract: s
+                .extract
+                .iter()
+                .map(|x| match x {
+                    developer::Extraction::StatusCode => developer::ExtractionRequest::StatusCode,
+                    developer::Extraction::Header { name } => {
+                        developer::ExtractionRequest::Header { name: name.clone() }
+                    }
+                    developer::Extraction::JsonPath { path } => {
+                        developer::ExtractionRequest::JsonPath { path: path.clone() }
+                    }
+                    developer::Extraction::Body => developer::ExtractionRequest::Body,
+                })
+                .collect(),
+            assertions: s
+                .assertions
+                .iter()
+                .map(|x| developer::AssertionRequest {
+                    response_part: x.response_part.clone(),
+                    operator: x.operator.clone(),
+                    target: x.target.clone(),
+                    expected_value: x.expected_value.clone(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 #[component]
@@ -82,15 +97,17 @@ pub fn ApiFlowsPage() -> impl IntoView {
             error.set(Some("Step name and URL are required.".into()));
             return;
         }
-        steps.update(|v| v.push(StepDraft {
-            name: n,
-            method: step_method.get(),
-            url: u,
-            headers: Vec::new(),
-            body: None,
-            extract: Vec::new(),
-            assertions: Vec::new(),
-        }));
+        steps.update(|v| {
+            v.push(StepDraft {
+                name: n,
+                method: step_method.get(),
+                url: u,
+                headers: Vec::new(),
+                body: None,
+                extract: Vec::new(),
+                assertions: Vec::new(),
+            })
+        });
         step_name.set(String::new());
         step_url.set(String::new());
     };
@@ -103,16 +120,21 @@ pub fn ApiFlowsPage() -> impl IntoView {
             return;
         }
         let payload = developer::CreateApiFlowRequest {
-            steps: steps.get().iter().enumerate().map(|(i, s)| developer::ApiFlowStepRequest {
-                order: (i + 1) as u16,
-                name: s.name.clone(),
-                method: s.method.clone(),
-                url_template: s.url.clone(),
-                headers: s.headers.clone(),
-                body: s.body.clone(),
-                extract: s.extract.clone(),
-                assertions: s.assertions.clone(),
-            }).collect(),
+            steps: steps
+                .get()
+                .iter()
+                .enumerate()
+                .map(|(i, s)| developer::ApiFlowStepRequest {
+                    order: (i + 1) as u16,
+                    name: s.name.clone(),
+                    method: s.method.clone(),
+                    url_template: s.url.clone(),
+                    headers: s.headers.clone(),
+                    body: s.body.clone(),
+                    extract: s.extract.clone(),
+                    assertions: s.assertions.clone(),
+                })
+                .collect(),
         };
         let mid2 = mid.clone();
         busy.set(true);

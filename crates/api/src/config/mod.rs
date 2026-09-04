@@ -182,6 +182,37 @@ fn non_empty_env(key: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Returns the browser origin used by the credentialed CORS policy.
+///
+/// SECURITY: localhost is a development convenience only. A production
+/// process must explicitly declare its browser origin; silently falling
+/// back to localhost makes a missing production setting look configured
+/// while leaving the deployment with an unusable/incorrect trust policy.
+pub fn cors_allowed_origin_for_environment(
+    configured: Option<&str>,
+    environment: &str,
+) -> Result<String, &'static str> {
+    if let Some(origin) = configured.map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(origin.to_string());
+    }
+
+    if matches!(
+        environment.trim().to_ascii_lowercase().as_str(),
+        "production" | "prod"
+    ) {
+        return Err("CORS_ALLOWED_ORIGIN must be explicitly configured in production");
+    }
+
+    Ok(DEFAULT_CORS_ALLOWED_ORIGIN.to_string())
+}
+
+pub fn cors_allowed_origin_from_env() -> String {
+    let configured = non_empty_env("CORS_ALLOWED_ORIGIN");
+    let environment = env::var("ENVIRONMENT").unwrap_or_default();
+    cors_allowed_origin_for_environment(configured.as_deref(), &environment)
+        .unwrap_or_else(|message| panic!("{message}"))
+}
+
 impl Config {
     /// Loda configuration daga environment variables.
     ///
@@ -309,6 +340,34 @@ mod tests {
     fn accepts_a_properly_generated_random_secret() {
         let strong_secret = "b1a4c9e02d7f8635a0e2c4f96d1b7a8e3c5f0d9a2b6e1c4f7a0d3b8e5c2f9a6d0b3e7c1a4f8d5b2e9c6f0a3d7b1e4c8f2a5d9b6e0c3f7a1d4b8e2c5f9a0d3b6";
         assert!(validate_jwt_secret(strong_secret).is_ok());
+    }
+
+    #[test]
+    fn production_requires_explicit_cors_origin() {
+        assert_eq!(
+            cors_allowed_origin_for_environment(None, "production"),
+            Err("CORS_ALLOWED_ORIGIN must be explicitly configured in production")
+        );
+        assert_eq!(
+            cors_allowed_origin_for_environment(Some("  "), "prod"),
+            Err("CORS_ALLOWED_ORIGIN must be explicitly configured in production")
+        );
+    }
+
+    #[test]
+    fn development_keeps_localhost_fallback() {
+        assert_eq!(
+            cors_allowed_origin_for_environment(None, "development"),
+            Ok(DEFAULT_CORS_ALLOWED_ORIGIN.to_string())
+        );
+    }
+
+    #[test]
+    fn explicit_cors_origin_wins_in_every_environment() {
+        assert_eq!(
+            cors_allowed_origin_for_environment(Some("https://app.example.com"), "production"),
+            Ok("https://app.example.com".to_string())
+        );
     }
 
     #[test]

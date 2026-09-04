@@ -3,7 +3,9 @@ use crate::auth::context::{use_auth, AuthState, Role};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-fn can_bill(role: &Role) -> bool { matches!(role, Role::Owner) }
+fn can_bill(role: &Role) -> bool {
+    matches!(role, Role::Owner)
+}
 
 #[component]
 pub fn BillingPage() -> impl IntoView {
@@ -41,18 +43,31 @@ pub fn BillingPage() -> impl IntoView {
         error.set(None);
         let monitors_value = match monitors.get().trim().parse::<u64>() {
             Ok(v) if v >= 1 => v,
-            _ => { error.set(Some("Monitors must be at least 1.".into())); return; }
+            _ => {
+                error.set(Some("Monitors must be at least 1.".into()));
+                return;
+            }
         };
         let interval_value = match interval.get().trim().parse::<u32>() {
             Ok(v) if v >= 1 => v,
-            _ => { error.set(Some("Interval must be at least 1 second.".into())); return; }
+            _ => {
+                error.set(Some("Interval must be at least 1 second.".into()));
+                return;
+            }
         };
         let retention_value = match retention.get().trim().parse::<u32>() {
             Ok(v) if v >= 1 => v,
-            _ => { error.set(Some("Retention must be at least 1 day.".into())); return; }
+            _ => {
+                error.set(Some("Retention must be at least 1 day.".into()));
+                return;
+            }
         };
         quote_busy.set(true);
-        let req = billing::QuoteRequest { monitors: monitors_value, interval_seconds: interval_value, retention_days: retention_value };
+        let req = billing::QuoteRequest {
+            monitors: monitors_value,
+            interval_seconds: interval_value,
+            retention_days: retention_value,
+        };
         spawn_local(async move {
             match billing::quote(&req).await {
                 Ok(v) => quote.set(Some(v)),
@@ -63,14 +78,24 @@ pub fn BillingPage() -> impl IntoView {
     };
 
     let checkout = move |_| {
-        if checkout_busy.get() { return; }
+        if checkout_busy.get() {
+            return;
+        }
         error.set(None);
         let p = plan.get();
+        if p == "free" {
+            error.set(Some(
+                "Free plan does not use checkout. Select a paid tier.".into(),
+            ));
+            return;
+        }
         checkout_busy.set(true);
         spawn_local(async move {
             match billing::checkout(&p).await {
                 Ok(v) => {
-                    notice.set(Some("Checkout created. Continue securely in the payment provider.".into()));
+                    notice.set(Some(
+                        "Checkout created. Continue securely in the payment provider.".into(),
+                    ));
                     if let Some(w) = web_sys::window() {
                         let _ = w.location().set_href(&v.checkout_url);
                     }
@@ -84,7 +109,10 @@ pub fn BillingPage() -> impl IntoView {
     let verify = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let id = session.get().trim().to_string();
-        if id.is_empty() { error.set(Some("Checkout session ID is required.".into())); return; }
+        if id.is_empty() {
+            error.set(Some("Checkout session ID is required.".into()));
+            return;
+        }
         verify_busy.set(true);
         spawn_local(async move {
             match billing::verify_checkout(&id).await {
@@ -141,7 +169,7 @@ pub fn BillingPage() -> impl IntoView {
                     <p class="muted">"You will be redirected to the payment provider before any charge is finalized."</p>
                     <div class="inline-form">
                         <select prop:value=plan on:change=move|e|plan.set(event_target_value(&e))>
-                            <option value="free">"Free"</option><option value="tier_1">"Tier 1"</option><option value="tier_5">"Tier 5"</option><option value="tier_10">"Tier 10"</option><option value="tier_20">"Tier 20"</option>
+                            <option value="tier_1">"Tier 1"</option><option value="tier_5">"Tier 5"</option><option value="tier_10">"Tier 10"</option><option value="tier_20">"Tier 20"</option>
                         </select>
                         <button class="btn btn-primary" disabled=move || checkout_busy.get() on:click=checkout>{move || if checkout_busy.get() {"Starting checkout…"} else {"Continue to checkout"}}</button>
                     </div>
