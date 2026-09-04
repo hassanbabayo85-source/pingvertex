@@ -68,46 +68,41 @@ pub fn RumDashboardPage() -> impl IntoView {
             .unwrap_or_default();
 
         spawn_local(async move {
-            if let Ok(value) = rum::rum_overview_typed(&site_id, Some(&start), Some(&end)).await {
-                overview.set(Some(value));
+            error.set(None);
+            let mut failures = Vec::new();
+
+            match rum::rum_overview_typed(&site_id, Some(&start), Some(&end)).await {
+                Ok(value) => overview.set(Some(value)),
+                Err(e) => failures.push(format!("Overview: {e}")),
+            }
+            match rum::rum_slow_pages_typed(&site_id, Some(&start), Some(&end), Some(10)).await {
+                Ok(value) => pages.set(value),
+                Err(e) => failures.push(format!("Pages: {e}")),
+            }
+            match rum::rum_error_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await {
+                Ok(value) => errors.set(Some(value)),
+                Err(e) => failures.push(format!("Errors: {e}")),
+            }
+            match rum::rum_browser_device_breakdown_typed(&site_id, Some(&start), Some(&end)).await {
+                Ok(value) => browsers.set(Some(value)),
+                Err(e) => failures.push(format!("Browser/device: {e}")),
+            }
+            match rum::rum_geo_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await {
+                Ok(value) => geo.set(value),
+                Err(e) => failures.push(format!("Geography: {e}")),
+            }
+            match rum::rum_performance_trend_typed(&site_id, Some(&start), Some(&end)).await {
+                Ok(value) => trend.set(value),
+                Err(e) => failures.push(format!("Trend: {e}")),
+            }
+            match rum::rum_session_stats_typed(&site_id, Some(&start), Some(&end)).await {
+                Ok(value) => sessions.set(Some(value)),
+                Err(e) => failures.push(format!("Sessions: {e}")),
             }
 
-            if let Ok(value) =
-                rum::rum_slow_pages_typed(&site_id, Some(&start), Some(&end), Some(10)).await
-            {
-                pages.set(value);
+            if !failures.is_empty() {
+                error.set(Some(format!("Some RUM panels could not be loaded: {}", failures.join(" · "))));
             }
-
-            if let Ok(value) =
-                rum::rum_error_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await
-            {
-                errors.set(Some(value));
-            }
-
-            if let Ok(value) =
-                rum::rum_browser_device_breakdown_typed(&site_id, Some(&start), Some(&end)).await
-            {
-                browsers.set(Some(value));
-            }
-
-            if let Ok(value) =
-                rum::rum_geo_breakdown_typed(&site_id, Some(&start), Some(&end), Some(10)).await
-            {
-                geo.set(value);
-            }
-
-            if let Ok(value) =
-                rum::rum_performance_trend_typed(&site_id, Some(&start), Some(&end)).await
-            {
-                trend.set(value);
-            }
-
-            if let Ok(value) =
-                rum::rum_session_stats_typed(&site_id, Some(&start), Some(&end)).await
-            {
-                sessions.set(Some(value));
-            }
-
             loading.set(false);
         });
     };
@@ -136,6 +131,7 @@ pub fn RumDashboardPage() -> impl IntoView {
                     "Site"
 
                     <select
+                        prop:value=move || selected.get().unwrap_or_default()
                         on:change=move |event| {
                             let value = event_target_value(&event);
 
@@ -324,6 +320,32 @@ pub fn RumDashboardPage() -> impl IntoView {
                                             }
                                         })
                                         .collect_view()
+                                }}
+                            </section>
+
+                            <section class="card">
+                                <div class="section-heading">
+                                    <h2>"Performance trend"</h2>
+                                    <span class="muted">"Average load time"</span>
+                                </div>
+                                {move || {
+                                    let points = trend.get();
+                                    let max = points.iter().filter_map(|p| p.avg_load_time_ms).fold(0.0_f64, f64::max);
+                                    if points.is_empty() {
+                                        view! { <p class="muted">"No trend data for this range."</p> }.into_any()
+                                    } else {
+                                        view! { <div class="performance-bars">
+                                            {points.into_iter().map(|point| {
+                                                let value = point.avg_load_time_ms.unwrap_or(0.0);
+                                                let width = if max > 0.0 { ((value / max) * 100.0).clamp(2.0, 100.0) } else { 2.0 };
+                                                view! { <div class="performance-row">
+                                                    <span class="performance-index">{point.bucket_start}</span>
+                                                    <div class="performance-track"><div class="performance-fill" style=format!("width:{width:.1}%")></div></div>
+                                                    <span class="performance-value">{format!("{value:.0} ms")}</span>
+                                                </div> }
+                                            }).collect_view()}
+                                        </div> }.into_any()
+                                    }
                                 }}
                             </section>
 

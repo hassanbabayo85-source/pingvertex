@@ -1865,3 +1865,186 @@ textarea[aria-invalid="true"]:focus-visible {
     padding: var(--space-3);
   }
 }
+
+
+/* ---------- Phase 4 — monitor detail/form polish ---------- */
+.monitor-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 1200px;
+}
+
+.monitor-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.monitor-identity h2 { margin: 2px 0 2px; }
+.monitor-status { flex: 0 0 auto; }
+
+.eyebrow {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.muted { color: var(--ink-muted); font-size: 0.8125rem; }
+.mono, code { font-family: var(--font-mono); font-size: 0.82em; }
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.section-heading h2 { margin-bottom: 0; }
+
+.monitor-health-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 0;
+}
+
+.performance-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.performance-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 72px;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.performance-index {
+  color: var(--ink-faint);
+  font: 0.7rem var(--font-mono);
+  text-align: right;
+}
+
+.performance-track {
+  height: 8px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+  border-radius: 999px;
+}
+
+.performance-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.performance-up { background: var(--up); }
+.performance-down { background: var(--down); }
+.performance-value {
+  color: var(--ink-muted);
+  font: 0.72rem var(--font-mono);
+  text-align: right;
+}
+
+.list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.list-row:last-child { border-bottom: 0; }
+
+.escalation-steps {
+  margin: var(--space-2) 0 0 var(--space-5);
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+}
+
+.monitor-subform { margin-top: var(--space-4); }
+.form-section { margin-bottom: 0; }
+.monitor-form { gap: var(--space-4); }
+.monitor-form .form-section h2 { margin-bottom: var(--space-3); }
+.form-help { margin: 0 0 var(--space-2); }
+.form-error-message {
+  margin: -4px 0 var(--space-2);
+  color: var(--down);
+  font-size: 0.78rem;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .monitor-identity { align-items: flex-start; flex-direction: column; }
+  .performance-row { grid-template-columns: 22px 1fr 62px; }
+  .channel-form { align-items: stretch; }
+  .channel-form input, .channel-form select { width: 100%; }
+}
+
+
+
+/* Phase 5: restrained, reusable UX primitives. */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll table {
+  min-width: 620px;
+}
+.secret-box {
+  position: relative;
+}
+.secret-box code {
+  max-height: 8rem;
+  overflow: auto;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.empty-state {
+  padding: var(--space-5);
+  text-align: center;
+}
+.empty-state h2,
+.empty-state h3,
+.empty-state p {
+  margin-bottom: var(--space-2);
+}
+.performance-bars {
+  overflow-x: auto;
+}
+.performance-row {
+  min-width: 520px;
+}
+@media (max-width: 640px) {
+  .row-actions {
+    justify-content: flex-start;
+  }
+}

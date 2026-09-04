@@ -23,7 +23,17 @@ pub async fn list_monitors(
         .await
         .map_err(|err| ApiError::internal_with_source("failed to list monitors", err))?;
 
+    // List responses do not need monitor assertions. Clear them explicitly so
+    // authenticated list callers cannot receive assertion payloads they did not
+    // request, while GET /monitors/{id} can still round-trip them for editing.
     Ok(Json(
-        monitors.into_iter().map(MonitorResponse::from).collect(),
+        monitors
+            .into_iter()
+            .map(|monitor| {
+                let mut response = MonitorResponse::from(monitor);
+                response.assertions.clear();
+                response
+            })
+            .collect(),
     ))
 }
