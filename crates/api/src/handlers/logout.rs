@@ -38,12 +38,12 @@ pub async fn logout(
         .await
         .map_err(|err| ApiError::internal(format!("failed to invalidate session: {err}")))?;
 
-    let cookie = "access_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0";
+    let cookie = shared::cookie::logout_cookie();
 
     let mut headers = HeaderMap::new();
     headers.insert(
         SET_COOKIE,
-        HeaderValue::from_str(cookie).map_err(|_| ApiError::internal("failed to clear cookie"))?,
+        HeaderValue::from_str(&cookie).map_err(|_| ApiError::internal("failed to clear cookie"))?,
     );
 
     Ok((headers, Json(json!({ "authenticated": false }))))

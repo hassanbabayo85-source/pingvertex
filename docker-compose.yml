@@ -26,6 +26,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: uptime-monitor-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
   migrate:
     build:
       context: .
@@ -37,17 +49,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
-    volumes:
-      - .:/app
-    command: >
-      bash -c "
-      export PATH=/usr/local/cargo/bin:/root/.cargo/bin:$PATH &&
-      apt-get update &&
-      apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates &&
-      cargo install sqlx-cli --no-default-features --features postgres &&
-      sqlx database create || true &&
-      sqlx migrate run --source migrations
-      "
+    entrypoint: ["sh", "-c"]
+    command:
+      - "sqlx database create || true && sqlx migrate run --source migrations"
 
   api:
     build:
@@ -60,6 +64,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
@@ -80,6 +88,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
@@ -162,6 +174,7 @@ services:
 volumes:
   postgres_data:
   frontend_dist:
+  redis_data:
 
 secrets:
   metrics_token:

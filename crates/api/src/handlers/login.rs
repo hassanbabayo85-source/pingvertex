@@ -76,10 +76,7 @@ pub async fn login(
             // amfani da httpOnly cookie tun farko. Dashboard din (apps/dashboard) ba
             // ya karanta access_token daga JSON body ko ta yaya — yana dogara ne kawai
             // ga cookie din da kuma wani boolean flag na gida.
-            let cookie = format!(
-                "access_token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400",
-                response.access_token
-            );
+            let cookie = shared::cookie::access_token_cookie(&response.access_token);
 
             let mut headers = HeaderMap::new();
             headers.insert(

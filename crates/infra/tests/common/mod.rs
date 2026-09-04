@@ -11,12 +11,22 @@ use uuid::Uuid;
 
 #[allow(dead_code)]
 pub async fn setup_pool() -> PgPool {
-    // Load DATABASE_URL (and any other vars) from the repo's .env file so
-    // `cargo test` works the same whether or not the shell has already
-    // exported these variables. Safe to call multiple times / in every
-    // test binary — dotenvy just no-ops if the vars are already set or
-    // if no .env file is found.
-    dotenvy::dotenv().ok();
+    // Load DATABASE_URL (and any other vars) from `.env.test` — NEVER
+    // `.env` — so integration tests always run against the isolated test
+    // database (`uptime_monitor_test`) rather than truncating whatever
+    // database the developer's `.env` happens to point at. Falls back to
+    // plain `.env` only if `.env.test` doesn't exist, purely so a
+    // from-scratch checkout without `.env.test` still boots (with a
+    // loud warning), never as a silent default for a normal dev machine.
+    if dotenvy::from_filename(".env.test").is_err() {
+        eprintln!(
+            "WARNING: .env.test not found; falling back to .env for test DATABASE_URL. \
+             This risks truncating your development database — create .env.test from \
+             .env.e2e.example or copy .env with a different DATABASE_URL pointing at \
+             uptime_monitor_test."
+        );
+        dotenvy::dotenv().ok();
+    }
 
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres@localhost:5432/uptime_monitor".to_string());

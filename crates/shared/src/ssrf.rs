@@ -368,12 +368,7 @@ pub fn validate_production_ssrf_config() -> Result<(), SsrfConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // Serialize tests that mutate process-wide environment variables to
-    // prevent races where one test removes ENVIRONMENT while another is
-    // still running.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+    use crate::env_test_lock::ENV_MUTEX;
 
     #[test]
     fn blocks_private_ipv4_ranges() {
