@@ -40,33 +40,94 @@ fn format_timestamp(value: &str) -> String {
         .to_string()
 }
 
-fn trend_points(
+struct TrendMarker {
+    x: f64,
+    y: f64,
+    bucket: String,
+    value: f64,
+}
+
+struct TrendSeries {
+    segments: Vec<String>,
+    markers: Vec<TrendMarker>,
+}
+
+fn trend_series(
     trend: &[DashboardTrendPoint],
     value: impl Fn(&DashboardTrendPoint) -> Option<f64>,
-) -> Option<String> {
-    let values: Vec<f64> = trend.iter().filter_map(value).collect();
-    if values.len() < 2 {
+) -> Option<TrendSeries> {
+    if trend.len() < 2 {
         return None;
     }
 
-    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
-    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let range = (max - min).max(0.000_001);
-    let width = 720.0;
-    let step = width / (values.len() - 1) as f64;
-
-    let points = values
+    let present: Vec<(usize, f64)> = trend
         .iter()
         .enumerate()
-        .map(|(index, value)| {
-            let x = index as f64 * step;
-            let y = 8.0 + ((max - value) / range) * (TREND_HEIGHT - 16.0);
-            format!("{x:.1},{y:.1}")
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+        .filter_map(|(index, point)| value(point).map(|v| (index, v)))
+        .collect();
 
-    Some(points)
+    if present.len() < 2 {
+        return None;
+    }
+
+    let min = present
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::INFINITY, f64::min);
+    let max = present
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let range = (max - min).max(0.000_001);
+
+    let width = 720.0;
+    let slot_count = trend.len();
+    let step = if slot_count > 1 {
+        width / (slot_count - 1) as f64
+    } else {
+        0.0
+    };
+
+    let coord = |index: usize, v: f64| -> (f64, f64) {
+        let x = index as f64 * step;
+        let y = 8.0 + ((max - v) / range) * (TREND_HEIGHT - 16.0);
+        (x, y)
+    };
+
+    let markers: Vec<TrendMarker> = present
+        .iter()
+        .map(|(index, v)| {
+            let (x, y) = coord(*index, *v);
+            TrendMarker {
+                x,
+                y,
+                bucket: trend[*index].bucket.clone(),
+                value: *v,
+            }
+        })
+        .collect();
+
+    let mut segments: Vec<String> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    let mut prev_index: Option<usize> = None;
+
+    for (index, v) in &present {
+        let (x, y) = coord(*index, *v);
+        let is_contiguous = prev_index.map(|prev| *index == prev + 1).unwrap_or(true);
+        if !is_contiguous && !current.is_empty() {
+            if current.len() >= 2 {
+                segments.push(current.join(" "));
+            }
+            current = Vec::new();
+        }
+        current.push(format!("{x:.1},{y:.1}"));
+        prev_index = Some(*index);
+    }
+    if current.len() >= 2 {
+        segments.push(current.join(" "));
+    }
+
+    Some(TrendSeries { segments, markers })
 }
 
 #[component]
@@ -78,19 +139,28 @@ fn TrendChart(
     #[prop(into)] metric: String,
     #[prop(into)] unit: String,
 ) -> impl IntoView {
-    let points = if metric == "uptime" {
-        trend_points(&trend, |point| point.uptime_percentage)
+    let series = if metric == "uptime" {
+        trend_series(&trend, |point| point.uptime_percentage)
     } else if metric == "latency" {
-        trend_points(&trend, |point| point.avg_latency_ms)
+        trend_series(&trend, |point| point.avg_latency_ms)
     } else {
-        trend_points(&trend, |point| Some(point.incident_count as f64))
+        trend_series(&trend, |point| Some(point.incident_count as f64))
     };
 
-    let empty = points.is_none();
+    let empty = series.is_none();
     let aria = if empty {
         format!("{title}: insufficient data for a trend")
     } else {
         format!("{title}: last 24 hours")
+    };
+
+    let metric_for_format = metric.clone();
+    let format_marker_value = move |v: f64| -> String {
+        match metric_for_format.as_str() {
+            "uptime" => format!("{v:.1}%"),
+            "latency" => format!("{v:.0} ms"),
+            _ => format!("{v:.0} incidents"),
+        }
     };
 
     view! {
@@ -102,19 +172,48 @@ fn TrendChart(
                 </div>
                 <strong class="trend-value">{value} {unit}</strong>
             </div>
-            {if let Some(points) = points {
+            {if let Some(series) = series {
+                let segment_views = series.segments.iter().map(|points| {
+                    view! {
+                        <polyline
+                            class="trend-line"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="3"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            points=points.clone()
+                        />
+                    }
+                }).collect_view();
+
+                let marker_views = series.markers.iter().map(|marker| {
+                    let cx = format!("{:.1}", marker.x);
+                    let cy = format!("{:.1}", marker.y);
+                    let bucket_label = format_timestamp(&marker.bucket);
+                    let value_label = format_marker_value(marker.value);
+                    let point_label = format!("{bucket_label}: {value_label}");
+                    view! {
+                        <circle
+                            class="trend-point"
+                            cx=cx
+                            cy=cy
+                            r="4"
+                            fill="currentColor"
+                            tabindex="0"
+                            role="img"
+                            aria-label=point_label.clone()
+                        >
+                            <title>{point_label.clone()}</title>
+                        </circle>
+                    }
+                }).collect_view();
+
                 view! {
                     <div class="trend-chart-wrap">
                         <svg class="trend-chart" viewBox="0 0 720 120" role="img" aria-label="24 hour trend">
-                            <polyline
-                                class="trend-line"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="3"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                points=points
-                            />
+                            {segment_views}
+                            {marker_views}
                         </svg>
                     </div>
                     <div class="trend-axis" aria-hidden="true">

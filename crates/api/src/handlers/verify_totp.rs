@@ -32,10 +32,7 @@ pub async fn verify_totp(
 
     // Iri daya da `login.rs`: JWT yana zaune KAWAI a cikin httpOnly
     // cookie, ba a cikin JSON body ba.
-    let cookie = format!(
-        "access_token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400",
-        response.access_token
-    );
+    let cookie = shared::cookie::access_token_cookie(&response.access_token);
 
     let mut headers = HeaderMap::new();
     headers.insert(

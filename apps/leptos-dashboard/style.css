@@ -907,65 +907,185 @@ td button, td .btn { padding: 0.3rem 0.625rem; font-size: 0.8125rem; margin-righ
   background-color: var(--surface-sunken);
 }
 
-/* ---------- Responsive updates for sidebar ---------- */
+/* ---------- Responsive navigation ---------- */
 
-@media (max-width: 720px) {
+.mobile-nav-toolbar,
+.mobile-nav-backdrop,
+.mobile-nav-close {
+  display: none;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+@media (max-width: 900px) {
   .app-shell {
-    flex-direction: column;
+    flex-direction: row;
+    min-width: 0;
   }
 
   .sidebar {
-    width: 100%;
-    min-width: 0;
-    height: auto;
-    position: static;
-    flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 1200;
+    width: min(280px, 88vw);
+    min-width: min(280px, 88vw);
+    height: 100dvh;
+    max-height: 100dvh;
+    padding: var(--space-4) var(--space-3);
+    overflow-x: hidden;
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform 0.18s ease;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar.mobile-nav-open {
+    transform: translateX(0);
   }
 
   .sidebar-brand {
+    padding: 0 var(--space-2) var(--space-4);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .mobile-nav-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
     padding: 0;
-    border-bottom: none;
-    padding-bottom: 0;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #fff;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .mobile-nav-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .sidebar-nav {
-    flex-direction: row;
-    gap: var(--space-4);
-    overflow-x: auto;
+    flex-direction: column;
+    gap: var(--space-5);
+    overflow: visible;
   }
 
   .sidebar-group {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-2);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
   }
 
   .sidebar-group-label {
-    display: none;
+    display: block;
   }
 
   .sidebar-group a {
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .sidebar-footer {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: initial;
+    gap: var(--space-2);
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-top: var(--space-3);
+    padding-top: var(--space-4);
+  }
+
+  .mobile-nav-toolbar {
+    display: flex;
+    align-items: center;
+    min-height: 52px;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 40px;
+    padding: 0.5rem 0.75rem;
+    font-weight: 600;
+  }
+
+  .mobile-nav-toggle-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    background: rgba(18, 21, 28, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+    cursor: default;
+  }
+
+  .mobile-nav-backdrop.mobile-nav-backdrop-open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .app-content {
-    flex: 1;
+    width: 100%;
+    min-width: 0;
   }
 
   .app-main {
     padding: var(--space-4);
+    min-width: 0;
   }
+}
+
+@media (max-width: 600px) {
+  .app-main {
+    padding: var(--space-5) var(--space-3);
+  }
+}
+
+@media (max-width: 375px) {
+  .mobile-nav-toolbar {
+    padding-inline: var(--space-2);
+  }
+
+  .metric-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Keep dense dashboard tables usable on narrow screens without forcing
+   page-level horizontal overflow. */
+.monitor-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.dashboard-monitor-table {
+  min-width: 640px;
 }
 
 /* ---------- Page header actions slot (follow-up fix) ---------- */
