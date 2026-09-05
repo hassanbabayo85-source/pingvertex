@@ -9,6 +9,8 @@ use tracing::error;
 #[derive(Debug, Serialize)]
 struct ErrorBody {
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
 }
 
 /// Unified API error.
@@ -20,6 +22,7 @@ pub enum ApiError {
     Forbidden(String),
     Unauthorized(String),
     TooManyRequests(String),
+    PaymentRequired { message: String, code: &'static str },
     Internal(String),
 }
 
@@ -70,6 +73,36 @@ impl ApiError {
     /// underlying `Error`, use [`ApiError::internal_with_source`] instead
     /// — that constructor logs the real cause and returns a generic
     /// message to the caller.
+    pub fn payment_required(message: impl Into<String>, code: &'static str) -> Self {
+        Self::PaymentRequired {
+            message: message.into(),
+            code,
+        }
+    }
+
+    pub fn from_payg_error(err: application::ChargeForUsageError) -> Self {
+        match err {
+            application::ChargeForUsageError::InsufficientBalance => {
+                Self::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE")
+            }
+            application::ChargeForUsageError::InvalidInput(message) => Self::bad_request(message),
+            application::ChargeForUsageError::ReservationInProgress => {
+                Self::conflict("PAYG request is already in progress")
+            }
+            application::ChargeForUsageError::OperationFailed(message) => {
+                Self::internal_with_source("metered operation failed", message)
+            }
+            application::ChargeForUsageError::NoPricing
+            | application::ChargeForUsageError::InvalidPricing(_) => {
+                Self::internal("PAYG pricing is unavailable")
+            }
+            application::ChargeForUsageError::Repository(err)
+            | application::ChargeForUsageError::CaptureFailed(err) => {
+                Self::internal_with_source("PAYG operation failed", err)
+            }
+        }
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self::Internal(message.into())
     }
@@ -118,6 +151,7 @@ impl ApiError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            Self::PaymentRequired { .. } => StatusCode::PAYMENT_REQUIRED,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -131,6 +165,7 @@ impl ApiError {
             | Self::Unauthorized(message)
             | Self::TooManyRequests(message)
             | Self::Internal(message) => message.clone(),
+            Self::PaymentRequired { message, .. } => message.clone(),
         }
     }
 }
@@ -138,8 +173,13 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
+        let code = match &self {
+            ApiError::PaymentRequired { code, .. } => Some(*code),
+            _ => None,
+        };
         let body = Json(ErrorBody {
             message: self.message(),
+            code,
         });
 
         (status, body).into_response()
@@ -235,6 +275,14 @@ mod tests {
             ApiError::forbidden("x").status_code(),
             StatusCode::FORBIDDEN
         );
+    }
+
+    #[test]
+    fn payment_required_uses_402_and_application_code() {
+        let err =
+            ApiError::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE");
+        assert_eq!(err.status_code(), StatusCode::PAYMENT_REQUIRED);
+        assert_eq!(err.message(), "PAYG balance is insufficient");
     }
 
     #[test]
