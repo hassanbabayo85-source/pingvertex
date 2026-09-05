@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use domain::PAYGPricing;
 use std::error::Error;
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub type PaygPricingRepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
