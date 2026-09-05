@@ -155,12 +155,16 @@ mod tests {
         let id = ProxyEntryId::new();
         let job_id = ProxyCheckJobId::new();
         let result = ProxyResult {
+            host: "8.8.8.8".to_string(),
+            port: 8080,
+            scheme: "http".to_string(),
             reachable: true,
             latency_ms: Some(120),
             anonymity: None,
             supports_https: true,
             country_code: Some("US".to_string()),
-            error: None,
+            error_code: None,
+            error_message: None,
         };
 
         let entry = ProxyEntry::from_persisted(

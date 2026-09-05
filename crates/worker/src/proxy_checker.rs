@@ -81,19 +81,71 @@ fn elapsed_ms(started: Instant) -> u32 {
     started.elapsed().as_millis().try_into().unwrap_or(u32::MAX)
 }
 
+fn error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("ssrf blocked") {
+        return "PRIVATE_IP_BLOCKED";
+    }
+    if lower.contains("failed to resolve") || lower.contains("did not resolve") {
+        return "DNS_FAILED";
+    }
+    if lower.contains("invalid monitor url")
+        || lower.contains("has no host")
+        || lower.contains("invalid port")
+    {
+        return "INVALID_PROXY";
+    }
+    if lower.contains("connection refused") {
+        return "CONNECTION_REFUSED";
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return if lower.contains("target")
+            || lower.contains("tls handshake") && lower.contains("target")
+        {
+            "TARGET_TIMEOUT"
+        } else {
+            "CONNECTION_TIMEOUT"
+        };
+    }
+    if lower.contains("authentication failed") || lower.contains("auth") && lower.contains("failed")
+    {
+        return "AUTH_FAILED";
+    }
+    if lower.contains("tls") {
+        return "TLS_FAILED";
+    }
+    match scheme {
+        ProxyScheme::Http => "HTTP_PROXY_FAILED",
+        ProxyScheme::Https => "HTTPS_PROXY_FAILED",
+        ProxyScheme::Socks5 => "SOCKS5_FAILED",
+    }
+}
+
 fn proxy_result(
+    entry: &ProxyEntry,
     started: Instant,
     reachable: bool,
     supports_https: bool,
     error: Option<String>,
 ) -> ProxyResult {
+    let mut safe_error = error;
+    if let Some(message) = safe_error.as_mut() {
+        message.truncate(512);
+    }
+    let error_code = safe_error
+        .as_deref()
+        .map(|e| error_code(entry.scheme(), e).to_string());
     ProxyResult {
+        host: entry.host().as_str().to_string(),
+        port: entry.port(),
+        scheme: proxy_scheme_str(entry.scheme()).to_string(),
         reachable,
         latency_ms: Some(elapsed_ms(started)),
-        anonymity: None,
         supports_https,
+        anonymity: None,
         country_code: None,
-        error,
+        error_code,
+        error_message: safe_error,
     }
 }
 
@@ -208,6 +260,11 @@ where
     let header = read_http_header(stream, timeout_duration).await?;
     let status = parse_status_code(&header)?;
 
+    if status == 401 || status == 407 {
+        return Err(format!(
+            "proxy authentication failed with HTTP status {status}"
+        ));
+    }
     if !(200..400).contains(&status) {
         return Err(format!("proxy returned HTTP status {status}"));
     }
@@ -233,6 +290,11 @@ where
     let header = read_http_header(stream, timeout_duration).await?;
     let status = parse_status_code(&header)?;
 
+    if status == 401 || status == 407 {
+        return Err(format!(
+            "proxy authentication failed with CONNECT status {status}"
+        ));
+    }
     if !(200..300).contains(&status) {
         return Err(format!("proxy returned CONNECT status {status}"));
     }
@@ -403,9 +465,9 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
 
     let started = Instant::now();
 
-    let destination = match crate::ssrf::resolve_and_validate_destination(&target).await {
+    let destination = match crate::ssrf::resolve_and_validate_public_destination(&target).await {
         Ok(destination) => destination,
-        Err(err) => return proxy_result(started, false, false, Some(err)),
+        Err(err) => return proxy_result(entry, started, false, false, Some(err)),
     };
 
     let connect_timeout = Duration::from_secs(PER_ENTRY_TIMEOUT_SECS);
@@ -422,8 +484,55 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
                     )
                     .await
                     {
-                        Ok(()) => (true, false, None),
                         Err(err) => (false, false, Some(err)),
+                        Ok(()) => {
+                            match timeout(
+                                connect_timeout,
+                                TcpStream::connect(destination.socket_addr),
+                            )
+                            .await
+                            {
+                                Ok(Ok(mut tunnel_stream)) => {
+                                    match verify_http_connect_tunnel(
+                                        &mut tunnel_stream,
+                                        entry.credentials(),
+                                        protocol_timeout,
+                                    )
+                                    .await
+                                    {
+                                        Ok(()) => match tls_handshake(
+                                            tunnel_stream,
+                                            HTTPS_VERIFY_TARGET_HOST,
+                                            protocol_timeout,
+                                        )
+                                        .await
+                                        {
+                                            Ok(()) => (true, true, None),
+                                            Err(err) => (
+                                                true,
+                                                false,
+                                                Some(format!("HTTPS target TLS failed: {err}")),
+                                            ),
+                                        },
+                                        Err(err) => (
+                                            true,
+                                            false,
+                                            Some(format!("HTTPS tunnel failed: {err}")),
+                                        ),
+                                    }
+                                }
+                                Ok(Err(err)) => (
+                                    true,
+                                    false,
+                                    Some(format!("HTTPS tunnel connection failed: {err}")),
+                                ),
+                                Err(_) => (
+                                    true,
+                                    false,
+                                    Some("HTTPS tunnel connection timed out".to_string()),
+                                ),
+                            }
+                        }
                     }
                 }
                 Ok(Err(err)) => (false, false, Some(err.to_string())),
@@ -442,14 +551,26 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
                     let connector = match crate::proxy_tls::tls_connector() {
                         Ok(c) => c,
                         Err(err) => {
-                            return proxy_result(started, false, false, Some(err.to_string()));
+                            return proxy_result(
+                                entry,
+                                started,
+                                false,
+                                false,
+                                Some(err.to_string()),
+                            );
                         }
                     };
                     let server_name = match ServerName::try_from(entry.host().as_str().to_string())
                     {
                         Ok(name) => name,
                         Err(err) => {
-                            return proxy_result(started, false, false, Some(err.to_string()));
+                            return proxy_result(
+                                entry,
+                                started,
+                                false,
+                                false,
+                                Some(err.to_string()),
+                            );
                         }
                     };
 
@@ -529,7 +650,7 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
         }
     };
 
-    proxy_result(started, reachable, supports_https, error)
+    proxy_result(entry, started, reachable, supports_https, error)
 }
 
 /// Runs every entry of `job` through `check_single_entry`, persisting
@@ -552,44 +673,39 @@ pub async fn run_proxy_check_job<R>(
     repository: &R,
     mut job: ProxyCheckJob,
     entries: Vec<ProxyEntry>,
+    worker_id: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     R: ProxyCheckJobRepository + ?Sized,
 {
-    if job.status() == domain::ProxyCheckJobStatus::Pending {
-        if !job.mark_running() {
-            return Err("proxy check job could not transition to running".into());
-        }
-    } else if job.status() != domain::ProxyCheckJobStatus::Running {
-        info!(job_id = %job.id(), "proxy check job already terminal; skipping");
+    // The worker already performed the atomic pending -> running claim.
+    // The executor MUST NOT own or repeat that state transition.
+    if job.status() != domain::ProxyCheckJobStatus::Running {
+        info!(job_id = %job.id(), "proxy check job is not running; skipping");
         return Ok(());
     }
 
-    // This state transition is important enough to propagate a failure
-    // for: if it can't even be persisted, the job's status in storage
-    // would silently disagree with what this worker believes, so the
-    // caller should treat this as fatal for this job rather than
-    // continuing to check entries against a job the database still shows
-    // as `Pending`.
-    repository.update_job(&job).await?;
-
-    info!(
-        job_id = %job.id(),
-        entry_count = entries.len(),
-        "starting proxy check job"
-    );
+    if entries.len() != job.total_count() as usize {
+        let mut failed = job.clone();
+        if failed.mark_failed(format!(
+            "proxy entry count mismatch: expected {}, loaded {}",
+            job.total_count(),
+            entries.len()
+        )) {
+            repository.update_job(&failed).await?;
+        }
+        return Ok(());
+    }
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CHECKS_PER_JOB));
     let mut tasks = JoinSet::new();
-
     for entry in entries {
         let semaphore = Arc::clone(&semaphore);
         tasks.spawn(async move {
             let _permit = semaphore
                 .acquire_owned()
                 .await
-                .expect("semaphore is never closed while this job is running");
-
+                .expect("semaphore remains open");
             let mut entry = entry;
             let result = check_single_entry(&entry).await;
             entry.set_result(result);
@@ -598,72 +714,95 @@ where
     }
 
     let mut fatal_reason: Option<String> = None;
+    let heartbeat_every = Duration::from_secs(15);
 
-    while let Some(join_result) = tasks.join_next().await {
-        match join_result {
-            Ok(entry) => {
-                if let Err(err) = repository.update_entry(&entry).await {
-                    if fatal_reason.is_none() {
-                        fatal_reason = Some(format!("failed to persist proxy entry result: {err}"));
-                    }
+    loop {
+        match timeout(heartbeat_every, tasks.join_next()).await {
+            Ok(Some(Ok(entry))) => {
+                if let Err(err) = repository.update_entry(&entry, job.tenant_id()).await {
+                    fatal_reason.get_or_insert_with(|| {
+                        format!("failed to persist proxy entry result: {err}")
+                    });
+                    error!(job_id=%job.id(), entry_id=%entry.id(), error=%err, "proxy result persistence failed");
+                    continue;
+                }
+
+                job.record_result(entry.result().is_some_and(|r| r.reachable));
+
+                // Persist progress periodically rather than once per proxy;
+                // the entry result itself is already durably stored. This keeps
+                // bulk jobs cheap while the separate heartbeat preserves the lease.
+                if (job.checked_count() == job.total_count()
+                    || job.checked_count().is_multiple_of(10))
+                    && let Err(err) = repository.update_job(&job).await
+                {
+                    fatal_reason.get_or_insert_with(|| {
+                        format!("failed to persist proxy check job progress: {err}")
+                    });
                     error!(
-                        job_id = %job.id(),
-                        entry_id = %entry.id(),
-                        error = %err,
-                        "failed to persist proxy entry result"
+                        job_id=%job.id(),
+                        error=%err,
+                        "proxy job progress persistence failed"
                     );
                 }
 
-                job.record_result(
-                    entry
-                        .result()
-                        .map(|result| result.reachable)
-                        .unwrap_or(false),
-                );
-
-                if let Err(err) = repository.update_job(&job).await {
-                    if fatal_reason.is_none() {
-                        fatal_reason =
-                            Some(format!("failed to persist proxy check job progress: {err}"));
+                // Lease ownership is separate from job progress so a failed
+                // progress write cannot accidentally hide the heartbeat.
+                match repository.heartbeat(job.id(), worker_id).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        fatal_reason.get_or_insert_with(|| "proxy job lease was lost".to_string());
+                        break;
                     }
-                    error!(
-                        job_id = %job.id(),
-                        error = %err,
-                        "failed to persist proxy check job progress"
-                    );
+                    Err(err) => {
+                        fatal_reason.get_or_insert_with(|| {
+                            format!("failed to heartbeat proxy check job: {err}")
+                        });
+                        error!(job_id=%job.id(), error=%err, "proxy job heartbeat failed");
+                        break;
+                    }
                 }
             }
-            Err(join_err) => {
-                // A task panic is an execution failure, not a successful
-                // completion. Keep the terminal state truthful.
-                job.record_result(false);
-                if fatal_reason.is_none() {
-                    fatal_reason = Some(format!("proxy entry task panicked: {join_err}"));
-                }
-
-                warn!(
-                    job_id = %job.id(),
-                    error = %join_err,
-                    "proxy entry check task panicked"
-                );
+            Ok(Some(Err(join_err))) => {
+                fatal_reason.get_or_insert_with(|| format!("proxy entry task failed: {join_err}"));
+                warn!(job_id=%job.id(), error=%join_err, "proxy entry task failed");
             }
+            Ok(None) => break,
+            Err(_) => match repository.heartbeat(job.id(), worker_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    fatal_reason.get_or_insert_with(|| "proxy job lease was lost".to_string());
+                    break;
+                }
+                Err(err) => {
+                    fatal_reason.get_or_insert_with(|| {
+                        format!("failed to heartbeat proxy check job: {err}")
+                    });
+                    break;
+                }
+            },
         }
     }
 
     if let Some(reason) = fatal_reason {
-        if !job.mark_failed(reason) {
-            return Err("proxy check job could not transition to failed".into());
+        if job.status() == domain::ProxyCheckJobStatus::Running && job.mark_failed(reason) {
+            repository.update_job(&job).await?;
         }
-        repository.update_job(&job).await?;
-        info!(job_id = %job.id(), "proxy check job failed");
-    } else {
-        if !job.mark_completed() {
-            return Err("proxy check job could not transition to completed".into());
-        }
-        repository.update_job(&job).await?;
-        info!(job_id = %job.id(), "proxy check job completed");
+        return Ok(());
     }
 
+    if job.checked_count() != job.total_count()
+        || job.checked_count() != job.successful_count().saturating_add(job.failed_count())
+    {
+        if job.mark_failed("proxy result persistence incomplete") {
+            repository.update_job(&job).await?;
+        }
+        return Ok(());
+    }
+
+    if job.mark_completed() {
+        repository.update_job(&job).await?;
+    }
     Ok(())
 }
 
@@ -692,17 +831,37 @@ mod tests {
 
         repo.save_job(&job, &[entry]).await.unwrap();
 
-        let entries = repo.find_entries_by_job_id(job_id).await.unwrap();
+        // The worker owns the atomic Pending -> Running claim.
+        assert!(repo.try_mark_running(job_id, "test-worker").await.unwrap());
 
-        run_proxy_check_job(&repo, job.clone(), entries)
+        let running_job = repo
+            .find_job_by_id(job_id, job.tenant_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(running_job.status(), domain::ProxyCheckJobStatus::Running);
+
+        let entries = repo
+            .find_entries_by_job_id(job_id, job.tenant_id())
             .await
             .unwrap();
 
-        let job_after = repo.find_job_by_id(job_id).await.unwrap().unwrap();
+        run_proxy_check_job(&repo, running_job, entries, "test-worker")
+            .await
+            .unwrap();
+
+        let job_after = repo
+            .find_job_by_id(job_id, job.tenant_id())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(job_after.status(), domain::ProxyCheckJobStatus::Completed);
         assert_eq!(job_after.checked_count(), 1);
 
-        let entries_after = repo.find_entries_by_job_id(job_id).await.unwrap();
+        let entries_after = repo
+            .find_entries_by_job_id(job_id, job.tenant_id())
+            .await
+            .unwrap();
         assert_eq!(entries_after.len(), 1);
         assert!(entries_after[0].result().is_some());
     }

@@ -299,7 +299,7 @@ async fn create_proxy_check_job_with_csv_returns_created() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["status"], "Pending");
+    assert_eq!(json["status"], "pending");
     assert_eq!(json["total_count"], 1);
     assert_eq!(json["checked_count"], 0);
     assert!(json["completed_at"].is_null());
@@ -334,7 +334,7 @@ async fn create_proxy_check_job_with_json_returns_created() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["status"], "Pending");
+    assert_eq!(json["status"], "pending");
     assert_eq!(json["total_count"], 1);
     assert_eq!(json["checked_count"], 0);
     assert!(json["completed_at"].is_null());
@@ -472,16 +472,10 @@ async fn get_proxy_check_job_returns_detail() {
     let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
     assert_eq!(json["id"], id);
-    assert_eq!(json["status"], "Pending");
+    assert_eq!(json["status"], "pending");
     assert_eq!(json["total_count"], 1);
     assert_eq!(json["checked_count"], 0);
     assert!(json["completed_at"].is_null());
-    assert!(json["entries"].is_array());
-    assert_eq!(json["entries"][0]["host"], "1.2.3.4");
-    assert_eq!(json["entries"][0]["port"], 8080);
-    assert_eq!(json["entries"][0]["scheme"], "Http");
-    assert!(json["entries"][0]["result"].is_null());
-    assert!(json["entries"][0].get("credentials").is_none());
 }
 
 #[tokio::test]
@@ -563,4 +557,71 @@ async fn submit_proxy_check_job_enforces_daily_quota() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn proxy_results_endpoint_supports_pagination_and_filters_without_credentials() {
+    let app = build_test_app();
+    let (_app, id) = submit_proxy_job(app, "1.2.3.4:8080\n8.8.8.8:8081\n").await;
+
+    let response = _app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/api/v1/proxy-checks/{id}/results?limit=1&offset=0&scheme=http"
+                ))
+                .header("Authorization", "Bearer test-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["limit"], 1);
+    assert_eq!(json["total"], 2);
+    assert_eq!(json["items"].as_array().unwrap().len(), 1);
+    assert!(json["items"][0].get("credentials").is_none());
+}
+
+#[tokio::test]
+async fn pending_proxy_job_can_be_canceled_but_cannot_be_canceled_twice() {
+    let app = build_test_app();
+    let (app, id) = submit_proxy_job(app, "1.2.3.4:8080\n").await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/proxy-checks/{id}/cancel"))
+                .header("Authorization", "Bearer test-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "canceled");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/proxy-checks/{id}/cancel"))
+                .header("Authorization", "Bearer test-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 }

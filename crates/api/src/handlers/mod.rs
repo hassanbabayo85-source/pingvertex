@@ -197,3 +197,8 @@ pub mod advanced_monitoring;
 pub use advanced_monitoring::*;
 
 pub use wallet::*;
+
+pub mod cancel_proxy_check_job;
+pub mod list_proxy_check_results;
+pub use cancel_proxy_check_job::*;
+pub use list_proxy_check_results::*;

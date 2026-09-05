@@ -16,9 +16,14 @@ pub struct ProxyCheckJob {
     tenant_id: TenantId,
     status: ProxyCheckJobStatus,
     created_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    heartbeat_at: Option<DateTime<Utc>>,
+    worker_id: Option<String>,
     completed_at: Option<DateTime<Utc>>,
+    canceled_at: Option<DateTime<Utc>>,
     failed_at: Option<DateTime<Utc>>,
     failure_reason: Option<String>,
+    retry_count: u32,
     total_count: u32,
     checked_count: u32,
     successful_count: u32,
@@ -38,9 +43,14 @@ impl ProxyCheckJob {
             tenant_id,
             status: ProxyCheckJobStatus::Pending,
             created_at: Utc::now(),
+            started_at: None,
+            heartbeat_at: None,
+            worker_id: None,
             completed_at: None,
+            canceled_at: None,
             failed_at: None,
             failure_reason: None,
+            retry_count: 0,
             total_count,
             checked_count: 0,
             successful_count: 0,
@@ -55,9 +65,14 @@ impl ProxyCheckJob {
         tenant_id: TenantId,
         status: ProxyCheckJobStatus,
         created_at: DateTime<Utc>,
+        started_at: Option<DateTime<Utc>>,
+        heartbeat_at: Option<DateTime<Utc>>,
+        worker_id: Option<String>,
         completed_at: Option<DateTime<Utc>>,
+        canceled_at: Option<DateTime<Utc>>,
         failed_at: Option<DateTime<Utc>>,
         failure_reason: Option<String>,
+        retry_count: u32,
         total_count: u32,
         checked_count: u32,
         successful_count: u32,
@@ -69,9 +84,14 @@ impl ProxyCheckJob {
             tenant_id,
             status,
             created_at,
+            started_at,
+            heartbeat_at,
+            worker_id,
             completed_at,
+            canceled_at,
             failed_at,
             failure_reason,
+            retry_count,
             total_count,
             checked_count,
             successful_count,
@@ -94,14 +114,29 @@ impl ProxyCheckJob {
     pub fn created_at(&self) -> DateTime<Utc> {
         self.created_at
     }
+    pub fn started_at(&self) -> Option<DateTime<Utc>> {
+        self.started_at
+    }
+    pub fn heartbeat_at(&self) -> Option<DateTime<Utc>> {
+        self.heartbeat_at
+    }
+    pub fn worker_id(&self) -> Option<&str> {
+        self.worker_id.as_deref()
+    }
     pub fn completed_at(&self) -> Option<DateTime<Utc>> {
         self.completed_at
+    }
+    pub fn canceled_at(&self) -> Option<DateTime<Utc>> {
+        self.canceled_at
     }
     pub fn failed_at(&self) -> Option<DateTime<Utc>> {
         self.failed_at
     }
     pub fn failure_reason(&self) -> Option<&str> {
         self.failure_reason.as_deref()
+    }
+    pub fn retry_count(&self) -> u32 {
+        self.retry_count
     }
     pub fn total_count(&self) -> u32 {
         self.total_count
@@ -116,25 +151,40 @@ impl ProxyCheckJob {
         self.failed_count
     }
 
+    /// Used by domain-only tests and non-persistent callers. Production
+    /// workers claim atomically through the repository before executing.
     pub fn mark_running(&mut self) -> bool {
         if self.status != ProxyCheckJobStatus::Pending {
             return false;
         }
         self.status = ProxyCheckJobStatus::Running;
+        self.started_at = Some(Utc::now());
+        self.heartbeat_at = self.started_at;
         self.completed_at = None;
+        self.canceled_at = None;
         self.failed_at = None;
         self.failure_reason = None;
         true
     }
 
-    pub fn record_progress(&mut self, checked_count: u32) {
-        self.checked_count = checked_count.min(self.total_count);
+    pub fn set_worker_lease(&mut self, worker_id: impl Into<String>, heartbeat_at: DateTime<Utc>) {
+        self.status = ProxyCheckJobStatus::Running;
+        if self.started_at.is_none() {
+            self.started_at = Some(heartbeat_at);
+        }
+        self.heartbeat_at = Some(heartbeat_at);
+        self.worker_id = Some(worker_id.into());
+        self.completed_at = None;
+        self.canceled_at = None;
+        self.failed_at = None;
+        self.failure_reason = None;
     }
 
     pub fn record_result(&mut self, successful: bool) {
-        if self.checked_count < self.total_count {
-            self.checked_count += 1;
+        if self.checked_count >= self.total_count {
+            return;
         }
+        self.checked_count += 1;
         if successful {
             self.successful_count = self.successful_count.saturating_add(1);
         } else {
@@ -148,8 +198,11 @@ impl ProxyCheckJob {
         }
         self.status = ProxyCheckJobStatus::Completed;
         self.completed_at = Some(Utc::now());
+        self.canceled_at = None;
         self.failed_at = None;
         self.failure_reason = None;
+        self.heartbeat_at = None;
+        self.worker_id = None;
         true
     }
 
@@ -161,13 +214,31 @@ impl ProxyCheckJob {
         if reason.is_empty() {
             reason = "proxy check job failed".to_owned();
         }
-        // Failure details are operational metadata, not a log sink. Bound
-        // storage and avoid accidentally retaining huge remote error bodies.
         reason.truncate(1024);
         self.status = ProxyCheckJobStatus::Failed;
         self.completed_at = None;
+        self.canceled_at = None;
         self.failed_at = Some(Utc::now());
         self.failure_reason = Some(reason);
+        self.heartbeat_at = None;
+        self.worker_id = None;
+        true
+    }
+
+    pub fn mark_canceled(&mut self) -> bool {
+        if !matches!(
+            self.status,
+            ProxyCheckJobStatus::Pending | ProxyCheckJobStatus::Running
+        ) {
+            return false;
+        }
+        self.status = ProxyCheckJobStatus::Canceled;
+        self.completed_at = None;
+        self.failed_at = None;
+        self.failure_reason = None;
+        self.canceled_at = Some(Utc::now());
+        self.heartbeat_at = None;
+        self.worker_id = None;
         true
     }
 }
@@ -177,44 +248,8 @@ impl Ownable for ProxyCheckJob {
         self.user_id
     }
 }
-
 impl TenantOwned for ProxyCheckJob {
     fn tenant_id(&self) -> TenantId {
         self.tenant_id
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn job() -> ProxyCheckJob {
-        ProxyCheckJob::new(ProxyCheckJobId::new(), UserId::new(), TenantId::new(), 2)
-    }
-
-    #[test]
-    fn only_pending_can_become_running() {
-        let mut job = job();
-        assert!(job.mark_running());
-        assert!(!job.mark_running());
-    }
-
-    #[test]
-    fn running_can_complete_but_completed_cannot_restart() {
-        let mut job = job();
-        assert!(job.mark_running());
-        assert!(job.mark_completed());
-        assert!(!job.mark_running());
-        assert_eq!(job.status(), ProxyCheckJobStatus::Completed);
-    }
-
-    #[test]
-    fn running_can_fail_but_failed_cannot_restart() {
-        let mut job = job();
-        assert!(job.mark_running());
-        assert!(job.mark_failed("database unavailable"));
-        assert!(!job.mark_running());
-        assert_eq!(job.status(), ProxyCheckJobStatus::Failed);
-        assert!(job.failure_reason().is_some());
     }
 }

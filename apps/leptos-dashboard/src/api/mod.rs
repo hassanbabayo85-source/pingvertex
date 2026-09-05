@@ -8,3 +8,5 @@ pub mod rum;
 pub mod status_pages;
 pub mod support;
 pub mod team;
+
+pub mod proxy_checks;

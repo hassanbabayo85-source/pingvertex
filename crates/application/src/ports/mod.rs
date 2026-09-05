@@ -67,7 +67,7 @@ pub use notification_outbox_repository::NotificationOutboxRepository;
 pub use notification_outbox_sender::NotificationOutboxSender;
 pub use notification_service::{NotificationService, NotifyResult};
 pub use password_hasher::PasswordHasher;
-pub use proxy_check_job_repository::ProxyCheckJobRepository;
+pub use proxy_check_job_repository::{ProxyCheckJobRepository, ProxyResultStatusFilter};
 pub use proxy_credential_cipher::{
     EncryptedProxyCredentials, ProxyCredentialCipher, ProxyCredentialCipherError,
 };
