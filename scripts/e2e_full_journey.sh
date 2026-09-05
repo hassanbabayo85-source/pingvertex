@@ -93,25 +93,17 @@ if [ -z "${MSG_ID:-}" ]; then
 else
   RAW=$(curl -sS "$MAILPIT/api/v1/message/$MSG_ID")
   BODY_TEXT=$(echo "$RAW" | jq -r '.Text // .HTML // ""')
-  # Primary: exact evt_ token format from the real email template
-  TOKEN=$(echo "$BODY_TEXT" | grep -oE 'evt_[a-fA-F0-9]{16}_[a-fA-F0-9]{64}' | head -1)
-  # Fallback: awk (line after "following token:")
-  if [ -z "$TOKEN" ]; then
-    TOKEN=$(echo "$BODY_TEXT" | awk '/following token:/{getline; print $1; exit}')
-  fi
-  # Fallback: bare long token
-  if [ -z "$TOKEN" ]; then
-    TOKEN=$(echo "$BODY_TEXT" | grep -oE '[A-Za-z0-9_-]{32,}' | head -1)
-  fi
+  # Current flow: 6-digit OTP mailed as plain digits in the body
+  TOKEN=$(echo "$BODY_TEXT" | grep -oE '[0-9]{6}' | head -1)
 fi
 
 if [ -n "${TOKEN:-}" ]; then
-  VERIFY_BODY=$(jq -n --arg t "$TOKEN" '{token:$t}')
-  VERIFY_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/verify-email" \
+  VERIFY_BODY=$(jq -n --arg e "$EMAIL" --arg c "$TOKEN" '{email:$e,code:$c}')
+  VERIFY_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/verify-email-otp" \
     -H 'Content-Type: application/json' -d "$VERIFY_BODY")
   require_status "verify-email" "200" "$VERIFY_STATUS"
 else
-  fail "could not extract verification token (raw body: $(echo "$BODY_TEXT" | head -20))"
+  fail "could not extract verification code (raw body: $(echo "$BODY_TEXT" | head -20))"
 fi
 
 step "LOGIN"
@@ -131,7 +123,7 @@ MONITOR_BODY=$(jq -n '{
   url: "http://mock-target/",
   method: "GET",
   expected_status: 200,
-  interval_seconds: 120,
+  interval_seconds: 600,
   timeout_seconds: 10,
   assertions: []
 }')
@@ -448,6 +440,122 @@ if [ "$MONITOR_ID" != "missing" ]; then
   fi
 else
   fail "skipped notification failure because monitor id is missing"
+fi
+
+# ---------------------------------------------------------------------
+step "PROXY CHECKER — SCENARIO D"
+PROXY_JOB_ID=""
+
+PROXY_INPUT=$(python3 -c '
+import json
+print(json.dumps([
+    {"host": "example.com", "port": 8080, "scheme": "Http"}
+    for i in range(100)
+], separators=(",", ":")))
+')
+
+PROXY_CREATE_RESP=$(curl -sS -b "$COOKIES" -w "\n%{http_code}" \
+  -X POST "$API/api/v1/proxy-checks" \
+  -H "Content-Type: application/json" \
+  -d "$PROXY_INPUT")
+
+PROXY_CREATE_STATUS=$(echo "$PROXY_CREATE_RESP" | tail -1)
+PROXY_CREATE_JSON=$(echo "$PROXY_CREATE_RESP" | sed '$d')
+
+require_status "create 100-proxy job" "201" "$PROXY_CREATE_STATUS"
+
+if [ "$PROXY_CREATE_STATUS" = "201" ]; then
+  PROXY_JOB_ID=$(echo "$PROXY_CREATE_JSON" | jq -r ".id // empty")
+
+  if [ -n "$PROXY_JOB_ID" ] && [ "$PROXY_JOB_ID" != "null" ]; then
+    ok "proxy job created: $PROXY_JOB_ID"
+  else
+    fail "proxy create response did not contain a job id"
+  fi
+else
+  echo "  response: $PROXY_CREATE_JSON"
+fi
+
+if [ -n "$PROXY_JOB_ID" ]; then
+  PROXY_TERMINAL=false
+  PROXY_STATUS=""
+
+  for i in $(seq 1 150); do
+    PROXY_JOB_JSON=$(curl -sS -b "$COOKIES" \
+      "$API/api/v1/proxy-checks/$PROXY_JOB_ID" \
+      2>/dev/null || echo "{}")
+
+    PROXY_STATUS=$(echo "$PROXY_JOB_JSON" | jq -r ".status // empty")
+
+    case "$PROXY_STATUS" in
+      completed|failed|canceled)
+        PROXY_TERMINAL=true
+        break
+        ;;
+    esac
+
+    sleep 2
+  done
+
+  if $PROXY_TERMINAL; then
+    ok "proxy job reached terminal status: $PROXY_STATUS"
+  else
+    fail "proxy job did not reach terminal status within 300s"
+  fi
+
+  PROXY_TOTAL_COUNT=$(echo "$PROXY_JOB_JSON" | jq -r ".total_count // 0")
+
+  if [ "$PROXY_TOTAL_COUNT" -eq 100 ]; then
+    ok "proxy job total_count is 100"
+  else
+    fail "expected proxy job total_count=100, got $PROXY_TOTAL_COUNT"
+  fi
+
+  if [ "$PROXY_STATUS" = "completed" ] || [ "$PROXY_STATUS" = "failed" ]; then
+    PROXY_RESULTS=$(curl -sS -b "$COOKIES" \
+      "$API/api/v1/proxy-checks/$PROXY_JOB_ID/results?limit=100&offset=0" \
+      2>/dev/null || echo "{}")
+
+    PROXY_TOTAL=$(echo "$PROXY_RESULTS" | jq -r ".total // 0")
+    PROXY_ITEMS=$(echo "$PROXY_RESULTS" | jq ".items // [] | length")
+
+    if [ "$PROXY_TOTAL" -eq 100 ]; then
+      ok "proxy result total is 100"
+    else
+      fail "expected 100 proxy results, got $PROXY_TOTAL"
+    fi
+
+    if [ "$PROXY_ITEMS" -eq 100 ]; then
+      ok "first result page contains 100 rows"
+    else
+      fail "expected 100 rows on first result page, got $PROXY_ITEMS"
+    fi
+
+    if echo "$PROXY_RESULTS" | jq -e '
+      .items[0] |
+      has("id") and
+      has("host") and
+      has("port") and
+      has("scheme") and
+      has("result")
+    ' >/dev/null 2>&1; then
+      ok "proxy result response has expected public fields"
+    else
+      fail "proxy result response is missing expected public fields"
+    fi
+
+    if echo "$PROXY_RESULTS" | jq -e '
+      [.. | objects | keys[]?] |
+      any(
+        ascii_downcase |
+        test("username|password|credential|user_info|userinfo")
+      ) | not
+    ' >/dev/null 2>&1; then
+      ok "proxy result response does not expose credential fields"
+    else
+      fail "proxy result response appears to expose credential fields"
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------

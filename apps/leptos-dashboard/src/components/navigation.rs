@@ -47,16 +47,19 @@ pub const NAV_GROUPS: &[NavGroup] = &[
         }],
     },
     NavGroup {
+        label: "TOOLS",
+        items: &[NavItem {
+            label: "Proxy Checker",
+            href: "/proxy-check",
+            status: NavStatus::Available,
+        }],
+    },
+    NavGroup {
         label: "MONITORING",
         items: &[
             NavItem {
                 label: "Monitors",
                 href: "/monitors",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Proxy checks",
-                href: "/proxy-checks",
                 status: NavStatus::Available,
             },
             NavItem {
