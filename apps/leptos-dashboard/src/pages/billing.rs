@@ -13,7 +13,7 @@ pub fn BillingPage() -> impl IntoView {
     let summary = RwSignal::new(None::<billing::BillingSummary>);
     let error = RwSignal::new(None::<String>);
     let notice = RwSignal::new(None::<String>);
-    let plan = RwSignal::new("tier_1".to_string());
+    let plan = RwSignal::new("starter".to_string());
     let session = RwSignal::new(String::new());
     let checkout_status = RwSignal::new(None::<String>);
     let quote = RwSignal::new(None::<billing::Quote>);
@@ -169,7 +169,7 @@ pub fn BillingPage() -> impl IntoView {
                     <p class="muted">"You will be redirected to the payment provider before any charge is finalized."</p>
                     <div class="inline-form">
                         <select prop:value=plan on:change=move|e|plan.set(event_target_value(&e))>
-                            <option value="tier_1">"Tier 1"</option><option value="tier_5">"Tier 5"</option><option value="tier_10">"Tier 10"</option><option value="tier_20">"Tier 20"</option>
+                            <option value="starter">"Tier 1"</option><option value="pro">"Tier 5"</option><option value="starter0">"Tier 10"</option><option value="enterprise">"Tier 20"</option>
                         </select>
                         <button class="btn btn-primary" disabled=move || checkout_busy.get() on:click=checkout>{move || if checkout_busy.get() {"Starting checkout…"} else {"Continue to checkout"}}</button>
                     </div>

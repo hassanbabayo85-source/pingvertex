@@ -123,3 +123,6 @@ mod rum_js_error;
 pub use rum_js_error::RumJsError;
 mod rum_resource_error;
 pub use rum_resource_error::{RumResourceError, RumResourceType};
+
+pub mod wallet;
+pub use wallet::{CreditReservation, Wallet, WalletTransaction, WalletTransactionType};

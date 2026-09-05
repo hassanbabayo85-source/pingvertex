@@ -5,7 +5,7 @@ use application::ports::{RegistrationTransaction, UserRepository};
 use application::use_cases::RegisterUserUseCase;
 use async_trait::async_trait;
 use domain::{Email, Tenant, TenantMembership, User, UserId, Username};
-use infra::{Argon2PasswordHasher, JsonWebTokenService, UuidIdGenerator};
+use infra::{Argon2PasswordHasher, UuidIdGenerator};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -52,9 +52,10 @@ impl UserRepository for MockUserRepository {
     }
 }
 
-/// Test-only no-op implementation of the fifth generic parameter required
-/// by `RegisterUserUseCase`. Application-level tests cannot depend on
-/// `infra`'s concrete repositories, so we define a local stand-in here.
+/// Test-only no-op implementation of the registration transaction
+/// required by `RegisterUserUseCase`. Application-level tests cannot depend
+/// on a concrete production transaction implementation, so we define a
+/// local stand-in here.
 #[derive(Clone, Default)]
 struct MockRegistrationTransaction;
 
@@ -77,7 +78,6 @@ fn make_use_case(
     MockUserRepository,
     UuidIdGenerator,
     Argon2PasswordHasher,
-    JsonWebTokenService,
     MockRegistrationTransaction,
 > {
     RegisterUserUseCase::new(
@@ -87,7 +87,6 @@ fn make_use_case(
         },
         UuidIdGenerator::new(),
         Argon2PasswordHasher,
-        JsonWebTokenService::new("test-secret"),
         MockRegistrationTransaction,
     )
 }

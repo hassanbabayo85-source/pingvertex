@@ -35,6 +35,12 @@ pub async fn setup_pool() -> PgPool {
 
     println!("CARGO_MANIFEST_DIR = {}", env!("CARGO_MANIFEST_DIR"));
 
+    // Integration tests must start from a schema produced by the currently
+    // compiled migration set. This avoids SQLx checksum/version drift when a
+    // historical migration has been repaired and a stale test database or
+    // incremental build still contains the previous checksum. Never reuse
+    // application/test data across integration-test runs.
+    reset_database(&pool).await;
     sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
 
     clear_tables(&pool).await;

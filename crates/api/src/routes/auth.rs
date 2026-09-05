@@ -8,7 +8,7 @@ use crate::handlers::{
     disable_totp::disable_totp, enable_totp::enable_totp, forgot_password::forgot_password,
     login::login, logout::logout, oauth_apple::oauth_apple, oauth_google::oauth_google,
     register::register, resend_verification::resend_verification, reset_password::reset_password,
-    verify_email::verify_email, verify_totp::verify_totp,
+    verify_email::verify_email, verify_email_otp::verify_email_otp, verify_totp::verify_totp,
 };
 
 pub fn router() -> Router<crate::auth_state::AuthState> {
@@ -18,6 +18,7 @@ pub fn router() -> Router<crate::auth_state::AuthState> {
         .route("/oauth/google", post(oauth_google))
         .route("/oauth/apple", post(oauth_apple))
         .route("/verify-email", post(verify_email))
+        .route("/verify-email-otp", post(verify_email_otp))
         .route("/resend-verification", post(resend_verification))
         .route("/forgot-password", post(forgot_password))
         .route("/reset-password", post(reset_password))

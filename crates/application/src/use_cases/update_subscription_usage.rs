@@ -299,6 +299,10 @@ mod tests {
         async fn next_invitation_token(&self) -> String {
             "inv_token".to_string()
         }
+
+        async fn next_email_verification_otp(&self) -> String {
+            "000000".to_owned()
+        }
     }
 
     struct AcceptingTransaction;
@@ -321,10 +325,9 @@ mod tests {
     /// to tamper with in the first place.
     #[tokio::test]
     async fn execute_derives_usage_only_from_the_subscriptions_own_plan_tier() {
-        let subscription =
-            Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Tier5);
+        let subscription = Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Pro);
         let tenant_id = subscription.tenant_id;
-        let expected_plan = Plan::for_tier(PlanTier::Tier5);
+        let expected_plan = Plan::for_tier(PlanTier::Pro);
 
         let use_case = UpdateSubscriptionUsageUseCase::new(
             Arc::new(FixedSubscriptionRepository { subscription }),
@@ -341,7 +344,7 @@ mod tests {
             .await
             .expect("usage update should succeed for an active subscription");
 
-        assert_eq!(outcome.plan_tier, PlanTier::Tier5);
+        assert_eq!(outcome.plan_tier, PlanTier::Pro);
         assert_eq!(outcome.monitors, expected_plan.max_monitors as u64);
         assert_eq!(
             outcome.interval_seconds,

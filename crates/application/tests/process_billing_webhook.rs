@@ -36,7 +36,7 @@ async fn duplicate_delivery_is_safely_ignored() {
     let audit = InMemoryBillingAuditLogRepository::new();
 
     let tenant_id = TenantId::new();
-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
+    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscriptions.create(&sub).await.unwrap();
 
     let use_case = ProcessBillingWebhookUseCase::new(
@@ -49,7 +49,7 @@ async fn duplicate_delivery_is_safely_ignored() {
         "evt_1",
         BillingWebhookEventType::PaymentSucceeded,
         tenant_id,
-        Some(PlanTier::Tier10),
+        Some(PlanTier::Business),
     );
     let first = use_case.execute(cmd.clone()).await.unwrap();
     assert!(first.processed);
@@ -59,7 +59,7 @@ async fn duplicate_delivery_is_safely_ignored() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(after_first.plan_tier, PlanTier::Tier10);
+    assert_eq!(after_first.plan_tier, PlanTier::Business);
     assert_eq!(after_first.status, SubscriptionStatus::Active);
 
     // Duplicate delivery with same provider_event_id.
@@ -71,7 +71,7 @@ async fn duplicate_delivery_is_safely_ignored() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(after_second.plan_tier, PlanTier::Tier10);
+    assert_eq!(after_second.plan_tier, PlanTier::Business);
     assert_eq!(after_second.status, SubscriptionStatus::Active);
 
     // Only one audit log entry should exist.
@@ -100,7 +100,7 @@ async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
             "evt_paid",
             BillingWebhookEventType::PaymentSucceeded,
             tenant_id,
-            Some(PlanTier::Tier20),
+            Some(PlanTier::Enterprise),
         ))
         .await
         .unwrap();
@@ -111,7 +111,7 @@ async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
         .unwrap()
         .unwrap();
     assert_eq!(updated.status, SubscriptionStatus::Active);
-    assert_eq!(updated.plan_tier, PlanTier::Tier20);
+    assert_eq!(updated.plan_tier, PlanTier::Enterprise);
 }
 
 #[tokio::test]
@@ -121,7 +121,7 @@ async fn payment_failed_moves_active_to_past_due() {
     let audit = InMemoryBillingAuditLogRepository::new();
 
     let tenant_id = TenantId::new();
-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
+    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscriptions.create(&sub).await.unwrap();
 
     let use_case = ProcessBillingWebhookUseCase::new(
@@ -156,7 +156,7 @@ async fn subscription_canceled_moves_active_to_canceled_immediately() {
     let audit = InMemoryBillingAuditLogRepository::new();
 
     let tenant_id = TenantId::new();
-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
+    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
     subscriptions.create(&sub).await.unwrap();
 
     let use_case = ProcessBillingWebhookUseCase::new(

@@ -35,9 +35,10 @@ use infra::{
     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
     PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
     PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
-    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
-    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
+    PostgresTenantRepository, PostgresUserRepository, PostgresWalletRepository,
+    RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
+    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator,
+    create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -186,7 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rum_site_repository(PostgresRumSiteRepository::new(pool.clone()))
     .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
-    .with_rate_limiter(redis_rate_limiter.clone());
+    .with_rate_limiter(redis_rate_limiter.clone())
+    .with_wallet_repository(PostgresWalletRepository::new(pool.clone()));
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the

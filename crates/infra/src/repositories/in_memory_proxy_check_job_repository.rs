@@ -115,7 +115,31 @@ impl ProxyCheckJobRepository for InMemoryProxyCheckJobRepository {
     }
 
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {
-        self.jobs.write().unwrap().insert(job.id(), job.clone());
+        let mut jobs = self.jobs.write().unwrap();
+        if let Some(previous) = jobs.get(&job.id()) {
+            let valid = matches!(
+                (previous.status(), job.status()),
+                (ProxyCheckJobStatus::Pending, ProxyCheckJobStatus::Running)
+                    | (ProxyCheckJobStatus::Running, ProxyCheckJobStatus::Running)
+                    | (ProxyCheckJobStatus::Running, ProxyCheckJobStatus::Completed)
+                    | (ProxyCheckJobStatus::Running, ProxyCheckJobStatus::Failed)
+                    | (ProxyCheckJobStatus::Pending, ProxyCheckJobStatus::Pending)
+                    | (
+                        ProxyCheckJobStatus::Completed,
+                        ProxyCheckJobStatus::Completed
+                    )
+                    | (ProxyCheckJobStatus::Failed, ProxyCheckJobStatus::Failed)
+            );
+            if !valid {
+                return Err(format!(
+                    "invalid proxy check job status transition: {:?} -> {:?}",
+                    previous.status(),
+                    job.status()
+                )
+                .into());
+            }
+        }
+        jobs.insert(job.id(), job.clone());
         Ok(())
     }
 

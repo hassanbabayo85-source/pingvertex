@@ -134,6 +134,22 @@ impl IdGenerator for UuidIdGenerator {
         )
     }
 
+    async fn next_email_verification_otp(&self) -> String {
+        // Rejection sampling avoids modulo bias while preserving a uniform
+        // distribution over all one-million 6-digit codes.
+        const OTP_SPACE: u32 = 1_000_000;
+        const ACCEPT_LIMIT: u32 = u32::MAX - (u32::MAX % OTP_SPACE);
+
+        loop {
+            let mut bytes = [0u8; 4];
+            OsRng.fill_bytes(&mut bytes);
+            let value = u32::from_be_bytes(bytes);
+            if value < ACCEPT_LIMIT {
+                return format!("{value:06}", value = value % OTP_SPACE);
+            }
+        }
+    }
+
     async fn next_reset_password_token(&self) -> String {
         let mut prefix_bytes = [0u8; RESET_PASSWORD_PREFIX_BYTES];
         OsRng.fill_bytes(&mut prefix_bytes);

@@ -167,3 +167,8 @@ pub mod postgres_rum_site_repository;
 pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
 pub use postgres_rum_event_repository::PostgresRumEventRepository;
 pub use postgres_rum_site_repository::PostgresRumSiteRepository;
+
+pub mod in_memory_wallet_repository;
+pub mod postgres_wallet_repository;
+pub use in_memory_wallet_repository::InMemoryWalletRepository;
+pub use postgres_wallet_repository::PostgresWalletRepository;

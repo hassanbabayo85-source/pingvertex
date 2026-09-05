@@ -68,7 +68,7 @@ async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscriptio
     .expect("failed to insert fixture tenant");
 
     let subscription_repository = PostgresSubscriptionRepository::new(pool.clone());
-    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
+    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
     subscription_repository
         .create(&subscription)
         .await

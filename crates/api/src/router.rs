@@ -21,7 +21,7 @@ use crate::{
     routes::{
         api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
         invitations, members, monitors, notifications, pricing, proxy_checks, public,
-        rum_dashboard, status_pages, subscription, support,
+        rum_dashboard, status_pages, subscription, support, wallet,
     },
     state::AppState,
 };
@@ -172,6 +172,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 .burst_size(10)
                 .finish()
                 .expect("valid billing rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let wallet_routes = wallet::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(2)
+                .burst_size(10)
+                .finish()
+                .expect("valid wallet rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -381,6 +392,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", billing_webhook_routes)
         .nest("/api/v1", billing_routes)
         .nest("/api/v1", subscription_routes)
+        .nest("/api/v1", wallet_routes)
         .nest("/api/v1", pricing_routes)
         .nest("/api/v1", help_routes)
         .nest("/api/v1", support_routes)

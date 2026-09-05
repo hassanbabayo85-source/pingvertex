@@ -61,7 +61,9 @@ pub mod update_api_flow;
 pub mod update_monitor;
 pub mod update_status_page;
 pub mod verify_email;
+pub mod verify_email_otp;
 pub mod verify_totp;
+pub mod wallet;
 
 // B8 — membership management:
 pub mod add_member;
@@ -140,6 +142,7 @@ pub use update_api_flow::*;
 pub use update_monitor::*;
 pub use update_status_page::*;
 pub use verify_email::*;
+pub use verify_email_otp::*;
 pub mod upload_status_page_logo;
 pub use upload_status_page_logo::*;
 
@@ -192,3 +195,5 @@ pub use support_types::{
 
 pub mod advanced_monitoring;
 pub use advanced_monitoring::*;
+
+pub use wallet::*;

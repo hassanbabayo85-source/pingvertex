@@ -41,6 +41,20 @@ impl EmailVerificationTokenRepository for InMemoryEmailVerificationTokenReposito
             .cloned())
     }
 
+    async fn find_latest_unused_by_user(
+        &self,
+        user_id: UserId,
+    ) -> RepoResult<Option<EmailVerificationToken>> {
+        Ok(self
+            .tokens
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| t.user_id == user_id && t.used_at.is_none())
+            .max_by_key(|t| t.created_at)
+            .cloned())
+    }
+
     async fn mark_used(
         &self,
         id: EmailVerificationTokenId,

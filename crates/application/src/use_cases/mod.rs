@@ -178,3 +178,6 @@ pub mod rum_dashboard_queries;
 pub use ingest_rum_event::{IngestRumEventError, IngestRumEventUseCase};
 pub use manage_rum_sites::{CreateRumSiteError, CreateRumSiteUseCase, ListRumSitesUseCase};
 pub use rum_dashboard_queries::{RumDashboardError, RumDashboardQueriesUseCase};
+
+pub mod verify_email_otp;
+pub use verify_email_otp::{VerifyEmailOtpError, VerifyEmailOtpUseCase};

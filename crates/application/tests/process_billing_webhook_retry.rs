@@ -38,7 +38,7 @@ fn command(event_id: &str, tenant_id: TenantId) -> ProcessBillingWebhookCommand 
         provider_event_id: event_id.to_owned(),
         event_type: BillingWebhookEventType::PaymentSucceeded,
         tenant_id,
-        plan_tier: Some(PlanTier::Tier10),
+        plan_tier: Some(PlanTier::Business),
         cancel_at_period_end: false,
         current_period_ends_at: None,
         payload: serde_json::json!({}),
@@ -74,5 +74,5 @@ async fn failed_webhook_processing_marks_event_pending_and_retry_succeeds() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(updated.plan_tier, PlanTier::Tier10);
+    assert_eq!(updated.plan_tier, PlanTier::Business);
 }

@@ -41,9 +41,9 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
     let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
 
     let free_tenant = tenant("Free Tenant");
-    let tier1_tenant = tenant("Tier 1 Tenant");
+    let starter_tenant = tenant("Starter Tenant");
     tenant_repo.create(&free_tenant).await.unwrap();
-    tenant_repo.create(&tier1_tenant).await.unwrap();
+    tenant_repo.create(&starter_tenant).await.unwrap();
 
     subscription_repo
         .create(&Subscription::new(
@@ -56,20 +56,20 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
     subscription_repo
         .create(&Subscription::new(
             SubscriptionId::new(),
-            tier1_tenant.id,
-            PlanTier::Tier1,
+            starter_tenant.id,
+            PlanTier::Starter,
         ))
         .await
         .unwrap();
 
-    // Free plan retains 7 days, Tier1 retains 30 days.
-    let old_free = sample_check_older_than_days(10);
-    let recent_free = sample_check_older_than_days(5);
-    let old_tier1 = sample_check_older_than_days(10);
+    // Free retains 1 day; Starter retains 30 days.
+    let old_free = sample_check_older_than_days(2);
+    let recent_free = sample_check_older_than_days(0);
+    let old_starter = sample_check_older_than_days(10);
 
     history_repo.seed_check(old_free.clone(), free_tenant.id);
     history_repo.seed_check(recent_free.clone(), free_tenant.id);
-    history_repo.seed_check(old_tier1.clone(), tier1_tenant.id);
+    history_repo.seed_check(old_starter.clone(), starter_tenant.id);
 
     let worker = RetentionWorker::new(
         tenant_repo,
@@ -83,11 +83,11 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
     let summary = worker.run_sweep().await.unwrap();
 
     assert_eq!(summary.tenants_processed, 2);
-    assert_eq!(summary.checks_deleted, 1); // Only old_free (10 days) is deleted.
+    assert_eq!(summary.checks_deleted, 1); // Only old_free is beyond its plan retention.
 
     let remaining_ids = history_repo.list_check_ids();
     assert!(remaining_ids.contains(&recent_free.id));
-    assert!(remaining_ids.contains(&old_tier1.id));
+    assert!(remaining_ids.contains(&old_starter.id));
     assert!(!remaining_ids.contains(&old_free.id));
 }
 
@@ -139,9 +139,10 @@ async fn running_twice_is_idempotent() {
         .await
         .unwrap();
 
-    let old1 = sample_check_older_than_days(8);
-    let old2 = sample_check_older_than_days(9);
-    let recent = sample_check_older_than_days(3);
+    // Free retention is 1 day. Keep one fresh check and two checks beyond the cutoff.
+    let old1 = sample_check_older_than_days(2);
+    let old2 = sample_check_older_than_days(3);
+    let recent = sample_check_older_than_days(0);
 
     history_repo.seed_check(old1.clone(), tenant.id);
     history_repo.seed_check(old2.clone(), tenant.id);

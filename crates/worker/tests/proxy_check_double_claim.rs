@@ -53,6 +53,18 @@ async fn insert_user_and_tenant(pool: &PgPool) -> (UserId, TenantId) {
     .await
     .unwrap();
 
+    query(
+        r#"
+        INSERT INTO tenant_memberships (tenant_id, user_id, role)
+        VALUES ($1, $2, 'owner')
+        "#,
+    )
+    .bind(tenant_id.0)
+    .bind(user_id.0)
+    .execute(pool)
+    .await
+    .unwrap();
+
     (user_id, tenant_id)
 }
 

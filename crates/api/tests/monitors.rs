@@ -163,7 +163,7 @@ fn monitor_payload(user_id: Uuid, name: &str, url: &str, method: HttpMethod) -> 
         "url": url,
         "method": method,
         "expected_status": 200,
-        "interval_seconds": 120,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": []
     })
@@ -513,7 +513,7 @@ fn monitor_payload_with_kind(
         "url": url,
         "method": method,
         "expected_status": 200,
-        "interval_seconds": 120,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": [],
         "kind": kind,

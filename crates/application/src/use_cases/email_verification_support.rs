@@ -1,7 +1,10 @@
 use std::error::Error;
 
 /// How long a verification token stays valid.
-pub const EMAIL_VERIFICATION_TOKEN_TTL_HOURS: i64 = 24;
+pub const EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: i64 = 10;
+/// Legacy name retained for source compatibility; new verification tokens use
+/// the 10-minute OTP lifetime above.
+pub const EMAIL_VERIFICATION_TOKEN_TTL_HOURS: i64 = 1;
 
 /// Extracts the plaintext lookup prefix from a raw verification token.
 ///

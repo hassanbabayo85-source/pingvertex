@@ -20,3 +20,5 @@ pub mod subscription;
 // H14 — Help Center & Support:
 pub mod help;
 pub mod support;
+
+pub mod wallet;

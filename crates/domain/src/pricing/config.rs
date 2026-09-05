@@ -52,9 +52,9 @@ impl PricingConfig {
             max_retention_days: 3650,
             min_paid_monthly_price: Decimal::new(300, 2), // $3.00
             free_tier: FreeTierDefaults {
-                monitors: 30,
-                interval_seconds: 180,
-                retention_days: 3,
+                monitors: 5,
+                interval_seconds: 600,
+                retention_days: 1,
             },
             currency: "USD".to_string(),
             effective_at: Utc::now(),

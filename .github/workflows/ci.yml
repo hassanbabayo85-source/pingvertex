@@ -52,6 +52,9 @@ jobs:
       - name: Run database migrations
         run: sqlx migrate run
 
+      - name: Verify fresh and existing-schema database upgrades
+        run: ./scripts/test_database_migrations.sh
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

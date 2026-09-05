@@ -209,7 +209,10 @@ where
         // `Active` saboda babu wani email-verification flow tukuna da zai
         // hana shi; za a sake duba wannan idan an gina wannan flow.
         match user.status() {
-            UserStatus::Active | UserStatus::PendingVerification => {}
+            UserStatus::Active => {}
+            UserStatus::PendingVerification => {
+                return Err("email verification required".into());
+            }
             UserStatus::Suspended => {
                 // SEC (B4 audit): previously returned a distinct "account
                 // suspended" message here. Genericized to the SAME

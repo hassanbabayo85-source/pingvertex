@@ -100,6 +100,25 @@ impl EmailVerificationTokenRepository for PostgresEmailVerificationTokenReposito
         Ok(row.map(EmailVerificationTokenRow::into_domain))
     }
 
+    async fn find_latest_unused_by_user(
+        &self,
+        user_id: UserId,
+    ) -> RepoResult<Option<EmailVerificationToken>> {
+        let row = sqlx::query_as::<_, EmailVerificationTokenRow>(
+            r#"
+            SELECT id, user_id, token_prefix, token_hash, expires_at, used_at, created_at
+            FROM email_verification_tokens
+            WHERE user_id = $1 AND used_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.into_uuid())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(EmailVerificationTokenRow::into_domain))
+    }
+
     async fn mark_used(
         &self,
         id: EmailVerificationTokenId,

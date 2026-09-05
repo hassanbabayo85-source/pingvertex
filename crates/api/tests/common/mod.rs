@@ -313,7 +313,7 @@ pub async fn build_billing_summary_fixture() -> (
     let user_id = UserId::new();
     let user = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
 
-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
+    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
     subscription.update_usage(100, 60, 30, 1).unwrap();
     application::ports::SubscriptionRepository::create(&*subscription_repo, &subscription)
         .await
