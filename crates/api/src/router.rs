@@ -122,6 +122,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .with_state(app_state.clone());
 
     let proxy_check_routes = proxy_checks::router()
+        .layer(DefaultBodyLimit::max(1_000_000))
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
                 .per_millisecond(17)
@@ -477,6 +478,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .with_state(app_state.clone());
 
     let proxy_check_routes = proxy_checks::router()
+        .layer(DefaultBodyLimit::max(1_000_000))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 

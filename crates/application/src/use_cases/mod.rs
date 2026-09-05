@@ -181,3 +181,8 @@ pub use rum_dashboard_queries::{RumDashboardError, RumDashboardQueriesUseCase};
 
 pub mod verify_email_otp;
 pub use verify_email_otp::{VerifyEmailOtpError, VerifyEmailOtpUseCase};
+
+pub mod cancel_proxy_check_job;
+pub mod list_proxy_check_results;
+pub use cancel_proxy_check_job::*;
+pub use list_proxy_check_results::*;

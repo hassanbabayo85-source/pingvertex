@@ -19,6 +19,7 @@ use crate::pages::monitors::MonitorsPage;
 use crate::pages::not_found::NotFoundPage;
 use crate::pages::notifications::NotificationsPage;
 use crate::pages::pricing::PricingPage;
+use crate::pages::proxy_checks::ProxyChecksPage;
 use crate::pages::register::RegisterPage;
 use crate::pages::reset_password::ResetPasswordPage;
 use crate::pages::rum_dashboard::RumDashboardPage;
@@ -54,6 +55,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("monitors/new") view=MonitorFormPage/>
                     <Route path=path!("monitors/:id") view=MonitorDetailPage/>
                     <Route path=path!("monitors/:id/edit") view=MonitorFormPage/>
+                    <Route path=path!("proxy-checks") view=ProxyChecksPage/>
                     <Route path=path!("rum") view=RumDashboardPage/>
                     <Route path=path!("rum/sites") view=RumSitesPage/>
                     <Route path=path!("status-pages") view=StatusPagesPage/>

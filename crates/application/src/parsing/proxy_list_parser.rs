@@ -74,14 +74,8 @@ fn parse_csv_line(line: &str) -> Result<ProxyEntryInput, String> {
             (None, None, rest)
         };
 
-        let (host, port_str) = host_port
-            .rsplit_once(':')
-            .ok_or_else(|| "expected host:port".to_string())?;
-
-        if host.is_empty() {
-            return Err("host cannot be empty".to_string());
-        }
-
+        let (host, port_str) = parse_host_port(host_port)?;
+        let host = host.to_string();
         let port = parse_port(port_str)?;
 
         Ok(ProxyEntryInput {
@@ -92,7 +86,27 @@ fn parse_csv_line(line: &str) -> Result<ProxyEntryInput, String> {
             password,
         })
     } else {
-        // No scheme prefix: either `host:port` or `host:port:username:password`.
+        // No scheme prefix: either host:port or host:port:user:pass.
+        // Bracketed IPv6 is accepted as [addr]:port so public IPv6 proxies
+        // remain usable while private IPv6 is still rejected by ProxyHost.
+        if line.starts_with('[') {
+            let close = line
+                .find(']')
+                .ok_or_else(|| "invalid bracketed IPv6 host".to_string())?;
+            let host = &line[1..close];
+            let rest = &line[close + 1..];
+            let port_str = rest
+                .strip_prefix(':')
+                .ok_or_else(|| "expected host:port".to_string())?;
+            let port = parse_port(port_str)?;
+            return Ok(ProxyEntryInput {
+                host: host.to_string(),
+                port,
+                scheme: ProxyScheme::Http,
+                username: None,
+                password: None,
+            });
+        }
         let parts: Vec<&str> = line.split(':').collect();
         match parts.as_slice() {
             [host, port_str] => {
@@ -123,6 +137,31 @@ fn parse_csv_line(line: &str) -> Result<ProxyEntryInput, String> {
             }
             _ => Err("expected host:port or host:port:username:password".to_string()),
         }
+    }
+}
+
+fn parse_host_port(value: &str) -> Result<(&str, &str), String> {
+    if value.starts_with('[') {
+        let close = value
+            .find(']')
+            .ok_or_else(|| "invalid bracketed IPv6 host".to_string())?;
+        let host = &value[1..close];
+        let port = value
+            .get(close + 1..)
+            .and_then(|v| v.strip_prefix(':'))
+            .ok_or_else(|| "expected host:port".to_string())?;
+        if host.is_empty() {
+            return Err("host cannot be empty".to_string());
+        }
+        Ok((host, port))
+    } else {
+        let (host, port) = value
+            .rsplit_once(':')
+            .ok_or_else(|| "expected host:port".to_string())?;
+        if host.is_empty() {
+            return Err("host cannot be empty".to_string());
+        }
+        Ok((host, port))
     }
 }
 
@@ -160,8 +199,22 @@ pub fn parse_json(input: &str) -> Result<Vec<ProxyEntryInput>, String> {
         ));
     }
 
-    let entries: Vec<ProxyEntryInput> =
+    let value: serde_json::Value =
         serde_json::from_str(input).map_err(|e| format!("invalid JSON: {}", e))?;
+    let entries: Vec<ProxyEntryInput> = match value {
+        serde_json::Value::Array(_) => {
+            serde_json::from_value(value).map_err(|e| format!("invalid JSON proxies: {}", e))?
+        }
+        serde_json::Value::Object(mut object) => {
+            let proxies = object
+                .remove("proxies")
+                .ok_or_else(|| "JSON body must contain a 'proxies' array".to_string())?;
+            serde_json::from_value(proxies).map_err(|e| format!("invalid JSON proxies: {}", e))?
+        }
+        _ => {
+            return Err("JSON body must be an array or an object containing 'proxies'".to_string());
+        }
+    };
 
     if entries.len() > MAX_CSV_LINES {
         return Err(format!(

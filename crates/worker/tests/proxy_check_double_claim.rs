@@ -86,8 +86,8 @@ async fn concurrent_proxy_job_claims_only_one_wins() {
     let repo_b = repo.clone();
 
     let (a, b) = tokio::join!(
-        repo_a.try_mark_running(job_id),
-        repo_b.try_mark_running(job_id)
+        repo_a.try_mark_running(job_id, "worker-a"),
+        repo_b.try_mark_running(job_id, "worker-b")
     );
 
     let a = a.unwrap();

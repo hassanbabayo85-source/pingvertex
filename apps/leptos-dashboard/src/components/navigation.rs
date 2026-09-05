@@ -55,6 +55,11 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 status: NavStatus::Available,
             },
             NavItem {
+                label: "Proxy checks",
+                href: "/proxy-checks",
+                status: NavStatus::Available,
+            },
+            NavItem {
                 label: "Incidents",
                 href: "/monitors",
                 status: NavStatus::Available,

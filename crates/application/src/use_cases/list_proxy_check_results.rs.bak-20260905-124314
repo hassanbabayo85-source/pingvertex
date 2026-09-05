@@ -1,0 +1,34 @@
+use crate::ports::{ProxyCheckJobRepository, ProxyResultStatusFilter};
+use domain::entities::ProxyEntry;
+use domain::enums::ProxyScheme;
+use domain::shared::ids::ProxyCheckJobId;
+use domain::shared::types::AuthenticatedUser;
+
+pub struct ListProxyCheckResultsUseCase<R> {
+    repository: R,
+}
+impl<R: ProxyCheckJobRepository> ListProxyCheckResultsUseCase<R> {
+    pub fn new(repository: R) -> Self {
+        Self { repository }
+    }
+    pub async fn execute(
+        &self,
+        id: ProxyCheckJobId,
+        user: AuthenticatedUser,
+        offset: u32,
+        limit: u32,
+        status: Option<ProxyResultStatusFilter>,
+        scheme: Option<ProxyScheme>,
+        working_only: bool,
+    ) -> Result<Option<(Vec<ProxyEntry>, u32)>, Box<dyn std::error::Error + Send + Sync>> {
+        let tenant = user.tenant_context().tenant_id();
+        let (entries, total) = self
+            .repository
+            .list_entries(id, tenant, offset, limit, status, scheme, working_only)
+            .await?;
+        if self.repository.find_job_by_id(id, tenant).await?.is_none() {
+            return Ok(None);
+        }
+        Ok(Some((entries, total)))
+    }
+}

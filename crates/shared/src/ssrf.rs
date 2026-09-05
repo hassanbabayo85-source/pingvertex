@@ -254,6 +254,63 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
     })
 }
 
+/// Strict variant for proxy checks. Unlike monitor/webhook validation this
+/// function NEVER honors `PINGVERTEX_SSRF_ALLOW_PRIVATE`; proxy validation is
+/// always public-internet-only because a proxy checker is itself an outbound
+/// network primitive that must not become an SSRF bridge.
+pub async fn resolve_and_validate_public_destination(
+    url: &str,
+) -> Result<ResolvedDestination, String> {
+    let url = Url::parse(url).map_err(|err| format!("invalid proxy URL: {err}"))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "proxy URL has no host".to_string())?
+        .to_string();
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "proxy URL has no valid port".to_string())?;
+
+    if host.eq_ignore_ascii_case("localhost") || host.to_ascii_lowercase().ends_with(".localhost") {
+        return Err("SSRF blocked: localhost is not an allowed proxy destination".to_string());
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_ip(ip) {
+            return Err(format!(
+                "SSRF blocked: private/internal IP address supplied directly: {ip}"
+            ));
+        }
+        return Ok(ResolvedDestination {
+            url,
+            host,
+            socket_addr: SocketAddr::new(ip, port),
+        });
+    }
+
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
+        .await
+        .map_err(|err| format!("failed to resolve proxy host '{host}': {err}"))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(format!(
+            "proxy host '{host}' did not resolve to any IP addresses"
+        ));
+    }
+    for addr in &addrs {
+        if is_private_ip(addr.ip()) {
+            return Err(format!(
+                "SSRF blocked: proxy host '{host}' resolves to private/internal address {}",
+                addr.ip()
+            ));
+        }
+    }
+    Ok(ResolvedDestination {
+        url,
+        host,
+        socket_addr: addrs[0],
+    })
+}
+
 /// Backwards-compatible validation helper.
 ///
 /// Wannan yana tabbatar da destination amma ba ya dawo da address.
@@ -458,6 +515,12 @@ mod tests {
                 "Expected public IPv6 {ip} to be allowed"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn strict_proxy_destination_rejects_localhost() {
+        let result = resolve_and_validate_public_destination("http://localhost:8080").await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]

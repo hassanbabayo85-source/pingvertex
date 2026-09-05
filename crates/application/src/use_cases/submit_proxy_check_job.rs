@@ -132,7 +132,13 @@ where
 
         let outcome = self
             .repository
-            .save_job_if_within_quota(&job, &entries, user_id, MAX_JOBS_PER_USER_PER_DAY)
+            .save_job_if_within_quota(
+                &job,
+                &entries,
+                user_id,
+                tenant_id,
+                MAX_JOBS_PER_USER_PER_DAY,
+            )
             .await
             .map_err(SubmitProxyCheckJobError::RepoError)?;
 

@@ -27,3 +27,5 @@ pub mod status_pages;
 pub mod support;
 pub mod team;
 pub mod verify_email;
+
+pub mod proxy_checks;
