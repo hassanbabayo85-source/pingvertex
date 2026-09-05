@@ -1,4 +1,4 @@
-use application::ports::{WalletRepoResult, WalletRepository};
+use application::ports::{ReservationOutcome, WalletRepoResult, WalletRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{CreditReservation, Wallet, WalletTransaction, WalletTransactionType};
@@ -53,26 +53,29 @@ impl WalletRepository for InMemoryWalletRepository {
         operation: &str,
         request_id: &str,
         expires_at: DateTime<Utc>,
-    ) -> WalletRepoResult<CreditReservation> {
+    ) -> WalletRepoResult<ReservationOutcome> {
         if amount_units <= 0 {
             return Err("reservation amount must be positive".into());
         }
         let mut g = self.inner.lock().unwrap();
         let (wallet, _, reservations) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
-        let reserved_units: i64 = reservations
+        let reserved_units = reservations
             .values()
             .filter(|r| r.status == CreditReservation::PENDING && r.expires_at > Utc::now())
-            .map(|r| r.amount_units)
-            .sum();
-        let available_units = wallet.balance_units.saturating_sub(reserved_units);
+            .try_fold(0_i64, |total, r| total.checked_add(r.amount_units))
+            .ok_or("wallet reservation accounting overflow")?;
+        if let Some(existing) = reservations.values().find(|r| r.request_id == request_id) {
+            return Ok(ReservationOutcome {
+                reservation: existing.clone(),
+                created: false,
+            });
+        }
+        let available_units = wallet
+            .balance_units
+            .checked_sub(reserved_units)
+            .ok_or("wallet reservation accounting overflow")?;
         if available_units < amount_units {
             return Err("insufficient wallet balance".into());
-        }
-        if let Some(existing) = reservations
-            .values()
-            .find(|r| r.request_id == request_id && r.status == CreditReservation::PENDING)
-        {
-            return Ok(existing.clone());
         }
         let r = CreditReservation {
             id: Uuid::new_v4(),
@@ -86,7 +89,10 @@ impl WalletRepository for InMemoryWalletRepository {
             updated_at: Utc::now(),
         };
         reservations.insert(r.id, r.clone());
-        Ok(r)
+        Ok(ReservationOutcome {
+            reservation: r,
+            created: true,
+        })
     }
 
     async fn capture(&self, reservation_id: Uuid) -> WalletRepoResult<WalletTransaction> {
@@ -112,11 +118,12 @@ impl WalletRepository for InMemoryWalletRepository {
                 r.updated_at = Utc::now();
                 let tx = WalletTransaction {
                     id: Uuid::new_v4(),
+                    tenant_id: wallet.tenant_id,
                     wallet_id: wallet.id,
                     transaction_type: WalletTransactionType::Debit,
                     amount_units: -r.amount_units,
                     balance_after_units: wallet.balance_units,
-                    idempotency_key: Some(format!("reservation:{}", reservation_id)),
+                    idempotency_key: format!("reservation:{}", reservation_id),
                     reference_type: Some("credit_reservation".to_owned()),
                     reference_id: Some(reservation_id.to_string()),
                     description: Some(r.operation.clone()),
@@ -156,10 +163,7 @@ impl WalletRepository for InMemoryWalletRepository {
         }
         let mut g = self.inner.lock().unwrap();
         let (wallet, txs, _) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
-        if let Some(existing) = txs
-            .iter()
-            .find(|t| t.idempotency_key.as_deref() == Some(idempotency_key))
-        {
+        if let Some(existing) = txs.iter().find(|t| t.idempotency_key == idempotency_key) {
             return Ok(existing.clone());
         }
         wallet.balance_units = wallet
@@ -169,11 +173,12 @@ impl WalletRepository for InMemoryWalletRepository {
         wallet.updated_at = Utc::now();
         let tx = WalletTransaction {
             id: Uuid::new_v4(),
+            tenant_id: wallet.tenant_id,
             wallet_id: wallet.id,
             transaction_type,
             amount_units,
             balance_after_units: wallet.balance_units,
-            idempotency_key: Some(idempotency_key.to_owned()),
+            idempotency_key: idempotency_key.to_owned(),
             reference_type: None,
             reference_id: None,
             description: description.map(str::to_owned),

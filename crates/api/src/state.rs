@@ -10,12 +10,12 @@ use application::ports::{
     EscalationPolicyRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
     HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
     MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    NotificationService, PasswordHasher, PaymentProvider, PaymentVerification,
-    PricingConfigRepository, ProxyCheckJobRepository, RateLimiter, RateLimiterResult,
-    RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
+    NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider,
+    PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository, RateLimiter,
+    RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
     SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
     SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
-    WalletRepository,
+    UsageEventRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -106,6 +106,8 @@ pub struct AppState {
     pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
     pub rate_limiter: Arc<dyn RateLimiter>,
     pub wallet_repository: Arc<dyn WalletRepository>,
+    pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
+    pub usage_event_repository: Arc<dyn UsageEventRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -847,7 +849,7 @@ impl WalletRepository for NoopWalletRepository {
         _operation: &str,
         _request_id: &str,
         _expires_at: DateTime<Utc>,
-    ) -> RepoResult<domain::CreditReservation> {
+    ) -> RepoResult<application::ports::ReservationOutcome> {
         Err("wallet repository is not configured".into())
     }
     async fn capture(&self, _reservation_id: uuid::Uuid) -> RepoResult<domain::WalletTransaction> {
@@ -865,6 +867,31 @@ impl WalletRepository for NoopWalletRepository {
         _description: Option<&str>,
     ) -> RepoResult<domain::WalletTransaction> {
         Err("wallet repository is not configured".into())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopPAYGPricingRepository;
+#[async_trait]
+impl PAYGPricingRepository for NoopPAYGPricingRepository {
+    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> {
+        Ok(None)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopUsageEventRepository;
+#[async_trait]
+impl UsageEventRepository for NoopUsageEventRepository {
+    async fn find_by_request(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _request_id: &str,
+    ) -> RepoResult<Option<domain::UsageEvent>> {
+        Ok(None)
+    }
+    async fn create(&self, event: &domain::UsageEvent) -> RepoResult<domain::UsageEvent> {
+        Ok(event.clone())
     }
 }
 
@@ -940,6 +967,8 @@ impl AppState {
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
+            payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            usage_event_repository: Arc::new(NoopUsageEventRepository),
         }
     }
 
@@ -1024,6 +1053,8 @@ impl AppState {
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
+            payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            usage_event_repository: Arc::new(NoopUsageEventRepository),
         }
     }
 
@@ -1216,6 +1247,22 @@ impl AppState {
         R: WalletRepository + 'static,
     {
         self.wallet_repository = Arc::new(repository);
+        self
+    }
+
+    pub fn with_payg_pricing_repository<R>(mut self, repository: R) -> Self
+    where
+        R: PAYGPricingRepository + 'static,
+    {
+        self.payg_pricing_repository = Arc::new(repository);
+        self
+    }
+
+    pub fn with_usage_event_repository<R>(mut self, repository: R) -> Self
+    where
+        R: UsageEventRepository + 'static,
+    {
+        self.usage_event_repository = Arc::new(repository);
         self
     }
 

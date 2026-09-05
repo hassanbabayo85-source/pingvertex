@@ -77,3 +77,6 @@ pub use rum_ingest_request::{
 
 pub mod verify_email_otp_request;
 pub use verify_email_otp_request::VerifyEmailOtpRequest;
+
+pub mod payg;
+pub use payg::MeterUsageRequest;

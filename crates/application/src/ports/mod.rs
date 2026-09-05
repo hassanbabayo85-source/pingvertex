@@ -184,3 +184,8 @@ pub use rum_site_repository::RumSiteRepository;
 
 pub mod wallet_repository;
 pub use wallet_repository::{WalletRepoResult, WalletRepository};
+
+pub mod payg_pricing_repository;
+pub use payg_pricing_repository::{PAYGPricingRepository, PaygPricingRepoResult};
+pub mod usage_event_repository;
+pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};

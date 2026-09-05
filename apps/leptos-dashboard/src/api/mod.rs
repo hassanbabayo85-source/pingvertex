@@ -10,3 +10,5 @@ pub mod support;
 pub mod team;
 
 pub mod proxy_checks;
+
+pub mod wallet;

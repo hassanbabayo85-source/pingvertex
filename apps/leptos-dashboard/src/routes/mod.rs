@@ -30,6 +30,7 @@ use crate::pages::status_pages::StatusPagesPage;
 use crate::pages::support::SupportPage;
 use crate::pages::team::TeamPage;
 use crate::pages::verify_email::VerifyEmailPage;
+use crate::pages::wallet::WalletPage;
 use leptos::prelude::*;
 use leptos_router::components::{ParentRoute, Route, Router, Routes};
 use leptos_router::path;
@@ -65,6 +66,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("developer/api-keys") view=ApiKeysPage/>
                     <Route path=path!("developer/api-flows") view=ApiFlowsPage/>
                     <Route path=path!("billing") view=BillingPage/>
+                    <Route path=path!("billing/wallet") view=WalletPage/>
                     <Route path=path!("billing/plan") view=PricingPage/>
                     <Route path=path!("billing/add-ons") view=AddOnsPage/>
                     <Route path=path!("help") view=HelpCenterPage/>
