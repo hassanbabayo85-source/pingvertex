@@ -4,10 +4,6 @@
 # - worker: PINGVERTEX_SSRF_ALLOW_PRIVATE=true (test-only).
 # - worker: METRICS_TOKEN set for TASK A worker metrics auth test.
 services:
-  migrate:
-    image: alpine:3.20
-    command: ["echo", "e2e skip migrate"]
-
   mock-target:
     image: nginx:1.27.4-alpine
     container_name: uptime-monitor-e2e-mock-target

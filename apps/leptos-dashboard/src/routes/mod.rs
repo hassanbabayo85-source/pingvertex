@@ -55,6 +55,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("monitors/new") view=MonitorFormPage/>
                     <Route path=path!("monitors/:id") view=MonitorDetailPage/>
                     <Route path=path!("monitors/:id/edit") view=MonitorFormPage/>
+                    <Route path=path!("proxy-check") view=ProxyChecksPage/>
                     <Route path=path!("proxy-checks") view=ProxyChecksPage/>
                     <Route path=path!("rum") view=RumDashboardPage/>
                     <Route path=path!("rum/sites") view=RumSitesPage/>
