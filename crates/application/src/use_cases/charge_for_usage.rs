@@ -216,6 +216,7 @@ impl ChargeForUsageUseCase {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn record_event(
         &self,
         input: &ChargeForUsageInput,
