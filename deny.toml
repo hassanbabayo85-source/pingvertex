@@ -1,24 +1,15 @@
 [advisories]
+# The workspace's resolved graph currently contains Leptos 0.7.x.
+# Its transitive `paste` and `proc-macro-error2` dependencies are reported
+# as unmaintained by RustSec and have no direct patched release available.
+# Current upstream Leptos also still references these crates, so this is
+# tracked as an upstream maintenance warning rather than hidden as an
+# unknown vulnerability. Keep the warning visible in cargo-deny output.
+unmaintained = "workspace"
+
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
-    # RUSTSEC-2023-0071 (rsa 0.9.10, Marvin Attack timing side-channel):
-    # rsa is pulled in transitively ONLY via sqlx-mysql, one of sqlx's four
-    # optional database-driver sub-crates (mysql/postgres/sqlite/any).
-    # This workspace enables ONLY the "postgres" feature of sqlx everywhere
-    # (see crates/infra/Cargo.toml, crates/worker/Cargo.toml) — verified via
-    # `cargo tree -p api|worker|infra|agent` (no rsa/rkyv/sqlx-mysql in the
-    # resolved graph) and `cargo build --workspace -v` (no "Compiling rsa"
-    # line ever appears). No fixed upgrade exists upstream. H17 audit,
-    # 2026-08-29.
-    "RUSTSEC-2023-0071",
-    # RUSTSEC-2026-0235 (rkyv 0.7.46, archive validation OOB read):
-    # rkyv is an optional serialization backend of rust_decimal, which this
-    # workspace uses only with the "serde" feature (see crates/domain,
-    # crates/application, crates/api, crates/infra Cargo.toml) — never with
-    # rkyv. Same verification method as above: absent from resolved
-    # dependency trees and never compiled. H17 audit, 2026-08-29.
-    "RUSTSEC-2026-0235",
 ]
 
 [licenses]
