@@ -177,7 +177,7 @@ step "DOWN -> INCIDENT"
 if [ "$MONITOR_ID" != "missing" ]; then
   docker compose "${COMPOSE_FILES[@]}" stop mock-target >/dev/null 2>&1
   INCIDENT_OPENED=false
-  for i in $(seq 1 80); do
+  for i in $(seq 1 220); do
     INCIDENTS=$(curl -sS -b "$COOKIES" "$API/api/v1/monitors/$MONITOR_ID/incidents" 2>/dev/null || echo '[]')
     OPEN_COUNT=$(echo "$INCIDENTS" | jq '[.[] | select(.resolved_at==null)] | length' 2>/dev/null || echo "0")
     if [ "$OPEN_COUNT" -ge 1 ]; then INCIDENT_OPENED=true; break; fi
@@ -188,7 +188,7 @@ if [ "$MONITOR_ID" != "missing" ]; then
     OPEN_COUNT=$(curl -sS -b "$COOKIES" "$API/api/v1/monitors/$MONITOR_ID/incidents" 2>/dev/null | jq '[.[] | select(.resolved_at==null)] | length' 2>/dev/null || echo "0")
     if [ "$OPEN_COUNT" -eq 1 ]; then ok "exactly one open incident (no duplicate)"; else fail "expected 1 open incident, got $OPEN_COUNT"; fi
   else
-    fail "no open incident within 240s"
+    fail "no open incident within 660s"
   fi
 else
   fail "skipped DOWN because monitor id is missing"
@@ -212,13 +212,13 @@ step "RECOVERY"
 if [ "$MONITOR_ID" != "missing" ]; then
   docker compose "${COMPOSE_FILES[@]}" start mock-target >/dev/null 2>&1
   INCIDENT_RESOLVED=false
-  for i in $(seq 1 80); do
+  for i in $(seq 1 220); do
     INCIDENTS=$(curl -sS -b "$COOKIES" "$API/api/v1/monitors/$MONITOR_ID/incidents" 2>/dev/null || echo '[]')
     OPEN_COUNT=$(echo "$INCIDENTS" | jq '[.[] | select(.resolved_at==null)] | length' 2>/dev/null || echo "0")
     if [ "$OPEN_COUNT" = "0" ]; then INCIDENT_RESOLVED=true; break; fi
     sleep 3
   done
-  if $INCIDENT_RESOLVED; then ok "incident resolved after mock-target came back up"; else fail "incident still open 240s after restart"; fi
+  if $INCIDENT_RESOLVED; then ok "incident resolved after mock-target came back up"; else fail "incident still open 660s after restart"; fi
 else
   fail "skipped RECOVERY because monitor id is missing"
 fi
@@ -257,7 +257,7 @@ fi
 # ---------------------------------------------------------------------
 step "UPGRADE"
 CHECKOUT_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/billing/checkout" \
-  -H 'Content-Type: application/json' -d '{"plan_tier":"tier_1"}')
+  -H 'Content-Type: application/json' -d '{"plan_tier":"starter"}')
 CHECKOUT_STATUS=$(echo "$CHECKOUT_RESP" | tail -1)
 CHECKOUT_JSON=$(echo "$CHECKOUT_RESP" | sed '$d')
 require_status "initiate checkout" "200" "$CHECKOUT_STATUS"
@@ -340,7 +340,7 @@ if [ -n "$TENANT_ID" ]; then
   EXPIRED_MONITOR_BODY=$(jq -n '{name:"E2E should fail", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:60, timeout_seconds:5, assertions:[]}')
   EXPIRED_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
     -H 'Content-Type: application/json' -d "$EXPIRED_MONITOR_BODY")
-  require_status "create 60s monitor after downgrade should fail (Free plan min 120)" "400" "$EXPIRED_STATUS"
+  require_status "create 60s monitor after downgrade should fail (Free plan min 600)" "400" "$EXPIRED_STATUS"
 else
   fail "tenant_id missing; cannot test expired subscription"
 fi
@@ -357,6 +357,35 @@ COOKIES2=$(mktemp)
 curl -sS -c "$COOKIES2" -o /dev/null -X POST "$API/api/v1/auth/register" \
   -H 'Content-Type: application/json' \
   -d "$(jq -n --arg u "$USERNAME2" --arg e "$EMAIL2" --arg p "$PASSWORD" '{username:$u,email:$e,password:$p}')"
+# Registration intentionally does not create a session until email OTP verification.
+TOKEN2=""
+MSG_ID2=""
+for i in $(seq 1 60); do
+  MSG_ID2=$(curl -sS "$MAILPIT/api/v1/messages?limit=100" | jq -r --arg e "$EMAIL2"     '.messages[] | select(.To[0].Address==$e) | .ID' | head -1)
+  if [ -n "${MSG_ID2:-}" ]; then break; fi
+  sleep 1
+done
+
+if [ -z "${MSG_ID2:-}" ]; then
+  fail "no tenant B verification email arrived at Mailpit for $EMAIL2 within 60s"
+else
+  RAW2=$(curl -sS "$MAILPIT/api/v1/message/$MSG_ID2")
+  BODY_TEXT2=$(echo "$RAW2" | jq -r '.Text // .HTML // ""')
+  TOKEN2=$(echo "$BODY_TEXT2" | grep -oE '[0-9]{6}' | head -1)
+fi
+
+if [ -n "${TOKEN2:-}" ]; then
+  VERIFY2_BODY=$(jq -n --arg e "$EMAIL2" --arg c "$TOKEN2" '{email:$e,code:$c}')
+  VERIFY2_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/verify-email-otp"     -H 'Content-Type: application/json' -d "$VERIFY2_BODY")
+  require_status "verify tenant B email" "200" "$VERIFY2_STATUS"
+else
+  fail "could not extract tenant B verification code"
+fi
+
+LOGIN2_BODY=$(jq -n --arg e "$EMAIL2" --arg p "$PASSWORD" '{email:$e,password:$p}')
+LOGIN2_STATUS=$(curl -sS -c "$COOKIES2" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/auth/login"   -H 'Content-Type: application/json' -d "$LOGIN2_BODY")
+require_status "tenant B login" "200" "$LOGIN2_STATUS"
+
 CROSS_STATUS=$(curl -sS -b "$COOKIES2" -o /dev/null -w '%{http_code}' "$API/api/v1/monitors/$MONITOR_ID")
 require_status "tenant B cannot read tenant A's monitor" "404" "$CROSS_STATUS"
 rm -f "$COOKIES2"
