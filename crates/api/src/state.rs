@@ -15,6 +15,7 @@ use application::ports::{
     RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
     SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
     SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
+    WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -104,6 +105,7 @@ pub struct AppState {
     /// real one (e.g. `infra::MaxMindGeoIpLookup`).
     pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
     pub rate_limiter: Arc<dyn RateLimiter>,
+    pub wallet_repository: Arc<dyn WalletRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -815,6 +817,57 @@ impl GeoIpLookup for NoopGeoIpLookup {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopWalletRepository;
+
+#[async_trait]
+impl WalletRepository for NoopWalletRepository {
+    async fn get_or_create(
+        &self,
+        tenant_id: uuid::Uuid,
+        currency: &str,
+    ) -> RepoResult<domain::Wallet> {
+        Ok(domain::Wallet::new(
+            uuid::Uuid::new_v4(),
+            tenant_id,
+            currency,
+        ))
+    }
+    async fn list_transactions(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _limit: u32,
+    ) -> RepoResult<Vec<domain::WalletTransaction>> {
+        Ok(vec![])
+    }
+    async fn reserve(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _amount_units: i64,
+        _operation: &str,
+        _request_id: &str,
+        _expires_at: DateTime<Utc>,
+    ) -> RepoResult<domain::CreditReservation> {
+        Err("wallet repository is not configured".into())
+    }
+    async fn capture(&self, _reservation_id: uuid::Uuid) -> RepoResult<domain::WalletTransaction> {
+        Err("wallet repository is not configured".into())
+    }
+    async fn release(&self, _reservation_id: uuid::Uuid) -> RepoResult<()> {
+        Err("wallet repository is not configured".into())
+    }
+    async fn credit(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _amount_units: i64,
+        _transaction_type: domain::WalletTransactionType,
+        _idempotency_key: &str,
+        _description: Option<&str>,
+    ) -> RepoResult<domain::WalletTransaction> {
+        Err("wallet repository is not configured".into())
+    }
+}
+
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -886,6 +939,7 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
+            wallet_repository: Arc::new(NoopWalletRepository),
         }
     }
 
@@ -969,6 +1023,7 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
+            wallet_repository: Arc::new(NoopWalletRepository),
         }
     }
 
@@ -1153,6 +1208,14 @@ impl AppState {
         R: RateLimiter + 'static,
     {
         self.rate_limiter = Arc::new(rate_limiter);
+        self
+    }
+
+    pub fn with_wallet_repository<R>(mut self, repository: R) -> Self
+    where
+        R: WalletRepository + 'static,
+    {
+        self.wallet_repository = Arc::new(repository);
         self
     }
 

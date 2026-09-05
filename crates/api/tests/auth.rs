@@ -43,7 +43,7 @@ use chrono::{DateTime, Utc};
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{
     BackupCode, BackupCodeId, Check, DiagnosticReport, Incident, Tenant, TenantMembership, User,
-    UserId,
+    UserId, UserStatus,
 };
 use infra::{
     Argon2PasswordHasher, InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
@@ -288,6 +288,11 @@ where
 }
 
 fn build_test_app() -> axum::Router {
+    let (app, _) = build_test_app_with_user_repository();
+    app
+}
+
+fn build_test_app_with_user_repository() -> (axum::Router, InMemoryUserRepository) {
     let monitor_repository = InMemoryMonitorRepository::new();
     let user_repository = InMemoryUserRepository::new();
 
@@ -305,9 +310,9 @@ fn build_test_app() -> axum::Router {
         InMemoryAuditLogEntryRepository::new(),
     );
 
-    let auth_state = build_auth_state(user_repository);
+    let auth_state = build_auth_state(user_repository.clone());
 
-    build_test_router(app_state, auth_state)
+    (build_test_router(app_state, auth_state), user_repository)
 }
 
 fn build_test_app_with_rate_limiter<R>(rate_limiter: R) -> axum::Router
@@ -396,7 +401,7 @@ async fn post(app: &axum::Router, uri: &str, body: Value) -> axum::response::Res
 // ------------------------------- register -------------------------------
 
 #[tokio::test]
-async fn register_endpoint_creates_user_and_sets_session_cookie() {
+async fn register_endpoint_creates_pending_user_without_session_cookie() {
     let app = build_test_app();
     let (username, email) = unique_user();
 
@@ -408,9 +413,7 @@ async fn register_endpoint_creates_user_and_sets_session_cookie() {
     .await;
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let set_cookie = set_cookie_header(&response);
-    assert!(set_cookie.starts_with("access_token="));
-    assert!(set_cookie.contains("HttpOnly"));
+    assert!(response.headers().get(SET_COOKIE).is_none());
 }
 
 #[tokio::test]
@@ -440,19 +443,35 @@ async fn register_endpoint_rejects_duplicate_email() {
 
 #[tokio::test]
 async fn login_endpoint_sets_session_cookie_on_success() {
-    let app = build_test_app();
+    let (app, user_repository) = build_test_app_with_user_repository();
     let (username, email) = unique_user();
     let password = STRONG_PASSWORD;
 
-    post(
+    let register_response = post(
         &app,
         "/api/v1/auth/register",
         register_payload(&username, &email, password),
     )
     .await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+    assert!(register_response.headers().get(SET_COOKIE).is_none());
+
+    let email_value = domain::Email::new(email.clone()).unwrap();
+    let mut user = user_repository
+        .find_by_email(&email_value)
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+
+    assert_eq!(user.status(), UserStatus::PendingVerification);
+    assert!(!user.is_email_verified());
+
+    user.mark_email_verified(Utc::now());
+    user_repository.update(&user).await.unwrap();
 
     let resp = post(&app, "/api/v1/auth/login", login_payload(&email, password)).await;
     assert_eq!(resp.status(), StatusCode::OK);
+
     let set_cookie = set_cookie_header(&resp);
     assert!(set_cookie.starts_with("access_token="));
 }

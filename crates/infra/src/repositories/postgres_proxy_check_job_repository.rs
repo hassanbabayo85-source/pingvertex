@@ -60,8 +60,12 @@ struct ProxyCheckJobRow {
     status: String,
     created_at: chrono::DateTime<chrono::Utc>,
     completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    failure_reason: Option<String>,
     total_count: i32,
     checked_count: i32,
+    successful_count: i32,
+    failed_count: i32,
 }
 
 impl ProxyCheckJobRow {
@@ -69,6 +73,8 @@ impl ProxyCheckJobRow {
         let status = job_status_from_db(&self.status)?;
         let total_count: u32 = self.total_count.try_into()?;
         let checked_count: u32 = self.checked_count.try_into()?;
+        let successful_count: u32 = self.successful_count.try_into()?;
+        let failed_count: u32 = self.failed_count.try_into()?;
 
         Ok(ProxyCheckJob::from_persisted(
             ProxyCheckJobId(self.id),
@@ -77,8 +83,12 @@ impl ProxyCheckJobRow {
             status,
             self.created_at,
             self.completed_at,
+            self.failed_at,
+            self.failure_reason,
             total_count,
             checked_count,
+            successful_count,
+            failed_count,
         ))
     }
 }
@@ -138,6 +148,8 @@ impl PostgresProxyCheckJobRepository {
     ) -> RepoResult<()> {
         let total_count: i32 = job.total_count().try_into()?;
         let checked_count: i32 = job.checked_count().try_into()?;
+        let successful_count: i32 = job.successful_count().try_into()?;
+        let failed_count: i32 = job.failed_count().try_into()?;
 
         sqlx::query(
             r#"
@@ -148,10 +160,14 @@ impl PostgresProxyCheckJobRepository {
                 status,
                 created_at,
                 completed_at,
+                failed_at,
+                failure_reason,
                 total_count,
-                checked_count
+                checked_count,
+                successful_count,
+                failed_count
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             "#,
         )
         .bind(job.id().0)
@@ -160,8 +176,12 @@ impl PostgresProxyCheckJobRepository {
         .bind(job_status_to_db(&job.status()))
         .bind(job.created_at())
         .bind(job.completed_at())
+        .bind(job.failed_at())
+        .bind(job.failure_reason())
         .bind(total_count)
         .bind(checked_count)
+        .bind(successful_count)
+        .bind(failed_count)
         .execute(&mut **tx)
         .await?;
 
@@ -282,19 +302,29 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
 
     async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {
         let checked_count: i32 = job.checked_count().try_into()?;
+        let successful_count: i32 = job.successful_count().try_into()?;
+        let failed_count: i32 = job.failed_count().try_into()?;
 
         sqlx::query(
             r#"
             UPDATE proxy_check_jobs
             SET status = $1,
                 completed_at = $2,
-                checked_count = $3
-            WHERE id = $4
+                failed_at = $3,
+                failure_reason = $4,
+                checked_count = $5,
+                successful_count = $6,
+                failed_count = $7
+            WHERE id = $8
             "#,
         )
         .bind(job_status_to_db(&job.status()))
         .bind(job.completed_at())
+        .bind(job.failed_at())
+        .bind(job.failure_reason())
         .bind(checked_count)
+        .bind(successful_count)
+        .bind(failed_count)
         .bind(job.id().0)
         .execute(&self.pool)
         .await?;
@@ -305,7 +335,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
     async fn find_job_by_id(&self, id: ProxyCheckJobId) -> RepoResult<Option<ProxyCheckJob>> {
         let row = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, failed_at, failure_reason, total_count, checked_count, successful_count, failed_count
             FROM proxy_check_jobs
             WHERE id = $1
             "#,
@@ -320,7 +350,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
     async fn find_jobs_by_user_id(&self, user_id: UserId) -> RepoResult<Vec<ProxyCheckJob>> {
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, failed_at, failure_reason, total_count, checked_count, successful_count, failed_count
             FROM proxy_check_jobs
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -338,7 +368,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
     async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, failed_at, failure_reason, total_count, checked_count, successful_count, failed_count
             FROM proxy_check_jobs
             WHERE tenant_id = $1
             ORDER BY created_at DESC
@@ -393,7 +423,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
 
         let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
             r#"
-            SELECT id, user_id, tenant_id, status, created_at, completed_at, total_count, checked_count
+            SELECT id, user_id, tenant_id, status, created_at, completed_at, failed_at, failure_reason, total_count, checked_count, successful_count, failed_count
             FROM proxy_check_jobs
             WHERE status = 'pending'
             ORDER BY created_at ASC

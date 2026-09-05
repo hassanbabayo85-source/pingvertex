@@ -181,3 +181,6 @@ pub use geo_ip_lookup::GeoIpLookup;
 pub use rum_analytics_repository::RumAnalyticsRepository;
 pub use rum_event_repository::RumEventRepository;
 pub use rum_site_repository::RumSiteRepository;
+
+pub mod wallet_repository;
+pub use wallet_repository::{WalletRepoResult, WalletRepository};

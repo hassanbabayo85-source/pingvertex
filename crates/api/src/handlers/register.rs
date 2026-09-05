@@ -1,9 +1,6 @@
 use axum::{
     extract::{Json, State},
-    http::{
-        StatusCode,
-        header::{HeaderMap, HeaderValue, SET_COOKIE},
-    },
+    http::{StatusCode, header::HeaderMap},
 };
 use serde_json::{Value, json};
 
@@ -24,16 +21,31 @@ pub async fn register(
     info!("API: register");
 
     let registration_email = payload.email.clone();
+    let email_key = registration_email.trim().to_ascii_lowercase();
+
+    // Registration is an abuse-sensitive endpoint even with the global IP
+    // limiter. A distributed per-email limiter prevents attackers from
+    // repeatedly targeting the same mailbox or SMTP provider through
+    // rotating source IPs.
+    let allowed = state
+        .rate_limiter
+        .check_and_record("register", &email_key, 3, 600)
+        .await
+        .map_err(|_| ApiError::internal("registration service unavailable"))?;
+    if !allowed {
+        return Err(ApiError::too_many_requests(
+            "too many registration attempts; please try again later",
+        ));
+    }
 
     let use_case = RegisterUserUseCase::new(
         state.user_repository.clone(),
         state.id_generator.clone(),
         state.password_hasher.clone(),
-        state.token_service.clone(),
         state.registration_transaction.clone(),
     );
 
-    let response = use_case.execute(payload).await.map_err(|err| {
+    use_case.execute(payload).await.map_err(|err| {
         tracing::warn!(error = %err, "registration failed");
         ApiError::bad_request("registration failed")
     })?;
@@ -64,17 +76,15 @@ pub async fn register(
         }
     }
 
-    let cookie = shared::cookie::access_token_cookie(&response.access_token);
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        SET_COOKIE,
-        HeaderValue::from_str(&cookie).map_err(|_| ApiError::internal("failed to set cookie"))?,
-    );
-
+    // SECURITY: registration never issues a JWT. The account remains
+    // PendingVerification until the 6-digit OTP is successfully redeemed.
     Ok((
         StatusCode::CREATED,
-        headers,
-        Json(json!({ "authenticated": true })),
+        HeaderMap::new(),
+        Json(json!({
+            "authenticated": false,
+            "verification_required": true,
+            "message": "account created; enter the verification code sent to your email"
+        })),
     ))
 }

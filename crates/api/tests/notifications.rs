@@ -303,7 +303,7 @@ fn monitor_payload(user_id: Uuid) -> Value {
         "url": "https://example.com",
         "method": HttpMethod::Get,
         "expected_status": 200,
-        "interval_seconds": 120,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": []
     })

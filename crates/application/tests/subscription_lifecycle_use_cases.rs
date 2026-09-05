@@ -19,7 +19,7 @@ async fn begin_grace_period_moves_active_subscription_to_past_due() {
         .create(&Subscription::new(
             SubscriptionId::new(),
             tenant_id,
-            PlanTier::Tier1,
+            PlanTier::Starter,
         ))
         .await
         .unwrap();
@@ -60,7 +60,7 @@ async fn begin_grace_period_errors_when_no_subscription_exists() {
 async fn expire_subscription_moves_past_due_to_expired() {
     let repository = InMemorySubscriptionRepository::new();
     let tenant_id = TenantId::new();
-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
+    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscription.status = SubscriptionStatus::PastDue;
     repository.create(&subscription).await.unwrap();
 
@@ -86,7 +86,7 @@ async fn expire_subscription_rejects_directly_from_active() {
         .create(&Subscription::new(
             SubscriptionId::new(),
             tenant_id,
-            PlanTier::Tier5,
+            PlanTier::Pro,
         ))
         .await
         .unwrap();
@@ -105,7 +105,7 @@ async fn cancel_subscription_immediately_sets_canceled_status() {
         .create(&Subscription::new(
             SubscriptionId::new(),
             tenant_id,
-            PlanTier::Tier1,
+            PlanTier::Starter,
         ))
         .await
         .unwrap();
@@ -136,7 +136,7 @@ async fn finalize_scheduled_cancellation_completes_an_end_of_period_cancellation
         .create(&Subscription::new(
             SubscriptionId::new(),
             tenant_id,
-            PlanTier::Tier1,
+            PlanTier::Starter,
         ))
         .await
         .unwrap();
@@ -182,7 +182,7 @@ async fn finalize_scheduled_cancellation_errors_when_none_scheduled() {
         .create(&Subscription::new(
             SubscriptionId::new(),
             tenant_id,
-            PlanTier::Tier1,
+            PlanTier::Starter,
         ))
         .await
         .unwrap();

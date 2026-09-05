@@ -556,11 +556,12 @@ pub async fn run_proxy_check_job<R>(
 where
     R: ProxyCheckJobRepository + ?Sized,
 {
-    if !job.mark_running() {
-        // Another worker already observed this job as non-Pending and
-        // transitioned it first; this call is a no-op by design (see
-        // `ProxyCheckJob::mark_running`).
-        info!(job_id = %job.id(), "proxy check job already running or finished; skipping");
+    if job.status() == domain::ProxyCheckJobStatus::Pending {
+        if !job.mark_running() {
+            return Err("proxy check job could not transition to running".into());
+        }
+    } else if job.status() != domain::ProxyCheckJobStatus::Running {
+        info!(job_id = %job.id(), "proxy check job already terminal; skipping");
         return Ok(());
     }
 
@@ -596,18 +597,15 @@ where
         });
     }
 
-    let mut checked_count: u32 = 0;
+    let mut fatal_reason: Option<String> = None;
 
     while let Some(join_result) = tasks.join_next().await {
         match join_result {
             Ok(entry) => {
-                checked_count += 1;
-
                 if let Err(err) = repository.update_entry(&entry).await {
-                    // A single entry failing to persist must not abort
-                    // the rest of the job — log and continue, mirroring
-                    // how `scheduler.rs` treats a failed `Check` save as
-                    // non-fatal to the overall sweep.
+                    if fatal_reason.is_none() {
+                        fatal_reason = Some(format!("failed to persist proxy entry result: {err}"));
+                    }
                     error!(
                         job_id = %job.id(),
                         entry_id = %entry.id(),
@@ -616,9 +614,18 @@ where
                     );
                 }
 
-                job.record_progress(checked_count);
+                job.record_result(
+                    entry
+                        .result()
+                        .map(|result| result.reachable)
+                        .unwrap_or(false),
+                );
 
                 if let Err(err) = repository.update_job(&job).await {
+                    if fatal_reason.is_none() {
+                        fatal_reason =
+                            Some(format!("failed to persist proxy check job progress: {err}"));
+                    }
                     error!(
                         job_id = %job.id(),
                         error = %err,
@@ -627,14 +634,12 @@ where
                 }
             }
             Err(join_err) => {
-                // The checking task itself panicked. The entry it was
-                // checking never got a result recorded, but the job as a
-                // whole must still be able to reach `Completed` once
-                // every task has resolved (panicked or not) — counting it
-                // here keeps `checked_count` converging on
-                // `entries.len()` rather than stalling short of it.
-                checked_count += 1;
-                job.record_progress(checked_count);
+                // A task panic is an execution failure, not a successful
+                // completion. Keep the terminal state truthful.
+                job.record_result(false);
+                if fatal_reason.is_none() {
+                    fatal_reason = Some(format!("proxy entry task panicked: {join_err}"));
+                }
 
                 warn!(
                     job_id = %job.id(),
@@ -645,18 +650,19 @@ where
         }
     }
 
-    job.mark_completed();
-
-    if let Err(err) = repository.update_job(&job).await {
-        error!(
-            job_id = %job.id(),
-            error = %err,
-            "failed to persist proxy check job completion"
-        );
-        return Err(err);
+    if let Some(reason) = fatal_reason {
+        if !job.mark_failed(reason) {
+            return Err("proxy check job could not transition to failed".into());
+        }
+        repository.update_job(&job).await?;
+        info!(job_id = %job.id(), "proxy check job failed");
+    } else {
+        if !job.mark_completed() {
+            return Err("proxy check job could not transition to completed".into());
+        }
+        repository.update_job(&job).await?;
+        info!(job_id = %job.id(), "proxy check job completed");
     }
-
-    info!(job_id = %job.id(), "proxy check job completed");
 
     Ok(())
 }

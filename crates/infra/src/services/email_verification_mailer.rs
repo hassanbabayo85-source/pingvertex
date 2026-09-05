@@ -54,11 +54,9 @@ impl EmailVerificationMailer for SmtpEmailVerificationMailer {
     async fn send_verification_email(&self, to: &Email, raw_token: &str) -> MailerResult<()> {
         let to_mailbox: Mailbox = to.as_str().parse()?;
 
-        let subject = "Verify your PingVertex email address";
+        let subject = "Your PingVertex verification code";
         let body = format!(
-            "Please verify your PingVertex account email address by using the following token:\n\n\
-             {raw_token}\n\n\
-             This token expires in 24 hours. If you did not create an account, you can safely ignore this email."
+            "Your PingVertex verification code is:\n\n             {raw_token}\n\n             This 6-digit code expires in 10 minutes and can only be used once.              If you did not create a PingVertex account, you can safely ignore this email."
         );
 
         let email = Message::builder()

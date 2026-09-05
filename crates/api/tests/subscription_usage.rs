@@ -325,7 +325,7 @@ async fn member_without_manage_billing_gets_forbidden() {
                 .uri("/api/v1/subscription/usage")
                 .header("content-type", "application/json")
                 .header("authorization", auth_header(member_user.0))
-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
+                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
                 .unwrap(),
         )
         .await
@@ -354,7 +354,7 @@ async fn owner_without_existing_subscription_gets_not_found() {
                 .uri("/api/v1/subscription/usage")
                 .header("content-type", "application/json")
                 .header("authorization", auth_header(owner_user.0))
-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
+                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
                 .unwrap(),
         )
         .await
@@ -368,7 +368,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
     // SECURITY (H13): the endpoint no longer trusts `plan_tier` from the
     // request body -- it reads the tenant's actual plan tier from the
     // subscription in the database. Here the DB has Tier5, and the body
-    // requests a different tier ("tier_1"), to prove the body value is
+    // requests a different tier ("starter"), to prove the body value is
     // ignored and the response reflects the DB's tier instead.
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
@@ -379,7 +379,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
     let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
 
-    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
+    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscription_repo.create(&subscription).await.unwrap();
 
     let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
@@ -391,7 +391,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
                 .uri("/api/v1/subscription/usage")
                 .header("content-type", "application/json")
                 .header("authorization", auth_header(owner_user.0))
-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
+                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
                 .unwrap(),
         )
         .await
@@ -399,9 +399,9 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = read_json(response).await;
-    assert_eq!(body["plan_tier"], "tier_5");
-    assert_eq!(body["monitors"], 500);
-    assert_eq!(body["interval_seconds"], 60);
+    assert_eq!(body["plan_tier"], "pro");
+    assert_eq!(body["monitors"], 100);
+    assert_eq!(body["interval_seconds"], 30);
     assert_eq!(body["retention_days"], 90);
     assert_eq!(body["pricing_version"], 1);
 }

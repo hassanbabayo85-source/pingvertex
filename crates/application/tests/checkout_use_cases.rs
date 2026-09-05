@@ -101,7 +101,7 @@ async fn verify_paid_creates_active_subscription_when_none_exists() {
     let provider = TestBillingProvider::new(TestVerification::Paid);
     let tenant_id = TenantId::new();
 
-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier5).await;
+    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Pro).await;
 
     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
     let outcome = use_case
@@ -120,7 +120,7 @@ async fn verify_paid_creates_active_subscription_when_none_exists() {
         .expect("lookup should succeed")
         .expect("subscription should have been created");
     assert_eq!(subscription.status, SubscriptionStatus::Active);
-    assert_eq!(subscription.plan_tier, PlanTier::Tier5);
+    assert_eq!(subscription.plan_tier, PlanTier::Pro);
 }
 
 #[tokio::test]
@@ -130,7 +130,7 @@ async fn verify_pending_does_not_create_subscription() {
     let provider = TestBillingProvider::new(TestVerification::Pending);
     let tenant_id = TenantId::new();
 
-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier1).await;
+    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Starter).await;
 
     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
     let outcome = use_case
@@ -170,7 +170,7 @@ async fn verify_paid_upgrades_existing_expired_subscription_to_active() {
         .await
         .expect("create should succeed");
 
-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier10).await;
+    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Business).await;
 
     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
     let outcome = use_case
@@ -189,7 +189,7 @@ async fn verify_paid_upgrades_existing_expired_subscription_to_active() {
         .expect("lookup should succeed")
         .expect("subscription should exist");
     assert_eq!(subscription.status, SubscriptionStatus::Active);
-    assert_eq!(subscription.plan_tier, PlanTier::Tier10);
+    assert_eq!(subscription.plan_tier, PlanTier::Business);
 }
 
 #[tokio::test]
@@ -199,7 +199,7 @@ async fn verify_is_idempotent_after_completion() {
     let provider = TestBillingProvider::new(TestVerification::Paid);
     let tenant_id = TenantId::new();
 
-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier20).await;
+    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Enterprise).await;
 
     let use_case = VerifyCheckoutUseCase::new(sessions.clone(), subscriptions.clone(), provider);
     let first = use_case
@@ -225,6 +225,6 @@ async fn verify_is_idempotent_after_completion() {
         .await
         .expect("lookup should succeed")
         .expect("subscription should exist");
-    assert_eq!(subscription.plan_tier, PlanTier::Tier20);
+    assert_eq!(subscription.plan_tier, PlanTier::Enterprise);
     assert_eq!(subscription.status, SubscriptionStatus::Active);
 }

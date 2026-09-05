@@ -1,0 +1,66 @@
+ M apps/leptos-dashboard/src/pages/billing.rs
+ M apps/leptos-dashboard/src/pages/register.rs
+ M apps/leptos-dashboard/src/pages/verify_email.rs
+ M crates/api/src/auth_state.rs
+ M crates/api/src/handlers/login.rs
+ M crates/api/src/handlers/mod.rs
+ M crates/api/src/handlers/register.rs
+ M crates/api/src/main.rs
+ M crates/api/src/middleware/jwt_auth.rs
+ M crates/api/src/router.rs
+ M crates/api/src/routes/auth.rs
+ M crates/api/src/routes/mod.rs
+ M crates/api/src/state.rs
+ M crates/api/tests/auth.rs
+ M crates/api/tests/common/mod.rs
+ M crates/api/tests/subscription_usage.rs
+ M crates/application/src/dto/mod.rs
+ M crates/application/src/ports/email_verification_token_repository.rs
+ M crates/application/src/ports/id_generator.rs
+ M crates/application/src/ports/mod.rs
+ M crates/application/src/use_cases/create_email_verification_token.rs
+ M crates/application/src/use_cases/email_verification_support.rs
+ M crates/application/src/use_cases/login_user.rs
+ M crates/application/src/use_cases/mod.rs
+ M crates/application/src/use_cases/register_user.rs
+ M crates/application/src/use_cases/resend_verification.rs
+ M crates/application/src/use_cases/update_subscription_usage.rs
+ M crates/application/tests/checkout_use_cases.rs
+ M crates/application/tests/process_billing_webhook.rs
+ M crates/application/tests/process_billing_webhook_retry.rs
+ M crates/application/tests/register_user_use_case.rs
+ M crates/application/tests/resolve_entitlements_use_case.rs
+ M crates/application/tests/subscription_lifecycle_use_cases.rs
+ M crates/domain/src/entities/mod.rs
+ M crates/domain/src/entities/plan.rs
+ M crates/domain/src/entities/subscription.rs
+ M crates/domain/src/enums/plan_tier.rs
+ M crates/domain/src/pricing/calculation.rs
+ M crates/domain/src/pricing/config.rs
+ M crates/domain/src/pricing/input.rs
+ M crates/infra/src/repositories/in_memory_email_verification_token_repository.rs
+ M crates/infra/src/repositories/mod.rs
+ M crates/infra/src/repositories/postgres_email_verification_token_repository.rs
+ M crates/infra/src/services/email_verification_mailer.rs
+ M crates/infra/src/services/uuid_id_generator.rs
+ M crates/infra/tests/subscription_usage_transaction.rs
+ M crates/worker/tests/retention_worker.rs
+ D pingvertex_phase7_cargo_deny_schema_fix.sh
+?? .audit-backups/
+?? .pingvertex-business-backup-20260905-071449/
+?? .pingvertex-business-backup-20260905-072456/
+?? .pingvertex-repair-backup-20260905-073127/
+?? .pingvertex-repair2-20260905-073306/
+?? .pingvertex-repair3-20260905-073424/
+?? apply_email_verification_audit.sh
+?? crates/api/src/handlers/verify_email_otp.rs
+?? crates/api/src/handlers/wallet.rs
+?? crates/api/src/routes/wallet.rs
+?? crates/application/src/dto/verify_email_otp_request.rs
+?? crates/application/src/ports/wallet_repository.rs
+?? crates/application/src/use_cases/verify_email_otp.rs
+?? crates/domain/src/entities/wallet.rs
+?? crates/infra/src/repositories/in_memory_wallet_repository.rs
+?? crates/infra/src/repositories/postgres_wallet_repository.rs
+?? migrations/0073_bootstrap_business_model.sql
+?? migrations/0074_wallet_payg_core.sql

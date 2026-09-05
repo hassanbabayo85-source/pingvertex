@@ -3,8 +3,8 @@ use std::error::Error;
 use chrono::Utc;
 
 use crate::{
-    dto::{AuthResponse, RegisterRequest},
-    ports::{IdGenerator, PasswordHasher, RegistrationTransaction, TokenService, UserRepository},
+    dto::RegisterRequest,
+    ports::{IdGenerator, PasswordHasher, RegistrationTransaction, UserRepository},
 };
 
 use domain::{
@@ -42,39 +42,35 @@ fn validate_password(password: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub struct RegisterUserUseCase<R, G, H, T, RT> {
+pub struct RegisterUserUseCase<R, G, H, RT> {
     repository: R,
     id_generator: G,
     password_hasher: H,
-    token_service: T,
     registration_transaction: RT,
 }
 
-impl<R, G, H, T, RT> RegisterUserUseCase<R, G, H, T, RT>
+impl<R, G, H, RT> RegisterUserUseCase<R, G, H, RT>
 where
     R: UserRepository,
     G: IdGenerator,
     H: PasswordHasher,
-    T: TokenService,
     RT: RegistrationTransaction,
 {
     pub fn new(
         repository: R,
         id_generator: G,
         password_hasher: H,
-        token_service: T,
         registration_transaction: RT,
     ) -> Self {
         Self {
             repository,
             id_generator,
             password_hasher,
-            token_service,
             registration_transaction,
         }
     }
 
-    pub async fn execute(&self, request: RegisterRequest) -> UseCaseResult<AuthResponse> {
+    pub async fn execute(&self, request: RegisterRequest) -> UseCaseResult<()> {
         validate_password(&request.password)?;
 
         let raw_username_for_tenant_name = request.username.clone();
@@ -127,11 +123,7 @@ where
             .register_user_with_tenant(&user, &tenant, &membership)
             .await?;
 
-        let token = self.token_service.generate(user.id()).await?;
-
-        Ok(AuthResponse {
-            access_token: token,
-        })
+        Ok(())
     }
 }
 

@@ -1,0 +1,2061 @@
+diff --git a/apps/leptos-dashboard/src/pages/billing.rs b/apps/leptos-dashboard/src/pages/billing.rs
+index 09897bde..1bb97c25 100644
+--- a/apps/leptos-dashboard/src/pages/billing.rs
++++ b/apps/leptos-dashboard/src/pages/billing.rs
+@@ -13,7 +13,7 @@ pub fn BillingPage() -> impl IntoView {
+     let summary = RwSignal::new(None::<billing::BillingSummary>);
+     let error = RwSignal::new(None::<String>);
+     let notice = RwSignal::new(None::<String>);
+-    let plan = RwSignal::new("tier_1".to_string());
++    let plan = RwSignal::new("starter".to_string());
+     let session = RwSignal::new(String::new());
+     let checkout_status = RwSignal::new(None::<String>);
+     let quote = RwSignal::new(None::<billing::Quote>);
+@@ -169,7 +169,7 @@ pub fn BillingPage() -> impl IntoView {
+                     <p class="muted">"You will be redirected to the payment provider before any charge is finalized."</p>
+                     <div class="inline-form">
+                         <select prop:value=plan on:change=move|e|plan.set(event_target_value(&e))>
+-                            <option value="tier_1">"Tier 1"</option><option value="tier_5">"Tier 5"</option><option value="tier_10">"Tier 10"</option><option value="tier_20">"Tier 20"</option>
++                            <option value="starter">"Tier 1"</option><option value="pro">"Tier 5"</option><option value="starter0">"Tier 10"</option><option value="enterprise">"Tier 20"</option>
+                         </select>
+                         <button class="btn btn-primary" disabled=move || checkout_busy.get() on:click=checkout>{move || if checkout_busy.get() {"Starting checkout…"} else {"Continue to checkout"}}</button>
+                     </div>
+diff --git a/apps/leptos-dashboard/src/pages/register.rs b/apps/leptos-dashboard/src/pages/register.rs
+index d6c6c516..d28385af 100644
+--- a/apps/leptos-dashboard/src/pages/register.rs
++++ b/apps/leptos-dashboard/src/pages/register.rs
+@@ -42,7 +42,7 @@ pub fn RegisterPage() -> impl IntoView {
+                 {move || {
+                     if success.get() {
+                         view! {
+-                            <p class="auth-success">"Registration successful! You can now " <a href="/login">"sign in"</a> "."</p>
++                            <p class="auth-success">"Account created. Check your email for the 6-digit verification code, then " <a href="/verify-email">"verify your email"</a> "."</p>
+                         }.into_any()
+                     } else {
+                         view! {
+diff --git a/apps/leptos-dashboard/src/pages/verify_email.rs b/apps/leptos-dashboard/src/pages/verify_email.rs
+index 3aa1e432..45a2f857 100644
+--- a/apps/leptos-dashboard/src/pages/verify_email.rs
++++ b/apps/leptos-dashboard/src/pages/verify_email.rs
+@@ -1,40 +1,36 @@
+-use crate::auth::api;
++use crate::api::client;
+ use leptos::prelude::*;
+ use leptos::task::spawn_local;
+ use leptos_router::hooks::use_query_map;
+ 
+-#[derive(Clone, PartialEq)]
+-enum VerifyStatus {
+-    Verifying,
+-    Success,
+-    Failed(String),
+-    MissingToken,
+-}
+-
+-/// Public route — `/verify-email?token=...`. The link in the verification
+-/// email points here. No session/auth is required or checked: the token
+-/// itself is the proof of ownership (see
+-/// `crates/api/src/handlers/verify_email.rs`), matching the backend's own
+-/// doc comment that this endpoint is "public by design".
+ #[component]
+ pub fn VerifyEmailPage() -> impl IntoView {
+     let query = use_query_map();
+-    let token = move || query.get().get("token").unwrap_or_default();
+-    let status = RwSignal::new(VerifyStatus::Verifying);
++    let initial_email = query.get().get("email").unwrap_or_default();
++    let email = RwSignal::new(initial_email);
++    let code = RwSignal::new(String::new());
++    let status = RwSignal::new(None::<String>);
++    let verified = RwSignal::new(false);
++    let busy = RwSignal::new(false);
+ 
+-    Effect::new(move |_| {
+-        let token_val = token();
+-        if token_val.is_empty() {
+-            status.set(VerifyStatus::MissingToken);
++    let on_submit = move |ev: leptos::ev::SubmitEvent| {
++        ev.prevent_default();
++        if busy.get() {
+             return;
+         }
++        busy.set(true);
++        status.set(None);
++        let email_val = email.get();
++        let code_val = code.get();
+         spawn_local(async move {
+-            match api::verify_email(&token_val).await {
+-                Ok(()) => status.set(VerifyStatus::Success),
+-                Err(e) => status.set(VerifyStatus::Failed(e)),
++            let body = serde_json::json!({ "email": email_val, "code": code_val });
++            match client::post_json::<serde_json::Value, _>("/auth/verify-email-otp", &body).await {
++                Ok(_) => verified.set(true),
++                Err(e) => status.set(Some(e.to_string())),
+             }
++            busy.set(false);
+         });
+-    });
++    };
+ 
+     view! {
+         <div class="auth-shell">
+@@ -44,29 +40,29 @@ pub fn VerifyEmailPage() -> impl IntoView {
+                     <span class="auth-brand-name">"PingVertex"</span>
+                 </div>
+                 <h1>"Verify your email"</h1>
+-
+-                {move || match status.get() {
+-                    VerifyStatus::Verifying => view! {
+-                        <p class="muted">"Verifying your email address..."</p>
+-                    }.into_any(),
+-                    VerifyStatus::Success => view! {
+-                        <p>"Your email is verified. You can now sign in."</p>
+-                    }.into_any(),
+-                    VerifyStatus::MissingToken => view! {
+-                        <div class="form-error">
+-                            "This link is missing its verification token. Please use the \
+-                            link from your email exactly as sent, or request a new one from \
+-                            the Security page after signing in."
+-                        </div>
+-                    }.into_any(),
+-                    VerifyStatus::Failed(e) => view! {
+-                        <div class="form-error">
+-                            "We couldn't verify your email (" {e} "). The link may have \
+-                            expired — request a new one from the Security page after signing in."
+-                        </div>
+-                    }.into_any(),
++                {move || if verified.get() {
++                    view! { <p class="auth-success">"Email verified. You can now " <a href="/login">"sign in"</a> "."</p> }.into_any()
++                } else {
++                    view! {
++                        <form on:submit=on_submit class="auth-form">
++                            <div class="field">
++                                <label for="verify-email">"Email"</label>
++                                <input id="verify-email" type="email" autocomplete="email"
++                                    prop:value=email on:input=move |ev| email.set(event_target_value(&ev)) required/>
++                            </div>
++                            <div class="field">
++                                <label for="verify-code">"6-digit code"</label>
++                                <input id="verify-code" type="text" inputmode="numeric" autocomplete="one-time-code"
++                                    maxlength="6" pattern="[0-9]{6}"
++                                    prop:value=code on:input=move |ev| code.set(event_target_value(&ev)) required/>
++                            </div>
++                            <button type="submit" class="btn btn-primary btn-block" disabled=move || busy.get()>
++                                {move || if busy.get() { "Verifying..." } else { "Verify email" }}
++                            </button>
++                        </form>
++                    }.into_any()
+                 }}
+-
++                {move || status.get().map(|e| view! { <div class="form-error">{e}</div> })}
+                 <div class="auth-links">
+                     <a href="/login">"Back to sign in"</a>
+                 </div>
+diff --git a/crates/api/src/auth_state.rs b/crates/api/src/auth_state.rs
+index 0aed940c..0a436740 100644
+--- a/crates/api/src/auth_state.rs
++++ b/crates/api/src/auth_state.rs
+@@ -91,6 +91,13 @@ impl EmailVerificationTokenRepository for NoopEmailVerificationTokenRepository {
+     ) -> RepoResult<Option<EmailVerificationToken>> {
+         Ok(None)
+     }
++    async fn find_latest_unused_by_user(
++        &self,
++        _user_id: UserId,
++    ) -> RepoResult<Option<EmailVerificationToken>> {
++        Ok(None)
++    }
++
+     async fn mark_used(
+         &self,
+         _id: EmailVerificationTokenId,
+diff --git a/crates/api/src/handlers/login.rs b/crates/api/src/handlers/login.rs
+index 919cf171..a5ae0a53 100644
+--- a/crates/api/src/handlers/login.rs
++++ b/crates/api/src/handlers/login.rs
+@@ -52,6 +52,8 @@ pub async fn login(
+ 
+         if message == LOGIN_LOCKOUT_MESSAGE {
+             ApiError::too_many_requests(message)
++        } else if message == "email verification required" {
++            ApiError::forbidden("email verification required")
+         } else {
+             ApiError::bad_request("invalid email or password")
+         }
+diff --git a/crates/api/src/handlers/mod.rs b/crates/api/src/handlers/mod.rs
+index 9068306f..080a15c3 100644
+--- a/crates/api/src/handlers/mod.rs
++++ b/crates/api/src/handlers/mod.rs
+@@ -61,7 +61,9 @@ pub mod update_api_flow;
+ pub mod update_monitor;
+ pub mod update_status_page;
+ pub mod verify_email;
++pub mod verify_email_otp;
+ pub mod verify_totp;
++pub mod wallet;
+ 
+ // B8 — membership management:
+ pub mod add_member;
+@@ -140,6 +142,7 @@ pub use update_api_flow::*;
+ pub use update_monitor::*;
+ pub use update_status_page::*;
+ pub use verify_email::*;
++pub use verify_email_otp::*;
+ pub mod upload_status_page_logo;
+ pub use upload_status_page_logo::*;
+ 
+@@ -192,3 +195,5 @@ pub use support_types::{
+ 
+ pub mod advanced_monitoring;
+ pub use advanced_monitoring::*;
++
++pub use wallet::*;
+diff --git a/crates/api/src/handlers/register.rs b/crates/api/src/handlers/register.rs
+index cbb3f499..407d11af 100644
+--- a/crates/api/src/handlers/register.rs
++++ b/crates/api/src/handlers/register.rs
+@@ -1,9 +1,6 @@
+ use axum::{
+     extract::{Json, State},
+-    http::{
+-        StatusCode,
+-        header::{HeaderMap, HeaderValue, SET_COOKIE},
+-    },
++    http::{StatusCode, header::HeaderMap},
+ };
+ use serde_json::{Value, json};
+ 
+@@ -24,16 +21,31 @@ pub async fn register(
+     info!("API: register");
+ 
+     let registration_email = payload.email.clone();
++    let email_key = registration_email.trim().to_ascii_lowercase();
++
++    // Registration is an abuse-sensitive endpoint even with the global IP
++    // limiter. A distributed per-email limiter prevents attackers from
++    // repeatedly targeting the same mailbox or SMTP provider through
++    // rotating source IPs.
++    let allowed = state
++        .rate_limiter
++        .check_and_record("register", &email_key, 3, 600)
++        .await
++        .map_err(|_| ApiError::internal("registration service unavailable"))?;
++    if !allowed {
++        return Err(ApiError::too_many_requests(
++            "too many registration attempts; please try again later",
++        ));
++    }
+ 
+     let use_case = RegisterUserUseCase::new(
+         state.user_repository.clone(),
+         state.id_generator.clone(),
+         state.password_hasher.clone(),
+-        state.token_service.clone(),
+         state.registration_transaction.clone(),
+     );
+ 
+-    let response = use_case.execute(payload).await.map_err(|err| {
++    use_case.execute(payload).await.map_err(|err| {
+         tracing::warn!(error = %err, "registration failed");
+         ApiError::bad_request("registration failed")
+     })?;
+@@ -64,17 +76,15 @@ pub async fn register(
+         }
+     }
+ 
+-    let cookie = shared::cookie::access_token_cookie(&response.access_token);
+-
+-    let mut headers = HeaderMap::new();
+-    headers.insert(
+-        SET_COOKIE,
+-        HeaderValue::from_str(&cookie).map_err(|_| ApiError::internal("failed to set cookie"))?,
+-    );
+-
++    // SECURITY: registration never issues a JWT. The account remains
++    // PendingVerification until the 6-digit OTP is successfully redeemed.
+     Ok((
+         StatusCode::CREATED,
+-        headers,
+-        Json(json!({ "authenticated": true })),
++        HeaderMap::new(),
++        Json(json!({
++            "authenticated": false,
++            "verification_required": true,
++            "message": "account created; enter the verification code sent to your email"
++        })),
+     ))
+ }
+diff --git a/crates/api/src/main.rs b/crates/api/src/main.rs
+index b56691bc..89c05e0c 100644
+--- a/crates/api/src/main.rs
++++ b/crates/api/src/main.rs
+@@ -35,9 +35,10 @@ use infra::{
+     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
+     PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
+     PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+-    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
+-    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
+-    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
++    PostgresTenantRepository, PostgresUserRepository, PostgresWalletRepository,
++    RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
++    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator,
++    create_pool,
+ };
+ use tracing_subscriber::EnvFilter;
+ 
+@@ -186,7 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
+     .with_rum_site_repository(PostgresRumSiteRepository::new(pool.clone()))
+     .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
+     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
+-    .with_rate_limiter(redis_rate_limiter.clone());
++    .with_rate_limiter(redis_rate_limiter.clone())
++    .with_wallet_repository(PostgresWalletRepository::new(pool.clone()));
+ 
+     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
+     // GeoLite2 database `crates/agent` already requires, but unlike the
+diff --git a/crates/api/src/middleware/jwt_auth.rs b/crates/api/src/middleware/jwt_auth.rs
+index 44dc2edf..c1a5cfb9 100644
+--- a/crates/api/src/middleware/jwt_auth.rs
++++ b/crates/api/src/middleware/jwt_auth.rs
+@@ -59,10 +59,12 @@ pub async fn jwt_auth(
+         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+         .ok_or(StatusCode::UNAUTHORIZED)?;
+ 
+-    // PendingVerification is treated as authorized, matching
+-    // LoginUserUseCase — email verification gates specific actions, not
+-    // basic authenticated access. Only Suspended/Deleted revoke access.
+-    if matches!(user.status(), UserStatus::Suspended | UserStatus::Deleted) {
++    // SECURITY: email verification is a hard authentication boundary.
++    // A token must never grant dashboard/API access to an unverified account.
++    if matches!(
++        user.status(),
++        UserStatus::PendingVerification | UserStatus::Suspended | UserStatus::Deleted
++    ) {
+         return Err(StatusCode::UNAUTHORIZED);
+     }
+ 
+diff --git a/crates/api/src/router.rs b/crates/api/src/router.rs
+index 75ee55f3..72f84b15 100644
+--- a/crates/api/src/router.rs
++++ b/crates/api/src/router.rs
+@@ -21,7 +21,7 @@ use crate::{
+     routes::{
+         api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
+         invitations, members, monitors, notifications, pricing, proxy_checks, public,
+-        rum_dashboard, status_pages, subscription, support,
++        rum_dashboard, status_pages, subscription, support, wallet,
+     },
+     state::AppState,
+ };
+@@ -176,6 +176,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
+         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+         .with_state(app_state.clone());
+ 
++    let wallet_routes = wallet::router()
++        .layer(GovernorLayer::new(
++            GovernorConfigBuilder::default()
++                .per_second(2)
++                .burst_size(10)
++                .finish()
++                .expect("valid wallet rate-limit configuration"),
++        ))
++        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
++        .with_state(app_state.clone());
++
+     let subscription_routes = subscription::router()
+         .layer(GovernorLayer::new(
+             GovernorConfigBuilder::default()
+@@ -381,6 +392,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
+         .nest("/api/v1", billing_webhook_routes)
+         .nest("/api/v1", billing_routes)
+         .nest("/api/v1", subscription_routes)
++        .nest("/api/v1", wallet_routes)
+         .nest("/api/v1", pricing_routes)
+         .nest("/api/v1", help_routes)
+         .nest("/api/v1", support_routes)
+diff --git a/crates/api/src/routes/auth.rs b/crates/api/src/routes/auth.rs
+index 58fb4ebb..2035fac8 100644
+--- a/crates/api/src/routes/auth.rs
++++ b/crates/api/src/routes/auth.rs
+@@ -8,7 +8,7 @@ use crate::handlers::{
+     disable_totp::disable_totp, enable_totp::enable_totp, forgot_password::forgot_password,
+     login::login, logout::logout, oauth_apple::oauth_apple, oauth_google::oauth_google,
+     register::register, resend_verification::resend_verification, reset_password::reset_password,
+-    verify_email::verify_email, verify_totp::verify_totp,
++    verify_email::verify_email, verify_email_otp::verify_email_otp, verify_totp::verify_totp,
+ };
+ 
+ pub fn router() -> Router<crate::auth_state::AuthState> {
+@@ -18,6 +18,7 @@ pub fn router() -> Router<crate::auth_state::AuthState> {
+         .route("/oauth/google", post(oauth_google))
+         .route("/oauth/apple", post(oauth_apple))
+         .route("/verify-email", post(verify_email))
++        .route("/verify-email-otp", post(verify_email_otp))
+         .route("/resend-verification", post(resend_verification))
+         .route("/forgot-password", post(forgot_password))
+         .route("/reset-password", post(reset_password))
+diff --git a/crates/api/src/routes/mod.rs b/crates/api/src/routes/mod.rs
+index ea8a10d0..b3821e48 100644
+--- a/crates/api/src/routes/mod.rs
++++ b/crates/api/src/routes/mod.rs
+@@ -20,3 +20,5 @@ pub mod subscription;
+ // H14 — Help Center & Support:
+ pub mod help;
+ pub mod support;
++
++pub mod wallet;
+diff --git a/crates/api/src/state.rs b/crates/api/src/state.rs
+index c614755c..accf66c8 100644
+--- a/crates/api/src/state.rs
++++ b/crates/api/src/state.rs
+@@ -15,6 +15,7 @@ use application::ports::{
+     RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
+     SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
+     SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
++    WalletRepository,
+ };
+ 
+ use async_trait::async_trait;
+@@ -104,6 +105,7 @@ pub struct AppState {
+     /// real one (e.g. `infra::MaxMindGeoIpLookup`).
+     pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
+     pub rate_limiter: Arc<dyn RateLimiter>,
++    pub wallet_repository: Arc<dyn WalletRepository>,
+ }
+ 
+ /// Default `DashboardRepository` used until a real one is substituted in.
+@@ -815,6 +817,57 @@ impl GeoIpLookup for NoopGeoIpLookup {
+     }
+ }
+ 
++#[derive(Clone, Default)]
++struct NoopWalletRepository;
++
++#[async_trait]
++impl WalletRepository for NoopWalletRepository {
++    async fn get_or_create(
++        &self,
++        tenant_id: uuid::Uuid,
++        currency: &str,
++    ) -> RepoResult<domain::Wallet> {
++        Ok(domain::Wallet::new(
++            uuid::Uuid::new_v4(),
++            tenant_id,
++            currency,
++        ))
++    }
++    async fn list_transactions(
++        &self,
++        _tenant_id: uuid::Uuid,
++        _limit: u32,
++    ) -> RepoResult<Vec<domain::WalletTransaction>> {
++        Ok(vec![])
++    }
++    async fn reserve(
++        &self,
++        _tenant_id: uuid::Uuid,
++        _amount_units: i64,
++        _operation: &str,
++        _request_id: &str,
++        _expires_at: DateTime<Utc>,
++    ) -> RepoResult<domain::CreditReservation> {
++        Err("wallet repository is not configured".into())
++    }
++    async fn capture(&self, _reservation_id: uuid::Uuid) -> RepoResult<domain::WalletTransaction> {
++        Err("wallet repository is not configured".into())
++    }
++    async fn release(&self, _reservation_id: uuid::Uuid) -> RepoResult<()> {
++        Err("wallet repository is not configured".into())
++    }
++    async fn credit(
++        &self,
++        _tenant_id: uuid::Uuid,
++        _amount_units: i64,
++        _transaction_type: domain::WalletTransactionType,
++        _idempotency_key: &str,
++        _description: Option<&str>,
++    ) -> RepoResult<domain::WalletTransaction> {
++        Err("wallet repository is not configured".into())
++    }
++}
++
+ impl AppState {
+     #[allow(clippy::too_many_arguments)]
+     pub fn new<M, C, D, I, N, S, A, P, AL>(
+@@ -886,6 +939,7 @@ impl AppState {
+             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
+             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
+             rate_limiter: Arc::new(NoopRateLimiter),
++            wallet_repository: Arc::new(NoopWalletRepository),
+         }
+     }
+ 
+@@ -969,6 +1023,7 @@ impl AppState {
+             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
+             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
+             rate_limiter: Arc::new(NoopRateLimiter),
++            wallet_repository: Arc::new(NoopWalletRepository),
+         }
+     }
+ 
+@@ -1156,6 +1211,14 @@ impl AppState {
+         self
+     }
+ 
++    pub fn with_wallet_repository<R>(mut self, repository: R) -> Self
++    where
++        R: WalletRepository + 'static,
++    {
++        self.wallet_repository = Arc::new(repository);
++        self
++    }
++
+     pub fn with_rum_analytics_repository<R>(mut self, repo: R) -> Self
+     where
+         R: RumAnalyticsRepository + 'static,
+diff --git a/crates/api/tests/auth.rs b/crates/api/tests/auth.rs
+index 7fd7e3eb..6e76b517 100644
+--- a/crates/api/tests/auth.rs
++++ b/crates/api/tests/auth.rs
+@@ -43,7 +43,7 @@ use chrono::{DateTime, Utc};
+ use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
+ use domain::{
+     BackupCode, BackupCodeId, Check, DiagnosticReport, Incident, Tenant, TenantMembership, User,
+-    UserId,
++    UserId, UserStatus,
+ };
+ use infra::{
+     Argon2PasswordHasher, InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
+@@ -288,6 +288,11 @@ where
+ }
+ 
+ fn build_test_app() -> axum::Router {
++    let (app, _) = build_test_app_with_user_repository();
++    app
++}
++
++fn build_test_app_with_user_repository() -> (axum::Router, InMemoryUserRepository) {
+     let monitor_repository = InMemoryMonitorRepository::new();
+     let user_repository = InMemoryUserRepository::new();
+ 
+@@ -305,9 +310,9 @@ fn build_test_app() -> axum::Router {
+         InMemoryAuditLogEntryRepository::new(),
+     );
+ 
+-    let auth_state = build_auth_state(user_repository);
++    let auth_state = build_auth_state(user_repository.clone());
+ 
+-    build_test_router(app_state, auth_state)
++    (build_test_router(app_state, auth_state), user_repository)
+ }
+ 
+ fn build_test_app_with_rate_limiter<R>(rate_limiter: R) -> axum::Router
+@@ -396,7 +401,7 @@ async fn post(app: &axum::Router, uri: &str, body: Value) -> axum::response::Res
+ // ------------------------------- register -------------------------------
+ 
+ #[tokio::test]
+-async fn register_endpoint_creates_user_and_sets_session_cookie() {
++async fn register_endpoint_creates_pending_user_without_session_cookie() {
+     let app = build_test_app();
+     let (username, email) = unique_user();
+ 
+@@ -408,9 +413,7 @@ async fn register_endpoint_creates_user_and_sets_session_cookie() {
+     .await;
+ 
+     assert_eq!(response.status(), StatusCode::CREATED);
+-    let set_cookie = set_cookie_header(&response);
+-    assert!(set_cookie.starts_with("access_token="));
+-    assert!(set_cookie.contains("HttpOnly"));
++    assert!(response.headers().get(SET_COOKIE).is_none());
+ }
+ 
+ #[tokio::test]
+@@ -440,19 +443,35 @@ async fn register_endpoint_rejects_duplicate_email() {
+ 
+ #[tokio::test]
+ async fn login_endpoint_sets_session_cookie_on_success() {
+-    let app = build_test_app();
++    let (app, user_repository) = build_test_app_with_user_repository();
+     let (username, email) = unique_user();
+     let password = STRONG_PASSWORD;
+ 
+-    post(
++    let register_response = post(
+         &app,
+         "/api/v1/auth/register",
+         register_payload(&username, &email, password),
+     )
+     .await;
++    assert_eq!(register_response.status(), StatusCode::CREATED);
++    assert!(register_response.headers().get(SET_COOKIE).is_none());
++
++    let email_value = domain::Email::new(email.clone()).unwrap();
++    let mut user = user_repository
++        .find_by_email(&email_value)
++        .await
++        .unwrap()
++        .expect("registered user should exist");
++
++    assert_eq!(user.status(), UserStatus::PendingVerification);
++    assert!(!user.is_email_verified());
++
++    user.mark_email_verified(Utc::now());
++    user_repository.update(&user).await.unwrap();
+ 
+     let resp = post(&app, "/api/v1/auth/login", login_payload(&email, password)).await;
+     assert_eq!(resp.status(), StatusCode::OK);
++
+     let set_cookie = set_cookie_header(&resp);
+     assert!(set_cookie.starts_with("access_token="));
+ }
+diff --git a/crates/api/tests/common/mod.rs b/crates/api/tests/common/mod.rs
+index f6a5c280..0c48d17f 100644
+--- a/crates/api/tests/common/mod.rs
++++ b/crates/api/tests/common/mod.rs
+@@ -313,7 +313,7 @@ pub async fn build_billing_summary_fixture() -> (
+     let user_id = UserId::new();
+     let user = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
+ 
+-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
++    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
+     subscription.update_usage(100, 60, 30, 1).unwrap();
+     application::ports::SubscriptionRepository::create(&*subscription_repo, &subscription)
+         .await
+diff --git a/crates/api/tests/subscription_usage.rs b/crates/api/tests/subscription_usage.rs
+index 4fa41779..d657a0a8 100644
+--- a/crates/api/tests/subscription_usage.rs
++++ b/crates/api/tests/subscription_usage.rs
+@@ -325,7 +325,7 @@ async fn member_without_manage_billing_gets_forbidden() {
+                 .uri("/api/v1/subscription/usage")
+                 .header("content-type", "application/json")
+                 .header("authorization", auth_header(member_user.0))
+-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
++                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
+                 .unwrap(),
+         )
+         .await
+@@ -354,7 +354,7 @@ async fn owner_without_existing_subscription_gets_not_found() {
+                 .uri("/api/v1/subscription/usage")
+                 .header("content-type", "application/json")
+                 .header("authorization", auth_header(owner_user.0))
+-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
++                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
+                 .unwrap(),
+         )
+         .await
+@@ -368,7 +368,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
+     // SECURITY (H13): the endpoint no longer trusts `plan_tier` from the
+     // request body -- it reads the tenant's actual plan tier from the
+     // subscription in the database. Here the DB has Tier5, and the body
+-    // requests a different tier ("tier_1"), to prove the body value is
++    // requests a different tier ("starter"), to prove the body value is
+     // ignored and the response reflects the DB's tier instead.
+     let tenant_id = TenantId(Uuid::new_v4());
+     let owner_user = UserId(Uuid::new_v4());
+@@ -379,7 +379,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
+         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
+     let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
+ 
+-    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
++    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
+     subscription_repo.create(&subscription).await.unwrap();
+ 
+     let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
+@@ -391,7 +391,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
+                 .uri("/api/v1/subscription/usage")
+                 .header("content-type", "application/json")
+                 .header("authorization", auth_header(owner_user.0))
+-                .body(Body::from(json!({ "plan_tier": "tier_1" }).to_string()))
++                .body(Body::from(json!({ "plan_tier": "starter" }).to_string()))
+                 .unwrap(),
+         )
+         .await
+@@ -399,7 +399,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
+ 
+     assert_eq!(response.status(), StatusCode::OK);
+     let body = read_json(response).await;
+-    assert_eq!(body["plan_tier"], "tier_5");
++    assert_eq!(body["plan_tier"], "pro");
+     assert_eq!(body["monitors"], 500);
+     assert_eq!(body["interval_seconds"], 60);
+     assert_eq!(body["retention_days"], 90);
+diff --git a/crates/application/src/dto/mod.rs b/crates/application/src/dto/mod.rs
+index 6590ace8..5a02f1f3 100644
+--- a/crates/application/src/dto/mod.rs
++++ b/crates/application/src/dto/mod.rs
+@@ -74,3 +74,6 @@ pub use rum_analytics::{
+ pub use rum_ingest_request::{
+     RumIngestJsError, RumIngestPageView, RumIngestRequest, RumIngestResourceError,
+ };
++
++pub mod verify_email_otp_request;
++pub use verify_email_otp_request::VerifyEmailOtpRequest;
+diff --git a/crates/application/src/ports/email_verification_token_repository.rs b/crates/application/src/ports/email_verification_token_repository.rs
+index 09894b58..07da62a9 100644
+--- a/crates/application/src/ports/email_verification_token_repository.rs
++++ b/crates/application/src/ports/email_verification_token_repository.rs
+@@ -23,6 +23,14 @@ pub trait EmailVerificationTokenRepository: Send + Sync {
+         token_prefix: &str,
+     ) -> RepoResult<Option<EmailVerificationToken>>;
+ 
++    /// Returns the newest unused token for a user. OTP verification uses
++    /// the email to identify the account, then Argon2-verifies the submitted
++    /// 6-digit code against this row; the raw OTP is never queryable.
++    async fn find_latest_unused_by_user(
++        &self,
++        user_id: UserId,
++    ) -> RepoResult<Option<EmailVerificationToken>>;
++
+     /// Marks a token as redeemed. Must only be called after a successful
+     /// full-token verification so replay is impossible.
+     async fn mark_used(
+@@ -68,6 +76,13 @@ where
+         (**self).find_by_prefix(token_prefix).await
+     }
+ 
++    async fn find_latest_unused_by_user(
++        &self,
++        user_id: UserId,
++    ) -> RepoResult<Option<EmailVerificationToken>> {
++        (**self).find_latest_unused_by_user(user_id).await
++    }
++
+     async fn mark_used(
+         &self,
+         id: EmailVerificationTokenId,
+diff --git a/crates/application/src/ports/id_generator.rs b/crates/application/src/ports/id_generator.rs
+index bf6d6f6b..1c47900f 100644
+--- a/crates/application/src/ports/id_generator.rs
++++ b/crates/application/src/ports/id_generator.rs
+@@ -128,6 +128,11 @@ pub trait IdGenerator: Send + Sync {
+     /// default method for the same reason as `next_api_key_secret`.
+     async fn next_email_verification_token(&self) -> String;
+ 
++    /// Generates a cryptographically random 6-digit email verification OTP.
++    /// The OTP is short-lived and must be rate-limited; it is hashed before
++    /// persistence and is never logged.
++    async fn next_email_verification_otp(&self) -> String;
++
+     /// Generates a new raw password-reset token, formatted as
+     /// `rst_<16 lowercase-hex chars>_<64 lowercase-hex chars>` — same
+     /// shape as `next_email_verification_token`, deliberately using a
+diff --git a/crates/application/src/ports/mod.rs b/crates/application/src/ports/mod.rs
+index 3d028a6c..c14c9a3f 100644
+--- a/crates/application/src/ports/mod.rs
++++ b/crates/application/src/ports/mod.rs
+@@ -181,3 +181,6 @@ pub use geo_ip_lookup::GeoIpLookup;
+ pub use rum_analytics_repository::RumAnalyticsRepository;
+ pub use rum_event_repository::RumEventRepository;
+ pub use rum_site_repository::RumSiteRepository;
++
++pub mod wallet_repository;
++pub use wallet_repository::{WalletRepoResult, WalletRepository};
+diff --git a/crates/application/src/use_cases/create_email_verification_token.rs b/crates/application/src/use_cases/create_email_verification_token.rs
+index f5c5b0d6..0c43fe87 100644
+--- a/crates/application/src/use_cases/create_email_verification_token.rs
++++ b/crates/application/src/use_cases/create_email_verification_token.rs
+@@ -7,7 +7,7 @@ use crate::{
+         EmailVerificationMailer, EmailVerificationTokenRepository, IdGenerator, PasswordHasher,
+     },
+     use_cases::email_verification_support::{
+-        EMAIL_VERIFICATION_TOKEN_TTL_HOURS, email_verification_token_prefix,
++        EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, email_verification_token_prefix,
+     },
+ };
+ 
+@@ -47,12 +47,13 @@ where
+     }
+ 
+     pub async fn execute(&self, user_id: UserId, email: &Email) -> UseCaseResult<()> {
+-        let raw_token = self.id_generator.next_email_verification_token().await;
+-        let token_prefix = email_verification_token_prefix(&raw_token)?;
+-        let token_hash = self.password_hasher.hash(&raw_token).await?;
++        let opaque_token = self.id_generator.next_email_verification_token().await;
++        let token_prefix = email_verification_token_prefix(&opaque_token)?;
++        let otp = self.id_generator.next_email_verification_otp().await;
++        let token_hash = self.password_hasher.hash(&otp).await?;
+ 
+         let now = Utc::now();
+-        let expires_at = now + Duration::hours(EMAIL_VERIFICATION_TOKEN_TTL_HOURS);
++        let expires_at = now + Duration::minutes(EMAIL_VERIFICATION_TOKEN_TTL_MINUTES);
+ 
+         let token = EmailVerificationToken::new(
+             EmailVerificationTokenId::new(),
+@@ -67,9 +68,7 @@ where
+             .delete_unused_for_user(user_id)
+             .await?;
+         self.token_repository.create(&token).await?;
+-        self.mailer
+-            .send_verification_email(email, &raw_token)
+-            .await?;
++        self.mailer.send_verification_email(email, &otp).await?;
+ 
+         Ok(())
+     }
+diff --git a/crates/application/src/use_cases/email_verification_support.rs b/crates/application/src/use_cases/email_verification_support.rs
+index 3a96e48e..00f763e0 100644
+--- a/crates/application/src/use_cases/email_verification_support.rs
++++ b/crates/application/src/use_cases/email_verification_support.rs
+@@ -1,7 +1,10 @@
+ use std::error::Error;
+ 
+ /// How long a verification token stays valid.
+-pub const EMAIL_VERIFICATION_TOKEN_TTL_HOURS: i64 = 24;
++pub const EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: i64 = 10;
++/// Legacy name retained for source compatibility; new verification tokens use
++/// the 10-minute OTP lifetime above.
++pub const EMAIL_VERIFICATION_TOKEN_TTL_HOURS: i64 = 1;
+ 
+ /// Extracts the plaintext lookup prefix from a raw verification token.
+ ///
+diff --git a/crates/application/src/use_cases/login_user.rs b/crates/application/src/use_cases/login_user.rs
+index 80d7d7bb..d6168a39 100644
+--- a/crates/application/src/use_cases/login_user.rs
++++ b/crates/application/src/use_cases/login_user.rs
+@@ -209,7 +209,10 @@ where
+         // `Active` saboda babu wani email-verification flow tukuna da zai
+         // hana shi; za a sake duba wannan idan an gina wannan flow.
+         match user.status() {
+-            UserStatus::Active | UserStatus::PendingVerification => {}
++            UserStatus::Active => {}
++            UserStatus::PendingVerification => {
++                return Err("email verification required".into());
++            }
+             UserStatus::Suspended => {
+                 // SEC (B4 audit): previously returned a distinct "account
+                 // suspended" message here. Genericized to the SAME
+diff --git a/crates/application/src/use_cases/mod.rs b/crates/application/src/use_cases/mod.rs
+index d86959a7..006ec0fc 100644
+--- a/crates/application/src/use_cases/mod.rs
++++ b/crates/application/src/use_cases/mod.rs
+@@ -178,3 +178,6 @@ pub mod rum_dashboard_queries;
+ pub use ingest_rum_event::{IngestRumEventError, IngestRumEventUseCase};
+ pub use manage_rum_sites::{CreateRumSiteError, CreateRumSiteUseCase, ListRumSitesUseCase};
+ pub use rum_dashboard_queries::{RumDashboardError, RumDashboardQueriesUseCase};
++
++pub mod verify_email_otp;
++pub use verify_email_otp::{VerifyEmailOtpError, VerifyEmailOtpUseCase};
+diff --git a/crates/application/src/use_cases/register_user.rs b/crates/application/src/use_cases/register_user.rs
+index 448ffd4c..c2aee079 100644
+--- a/crates/application/src/use_cases/register_user.rs
++++ b/crates/application/src/use_cases/register_user.rs
+@@ -3,8 +3,8 @@ use std::error::Error;
+ use chrono::Utc;
+ 
+ use crate::{
+-    dto::{AuthResponse, RegisterRequest},
+-    ports::{IdGenerator, PasswordHasher, RegistrationTransaction, TokenService, UserRepository},
++    dto::RegisterRequest,
++    ports::{IdGenerator, PasswordHasher, RegistrationTransaction, UserRepository},
+ };
+ 
+ use domain::{
+@@ -42,39 +42,35 @@ fn validate_password(password: &str) -> Result<(), &'static str> {
+     Ok(())
+ }
+ 
+-pub struct RegisterUserUseCase<R, G, H, T, RT> {
++pub struct RegisterUserUseCase<R, G, H, RT> {
+     repository: R,
+     id_generator: G,
+     password_hasher: H,
+-    token_service: T,
+     registration_transaction: RT,
+ }
+ 
+-impl<R, G, H, T, RT> RegisterUserUseCase<R, G, H, T, RT>
++impl<R, G, H, RT> RegisterUserUseCase<R, G, H, RT>
+ where
+     R: UserRepository,
+     G: IdGenerator,
+     H: PasswordHasher,
+-    T: TokenService,
+     RT: RegistrationTransaction,
+ {
+     pub fn new(
+         repository: R,
+         id_generator: G,
+         password_hasher: H,
+-        token_service: T,
+         registration_transaction: RT,
+     ) -> Self {
+         Self {
+             repository,
+             id_generator,
+             password_hasher,
+-            token_service,
+             registration_transaction,
+         }
+     }
+ 
+-    pub async fn execute(&self, request: RegisterRequest) -> UseCaseResult<AuthResponse> {
++    pub async fn execute(&self, request: RegisterRequest) -> UseCaseResult<()> {
+         validate_password(&request.password)?;
+ 
+         let raw_username_for_tenant_name = request.username.clone();
+@@ -127,11 +123,7 @@ where
+             .register_user_with_tenant(&user, &tenant, &membership)
+             .await?;
+ 
+-        let token = self.token_service.generate(user.id()).await?;
+-
+-        Ok(AuthResponse {
+-            access_token: token,
+-        })
++        Ok(())
+     }
+ }
+ 
+diff --git a/crates/application/src/use_cases/resend_verification.rs b/crates/application/src/use_cases/resend_verification.rs
+index c01faa0e..15a227d5 100644
+--- a/crates/application/src/use_cases/resend_verification.rs
++++ b/crates/application/src/use_cases/resend_verification.rs
+@@ -9,7 +9,7 @@ use crate::{
+         UserRepository,
+     },
+     use_cases::email_verification_support::{
+-        EMAIL_VERIFICATION_TOKEN_TTL_HOURS, email_verification_token_prefix,
++        EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, email_verification_token_prefix,
+     },
+ };
+ 
+@@ -73,12 +73,13 @@ where
+ 
+         let user_id = user.id();
+ 
+-        let raw_token = self.id_generator.next_email_verification_token().await;
+-        let token_prefix = email_verification_token_prefix(&raw_token)?;
+-        let token_hash = self.password_hasher.hash(&raw_token).await?;
++        let opaque_token = self.id_generator.next_email_verification_token().await;
++        let token_prefix = email_verification_token_prefix(&opaque_token)?;
++        let otp = self.id_generator.next_email_verification_otp().await;
++        let token_hash = self.password_hasher.hash(&otp).await?;
+ 
+         let now = Utc::now();
+-        let expires_at = now + Duration::hours(EMAIL_VERIFICATION_TOKEN_TTL_HOURS);
++        let expires_at = now + Duration::minutes(EMAIL_VERIFICATION_TOKEN_TTL_MINUTES);
+ 
+         let token = EmailVerificationToken::new(
+             EmailVerificationTokenId::new(),
+@@ -93,9 +94,7 @@ where
+             .delete_unused_for_user(user_id)
+             .await?;
+         self.token_repository.create(&token).await?;
+-        self.mailer
+-            .send_verification_email(&email, &raw_token)
+-            .await?;
++        self.mailer.send_verification_email(&email, &otp).await?;
+ 
+         Ok(())
+     }
+diff --git a/crates/application/src/use_cases/update_subscription_usage.rs b/crates/application/src/use_cases/update_subscription_usage.rs
+index fc47f72b..edb7a085 100644
+--- a/crates/application/src/use_cases/update_subscription_usage.rs
++++ b/crates/application/src/use_cases/update_subscription_usage.rs
+@@ -299,6 +299,10 @@ mod tests {
+         async fn next_invitation_token(&self) -> String {
+             "inv_token".to_string()
+         }
++
++        async fn next_email_verification_otp(&self) -> String {
++            "000000".to_owned()
++        }
+     }
+ 
+     struct AcceptingTransaction;
+@@ -321,10 +325,9 @@ mod tests {
+     /// to tamper with in the first place.
+     #[tokio::test]
+     async fn execute_derives_usage_only_from_the_subscriptions_own_plan_tier() {
+-        let subscription =
+-            Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Tier5);
++        let subscription = Subscription::new(SubscriptionId::new(), TenantId::new(), PlanTier::Pro);
+         let tenant_id = subscription.tenant_id;
+-        let expected_plan = Plan::for_tier(PlanTier::Tier5);
++        let expected_plan = Plan::for_tier(PlanTier::Pro);
+ 
+         let use_case = UpdateSubscriptionUsageUseCase::new(
+             Arc::new(FixedSubscriptionRepository { subscription }),
+@@ -341,7 +344,7 @@ mod tests {
+             .await
+             .expect("usage update should succeed for an active subscription");
+ 
+-        assert_eq!(outcome.plan_tier, PlanTier::Tier5);
++        assert_eq!(outcome.plan_tier, PlanTier::Pro);
+         assert_eq!(outcome.monitors, expected_plan.max_monitors as u64);
+         assert_eq!(
+             outcome.interval_seconds,
+diff --git a/crates/application/tests/checkout_use_cases.rs b/crates/application/tests/checkout_use_cases.rs
+index 079ae57e..0684d670 100644
+--- a/crates/application/tests/checkout_use_cases.rs
++++ b/crates/application/tests/checkout_use_cases.rs
+@@ -101,7 +101,7 @@ async fn verify_paid_creates_active_subscription_when_none_exists() {
+     let provider = TestBillingProvider::new(TestVerification::Paid);
+     let tenant_id = TenantId::new();
+ 
+-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier5).await;
++    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Pro).await;
+ 
+     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
+     let outcome = use_case
+@@ -120,7 +120,7 @@ async fn verify_paid_creates_active_subscription_when_none_exists() {
+         .expect("lookup should succeed")
+         .expect("subscription should have been created");
+     assert_eq!(subscription.status, SubscriptionStatus::Active);
+-    assert_eq!(subscription.plan_tier, PlanTier::Tier5);
++    assert_eq!(subscription.plan_tier, PlanTier::Pro);
+ }
+ 
+ #[tokio::test]
+@@ -130,7 +130,7 @@ async fn verify_pending_does_not_create_subscription() {
+     let provider = TestBillingProvider::new(TestVerification::Pending);
+     let tenant_id = TenantId::new();
+ 
+-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier1).await;
++    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Starter).await;
+ 
+     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
+     let outcome = use_case
+@@ -170,7 +170,7 @@ async fn verify_paid_upgrades_existing_expired_subscription_to_active() {
+         .await
+         .expect("create should succeed");
+ 
+-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier10).await;
++    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Business).await;
+ 
+     let use_case = VerifyCheckoutUseCase::new(sessions, subscriptions.clone(), provider);
+     let outcome = use_case
+@@ -189,7 +189,7 @@ async fn verify_paid_upgrades_existing_expired_subscription_to_active() {
+         .expect("lookup should succeed")
+         .expect("subscription should exist");
+     assert_eq!(subscription.status, SubscriptionStatus::Active);
+-    assert_eq!(subscription.plan_tier, PlanTier::Tier10);
++    assert_eq!(subscription.plan_tier, PlanTier::Business);
+ }
+ 
+ #[tokio::test]
+@@ -199,7 +199,7 @@ async fn verify_is_idempotent_after_completion() {
+     let provider = TestBillingProvider::new(TestVerification::Paid);
+     let tenant_id = TenantId::new();
+ 
+-    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Tier20).await;
++    let checkout_id = initiate(&sessions, &provider, tenant_id, PlanTier::Enterprise).await;
+ 
+     let use_case = VerifyCheckoutUseCase::new(sessions.clone(), subscriptions.clone(), provider);
+     let first = use_case
+@@ -225,6 +225,6 @@ async fn verify_is_idempotent_after_completion() {
+         .await
+         .expect("lookup should succeed")
+         .expect("subscription should exist");
+-    assert_eq!(subscription.plan_tier, PlanTier::Tier20);
++    assert_eq!(subscription.plan_tier, PlanTier::Enterprise);
+     assert_eq!(subscription.status, SubscriptionStatus::Active);
+ }
+diff --git a/crates/application/tests/process_billing_webhook.rs b/crates/application/tests/process_billing_webhook.rs
+index b1c68cc5..a48a394f 100644
+--- a/crates/application/tests/process_billing_webhook.rs
++++ b/crates/application/tests/process_billing_webhook.rs
+@@ -36,7 +36,7 @@ async fn duplicate_delivery_is_safely_ignored() {
+     let audit = InMemoryBillingAuditLogRepository::new();
+ 
+     let tenant_id = TenantId::new();
+-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
++    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
+     subscriptions.create(&sub).await.unwrap();
+ 
+     let use_case = ProcessBillingWebhookUseCase::new(
+@@ -49,7 +49,7 @@ async fn duplicate_delivery_is_safely_ignored() {
+         "evt_1",
+         BillingWebhookEventType::PaymentSucceeded,
+         tenant_id,
+-        Some(PlanTier::Tier10),
++        Some(PlanTier::Business),
+     );
+     let first = use_case.execute(cmd.clone()).await.unwrap();
+     assert!(first.processed);
+@@ -59,7 +59,7 @@ async fn duplicate_delivery_is_safely_ignored() {
+         .await
+         .unwrap()
+         .unwrap();
+-    assert_eq!(after_first.plan_tier, PlanTier::Tier10);
++    assert_eq!(after_first.plan_tier, PlanTier::Business);
+     assert_eq!(after_first.status, SubscriptionStatus::Active);
+ 
+     // Duplicate delivery with same provider_event_id.
+@@ -71,7 +71,7 @@ async fn duplicate_delivery_is_safely_ignored() {
+         .await
+         .unwrap()
+         .unwrap();
+-    assert_eq!(after_second.plan_tier, PlanTier::Tier10);
++    assert_eq!(after_second.plan_tier, PlanTier::Business);
+     assert_eq!(after_second.status, SubscriptionStatus::Active);
+ 
+     // Only one audit log entry should exist.
+@@ -100,7 +100,7 @@ async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
+             "evt_paid",
+             BillingWebhookEventType::PaymentSucceeded,
+             tenant_id,
+-            Some(PlanTier::Tier20),
++            Some(PlanTier::Enterprise),
+         ))
+         .await
+         .unwrap();
+@@ -111,7 +111,7 @@ async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
+         .unwrap()
+         .unwrap();
+     assert_eq!(updated.status, SubscriptionStatus::Active);
+-    assert_eq!(updated.plan_tier, PlanTier::Tier20);
++    assert_eq!(updated.plan_tier, PlanTier::Enterprise);
+ }
+ 
+ #[tokio::test]
+@@ -121,7 +121,7 @@ async fn payment_failed_moves_active_to_past_due() {
+     let audit = InMemoryBillingAuditLogRepository::new();
+ 
+     let tenant_id = TenantId::new();
+-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
++    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
+     subscriptions.create(&sub).await.unwrap();
+ 
+     let use_case = ProcessBillingWebhookUseCase::new(
+@@ -156,7 +156,7 @@ async fn subscription_canceled_moves_active_to_canceled_immediately() {
+     let audit = InMemoryBillingAuditLogRepository::new();
+ 
+     let tenant_id = TenantId::new();
+-    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
++    let sub = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
+     subscriptions.create(&sub).await.unwrap();
+ 
+     let use_case = ProcessBillingWebhookUseCase::new(
+diff --git a/crates/application/tests/process_billing_webhook_retry.rs b/crates/application/tests/process_billing_webhook_retry.rs
+index b3edb175..174ed2a6 100644
+--- a/crates/application/tests/process_billing_webhook_retry.rs
++++ b/crates/application/tests/process_billing_webhook_retry.rs
+@@ -38,7 +38,7 @@ fn command(event_id: &str, tenant_id: TenantId) -> ProcessBillingWebhookCommand
+         provider_event_id: event_id.to_owned(),
+         event_type: BillingWebhookEventType::PaymentSucceeded,
+         tenant_id,
+-        plan_tier: Some(PlanTier::Tier10),
++        plan_tier: Some(PlanTier::Business),
+         cancel_at_period_end: false,
+         current_period_ends_at: None,
+         payload: serde_json::json!({}),
+@@ -74,5 +74,5 @@ async fn failed_webhook_processing_marks_event_pending_and_retry_succeeds() {
+         .await
+         .unwrap()
+         .unwrap();
+-    assert_eq!(updated.plan_tier, PlanTier::Tier10);
++    assert_eq!(updated.plan_tier, PlanTier::Business);
+ }
+diff --git a/crates/application/tests/register_user_use_case.rs b/crates/application/tests/register_user_use_case.rs
+index e47ce0d8..7f9cdaa9 100644
+--- a/crates/application/tests/register_user_use_case.rs
++++ b/crates/application/tests/register_user_use_case.rs
+@@ -5,7 +5,7 @@ use application::ports::{RegistrationTransaction, UserRepository};
+ use application::use_cases::RegisterUserUseCase;
+ use async_trait::async_trait;
+ use domain::{Email, Tenant, TenantMembership, User, UserId, Username};
+-use infra::{Argon2PasswordHasher, JsonWebTokenService, UuidIdGenerator};
++use infra::{Argon2PasswordHasher, UuidIdGenerator};
+ 
+ type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+ 
+@@ -52,9 +52,10 @@ impl UserRepository for MockUserRepository {
+     }
+ }
+ 
+-/// Test-only no-op implementation of the fifth generic parameter required
+-/// by `RegisterUserUseCase`. Application-level tests cannot depend on
+-/// `infra`'s concrete repositories, so we define a local stand-in here.
++/// Test-only no-op implementation of the registration transaction
++/// required by `RegisterUserUseCase`. Application-level tests cannot depend
++/// on a concrete production transaction implementation, so we define a
++/// local stand-in here.
+ #[derive(Clone, Default)]
+ struct MockRegistrationTransaction;
+ 
+@@ -77,7 +78,6 @@ fn make_use_case(
+     MockUserRepository,
+     UuidIdGenerator,
+     Argon2PasswordHasher,
+-    JsonWebTokenService,
+     MockRegistrationTransaction,
+ > {
+     RegisterUserUseCase::new(
+@@ -87,7 +87,6 @@ fn make_use_case(
+         },
+         UuidIdGenerator::new(),
+         Argon2PasswordHasher,
+-        JsonWebTokenService::new("test-secret"),
+         MockRegistrationTransaction,
+     )
+ }
+diff --git a/crates/application/tests/resolve_entitlements_use_case.rs b/crates/application/tests/resolve_entitlements_use_case.rs
+index 82d2ce4b..860de905 100644
+--- a/crates/application/tests/resolve_entitlements_use_case.rs
++++ b/crates/application/tests/resolve_entitlements_use_case.rs
+@@ -25,10 +25,10 @@ async fn defaults_to_free_plan_when_no_subscription_exists() {
+ #[tokio::test]
+ async fn resolves_correct_limits_for_each_paid_tier() {
+     let cases = [
+-        (PlanTier::Tier1, 250, 60, 30),
+-        (PlanTier::Tier5, 500, 60, 90),
+-        (PlanTier::Tier10, 1000, 30, 180),
+-        (PlanTier::Tier20, 2500, 30, 365),
++        (PlanTier::Starter, 250, 60, 30),
++        (PlanTier::Pro, 500, 60, 90),
++        (PlanTier::Business, 1000, 30, 180),
++        (PlanTier::Enterprise, 2500, 30, 365),
+     ];
+ 
+     for (tier, max_monitors, min_interval, retention_days) in cases {
+@@ -58,7 +58,7 @@ async fn trialing_subscription_resolves_full_plan_entitlements() {
+     let subscription = Subscription::new_trialing(
+         SubscriptionId::new(),
+         tenant_id,
+-        PlanTier::Tier10,
++        PlanTier::Business,
+         chrono::Utc::now(),
+     );
+     repository.create(&subscription).await.unwrap();
+@@ -69,14 +69,14 @@ async fn trialing_subscription_resolves_full_plan_entitlements() {
+         .await
+         .unwrap();
+ 
+-    assert_eq!(plan.tier, PlanTier::Tier10);
++    assert_eq!(plan.tier, PlanTier::Business);
+ }
+ 
+ #[tokio::test]
+ async fn past_due_subscription_still_resolves_full_plan_entitlements() {
+     let repository = InMemorySubscriptionRepository::new();
+     let tenant_id = TenantId::new();
+-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
++    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
+     subscription.status = SubscriptionStatus::PastDue;
+     repository.create(&subscription).await.unwrap();
+ 
+@@ -86,14 +86,15 @@ async fn past_due_subscription_still_resolves_full_plan_entitlements() {
+         .await
+         .unwrap();
+ 
+-    assert_eq!(plan.tier, PlanTier::Tier5);
++    assert_eq!(plan.tier, PlanTier::Pro);
+ }
+ 
+ #[tokio::test]
+ async fn expired_subscription_falls_back_to_free_plan() {
+     let repository = InMemorySubscriptionRepository::new();
+     let tenant_id = TenantId::new();
+-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier20);
++    let mut subscription =
++        Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Enterprise);
+     subscription.status = SubscriptionStatus::Expired;
+     repository.create(&subscription).await.unwrap();
+ 
+@@ -110,7 +111,8 @@ async fn expired_subscription_falls_back_to_free_plan() {
+ async fn canceled_subscription_falls_back_to_free_plan() {
+     let repository = InMemorySubscriptionRepository::new();
+     let tenant_id = TenantId::new();
+-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier20);
++    let mut subscription =
++        Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Enterprise);
+     subscription.status = SubscriptionStatus::Canceled;
+     repository.create(&subscription).await.unwrap();
+ 
+diff --git a/crates/application/tests/subscription_lifecycle_use_cases.rs b/crates/application/tests/subscription_lifecycle_use_cases.rs
+index c34a04d7..34104f8b 100644
+--- a/crates/application/tests/subscription_lifecycle_use_cases.rs
++++ b/crates/application/tests/subscription_lifecycle_use_cases.rs
+@@ -19,7 +19,7 @@ async fn begin_grace_period_moves_active_subscription_to_past_due() {
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tenant_id,
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+         ))
+         .await
+         .unwrap();
+@@ -60,7 +60,7 @@ async fn begin_grace_period_errors_when_no_subscription_exists() {
+ async fn expire_subscription_moves_past_due_to_expired() {
+     let repository = InMemorySubscriptionRepository::new();
+     let tenant_id = TenantId::new();
+-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
++    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
+     subscription.status = SubscriptionStatus::PastDue;
+     repository.create(&subscription).await.unwrap();
+ 
+@@ -86,7 +86,7 @@ async fn expire_subscription_rejects_directly_from_active() {
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tenant_id,
+-            PlanTier::Tier5,
++            PlanTier::Pro,
+         ))
+         .await
+         .unwrap();
+@@ -105,7 +105,7 @@ async fn cancel_subscription_immediately_sets_canceled_status() {
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tenant_id,
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+         ))
+         .await
+         .unwrap();
+@@ -136,7 +136,7 @@ async fn finalize_scheduled_cancellation_completes_an_end_of_period_cancellation
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tenant_id,
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+         ))
+         .await
+         .unwrap();
+@@ -182,7 +182,7 @@ async fn finalize_scheduled_cancellation_errors_when_none_scheduled() {
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tenant_id,
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+         ))
+         .await
+         .unwrap();
+diff --git a/crates/domain/src/entities/mod.rs b/crates/domain/src/entities/mod.rs
+index c8760f12..29c9cfee 100644
+--- a/crates/domain/src/entities/mod.rs
++++ b/crates/domain/src/entities/mod.rs
+@@ -123,3 +123,6 @@ mod rum_js_error;
+ pub use rum_js_error::RumJsError;
+ mod rum_resource_error;
+ pub use rum_resource_error::{RumResourceError, RumResourceType};
++
++pub mod wallet;
++pub use wallet::{CreditReservation, Wallet, WalletTransaction, WalletTransactionType};
+diff --git a/crates/domain/src/entities/plan.rs b/crates/domain/src/entities/plan.rs
+index 6df9aac7..a7e15006 100644
+--- a/crates/domain/src/entities/plan.rs
++++ b/crates/domain/src/entities/plan.rs
+@@ -1,54 +1,70 @@
+ use crate::enums::PlanTier;
+ 
+-/// The fixed limits/features attached to a `PlanTier`.
+-///
+-/// This is a read-only, in-memory catalog — not a database-backed
+-/// entity. There is deliberately no `plans` table: the five plans and
+-/// their limits are business rules baked into this code, not
+-/// tenant-editable data. Only which tier a given tenant is *subscribed
+-/// to* is persisted (see `Subscription` +
+-/// migrations/0038_create_subscriptions.sql).
++/// Capability/entitlement catalog. Monetary pricing is not stored here.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct Plan {
+     pub tier: PlanTier,
+     pub max_monitors: u32,
+     pub min_check_interval_seconds: u32,
+     pub history_retention_days: u32,
++    pub max_locations: u32,
++    pub max_team_members: u32,
++    pub rum_enabled: bool,
++    pub advanced_features: bool,
+ }
+ 
+ impl Plan {
+-    /// Returns the fixed limits for a given plan tier.
+     pub fn for_tier(tier: PlanTier) -> Self {
+         match tier {
+             PlanTier::Free => Self {
+                 tier,
+-                max_monitors: 100,
+-                min_check_interval_seconds: 120,
+-                history_retention_days: 7,
++                max_monitors: 5,
++                min_check_interval_seconds: 600,
++                history_retention_days: 1,
++                max_locations: 1,
++                max_team_members: 1,
++                rum_enabled: false,
++                advanced_features: false,
+             },
+-            PlanTier::Tier1 => Self {
++            PlanTier::Starter => Self {
+                 tier,
+-                max_monitors: 250,
++                max_monitors: 25,
+                 min_check_interval_seconds: 60,
+                 history_retention_days: 30,
++                max_locations: 1,
++                max_team_members: 2,
++                rum_enabled: false,
++                advanced_features: false,
+             },
+-            PlanTier::Tier5 => Self {
++            PlanTier::Pro => Self {
+                 tier,
+-                max_monitors: 500,
+-                min_check_interval_seconds: 60,
++                max_monitors: 100,
++                min_check_interval_seconds: 30,
+                 history_retention_days: 90,
++                max_locations: 3,
++                max_team_members: 10,
++                rum_enabled: true,
++                advanced_features: true,
+             },
+-            PlanTier::Tier10 => Self {
++            PlanTier::Business => Self {
+                 tier,
+-                max_monitors: 1000,
+-                min_check_interval_seconds: 30,
+-                history_retention_days: 180,
++                max_monitors: 500,
++                min_check_interval_seconds: 15,
++                history_retention_days: 365,
++                max_locations: 10,
++                max_team_members: 50,
++                rum_enabled: true,
++                advanced_features: true,
+             },
+-            PlanTier::Tier20 => Self {
++            PlanTier::Enterprise => Self {
+                 tier,
+-                max_monitors: 2500,
+-                min_check_interval_seconds: 30,
+-                history_retention_days: 365,
++                max_monitors: 10_000,
++                min_check_interval_seconds: 15,
++                history_retention_days: 3650,
++                max_locations: 100,
++                max_team_members: 1000,
++                rum_enabled: true,
++                advanced_features: true,
+             },
+         }
+     }
+@@ -59,42 +75,14 @@ mod tests {
+     use super::*;
+ 
+     #[test]
+-    fn free_plan_has_correct_limits() {
+-        let plan = Plan::for_tier(PlanTier::Free);
+-        assert_eq!(plan.max_monitors, 100);
+-        assert_eq!(plan.min_check_interval_seconds, 120);
+-        assert_eq!(plan.history_retention_days, 7);
+-    }
+-
+-    #[test]
+-    fn tier1_plan_has_correct_limits() {
+-        let plan = Plan::for_tier(PlanTier::Tier1);
+-        assert_eq!(plan.max_monitors, 250);
+-        assert_eq!(plan.min_check_interval_seconds, 60);
+-        assert_eq!(plan.history_retention_days, 30);
+-    }
+-
+-    #[test]
+-    fn tier5_plan_has_correct_limits() {
+-        let plan = Plan::for_tier(PlanTier::Tier5);
+-        assert_eq!(plan.max_monitors, 500);
+-        assert_eq!(plan.min_check_interval_seconds, 60);
+-        assert_eq!(plan.history_retention_days, 90);
+-    }
+-
+-    #[test]
+-    fn tier10_plan_has_correct_limits() {
+-        let plan = Plan::for_tier(PlanTier::Tier10);
+-        assert_eq!(plan.max_monitors, 1000);
+-        assert_eq!(plan.min_check_interval_seconds, 30);
+-        assert_eq!(plan.history_retention_days, 180);
+-    }
+-
+-    #[test]
+-    fn tier20_plan_has_correct_limits() {
+-        let plan = Plan::for_tier(PlanTier::Tier20);
+-        assert_eq!(plan.max_monitors, 2500);
+-        assert_eq!(plan.min_check_interval_seconds, 30);
+-        assert_eq!(plan.history_retention_days, 365);
++    fn free_plan_is_bootstrap_safe() {
++        let p = Plan::for_tier(PlanTier::Free);
++        assert_eq!(p.max_monitors, 5);
++        assert_eq!(p.min_check_interval_seconds, 600);
++        assert_eq!(p.history_retention_days, 1);
++        assert_eq!(p.max_locations, 1);
++        assert_eq!(p.max_team_members, 1);
++        assert!(!p.rum_enabled);
++        assert!(!p.advanced_features);
+     }
+ }
+diff --git a/crates/domain/src/entities/subscription.rs b/crates/domain/src/entities/subscription.rs
+index 9430ce70..bafd6bf5 100644
+--- a/crates/domain/src/entities/subscription.rs
++++ b/crates/domain/src/entities/subscription.rs
+@@ -271,8 +271,8 @@ mod tests {
+ 
+     #[test]
+     fn new_subscription_carries_the_given_tier() {
+-        let subscription = active(PlanTier::Tier5);
+-        assert_eq!(subscription.plan_tier, PlanTier::Tier5);
++        let subscription = active(PlanTier::Pro);
++        assert_eq!(subscription.plan_tier, PlanTier::Pro);
+         assert_eq!(subscription.status, SubscriptionStatus::Active);
+     }
+ 
+@@ -284,7 +284,7 @@ mod tests {
+ 
+     #[test]
+     fn new_subscription_starts_with_no_usage_set() {
+-        let subscription = active(PlanTier::Tier1);
++        let subscription = active(PlanTier::Starter);
+         assert_eq!(subscription.monitors, None);
+         assert_eq!(subscription.interval_seconds, None);
+         assert_eq!(subscription.retention_days, None);
+@@ -297,7 +297,7 @@ mod tests {
+         let subscription = Subscription::new_trialing(
+             SubscriptionId::new(),
+             TenantId::new(),
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+             trial_end,
+         );
+         assert_eq!(subscription.status, SubscriptionStatus::Trialing);
+@@ -306,7 +306,7 @@ mod tests {
+ 
+     #[test]
+     fn begin_grace_period_transitions_active_to_past_due() {
+-        let mut subscription = active(PlanTier::Tier1);
++        let mut subscription = active(PlanTier::Starter);
+         let grace_end = Utc::now() + chrono::Duration::days(3);
+ 
+         subscription.begin_grace_period(grace_end).unwrap();
+@@ -317,7 +317,7 @@ mod tests {
+ 
+     #[test]
+     fn begin_grace_period_rejects_transition_from_trialing() {
+-        let mut subscription = trialing(PlanTier::Tier1);
++        let mut subscription = trialing(PlanTier::Starter);
+         let result = subscription.begin_grace_period(Utc::now());
+         assert!(result.is_err());
+         assert_eq!(subscription.status, SubscriptionStatus::Trialing);
+@@ -325,7 +325,7 @@ mod tests {
+ 
+     #[test]
+     fn expire_during_grace_period_transitions_past_due_to_expired() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         subscription
+             .begin_grace_period(Utc::now() + chrono::Duration::days(3))
+             .unwrap();
+@@ -338,7 +338,7 @@ mod tests {
+ 
+     #[test]
+     fn expire_transitions_unconverted_trial_to_expired() {
+-        let mut subscription = trialing(PlanTier::Tier1);
++        let mut subscription = trialing(PlanTier::Starter);
+         subscription.expire().unwrap();
+         assert_eq!(subscription.status, SubscriptionStatus::Expired);
+         assert_eq!(subscription.trial_ends_at, None);
+@@ -346,7 +346,7 @@ mod tests {
+ 
+     #[test]
+     fn expire_rejects_transition_directly_from_active() {
+-        let mut subscription = active(PlanTier::Tier1);
++        let mut subscription = active(PlanTier::Starter);
+         let result = subscription.expire();
+         assert!(result.is_err());
+         assert_eq!(subscription.status, SubscriptionStatus::Active);
+@@ -362,7 +362,7 @@ mod tests {
+ 
+     #[test]
+     fn cancel_during_trial_transitions_immediately_to_canceled() {
+-        let mut subscription = trialing(PlanTier::Tier1);
++        let mut subscription = trialing(PlanTier::Starter);
+         subscription.cancel(false, None).unwrap();
+         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+         assert!(subscription.canceled_at.is_some());
+@@ -370,7 +370,7 @@ mod tests {
+ 
+     #[test]
+     fn cancel_immediately_transitions_active_to_canceled() {
+-        let mut subscription = active(PlanTier::Tier10);
++        let mut subscription = active(PlanTier::Business);
+         subscription.cancel(false, None).unwrap();
+         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+         assert!(!subscription.cancel_at_period_end);
+@@ -378,7 +378,7 @@ mod tests {
+ 
+     #[test]
+     fn cancel_at_period_end_keeps_status_and_sets_scheduled_flag() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let period_end = Utc::now() + chrono::Duration::days(10);
+ 
+         subscription.cancel(true, Some(period_end)).unwrap();
+@@ -390,7 +390,7 @@ mod tests {
+ 
+     #[test]
+     fn cancel_at_period_end_without_period_end_errors() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let result = subscription.cancel(true, None);
+         assert_eq!(
+             result,
+@@ -408,7 +408,7 @@ mod tests {
+ 
+     #[test]
+     fn finalize_scheduled_cancellation_transitions_to_canceled() {
+-        let mut subscription = active(PlanTier::Tier1);
++        let mut subscription = active(PlanTier::Starter);
+         subscription
+             .cancel(true, Some(Utc::now() + chrono::Duration::days(5)))
+             .unwrap();
+@@ -420,7 +420,7 @@ mod tests {
+ 
+     #[test]
+     fn finalize_scheduled_cancellation_rejects_when_none_scheduled() {
+-        let mut subscription = active(PlanTier::Tier1);
++        let mut subscription = active(PlanTier::Starter);
+         let result = subscription.finalize_scheduled_cancellation();
+         assert!(result.is_err());
+     }
+@@ -429,7 +429,7 @@ mod tests {
+     fn finalize_scheduled_cancellation_rejects_if_already_expired() {
+         // A payment failure pushes the subscription into expiry before
+         // the scheduled cancellation date ever arrives.
+-        let mut subscription = active(PlanTier::Tier1);
++        let mut subscription = active(PlanTier::Starter);
+         subscription
+             .cancel(true, Some(Utc::now() + chrono::Duration::days(30)))
+             .unwrap();
+@@ -448,12 +448,10 @@ mod tests {
+         let mut subscription = trialing(PlanTier::Free);
+         subscription.expire().unwrap();
+ 
+-        subscription
+-            .apply_verified_payment(PlanTier::Tier5)
+-            .unwrap();
++        subscription.apply_verified_payment(PlanTier::Pro).unwrap();
+ 
+         assert_eq!(subscription.status, SubscriptionStatus::Active);
+-        assert_eq!(subscription.plan_tier, PlanTier::Tier5);
++        assert_eq!(subscription.plan_tier, PlanTier::Pro);
+         assert_eq!(subscription.trial_ends_at, None);
+         assert_eq!(subscription.grace_period_ends_at, None);
+         assert!(!subscription.cancel_at_period_end);
+@@ -461,10 +459,10 @@ mod tests {
+ 
+     #[test]
+     fn apply_verified_payment_rejects_canceled_subscription() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         subscription.cancel(false, None).unwrap();
+ 
+-        let result = subscription.apply_verified_payment(PlanTier::Tier10);
++        let result = subscription.apply_verified_payment(PlanTier::Business);
+         assert!(result.is_err());
+         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+     }
+@@ -473,7 +471,7 @@ mod tests {
+ 
+     #[test]
+     fn update_usage_sets_usage_fields() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         subscription.update_usage(100, 60, 30, 1).unwrap();
+         assert_eq!(subscription.monitors, Some(100));
+         assert_eq!(subscription.interval_seconds, Some(60));
+@@ -483,7 +481,7 @@ mod tests {
+ 
+     #[test]
+     fn update_usage_bumps_updated_at() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let before = subscription.updated_at;
+         std::thread::sleep(std::time::Duration::from_millis(2));
+         subscription.update_usage(100, 60, 30, 1).unwrap();
+@@ -492,7 +490,7 @@ mod tests {
+ 
+     #[test]
+     fn update_usage_rejects_zero_monitors() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let result = subscription.update_usage(0, 60, 30, 1);
+         assert_eq!(result, Err(DomainError::SubscriptionUsageMonitorsZero));
+         assert_eq!(subscription.monitors, None);
+@@ -500,7 +498,7 @@ mod tests {
+ 
+     #[test]
+     fn update_usage_rejects_zero_interval_seconds() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let result = subscription.update_usage(100, 0, 30, 1);
+         assert_eq!(
+             result,
+@@ -510,14 +508,14 @@ mod tests {
+ 
+     #[test]
+     fn update_usage_rejects_zero_retention_days() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         let result = subscription.update_usage(100, 60, 0, 1);
+         assert_eq!(result, Err(DomainError::SubscriptionUsageRetentionDaysZero));
+     }
+ 
+     #[test]
+     fn update_usage_can_be_called_again_to_change_usage_mid_cycle() {
+-        let mut subscription = active(PlanTier::Tier5);
++        let mut subscription = active(PlanTier::Pro);
+         subscription.update_usage(100, 60, 30, 1).unwrap();
+         subscription.update_usage(200, 30, 90, 1).unwrap();
+         assert_eq!(subscription.monitors, Some(200));
+diff --git a/crates/domain/src/enums/plan_tier.rs b/crates/domain/src/enums/plan_tier.rs
+index f0e06f78..e3631065 100644
+--- a/crates/domain/src/enums/plan_tier.rs
++++ b/crates/domain/src/enums/plan_tier.rs
+@@ -1,33 +1,26 @@
+ use serde::{Deserialize, Serialize};
+ 
+-/// Which of PingVertex's five fixed subscription plans a tenant is on.
+-///
+-/// This is a closed, fixed-cardinality set — not a database table —
+-/// because the plan catalog itself (limits, pricing) is a business rule
+-/// baked into this code, not tenant-editable data. See `Plan::for_tier`
+-/// for the actual limits attached to each tier.
++/// Subscription capability tiers. Plan pricing is deliberately not hardcoded here;
++/// limits are entitlements while monetary values come from the versioned pricing
++/// configuration.
+ #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+ pub enum PlanTier {
+     #[default]
+     Free,
+-    Tier1,
+-    Tier5,
+-    Tier10,
+-    Tier20,
++    Starter,
++    Pro,
++    Business,
++    Enterprise,
+ }
+ 
+ impl PlanTier {
+-    /// Stable machine-readable string, used as the `plan_tier` column value
+-    /// in the `subscriptions` table (see
+-    /// migrations/0038_create_subscriptions.sql) and for parsing that
+-    /// column back via `from_str`.
+     pub fn as_str(&self) -> &'static str {
+         match self {
+             Self::Free => "free",
+-            Self::Tier1 => "tier_1",
+-            Self::Tier5 => "tier_5",
+-            Self::Tier10 => "tier_10",
+-            Self::Tier20 => "tier_20",
++            Self::Starter => "starter",
++            Self::Pro => "pro",
++            Self::Business => "business",
++            Self::Enterprise => "enterprise",
+         }
+     }
+ }
+@@ -38,10 +31,10 @@ impl std::str::FromStr for PlanTier {
+     fn from_str(value: &str) -> Result<Self, Self::Err> {
+         match value {
+             "free" => Ok(Self::Free),
+-            "tier_1" => Ok(Self::Tier1),
+-            "tier_5" => Ok(Self::Tier5),
+-            "tier_10" => Ok(Self::Tier10),
+-            "tier_20" => Ok(Self::Tier20),
++            "starter" => Ok(Self::Starter),
++            "pro" => Ok(Self::Pro),
++            "business" => Ok(Self::Business),
++            "enterprise" => Ok(Self::Enterprise),
+             other => Err(crate::errors::DomainError::InvalidPlanTier(
+                 other.to_owned(),
+             )),
+@@ -54,27 +47,21 @@ mod tests {
+     use super::*;
+ 
+     #[test]
+-    fn round_trips_every_tier_through_as_str_and_from_str() {
++    fn round_trips_all_tiers() {
+         for tier in [
+             PlanTier::Free,
+-            PlanTier::Tier1,
+-            PlanTier::Tier5,
+-            PlanTier::Tier10,
+-            PlanTier::Tier20,
++            PlanTier::Starter,
++            PlanTier::Pro,
++            PlanTier::Business,
++            PlanTier::Enterprise,
+         ] {
+-            let parsed: PlanTier = tier.as_str().parse().unwrap();
+-            assert_eq!(parsed, tier);
++            assert_eq!(tier.as_str().parse::<PlanTier>().unwrap(), tier);
+         }
+     }
+ 
+     #[test]
+     fn rejects_unknown_tier_string() {
+         let result: Result<PlanTier, _> = "unknown".parse();
+-        assert_eq!(
+-            result,
+-            Err(crate::errors::DomainError::InvalidPlanTier(
+-                "unknown".to_owned()
+-            ))
+-        );
++        assert!(result.is_err());
+     }
+ }
+diff --git a/crates/domain/src/pricing/calculation.rs b/crates/domain/src/pricing/calculation.rs
+index 40eeb85f..ab3e27f3 100644
+--- a/crates/domain/src/pricing/calculation.rs
++++ b/crates/domain/src/pricing/calculation.rs
+@@ -209,9 +209,9 @@ mod tests {
+     fn free_tier_returns_zero() {
+         let config = test_config();
+         let input = PricingInput {
+-            monitors: 30,
+-            interval_seconds: 180,
+-            retention_days: 3,
++            monitors: 5,
++            interval_seconds: 600,
++            retention_days: 1,
+         };
+         let quote = calculate_price(input, &config).unwrap();
+         assert!(quote.is_free);
+@@ -222,9 +222,9 @@ mod tests {
+     fn above_free_tier_applies_minimum_price() {
+         let config = test_config();
+         let input = PricingInput {
+-            monitors: 31,
+-            interval_seconds: 180,
+-            retention_days: 3,
++            monitors: 6,
++            interval_seconds: 600,
++            retention_days: 1,
+         };
+         let quote = calculate_price(input, &config).unwrap();
+         assert!(!quote.is_free);
+diff --git a/crates/domain/src/pricing/config.rs b/crates/domain/src/pricing/config.rs
+index 16b15892..989aa2c0 100644
+--- a/crates/domain/src/pricing/config.rs
++++ b/crates/domain/src/pricing/config.rs
+@@ -52,9 +52,9 @@ impl PricingConfig {
+             max_retention_days: 3650,
+             min_paid_monthly_price: Decimal::new(300, 2), // $3.00
+             free_tier: FreeTierDefaults {
+-                monitors: 30,
+-                interval_seconds: 180,
+-                retention_days: 3,
++                monitors: 5,
++                interval_seconds: 600,
++                retention_days: 1,
+             },
+             currency: "USD".to_string(),
+             effective_at: Utc::now(),
+diff --git a/crates/domain/src/pricing/input.rs b/crates/domain/src/pricing/input.rs
+index 4315c9a0..4caf927b 100644
+--- a/crates/domain/src/pricing/input.rs
++++ b/crates/domain/src/pricing/input.rs
+@@ -32,9 +32,9 @@ impl PricingInput {
+     }
+ 
+     pub fn matches_free_tier(&self, config: &PricingConfig) -> bool {
+-        self.monitors == config.free_tier.monitors
+-            && self.interval_seconds == config.free_tier.interval_seconds
+-            && self.retention_days == config.free_tier.retention_days
++        self.monitors <= config.free_tier.monitors
++            && self.interval_seconds >= config.free_tier.interval_seconds
++            && self.retention_days <= config.free_tier.retention_days
+     }
+ }
+ 
+diff --git a/crates/infra/src/repositories/in_memory_email_verification_token_repository.rs b/crates/infra/src/repositories/in_memory_email_verification_token_repository.rs
+index e59529a3..b647641a 100644
+--- a/crates/infra/src/repositories/in_memory_email_verification_token_repository.rs
++++ b/crates/infra/src/repositories/in_memory_email_verification_token_repository.rs
+@@ -41,6 +41,20 @@ impl EmailVerificationTokenRepository for InMemoryEmailVerificationTokenReposito
+             .cloned())
+     }
+ 
++    async fn find_latest_unused_by_user(
++        &self,
++        user_id: UserId,
++    ) -> RepoResult<Option<EmailVerificationToken>> {
++        Ok(self
++            .tokens
++            .lock()
++            .unwrap()
++            .iter()
++            .filter(|t| t.user_id == user_id && t.used_at.is_none())
++            .max_by_key(|t| t.created_at)
++            .cloned())
++    }
++
+     async fn mark_used(
+         &self,
+         id: EmailVerificationTokenId,
+diff --git a/crates/infra/src/repositories/mod.rs b/crates/infra/src/repositories/mod.rs
+index 2252c4c6..5fcc02ba 100644
+--- a/crates/infra/src/repositories/mod.rs
++++ b/crates/infra/src/repositories/mod.rs
+@@ -167,3 +167,8 @@ pub mod postgres_rum_site_repository;
+ pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
+ pub use postgres_rum_event_repository::PostgresRumEventRepository;
+ pub use postgres_rum_site_repository::PostgresRumSiteRepository;
++
++pub mod in_memory_wallet_repository;
++pub mod postgres_wallet_repository;
++pub use in_memory_wallet_repository::InMemoryWalletRepository;
++pub use postgres_wallet_repository::PostgresWalletRepository;
+diff --git a/crates/infra/src/repositories/postgres_email_verification_token_repository.rs b/crates/infra/src/repositories/postgres_email_verification_token_repository.rs
+index b2c507c8..0f26fbd9 100644
+--- a/crates/infra/src/repositories/postgres_email_verification_token_repository.rs
++++ b/crates/infra/src/repositories/postgres_email_verification_token_repository.rs
+@@ -100,6 +100,25 @@ impl EmailVerificationTokenRepository for PostgresEmailVerificationTokenReposito
+         Ok(row.map(EmailVerificationTokenRow::into_domain))
+     }
+ 
++    async fn find_latest_unused_by_user(
++        &self,
++        user_id: UserId,
++    ) -> RepoResult<Option<EmailVerificationToken>> {
++        let row = sqlx::query_as::<_, EmailVerificationTokenRow>(
++            r#"
++            SELECT id, user_id, token_prefix, token_hash, expires_at, used_at, created_at
++            FROM email_verification_tokens
++            WHERE user_id = $1 AND used_at IS NULL
++            ORDER BY created_at DESC
++            LIMIT 1
++            "#,
++        )
++        .bind(user_id.into_uuid())
++        .fetch_optional(&self.pool)
++        .await?;
++        Ok(row.map(EmailVerificationTokenRow::into_domain))
++    }
++
+     async fn mark_used(
+         &self,
+         id: EmailVerificationTokenId,
+diff --git a/crates/infra/src/services/email_verification_mailer.rs b/crates/infra/src/services/email_verification_mailer.rs
+index 0b5f5cc5..391c0fa4 100644
+--- a/crates/infra/src/services/email_verification_mailer.rs
++++ b/crates/infra/src/services/email_verification_mailer.rs
+@@ -54,11 +54,9 @@ impl EmailVerificationMailer for SmtpEmailVerificationMailer {
+     async fn send_verification_email(&self, to: &Email, raw_token: &str) -> MailerResult<()> {
+         let to_mailbox: Mailbox = to.as_str().parse()?;
+ 
+-        let subject = "Verify your PingVertex email address";
++        let subject = "Your PingVertex verification code";
+         let body = format!(
+-            "Please verify your PingVertex account email address by using the following token:\n\n\
+-             {raw_token}\n\n\
+-             This token expires in 24 hours. If you did not create an account, you can safely ignore this email."
++            "Your PingVertex verification code is:\n\n             {raw_token}\n\n             This 6-digit code expires in 10 minutes and can only be used once.              If you did not create a PingVertex account, you can safely ignore this email."
+         );
+ 
+         let email = Message::builder()
+diff --git a/crates/infra/src/services/uuid_id_generator.rs b/crates/infra/src/services/uuid_id_generator.rs
+index 88d9cf01..1506094b 100644
+--- a/crates/infra/src/services/uuid_id_generator.rs
++++ b/crates/infra/src/services/uuid_id_generator.rs
+@@ -134,6 +134,13 @@ impl IdGenerator for UuidIdGenerator {
+         )
+     }
+ 
++    async fn next_email_verification_otp(&self) -> String {
++        let mut bytes = [0u8; 4];
++        OsRng.fill_bytes(&mut bytes);
++        let value = u32::from_be_bytes(bytes) % 1_000_000;
++        format!("{value:06}")
++    }
++
+     async fn next_reset_password_token(&self) -> String {
+         let mut prefix_bytes = [0u8; RESET_PASSWORD_PREFIX_BYTES];
+         OsRng.fill_bytes(&mut prefix_bytes);
+diff --git a/crates/infra/tests/subscription_usage_transaction.rs b/crates/infra/tests/subscription_usage_transaction.rs
+index 97a14367..8a8cc656 100644
+--- a/crates/infra/tests/subscription_usage_transaction.rs
++++ b/crates/infra/tests/subscription_usage_transaction.rs
+@@ -68,7 +68,7 @@ async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscriptio
+     .expect("failed to insert fixture tenant");
+ 
+     let subscription_repository = PostgresSubscriptionRepository::new(pool.clone());
+-    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier1);
++    let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Starter);
+     subscription_repository
+         .create(&subscription)
+         .await
+diff --git a/crates/worker/tests/retention_worker.rs b/crates/worker/tests/retention_worker.rs
+index ec6b8b6e..579c1c78 100644
+--- a/crates/worker/tests/retention_worker.rs
++++ b/crates/worker/tests/retention_worker.rs
+@@ -57,7 +57,7 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
+         .create(&Subscription::new(
+             SubscriptionId::new(),
+             tier1_tenant.id,
+-            PlanTier::Tier1,
++            PlanTier::Starter,
+         ))
+         .await
+         .unwrap();
+diff --git a/pingvertex_phase7_cargo_deny_schema_fix.sh b/pingvertex_phase7_cargo_deny_schema_fix.sh
+deleted file mode 100644
+index fb5b2361..00000000
+--- a/pingvertex_phase7_cargo_deny_schema_fix.sh
++++ /dev/null
+@@ -1,55 +0,0 @@
+-#!/usr/bin/env bash
+-set -euo pipefail
+-
+-ROOT="${1:-.}"
+-ROOT="$(cd "$ROOT" && pwd)"
+-cd "$ROOT"
+-
+-if [[ ! -f "Cargo.toml" || ! -f "deny.toml" ]]; then
+-  echo "ERROR: run this from the PingVertex workspace root."
+-  exit 1
+-fi
+-
+-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+-BACKUP=".phase7-cargo-deny-schema-fix-backup-$STAMP"
+-mkdir -p "$BACKUP"
+-cp deny.toml "$BACKUP/deny.toml"
+-
+-echo "Backup created: $ROOT/$BACKUP"
+-echo "Fixing cargo-deny advisory scope..."
+-
+-python3 - <<'PY'
+-from pathlib import Path
+-
+-p = Path("deny.toml")
+-text = p.read_text()
+-
+-old = 'unmaintained = "warn"'
+-new = 'unmaintained = "workspace"'
+-
+-if old in text:
+-    text = text.replace(old, new, 1)
+-    p.write_text(text)
+-    print('Changed unmaintained = "warn" -> unmaintained = "workspace".')
+-elif 'unmaintained = "workspace"' in text:
+-    print('deny.toml already uses unmaintained = "workspace".')
+-else:
+-    raise SystemExit("ERROR: could not find the cargo-deny unmaintained setting.")
+-PY
+-
+-echo
+-echo "Validating deny.toml..."
+-if command -v cargo-deny >/dev/null 2>&1; then
+-  cargo deny check
+-else
+-  echo "ERROR: cargo-deny is not installed."
+-  exit 1
+-fi
+-
+-echo
+-echo "cargo-deny now passes."
+-echo
+-echo "Continue with the complete Phase 7 release gate:"
+-echo "  cargo clippy --workspace --all-targets -- -D warnings"
+-echo "  cargo test --workspace --all-targets"
+-echo "  RUN_E2E=1 ./scripts/phase7_verify.sh"

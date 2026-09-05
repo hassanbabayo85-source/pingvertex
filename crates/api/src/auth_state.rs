@@ -91,6 +91,13 @@ impl EmailVerificationTokenRepository for NoopEmailVerificationTokenRepository {
     ) -> RepoResult<Option<EmailVerificationToken>> {
         Ok(None)
     }
+    async fn find_latest_unused_by_user(
+        &self,
+        _user_id: UserId,
+    ) -> RepoResult<Option<EmailVerificationToken>> {
+        Ok(None)
+    }
+
     async fn mark_used(
         &self,
         _id: EmailVerificationTokenId,

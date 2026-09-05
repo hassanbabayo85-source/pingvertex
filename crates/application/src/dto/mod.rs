@@ -74,3 +74,6 @@ pub use rum_analytics::{
 pub use rum_ingest_request::{
     RumIngestJsError, RumIngestPageView, RumIngestRequest, RumIngestResourceError,
 };
+
+pub mod verify_email_otp_request;
+pub use verify_email_otp_request::VerifyEmailOtpRequest;

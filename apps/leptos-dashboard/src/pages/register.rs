@@ -42,7 +42,7 @@ pub fn RegisterPage() -> impl IntoView {
                 {move || {
                     if success.get() {
                         view! {
-                            <p class="auth-success">"Registration successful! You can now " <a href="/login">"sign in"</a> "."</p>
+                            <p class="auth-success">"Account created. Check your email for the 6-digit verification code, then " <a href="/verify-email">"verify your email"</a> "."</p>
                         }.into_any()
                     } else {
                         view! {

@@ -9,7 +9,7 @@ use crate::{
         UserRepository,
     },
     use_cases::email_verification_support::{
-        EMAIL_VERIFICATION_TOKEN_TTL_HOURS, email_verification_token_prefix,
+        EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, email_verification_token_prefix,
     },
 };
 
@@ -73,12 +73,13 @@ where
 
         let user_id = user.id();
 
-        let raw_token = self.id_generator.next_email_verification_token().await;
-        let token_prefix = email_verification_token_prefix(&raw_token)?;
-        let token_hash = self.password_hasher.hash(&raw_token).await?;
+        let opaque_token = self.id_generator.next_email_verification_token().await;
+        let token_prefix = email_verification_token_prefix(&opaque_token)?;
+        let otp = self.id_generator.next_email_verification_otp().await;
+        let token_hash = self.password_hasher.hash(&otp).await?;
 
         let now = Utc::now();
-        let expires_at = now + Duration::hours(EMAIL_VERIFICATION_TOKEN_TTL_HOURS);
+        let expires_at = now + Duration::minutes(EMAIL_VERIFICATION_TOKEN_TTL_MINUTES);
 
         let token = EmailVerificationToken::new(
             EmailVerificationTokenId::new(),
@@ -93,9 +94,7 @@ where
             .delete_unused_for_user(user_id)
             .await?;
         self.token_repository.create(&token).await?;
-        self.mailer
-            .send_verification_email(&email, &raw_token)
-            .await?;
+        self.mailer.send_verification_email(&email, &otp).await?;
 
         Ok(())
     }

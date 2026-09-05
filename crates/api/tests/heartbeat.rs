@@ -280,7 +280,7 @@ fn heartbeat_monitor_payload(
         "url": "https://example.com",
         "method": "GET",
         "expected_status": 200,
-        "interval_seconds": 120,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": [],
         "kind": "Heartbeat",
@@ -296,7 +296,7 @@ fn http_monitor_payload(user_id: Uuid, name: &str) -> Value {
         "url": "https://example.com",
         "method": "GET",
         "expected_status": 200,
-        "interval_seconds": 120,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": []
     })

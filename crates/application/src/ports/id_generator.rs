@@ -128,6 +128,11 @@ pub trait IdGenerator: Send + Sync {
     /// default method for the same reason as `next_api_key_secret`.
     async fn next_email_verification_token(&self) -> String;
 
+    /// Generates a cryptographically random 6-digit email verification OTP.
+    /// The OTP is short-lived and must be rate-limited; it is hashed before
+    /// persistence and is never logged.
+    async fn next_email_verification_otp(&self) -> String;
+
     /// Generates a new raw password-reset token, formatted as
     /// `rst_<16 lowercase-hex chars>_<64 lowercase-hex chars>` — same
     /// shape as `next_email_verification_token`, deliberately using a

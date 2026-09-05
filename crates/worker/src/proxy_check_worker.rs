@@ -35,9 +35,19 @@ impl ProxyCheckWorker {
                 continue;
             }
 
+            let running_job = match self.repository.find_job_by_id(job_id).await? {
+                Some(job) => job,
+                None => {
+                    error!(job_id = %job_id, "claimed proxy check job disappeared");
+                    continue;
+                }
+            };
+
             match self.repository.find_entries_by_job_id(job_id).await {
                 Ok(entries) => {
-                    if let Err(err) = run_proxy_check_job(&*self.repository, job, entries).await {
+                    if let Err(err) =
+                        run_proxy_check_job(&*self.repository, running_job, entries).await
+                    {
                         error!(
                             job_id = %job_id,
                             error = %err,
@@ -46,10 +56,20 @@ impl ProxyCheckWorker {
                     }
                 }
                 Err(err) => {
+                    let mut failed_job = running_job;
+                    if failed_job.mark_failed(format!("failed to load proxy entries: {err}"))
+                        && let Err(update_err) = self.repository.update_job(&failed_job).await
+                    {
+                        error!(
+                            job_id = %job_id,
+                            error = %update_err,
+                            "failed to persist proxy check job failure"
+                        );
+                    }
                     error!(
                         job_id = %job_id,
                         error = %err,
-                        "failed to load proxy entries for job; skipping"
+                        "failed to load proxy entries for job"
                     );
                 }
             }

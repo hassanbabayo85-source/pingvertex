@@ -271,8 +271,8 @@ mod tests {
 
     #[test]
     fn new_subscription_carries_the_given_tier() {
-        let subscription = active(PlanTier::Tier5);
-        assert_eq!(subscription.plan_tier, PlanTier::Tier5);
+        let subscription = active(PlanTier::Pro);
+        assert_eq!(subscription.plan_tier, PlanTier::Pro);
         assert_eq!(subscription.status, SubscriptionStatus::Active);
     }
 
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn new_subscription_starts_with_no_usage_set() {
-        let subscription = active(PlanTier::Tier1);
+        let subscription = active(PlanTier::Starter);
         assert_eq!(subscription.monitors, None);
         assert_eq!(subscription.interval_seconds, None);
         assert_eq!(subscription.retention_days, None);
@@ -297,7 +297,7 @@ mod tests {
         let subscription = Subscription::new_trialing(
             SubscriptionId::new(),
             TenantId::new(),
-            PlanTier::Tier1,
+            PlanTier::Starter,
             trial_end,
         );
         assert_eq!(subscription.status, SubscriptionStatus::Trialing);
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn begin_grace_period_transitions_active_to_past_due() {
-        let mut subscription = active(PlanTier::Tier1);
+        let mut subscription = active(PlanTier::Starter);
         let grace_end = Utc::now() + chrono::Duration::days(3);
 
         subscription.begin_grace_period(grace_end).unwrap();
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn begin_grace_period_rejects_transition_from_trialing() {
-        let mut subscription = trialing(PlanTier::Tier1);
+        let mut subscription = trialing(PlanTier::Starter);
         let result = subscription.begin_grace_period(Utc::now());
         assert!(result.is_err());
         assert_eq!(subscription.status, SubscriptionStatus::Trialing);
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn expire_during_grace_period_transitions_past_due_to_expired() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         subscription
             .begin_grace_period(Utc::now() + chrono::Duration::days(3))
             .unwrap();
@@ -338,7 +338,7 @@ mod tests {
 
     #[test]
     fn expire_transitions_unconverted_trial_to_expired() {
-        let mut subscription = trialing(PlanTier::Tier1);
+        let mut subscription = trialing(PlanTier::Starter);
         subscription.expire().unwrap();
         assert_eq!(subscription.status, SubscriptionStatus::Expired);
         assert_eq!(subscription.trial_ends_at, None);
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn expire_rejects_transition_directly_from_active() {
-        let mut subscription = active(PlanTier::Tier1);
+        let mut subscription = active(PlanTier::Starter);
         let result = subscription.expire();
         assert!(result.is_err());
         assert_eq!(subscription.status, SubscriptionStatus::Active);
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn cancel_during_trial_transitions_immediately_to_canceled() {
-        let mut subscription = trialing(PlanTier::Tier1);
+        let mut subscription = trialing(PlanTier::Starter);
         subscription.cancel(false, None).unwrap();
         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
         assert!(subscription.canceled_at.is_some());
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn cancel_immediately_transitions_active_to_canceled() {
-        let mut subscription = active(PlanTier::Tier10);
+        let mut subscription = active(PlanTier::Business);
         subscription.cancel(false, None).unwrap();
         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
         assert!(!subscription.cancel_at_period_end);
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn cancel_at_period_end_keeps_status_and_sets_scheduled_flag() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let period_end = Utc::now() + chrono::Duration::days(10);
 
         subscription.cancel(true, Some(period_end)).unwrap();
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn cancel_at_period_end_without_period_end_errors() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let result = subscription.cancel(true, None);
         assert_eq!(
             result,
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn finalize_scheduled_cancellation_transitions_to_canceled() {
-        let mut subscription = active(PlanTier::Tier1);
+        let mut subscription = active(PlanTier::Starter);
         subscription
             .cancel(true, Some(Utc::now() + chrono::Duration::days(5)))
             .unwrap();
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn finalize_scheduled_cancellation_rejects_when_none_scheduled() {
-        let mut subscription = active(PlanTier::Tier1);
+        let mut subscription = active(PlanTier::Starter);
         let result = subscription.finalize_scheduled_cancellation();
         assert!(result.is_err());
     }
@@ -429,7 +429,7 @@ mod tests {
     fn finalize_scheduled_cancellation_rejects_if_already_expired() {
         // A payment failure pushes the subscription into expiry before
         // the scheduled cancellation date ever arrives.
-        let mut subscription = active(PlanTier::Tier1);
+        let mut subscription = active(PlanTier::Starter);
         subscription
             .cancel(true, Some(Utc::now() + chrono::Duration::days(30)))
             .unwrap();
@@ -448,12 +448,10 @@ mod tests {
         let mut subscription = trialing(PlanTier::Free);
         subscription.expire().unwrap();
 
-        subscription
-            .apply_verified_payment(PlanTier::Tier5)
-            .unwrap();
+        subscription.apply_verified_payment(PlanTier::Pro).unwrap();
 
         assert_eq!(subscription.status, SubscriptionStatus::Active);
-        assert_eq!(subscription.plan_tier, PlanTier::Tier5);
+        assert_eq!(subscription.plan_tier, PlanTier::Pro);
         assert_eq!(subscription.trial_ends_at, None);
         assert_eq!(subscription.grace_period_ends_at, None);
         assert!(!subscription.cancel_at_period_end);
@@ -461,10 +459,10 @@ mod tests {
 
     #[test]
     fn apply_verified_payment_rejects_canceled_subscription() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         subscription.cancel(false, None).unwrap();
 
-        let result = subscription.apply_verified_payment(PlanTier::Tier10);
+        let result = subscription.apply_verified_payment(PlanTier::Business);
         assert!(result.is_err());
         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
     }
@@ -473,7 +471,7 @@ mod tests {
 
     #[test]
     fn update_usage_sets_usage_fields() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         subscription.update_usage(100, 60, 30, 1).unwrap();
         assert_eq!(subscription.monitors, Some(100));
         assert_eq!(subscription.interval_seconds, Some(60));
@@ -483,7 +481,7 @@ mod tests {
 
     #[test]
     fn update_usage_bumps_updated_at() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let before = subscription.updated_at;
         std::thread::sleep(std::time::Duration::from_millis(2));
         subscription.update_usage(100, 60, 30, 1).unwrap();
@@ -492,7 +490,7 @@ mod tests {
 
     #[test]
     fn update_usage_rejects_zero_monitors() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let result = subscription.update_usage(0, 60, 30, 1);
         assert_eq!(result, Err(DomainError::SubscriptionUsageMonitorsZero));
         assert_eq!(subscription.monitors, None);
@@ -500,7 +498,7 @@ mod tests {
 
     #[test]
     fn update_usage_rejects_zero_interval_seconds() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let result = subscription.update_usage(100, 0, 30, 1);
         assert_eq!(
             result,
@@ -510,14 +508,14 @@ mod tests {
 
     #[test]
     fn update_usage_rejects_zero_retention_days() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         let result = subscription.update_usage(100, 60, 0, 1);
         assert_eq!(result, Err(DomainError::SubscriptionUsageRetentionDaysZero));
     }
 
     #[test]
     fn update_usage_can_be_called_again_to_change_usage_mid_cycle() {
-        let mut subscription = active(PlanTier::Tier5);
+        let mut subscription = active(PlanTier::Pro);
         subscription.update_usage(100, 60, 30, 1).unwrap();
         subscription.update_usage(200, 30, 90, 1).unwrap();
         assert_eq!(subscription.monitors, Some(200));

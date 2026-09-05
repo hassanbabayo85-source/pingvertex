@@ -318,7 +318,7 @@ async fn list_monitor_checks_returns_ok() {
                         "url": "https://example.com",
                         "method": "GET",
                         "expected_status": 200,
-                        "interval_seconds": 120,
+                        "interval_seconds": 600,
                         "timeout_seconds": 10,
                         "assertions": []
                     }"#,

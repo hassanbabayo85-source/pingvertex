@@ -326,6 +326,32 @@ fn unique_user() -> (String, String) {
     (format!("user{suffix}"), format!("user{suffix}@example.com"))
 }
 
+async fn mark_verified_and_login(
+    client: &reqwest::Client,
+    base: &str,
+    user_repo: &InMemoryUserRepository,
+    email: &str,
+    password: &str,
+) -> reqwest::Response {
+    let email_value = domain::Email::new(email).unwrap();
+
+    let mut user = user_repo
+        .find_by_email(&email_value)
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+
+    user.mark_email_verified(Utc::now());
+    user_repo.update(&user).await.unwrap();
+
+    post_json(
+        client,
+        &format!("{}/api/v1/auth/login", base),
+        login_payload(email, password),
+    )
+    .await
+}
+
 // ----------------------------- Individual tests -----------------------------
 
 #[tokio::test]
@@ -391,11 +417,11 @@ async fn e2e_expired_cookie_returns_401() {
 
 #[tokio::test]
 async fn e2e_valid_cookie_allows_access() {
-    let (addr, _ctx) = spawn_test_server().await;
+    let (addr, ctx) = spawn_test_server().await;
     let base = format!("http://{}", addr);
     let client = client_with_cookies();
 
-    // Register (also sets cookie).
+    // Registration creates a pending account without a session.
     let (username, email) = unique_user();
     let resp = post_json(
         &client,
@@ -404,8 +430,11 @@ async fn e2e_valid_cookie_allows_access() {
     )
     .await;
     assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
-    // Cookie should be set.
-    assert!(resp.headers().contains_key("set-cookie"));
+    assert!(!resp.headers().contains_key("set-cookie"));
+
+    let login =
+        mark_verified_and_login(&client, &base, &ctx.user_repo, &email, STRONG_PASSWORD).await;
+    assert_eq!(login.status(), reqwest::StatusCode::OK);
 
     // Access protected endpoint.
     let resp = get(&client, &format!("{}/api/v1/auth/me", base)).await;
@@ -416,18 +445,25 @@ async fn e2e_valid_cookie_allows_access() {
 
 #[tokio::test]
 async fn e2e_logout_clears_cookie_and_then_401() {
-    let (addr, _ctx) = spawn_test_server().await;
+    let (addr, ctx) = spawn_test_server().await;
     let base = format!("http://{}", addr);
     let client = client_with_cookies();
 
     // Register (sets cookie) and login.
     let (username, email) = unique_user();
-    let _ = post_json(
+    let register = post_json(
         &client,
         &format!("{}/api/v1/auth/register", base),
         register_payload(&username, &email, STRONG_PASSWORD),
     )
     .await;
+
+    assert_eq!(register.status(), reqwest::StatusCode::CREATED);
+
+    let login =
+        mark_verified_and_login(&client, &base, &ctx.user_repo, &email, STRONG_PASSWORD).await;
+    assert_eq!(login.status(), reqwest::StatusCode::OK);
+
     // Now logout.
     let resp = client
         .post(format!("{}/api/v1/auth/logout", base))
@@ -447,7 +483,7 @@ async fn e2e_logout_clears_cookie_and_then_401() {
 
 #[tokio::test]
 async fn e2e_logout_revokes_copied_bearer_token() {
-    let (addr, _ctx) = spawn_test_server().await;
+    let (addr, ctx) = spawn_test_server().await;
     let base = format!("http://{}", addr);
     let client = client_with_cookies();
 
@@ -459,13 +495,13 @@ async fn e2e_logout_revokes_copied_bearer_token() {
     )
     .await;
     assert_eq!(register.status(), reqwest::StatusCode::CREATED);
+    assert!(!register.headers().contains_key("set-cookie"));
 
-    let set_cookie = register
-        .headers()
-        .get("set-cookie")
-        .unwrap()
-        .to_str()
-        .unwrap();
+    let login =
+        mark_verified_and_login(&client, &base, &ctx.user_repo, &email, STRONG_PASSWORD).await;
+    assert_eq!(login.status(), reqwest::StatusCode::OK);
+
+    let set_cookie = login.headers().get("set-cookie").unwrap().to_str().unwrap();
     let token = set_cookie
         .strip_prefix("access_token=")
         .and_then(|value| value.split(';').next())
@@ -496,14 +532,19 @@ async fn e2e_revoked_session_is_rejected() {
     let base = format!("http://{}", addr);
     let client = client_with_cookies();
 
-    // Register and login.
+    // Register, verify the fixture user, and login.
     let (username, email) = unique_user();
-    let _ = post_json(
+    let register = post_json(
         &client,
         &format!("{}/api/v1/auth/register", base),
         register_payload(&username, &email, STRONG_PASSWORD),
     )
     .await;
+    assert_eq!(register.status(), reqwest::StatusCode::CREATED);
+
+    let login =
+        mark_verified_and_login(&client, &base, &ctx.user_repo, &email, STRONG_PASSWORD).await;
+    assert_eq!(login.status(), reqwest::StatusCode::OK);
 
     // Ensure we can access protected endpoint first.
     let resp = get(&client, &format!("{}/api/v1/auth/me", base)).await;
@@ -595,18 +636,25 @@ async fn e2e_2fa_pending_session_returns_required_and_no_cookie() {
 
 #[tokio::test]
 async fn e2e_unauthorized_tenant_access_returns_404() {
-    let (addr, _ctx) = spawn_test_server().await;
+    let (addr, ctx) = spawn_test_server().await;
     let base = format!("http://{}", addr);
 
     // Client A
     let client_a = client_with_cookies();
     let (username_a, email_a) = unique_user();
-    let _ = post_json(
+    let register_a = post_json(
         &client_a,
         &format!("{}/api/v1/auth/register", base),
         register_payload(&username_a, &email_a, STRONG_PASSWORD),
     )
     .await;
+
+    assert_eq!(register_a.status(), reqwest::StatusCode::CREATED);
+
+    let login_a =
+        mark_verified_and_login(&client_a, &base, &ctx.user_repo, &email_a, STRONG_PASSWORD).await;
+
+    assert_eq!(login_a.status(), reqwest::StatusCode::OK);
 
     // Create a monitor as A.
     let monitor_body = json!({
@@ -614,7 +662,7 @@ async fn e2e_unauthorized_tenant_access_returns_404() {
         "url": "http://example.com",
         "method": "GET",
         "expected_status": 200,
-        "interval_seconds": 300,
+        "interval_seconds": 600,
         "timeout_seconds": 10,
         "assertions": []
     });
@@ -624,21 +672,33 @@ async fn e2e_unauthorized_tenant_access_returns_404() {
         monitor_body,
     )
     .await;
-    assert_eq!(resp.status(), reqwest::StatusCode::CREATED);
-    let monitor_id = resp.json::<Value>().await.unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let status = resp.status();
+    let body = resp.text().await.unwrap();
+    assert_eq!(
+        status,
+        reqwest::StatusCode::CREATED,
+        "create monitor failed: status={status}, body={body}"
+    );
+
+    let body: Value = serde_json::from_str(&body).expect("created monitor response must be JSON");
+    let monitor_id = body["id"].as_str().unwrap().to_string();
 
     // Client B (different user/tenant)
     let client_b = client_with_cookies();
     let (username_b, email_b) = unique_user();
-    let _ = post_json(
+    let register_b = post_json(
         &client_b,
         &format!("{}/api/v1/auth/register", base),
         register_payload(&username_b, &email_b, STRONG_PASSWORD),
     )
     .await;
+
+    assert_eq!(register_b.status(), reqwest::StatusCode::CREATED);
+
+    let login_b =
+        mark_verified_and_login(&client_b, &base, &ctx.user_repo, &email_b, STRONG_PASSWORD).await;
+
+    assert_eq!(login_b.status(), reqwest::StatusCode::OK);
 
     // Attempt to access A's monitor with B's cookie.
     let resp = get(

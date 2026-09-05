@@ -52,6 +52,8 @@ pub async fn login(
 
         if message == LOGIN_LOCKOUT_MESSAGE {
             ApiError::too_many_requests(message)
+        } else if message == "email verification required" {
+            ApiError::forbidden("email verification required")
         } else {
             ApiError::bad_request("invalid email or password")
         }

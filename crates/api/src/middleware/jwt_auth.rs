@@ -59,10 +59,12 @@ pub async fn jwt_auth(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    // PendingVerification is treated as authorized, matching
-    // LoginUserUseCase — email verification gates specific actions, not
-    // basic authenticated access. Only Suspended/Deleted revoke access.
-    if matches!(user.status(), UserStatus::Suspended | UserStatus::Deleted) {
+    // SECURITY: email verification is a hard authentication boundary.
+    // A token must never grant dashboard/API access to an unverified account.
+    if matches!(
+        user.status(),
+        UserStatus::PendingVerification | UserStatus::Suspended | UserStatus::Deleted
+    ) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 

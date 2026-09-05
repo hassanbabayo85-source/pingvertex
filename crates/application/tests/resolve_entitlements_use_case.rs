@@ -17,18 +17,18 @@ async fn defaults_to_free_plan_when_no_subscription_exists() {
         .unwrap();
 
     assert_eq!(plan.tier, PlanTier::Free);
-    assert_eq!(plan.max_monitors, 100);
-    assert_eq!(plan.min_check_interval_seconds, 120);
-    assert_eq!(plan.history_retention_days, 7);
+    assert_eq!(plan.max_monitors, 5);
+    assert_eq!(plan.min_check_interval_seconds, 600);
+    assert_eq!(plan.history_retention_days, 1);
 }
 
 #[tokio::test]
 async fn resolves_correct_limits_for_each_paid_tier() {
     let cases = [
-        (PlanTier::Tier1, 250, 60, 30),
-        (PlanTier::Tier5, 500, 60, 90),
-        (PlanTier::Tier10, 1000, 30, 180),
-        (PlanTier::Tier20, 2500, 30, 365),
+        (PlanTier::Starter, 25, 60, 30),
+        (PlanTier::Pro, 100, 30, 90),
+        (PlanTier::Business, 500, 15, 365),
+        (PlanTier::Enterprise, 10_000, 15, 3650),
     ];
 
     for (tier, max_monitors, min_interval, retention_days) in cases {
@@ -58,7 +58,7 @@ async fn trialing_subscription_resolves_full_plan_entitlements() {
     let subscription = Subscription::new_trialing(
         SubscriptionId::new(),
         tenant_id,
-        PlanTier::Tier10,
+        PlanTier::Business,
         chrono::Utc::now(),
     );
     repository.create(&subscription).await.unwrap();
@@ -69,14 +69,14 @@ async fn trialing_subscription_resolves_full_plan_entitlements() {
         .await
         .unwrap();
 
-    assert_eq!(plan.tier, PlanTier::Tier10);
+    assert_eq!(plan.tier, PlanTier::Business);
 }
 
 #[tokio::test]
 async fn past_due_subscription_still_resolves_full_plan_entitlements() {
     let repository = InMemorySubscriptionRepository::new();
     let tenant_id = TenantId::new();
-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier5);
+    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscription.status = SubscriptionStatus::PastDue;
     repository.create(&subscription).await.unwrap();
 
@@ -86,14 +86,15 @@ async fn past_due_subscription_still_resolves_full_plan_entitlements() {
         .await
         .unwrap();
 
-    assert_eq!(plan.tier, PlanTier::Tier5);
+    assert_eq!(plan.tier, PlanTier::Pro);
 }
 
 #[tokio::test]
 async fn expired_subscription_falls_back_to_free_plan() {
     let repository = InMemorySubscriptionRepository::new();
     let tenant_id = TenantId::new();
-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier20);
+    let mut subscription =
+        Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Enterprise);
     subscription.status = SubscriptionStatus::Expired;
     repository.create(&subscription).await.unwrap();
 
@@ -110,7 +111,8 @@ async fn expired_subscription_falls_back_to_free_plan() {
 async fn canceled_subscription_falls_back_to_free_plan() {
     let repository = InMemorySubscriptionRepository::new();
     let tenant_id = TenantId::new();
-    let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Tier20);
+    let mut subscription =
+        Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Enterprise);
     subscription.status = SubscriptionStatus::Canceled;
     repository.create(&subscription).await.unwrap();
 

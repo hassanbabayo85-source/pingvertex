@@ -23,6 +23,14 @@ pub trait EmailVerificationTokenRepository: Send + Sync {
         token_prefix: &str,
     ) -> RepoResult<Option<EmailVerificationToken>>;
 
+    /// Returns the newest unused token for a user. OTP verification uses
+    /// the email to identify the account, then Argon2-verifies the submitted
+    /// 6-digit code against this row; the raw OTP is never queryable.
+    async fn find_latest_unused_by_user(
+        &self,
+        user_id: UserId,
+    ) -> RepoResult<Option<EmailVerificationToken>>;
+
     /// Marks a token as redeemed. Must only be called after a successful
     /// full-token verification so replay is impossible.
     async fn mark_used(
@@ -66,6 +74,13 @@ where
         token_prefix: &str,
     ) -> RepoResult<Option<EmailVerificationToken>> {
         (**self).find_by_prefix(token_prefix).await
+    }
+
+    async fn find_latest_unused_by_user(
+        &self,
+        user_id: UserId,
+    ) -> RepoResult<Option<EmailVerificationToken>> {
+        (**self).find_latest_unused_by_user(user_id).await
     }
 
     async fn mark_used(

@@ -14,7 +14,7 @@ ALTER TABLE api_flows
     ADD COLUMN tenant_id UUID;
 
 ALTER TABLE proxy_check_jobs
-    ADD COLUMN tenant_id UUID;
+    ADD COLUMN IF NOT EXISTS tenant_id UUID;
 
 ALTER TABLE notification_channels
     ADD COLUMN tenant_id UUID;
@@ -112,10 +112,41 @@ ALTER TABLE api_flows
 CREATE INDEX idx_api_flows_tenant_id ON api_flows (tenant_id);
 
 ALTER TABLE proxy_check_jobs ALTER COLUMN tenant_id SET NOT NULL;
-ALTER TABLE proxy_check_jobs
-    ADD CONSTRAINT fk_proxy_check_jobs_tenant
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id);
-CREATE INDEX idx_proxy_check_jobs_tenant_id ON proxy_check_jobs (tenant_id);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_proxy_check_jobs_tenant'
+          AND conrelid = 'proxy_check_jobs'::regclass
+    ) THEN
+        ALTER TABLE proxy_check_jobs
+            ADD CONSTRAINT fk_proxy_check_jobs_tenant
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id);
+    END IF;
+END;
+$$;
+
+-- Defense in depth: a job's user must actually belong to its tenant.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_proxy_check_jobs_tenant_user'
+          AND conrelid = 'proxy_check_jobs'::regclass
+    ) THEN
+        ALTER TABLE proxy_check_jobs
+            ADD CONSTRAINT fk_proxy_check_jobs_tenant_user
+            FOREIGN KEY (tenant_id, user_id)
+            REFERENCES tenant_memberships (tenant_id, user_id);
+    END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS proxy_check_jobs_tenant_idx
+    ON proxy_check_jobs (tenant_id, created_at DESC);
 
 ALTER TABLE notification_channels ALTER COLUMN tenant_id SET NOT NULL;
 ALTER TABLE notification_channels

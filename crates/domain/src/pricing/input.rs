@@ -32,9 +32,9 @@ impl PricingInput {
     }
 
     pub fn matches_free_tier(&self, config: &PricingConfig) -> bool {
-        self.monitors == config.free_tier.monitors
-            && self.interval_seconds == config.free_tier.interval_seconds
-            && self.retention_days == config.free_tier.retention_days
+        self.monitors <= config.free_tier.monitors
+            && self.interval_seconds >= config.free_tier.interval_seconds
+            && self.retention_days <= config.free_tier.retention_days
     }
 }
 
