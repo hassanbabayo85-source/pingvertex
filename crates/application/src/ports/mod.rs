@@ -20,6 +20,7 @@ pub mod user_repository;
 // Sabbin ports:
 pub mod api_key_repository;
 pub mod audit_log_entry_repository;
+pub mod financial_audit_log_repository;
 pub mod backup_code_repository;
 pub mod custom_domain_verifier;
 pub mod escalation_policy_repository;
@@ -79,6 +80,7 @@ pub use user_repository::UserRepository;
 // Sabbin re-exports:
 pub use api_key_repository::ApiKeyRepository;
 pub use audit_log_entry_repository::AuditLogEntryRepository;
+pub use financial_audit_log_repository::{FinancialAuditLogRepository, FinancialAuditRepoResult};
 pub use backup_code_repository::BackupCodeRepository;
 pub use custom_domain_verifier::{CustomDomainVerifier, VerifierResult};
 pub use escalation_policy_repository::EscalationPolicyRepository;
@@ -197,3 +199,7 @@ pub use payg_pricing_repository::{PAYGPricingRepository, PaygPricingRepoResult};
 pub mod usage_event_repository;
 pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
+
+pub mod payment_repository;
+pub use payment_repository::{PaymentRepository, PaymentRepoResult};
+

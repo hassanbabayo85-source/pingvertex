@@ -32,4 +32,8 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
             .cloned();
         Ok(row)
     }
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
+        let now=chrono::Utc::now();
+        Ok(self.rows.read().unwrap().iter().filter(|p|p.active && p.effective_from<=now && p.effective_until.map(|v|v>now).unwrap_or(true)).cloned().collect())
+    }
 }

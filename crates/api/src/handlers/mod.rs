@@ -82,6 +82,7 @@ pub mod revoke_invitation;
 // H11 — Admin Pricing:
 pub mod admin_pricing;
 pub mod pricing_quote;
+pub mod payg_pricing;
 pub mod pricing_types;
 
 // H14 — Help Center & Support:
@@ -160,9 +161,13 @@ pub use revoke_invitation::*;
 
 // B14 — Billing Provider Abstraction & Checkout:
 pub mod billing_types;
+pub mod billing_finalization;
 pub mod initiate_checkout;
 pub mod verify_checkout;
 pub use billing_types::*;
+pub use billing_finalization::{
+    cancel_subscription, get_invoice, get_subscription, list_plans,
+};
 pub use initiate_checkout::*;
 pub use verify_checkout::*;
 
@@ -206,3 +211,4 @@ pub mod cancel_proxy_check_job;
 pub mod list_proxy_check_results;
 pub use cancel_proxy_check_job::*;
 pub use list_proxy_check_results::*;
+

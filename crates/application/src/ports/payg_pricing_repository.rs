@@ -8,6 +8,7 @@ pub type PaygPricingRepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 #[async_trait]
 pub trait PAYGPricingRepository: Send + Sync {
     async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>>;
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>>;
 }
 
 #[async_trait]
@@ -18,4 +19,6 @@ where
     async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
         (**self).find_active(operation).await
     }
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> { (**self).list_active().await }
 }
+

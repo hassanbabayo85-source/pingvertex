@@ -32,4 +32,8 @@ impl InvoiceRepository for InMemoryInvoiceRepository {
             .map(|(i, _)| i.clone())
             .collect())
     }
+    async fn find_by_id_for_tenant(&self, id: Uuid, tenant_id: Uuid) -> InvoiceRepoResult<Option<Invoice>> {
+        Ok(self.invoices.lock().unwrap().iter().find(|(i,_)| i.id==id && i.tenant_id==tenant_id).map(|(i,_)|i.clone()))
+    }
 }
+

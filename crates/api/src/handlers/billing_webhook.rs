@@ -67,14 +67,14 @@ pub async fn billing_webhook(
         .map_err(|_| ApiError::bad_request("invalid plan tier in webhook payload"))?;
 
     let command = ProcessBillingWebhookCommand {
-        provider_event_id: payload.event_id,
+        provider_event_id: payload.event_id.clone(),
         event_type,
         tenant_id: TenantId(payload.tenant_id),
         plan_tier,
         cancel_at_period_end: payload.cancel_at_period_end,
         current_period_ends_at: payload.current_period_ends_at,
         payload: {
-            let mut d = payload.data;
+            let mut d = payload.data.clone();
             if let Some(id) = payload.addon_subscription_id {
                 d["addon_subscription_id"] = serde_json::Value::String(id.to_string());
             }
@@ -88,12 +88,28 @@ pub async fn billing_webhook(
         state.subscription_repository.clone(),
     )
     .with_addon_repository(state.add_on_subscription_repository.clone())
-    .with_wallet_repository(state.wallet_repository.clone());
+    .with_wallet_repository(state.wallet_repository.clone())
+    .with_payment_repository(state.payment_repository.clone())
+    .with_financial_audit_repository(state.financial_audit_log_repository.clone());
 
     let outcome = use_case
-        .execute(command)
+        .execute(command.clone())
         .await
         .map_err(|err| ApiError::internal_with_source("failed to process billing webhook", err))?;
+
+    if outcome.processed {
+        let audit_action = match command.event_type {
+            BillingWebhookEventType::PaymentSucceeded => "payment_verified",
+            BillingWebhookEventType::PaymentFailed => "payment_failed",
+            BillingWebhookEventType::PaymentRefunded => "wallet_refunded",
+            BillingWebhookEventType::SubscriptionRenewed => "subscription_changed",
+            BillingWebhookEventType::SubscriptionCanceled => "subscription_canceled",
+        };
+        let _ = state.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(
+            "billing:webhook", Some(command.tenant_id.0), audit_action, "billing_webhook",
+            Some(command.provider_event_id.clone()), sanitize_financial_metadata(&command.payload),
+        )).await;
+    }
 
     let status = if outcome.processed {
         "processed"
@@ -107,6 +123,26 @@ pub async fn billing_webhook(
             status: status.to_owned(),
         }),
     ))
+}
+
+
+pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Value {
+    fn walk(v: &serde_json::Value) -> serde_json::Value {
+        match v {
+            serde_json::Value::Object(map) => {
+                let mut out = serde_json::Map::new();
+                for (k, val) in map {
+                    let lower = k.to_ascii_lowercase();
+                    if lower.contains("password") || lower.contains("credential") || lower.contains("secret") || lower.contains("api_key") || lower.contains("apikey") || lower.contains("token") { continue; }
+                    out.insert(k.clone(), walk(val));
+                }
+                serde_json::Value::Object(out)
+            }
+            serde_json::Value::Array(a) => serde_json::Value::Array(a.iter().map(walk).collect()),
+            other => other.clone(),
+        }
+    }
+    walk(value)
 }
 
 /// Verifies the provider signature on the raw request body.
@@ -237,3 +273,4 @@ mod tests {
         assert!(verify_signature("secret", &headers, b"{}").is_err());
     }
 }
+

@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use application::ports::{
     AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
-    AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
+    AuditLogEntryRepository, BillingAuditLogRepository, FinancialAuditLogRepository, BillingWebhookIdempotencyRepository,
+    PaymentRepository,
     CheckRepository, CheckoutDetails, CheckoutRequest, CheckoutSessionRepository,
     CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
     EscalationPolicyRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
@@ -111,6 +112,8 @@ pub struct AppState {
     pub subscription_plan_change_repository:
         Arc<dyn application::ports::SubscriptionPlanChangeRepository>,
     pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
+    pub payment_repository: Arc<dyn PaymentRepository>,
+    pub financial_audit_log_repository: Arc<dyn FinancialAuditLogRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -351,6 +354,21 @@ impl application::ports::SubscriptionPlanChangeRepository for NoopSubscriptionPl
     }
 }
 #[derive(Clone, Default)]
+struct NoopPaymentRepository;
+#[async_trait]
+impl PaymentRepository for NoopPaymentRepository {
+ async fn record(&self, _p: &domain::Payment) -> RepoResult<()> { Ok(()) }
+ async fn find_by_provider_payment_id(&self, _provider:&str, _id:&str) -> RepoResult<Option<domain::Payment>> { Ok(None) }
+}
+
+struct NoopFinancialAuditLogRepository;
+
+#[async_trait]
+impl FinancialAuditLogRepository for NoopFinancialAuditLogRepository {
+    async fn create(&self, _entry: &domain::FinancialAuditLogEntry) -> RepoResult<()> { Ok(()) }
+    async fn list_by_tenant(&self, _tenant_id: uuid::Uuid) -> RepoResult<Vec<domain::FinancialAuditLogEntry>> { Ok(Vec::new()) }
+}
+
 struct NoopInvoiceRepository;
 #[async_trait]
 impl application::ports::InvoiceRepository for NoopInvoiceRepository {
@@ -363,6 +381,9 @@ impl application::ports::InvoiceRepository for NoopInvoiceRepository {
     }
     async fn list_by_tenant(&self, _: uuid::Uuid, _: u32) -> RepoResult<Vec<domain::Invoice>> {
         Ok(vec![])
+    }
+    async fn find_by_id_for_tenant(&self, _: uuid::Uuid, _: uuid::Uuid) -> RepoResult<Option<domain::Invoice>> {
+        Ok(None)
     }
 }
 
@@ -1042,9 +1063,8 @@ impl WalletRepository for NoopWalletRepository {
 struct NoopPAYGPricingRepository;
 #[async_trait]
 impl PAYGPricingRepository for NoopPAYGPricingRepository {
-    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> {
-        Ok(None)
-    }
+    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> { Ok(None) }
+    async fn list_active(&self) -> RepoResult<Vec<domain::PAYGPricing>> { Ok(Vec::new()) }
 }
 
 #[derive(Clone, Default)]
@@ -1157,6 +1177,8 @@ impl AppState {
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             invoice_repository: Arc::new(NoopInvoiceRepository),
+            financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
+            payment_repository: Arc::new(NoopPaymentRepository),
         }
     }
 
@@ -1197,6 +1219,8 @@ impl AppState {
     {
         Self {
             invoice_repository: Arc::new(NoopInvoiceRepository),
+            financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
+            payment_repository: Arc::new(NoopPaymentRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
             check_repository: Arc::new(check_repository),
@@ -1478,6 +1502,15 @@ impl AppState {
         self.subscription_plan_change_repository = Arc::new(repo);
         self
     }
+    pub fn with_payment_repository<R>(mut self, repo: R) -> Self
+    where R: PaymentRepository + 'static { self.payment_repository = Arc::new(repo); self }
+
+    pub fn with_financial_audit_log_repository<R>(mut self, repo: R) -> Self
+    where R: FinancialAuditLogRepository + 'static {
+        self.financial_audit_log_repository = Arc::new(repo);
+        self
+    }
+
     pub fn with_invoice_repository<R>(mut self, repo: R) -> Self
     where
         R: application::ports::InvoiceRepository + 'static,
@@ -1486,3 +1519,4 @@ impl AppState {
         self
     }
 }
+

@@ -20,11 +20,14 @@ impl fmt::Display for GenerateInvoiceError {
 impl Error for GenerateInvoiceError {}
 pub struct GenerateInvoiceUseCase {
     repo: Arc<dyn InvoiceRepository>,
+    audit: Option<Arc<dyn crate::ports::FinancialAuditLogRepository>>,
 }
 impl GenerateInvoiceUseCase {
     pub fn new(repo: Arc<dyn InvoiceRepository>) -> Self {
-        Self { repo }
+        Self { repo, audit: None }
     }
+    pub fn with_audit_repository(mut self, audit: Arc<dyn crate::ports::FinancialAuditLogRepository>) -> Self { self.audit = Some(audit); self }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
@@ -87,10 +90,11 @@ impl GenerateInvoiceUseCase {
             created_at: Utc::now(),
             paid_at: None,
         };
-        self.repo
-            .create_invoice(&i, &lines)
-            .await
-            .map_err(GenerateInvoiceError::Repository)?;
+        self.repo.create_invoice(&i, &lines).await.map_err(GenerateInvoiceError::Repository)?;
+        if let Some(audit)=&self.audit {
+            audit.create(&domain::FinancialAuditLogEntry::new("system:billing",Some(tenant_id),"invoice_created","invoice",Some(invoice_id.to_string()),serde_json::json!({"invoice_number":i.invoice_number,"total":i.total.to_string(),"currency":i.currency}))).await.map_err(GenerateInvoiceError::Repository)?;
+        }
         Ok(i)
     }
 }
+

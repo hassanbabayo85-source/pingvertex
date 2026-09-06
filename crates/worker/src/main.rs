@@ -21,7 +21,7 @@ use worker::{
     AutoTopUpWorker, CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper,
     IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, RetentionWorker, TenantNotificationRateLimiter,
-    WalletExpirationWorker, WalletNotificationEmailWorker, init_rustls_crypto_provider, metrics,
+    WalletExpirationWorker, WalletNotificationEmailWorker, ReconciliationWorker, init_rustls_crypto_provider, metrics,
     run_durable,
 };
 
@@ -101,11 +101,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let tenant_repository = Arc::new(PostgresTenantRepository::new(pool.clone()));
     let subscription_repository = Arc::new(PostgresSubscriptionRepository::new(pool.clone()));
     let wallet_repository = Arc::new(infra::PostgresWalletRepository::new(pool.clone()));
+    let financial_audit_repository = Arc::new(infra::PostgresFinancialAuditLogRepository::new(pool.clone()));
     let auto_top_up_worker = AutoTopUpWorker::new(
-        wallet_repository.clone(),
-        billing_provider,
-        Duration::from_secs(300),
-    );
+        wallet_repository.clone(), billing_provider, Duration::from_secs(300),
+    ).with_audit_repository(financial_audit_repository.clone());
     let auto_top_up_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {
@@ -206,6 +205,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 error = %err,
                 "proxy check worker stopped unexpectedly"
             );
+        }
+    });
+
+    let reconciliation_worker = ReconciliationWorker::new(pool.clone(), Duration::from_secs(24 * 60 * 60));
+    let reconciliation_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = reconciliation_worker.run_forever(reconciliation_cancel).await {
+            tracing::error!(error=%err, "billing reconciliation worker stopped unexpectedly");
         }
     });
 
@@ -337,3 +344,4 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 }
+

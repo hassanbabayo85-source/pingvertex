@@ -1,5 +1,5 @@
 use application::ports::{
-    PaymentProvider, PaymentVerification, WalletRepository, WalletTopUpRequest,
+    PaymentProvider, PaymentVerification, WalletRepository, WalletTopUpRequest, FinancialAuditLogRepository,
 };
 use chrono::Utc;
 use domain::AutoTopUpAttempt;
@@ -10,6 +10,7 @@ pub struct AutoTopUpWorker {
     wallet: Arc<dyn WalletRepository>,
     provider: Arc<dyn PaymentProvider>,
     interval: Duration,
+    audit: Option<Arc<dyn FinancialAuditLogRepository>>,
 }
 
 impl AutoTopUpWorker {
@@ -22,8 +23,11 @@ impl AutoTopUpWorker {
             wallet,
             provider,
             interval,
+            audit: None,
         }
     }
+
+    pub fn with_audit_repository(mut self, audit: Arc<dyn FinancialAuditLogRepository>) -> Self { self.audit = Some(audit); self }
 
     pub async fn run_forever(
         &self,
@@ -85,6 +89,7 @@ impl AutoTopUpWorker {
                                     &key,
                                     Some("Automatic wallet top-up"),
                                 ).await?;
+                                if let Some(audit)=&self.audit { audit.create(&domain::FinancialAuditLogEntry::new("system:auto_top_up",Some(candidate.tenant_id),"wallet_credited","wallet",None,serde_json::json!({"amount_units":amount,"idempotency_key":key}))).await?; }
                                 let _ = self.wallet.record_balance_notification(
                                     candidate.tenant_id,
                                     "TOP_UP_SUCCESS",
@@ -122,3 +127,4 @@ impl AutoTopUpWorker {
         }
     }
 }
+

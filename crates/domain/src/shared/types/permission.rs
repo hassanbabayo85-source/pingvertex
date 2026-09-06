@@ -26,6 +26,7 @@ pub enum Permission {
     UpdateTenantSettings,
     ManageUsers,
     ManageApiKeys,
+    ViewBilling,
     ManageBilling,
 
     // Audit log actions
@@ -44,3 +45,4 @@ pub enum Permission {
     ReplySupportTicket,
     ManageSupportTicketStatus,
 }
+
