@@ -25,6 +25,7 @@ impl GenerateInvoiceUseCase {
     pub fn new(repo: Arc<dyn InvoiceRepository>) -> Self {
         Self { repo }
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
         invoice_id: Uuid,

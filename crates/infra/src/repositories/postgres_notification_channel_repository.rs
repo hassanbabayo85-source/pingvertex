@@ -213,6 +213,23 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
     /// Fetches a channel with NO ownership filtering. Callers must have
     /// already verified access (e.g. via `AuthorizationPolicy::same_tenant`
     /// against the channel's `tenant_id`) before trusting this result.
+    async fn list_enabled_email_by_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<Vec<NotificationChannel>> {
+        let rows = sqlx::query_as::<_, NotificationChannelRow>(&format!(
+            "SELECT {SELECT_COLUMNS} FROM notification_channels
+                 WHERE tenant_id=$1 AND kind='email' AND enabled=true
+                 ORDER BY id"
+        ))
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(NotificationChannelRow::into_domain)
+            .collect()
+    }
+
     async fn find_by_id(
         &self,
         id: NotificationChannelId,

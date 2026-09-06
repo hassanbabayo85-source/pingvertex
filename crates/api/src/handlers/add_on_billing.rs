@@ -282,7 +282,6 @@ pub async fn billing_summary(
 mod tests {
     use super::*;
     use rust_decimal::Decimal;
-    use rust_decimal::prelude::ToPrimitive;
 
     #[test]
     fn addon_total_is_added_to_base() {

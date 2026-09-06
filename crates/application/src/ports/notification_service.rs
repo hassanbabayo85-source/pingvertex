@@ -29,6 +29,17 @@ pub trait NotificationService: Send + Sync {
         channel: &NotificationChannel,
         event: &NotificationEvent,
     ) -> NotifyResult;
+    /// Sends an account-level billing email without pretending it is a monitor event.
+    /// Default implementations reject it; the notification dispatcher routes it
+    /// to the SMTP adapter when email is configured.
+    async fn notify_wallet_email(
+        &self,
+        _recipient: &str,
+        _subject: &str,
+        _body: &str,
+    ) -> NotifyResult {
+        Err("wallet email notifications are not supported by this notification service".into())
+    }
 }
 
 #[async_trait]
@@ -42,5 +53,14 @@ where
         event: &NotificationEvent,
     ) -> NotifyResult {
         (**self).notify(channel, event).await
+    }
+
+    async fn notify_wallet_email(
+        &self,
+        recipient: &str,
+        subject: &str,
+        body: &str,
+    ) -> NotifyResult {
+        (**self).notify_wallet_email(recipient, subject, body).await
     }
 }

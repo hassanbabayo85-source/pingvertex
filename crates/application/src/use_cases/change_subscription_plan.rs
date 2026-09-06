@@ -48,6 +48,7 @@ pub struct ChangeSubscriptionPlanUseCase<T> {
     ids: Arc<dyn IdGenerator>,
 }
 impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         subs: Arc<dyn SubscriptionRepository>,
         pricing: Arc<dyn PricingConfigRepository>,

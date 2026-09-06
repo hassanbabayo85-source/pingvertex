@@ -3,9 +3,11 @@ use async_trait::async_trait;
 use domain::{Invoice, InvoiceLine};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+type InvoiceStore = Vec<(Invoice, Vec<InvoiceLine>)>;
+
 #[derive(Clone, Default)]
 pub struct InMemoryInvoiceRepository {
-    pub invoices: Arc<Mutex<Vec<(Invoice, Vec<InvoiceLine>)>>>,
+    pub invoices: Arc<Mutex<InvoiceStore>>,
 }
 impl InMemoryInvoiceRepository {
     pub fn new() -> Self {

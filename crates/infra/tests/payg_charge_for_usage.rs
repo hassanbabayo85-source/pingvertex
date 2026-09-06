@@ -11,6 +11,7 @@ use std::sync::{
 };
 use uuid::Uuid;
 
+#[allow(clippy::type_complexity)]
 fn setup(
     unit_price: i64,
     version: i64,

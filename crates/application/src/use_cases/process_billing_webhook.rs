@@ -111,30 +111,79 @@ where
                     std::io::Error::other("wallet repository not configured").into(),
                 )
             })?;
-            let amount = command
+            let checkout_id = command
                 .payload
-                .get("amount_units")
-                .and_then(|v| v.as_i64())
+                .get("provider_checkout_id")
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| {
                     BillingWebhookError::Other(
-                        std::io::Error::other("wallet top-up amount missing").into(),
+                        std::io::Error::other("wallet top-up checkout id missing").into(),
                     )
                 })?;
             let payment_id = command
                 .payload
                 .get("payment_id")
                 .and_then(|v| v.as_str())
-                .unwrap_or(&command.provider_event_id);
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("wallet top-up payment id missing").into(),
+                    )
+                })?;
+
+            let session = wallet
+                .find_top_up_session(command.tenant_id.0, checkout_id)
+                .await
+                .map_err(BillingWebhookError::Other)?
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("wallet top-up session not found").into(),
+                    )
+                })?;
+
+            if session.status != domain::WalletTopUpSession::PENDING
+                && session.status != domain::WalletTopUpSession::COMPLETED
+            {
+                return Err(BillingWebhookError::Other(
+                    std::io::Error::other("wallet top-up session is not payable").into(),
+                ));
+            }
+
+            if let Some(payload_amount) =
+                command.payload.get("amount_units").and_then(|v| v.as_i64())
+                && payload_amount != session.amount_units
+            {
+                return Err(BillingWebhookError::Other(
+                    std::io::Error::other("wallet top-up amount does not match checkout session")
+                        .into(),
+                ));
+            }
+
+            let completed = wallet
+                .complete_top_up_session(command.tenant_id.0, checkout_id, payment_id)
+                .await
+                .map_err(BillingWebhookError::Other)?
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("failed to complete wallet top-up session").into(),
+                    )
+                })?;
+
             wallet
                 .credit(
                     command.tenant_id.0,
-                    amount,
+                    completed.amount_units,
                     domain::WalletTransactionType::TopUp,
-                    &format!("topup:{payment_id}"),
+                    &format!(
+                        "topup:{}",
+                        completed
+                            .provider_payment_id
+                            .as_deref()
+                            .unwrap_or(payment_id)
+                    ),
                     Some("Wallet top-up"),
                 )
                 .await
-                .map_err(|e| BillingWebhookError::Other(e))?;
+                .map_err(BillingWebhookError::Other)?;
             let _ = wallet
                 .record_balance_notification(
                     command.tenant_id.0,
@@ -158,16 +207,32 @@ where
                         std::io::Error::other("refund amount missing").into(),
                     )
                 })?;
-            wallet
-                .credit(
-                    command.tenant_id.0,
-                    amount,
-                    domain::WalletTransactionType::Refund,
-                    &format!("refund:{}", command.provider_event_id),
-                    Some("Verified payment refund"),
-                )
+            let payment_id = command
+                .payload
+                .get("payment_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("refund payment id missing").into(),
+                    )
+                })?;
+            let refund_id = command
+                .payload
+                .get("refund_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(std::io::Error::other("refund id missing").into())
+                })?;
+            let credited = wallet
+                .record_verified_refund(command.tenant_id.0, payment_id, amount, refund_id)
                 .await
-                .map_err(|e| BillingWebhookError::Other(e))?;
+                .map_err(BillingWebhookError::Other)?;
+            if !credited {
+                return Err(BillingWebhookError::Other(
+                    std::io::Error::other("refund does not match a refundable completed payment")
+                        .into(),
+                ));
+            }
             let _ = wallet
                 .record_balance_notification(
                     command.tenant_id.0,

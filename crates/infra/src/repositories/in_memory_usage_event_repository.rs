@@ -53,8 +53,8 @@ impl UsageEventRepository for InMemoryUsageEventRepository {
                 e.tenant_id == tenant_id
                     && e.created_at >= from
                     && e.created_at < to
-                    && operation.map_or(true, |v| v == e.operation)
-                    && status.map_or(true, |v| v == e.status)
+                    && operation.is_none_or(|v| v == e.operation)
+                    && status.is_none_or(|v| v == e.status)
             })
             .cloned()
             .collect::<Vec<_>>();

@@ -21,7 +21,8 @@ use worker::{
     AutoTopUpWorker, CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper,
     IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, RetentionWorker, TenantNotificationRateLimiter,
-    WalletExpirationWorker, init_rustls_crypto_provider, metrics, run_durable,
+    WalletExpirationWorker, WalletNotificationEmailWorker, init_rustls_crypto_provider, metrics,
+    run_durable,
 };
 
 #[derive(Clone, Default)]
@@ -123,6 +124,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let notification_service = Arc::new(NotificationDispatcher::from_env(secret_cipher));
+    let wallet_email_worker = WalletNotificationEmailWorker::new(
+        wallet_repository.clone(),
+        notification_channel_repository.clone(),
+        notification_service.clone(),
+        Duration::from_secs(60),
+    );
+    let wallet_email_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = wallet_email_worker.run_forever(wallet_email_cancel).await {
+            tracing::error!(error=%err, "wallet notification email worker stopped unexpectedly");
+        }
+    });
     let api_flow_repository = Arc::new(PostgresApiFlowRepository::new(pool.clone()));
 
     let notification_outbox_repository =

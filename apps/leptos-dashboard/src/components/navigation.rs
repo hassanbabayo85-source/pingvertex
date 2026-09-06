@@ -136,17 +136,12 @@ pub const NAV_GROUPS: &[NavGroup] = &[
         label: "BILLING",
         items: &[
             NavItem {
-                label: "Overview",
-                href: "/billing",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Plan & usage",
+                label: "Subscription",
                 href: "/billing/plan",
                 status: NavStatus::Available,
             },
             NavItem {
-                label: "PAYG wallet",
+                label: "Wallet",
                 href: "/billing/wallet",
                 status: NavStatus::Available,
             },
@@ -156,8 +151,13 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 status: NavStatus::Available,
             },
             NavItem {
-                label: "Add-ons",
-                href: "/billing/add-ons",
+                label: "Invoices",
+                href: "/billing/invoices",
+                status: NavStatus::Available,
+            },
+            NavItem {
+                label: "Transactions",
+                href: "/billing/transactions",
                 status: NavStatus::Available,
             },
         ],

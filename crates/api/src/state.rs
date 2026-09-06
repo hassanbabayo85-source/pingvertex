@@ -909,9 +909,81 @@ impl WalletRepository for NoopWalletRepository {
     ) -> RepoResult<domain::WalletTransaction> {
         Err("wallet repository is not configured".into())
     }
+    async fn create_top_up_session(&self, _session: &domain::WalletTopUpSession) -> RepoResult<()> {
+        Err("wallet repository is not configured".into())
+    }
+    async fn find_top_up_session(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _provider_checkout_id: &str,
+    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
+        Ok(None)
+    }
+    async fn complete_top_up_session(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _provider_checkout_id: &str,
+        _provider_payment_id: &str,
+    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
+        Ok(None)
+    }
+    async fn refundable_top_up(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _provider_payment_id: &str,
+        _amount_units: i64,
+    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
+        Ok(None)
+    }
+    async fn record_verified_refund(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _provider_payment_id: &str,
+        _amount_units: i64,
+        _provider_refund_id: &str,
+    ) -> RepoResult<bool> {
+        Ok(false)
+    }
+    async fn record_auto_top_up_attempt(
+        &self,
+        _attempt: &domain::AutoTopUpAttempt,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn create_refund_request(
+        &self,
+        _request: &domain::WalletRefundRequest,
+    ) -> RepoResult<Option<domain::WalletRefundRequest>> {
+        Ok(None)
+    }
+    async fn set_refund_provider_id(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _idempotency_key: &str,
+        _provider_refund_id: &str,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn claim_auto_top_up(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _lease_id: uuid::Uuid,
+        _lease_for: std::time::Duration,
+    ) -> RepoResult<bool> {
+        Ok(false)
+    }
+    async fn release_auto_top_up(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _lease_id: uuid::Uuid,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
     async fn get_settings(&self, tenant_id: uuid::Uuid) -> RepoResult<domain::WalletSettings> {
-        let mut s = domain::WalletSettings::default();
-        s.tenant_id = tenant_id;
+        let s = domain::WalletSettings {
+            tenant_id,
+            ..domain::WalletSettings::default()
+        };
         Ok(s)
     }
     async fn update_settings(
@@ -1124,10 +1196,8 @@ impl AppState {
         AL: AuditLogEntryRepository + 'static,
     {
         Self {
-            invoice_repository: Arc::new(NoopInvoiceRepository::default()),
-            subscription_plan_change_repository: Arc::new(
-                NoopSubscriptionPlanChangeRepository::default(),
-            ),
+            invoice_repository: Arc::new(NoopInvoiceRepository),
+            subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),

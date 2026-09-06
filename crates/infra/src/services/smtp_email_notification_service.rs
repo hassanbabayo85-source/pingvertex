@@ -122,6 +122,24 @@ impl NotificationService for SmtpEmailNotificationService {
 
         Ok(())
     }
+
+    async fn notify_wallet_email(
+        &self,
+        recipient: &str,
+        subject: &str,
+        body: &str,
+    ) -> NotifyResult {
+        let to: Mailbox = recipient
+            .parse()
+            .map_err(|err| format!("invalid wallet email recipient '{recipient}': {err}"))?;
+        let email = Message::builder()
+            .from(self.from.clone())
+            .to(to)
+            .subject(subject)
+            .body(body.to_owned())?;
+        self.mailer.send(email).await?;
+        Ok(())
+    }
 }
 
 /// Stand-in `NotificationService` used when SMTP isn't configured for this

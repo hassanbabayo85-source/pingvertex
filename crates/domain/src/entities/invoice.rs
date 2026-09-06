@@ -87,6 +87,7 @@ pub struct InvoiceLine {
     pub created_at: DateTime<Utc>,
 }
 impl InvoiceLine {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: Uuid,
         invoice_id: Uuid,
