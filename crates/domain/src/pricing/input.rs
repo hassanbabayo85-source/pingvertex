@@ -38,7 +38,7 @@ impl PricingInput {
     }
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum PricingValidationError {
     #[error("monitors must be greater than zero")]
     MonitorsZero,

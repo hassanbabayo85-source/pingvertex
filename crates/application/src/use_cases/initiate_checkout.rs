@@ -35,6 +35,8 @@ where
             .create_checkout(&CheckoutRequest {
                 tenant_id: command.tenant_id,
                 plan_tier: command.plan_tier,
+                amount_minor: 0,
+                currency: "USD".to_owned(),
             })
             .await?;
 

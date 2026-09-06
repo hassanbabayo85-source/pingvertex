@@ -18,10 +18,12 @@ pub enum PaymentVerification {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckoutRequest {
     pub tenant_id: TenantId,
     pub plan_tier: PlanTier,
+    pub amount_minor: i64,
+    pub currency: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

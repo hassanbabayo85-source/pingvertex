@@ -182,7 +182,13 @@ pub use rum_analytics_repository::RumAnalyticsRepository;
 pub use rum_event_repository::RumEventRepository;
 pub use rum_site_repository::RumSiteRepository;
 
+pub mod invoice_repository;
+pub mod subscription_plan_change_repository;
 pub mod wallet_repository;
+pub use invoice_repository::{InvoiceRepoResult, InvoiceRepository};
+pub use subscription_plan_change_repository::{
+    PlanChangeRepoResult, SubscriptionPlanChangeRepository,
+};
 pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletRepository};
 
 pub mod payg_pricing_repository;

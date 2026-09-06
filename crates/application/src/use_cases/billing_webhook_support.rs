@@ -6,6 +6,7 @@ pub enum BillingWebhookError {
     MissingPlanTier,
     InvalidTransition(domain::DomainError),
     Repository(Box<dyn Error + Send + Sync>),
+    Other(Box<dyn Error + Send + Sync>),
 }
 
 impl fmt::Display for BillingWebhookError {
@@ -15,6 +16,7 @@ impl fmt::Display for BillingWebhookError {
             Self::MissingPlanTier => write!(f, "plan tier is required for this event"),
             Self::InvalidTransition(err) => write!(f, "{err}"),
             Self::Repository(err) => write!(f, "{err}"),
+            Self::Other(err) => write!(f, "{err}"),
         }
     }
 }
@@ -23,6 +25,7 @@ impl Error for BillingWebhookError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Repository(err) => Some(err.as_ref()),
+            Self::Other(err) => Some(err.as_ref()),
             _ => None,
         }
     }

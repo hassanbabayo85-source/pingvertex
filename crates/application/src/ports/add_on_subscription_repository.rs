@@ -14,6 +14,7 @@ pub trait AddOnSubscriptionRepository: Send + Sync {
         t: TenantId,
         k: AddOnType,
     ) -> RepoResult<Vec<AddOnSubscription>>;
+    async fn update(&self, a: &AddOnSubscription) -> RepoResult<()>;
 }
 #[async_trait]
 impl<T> AddOnSubscriptionRepository for Arc<T>
@@ -35,5 +36,8 @@ where
         k: AddOnType,
     ) -> RepoResult<Vec<AddOnSubscription>> {
         (**self).list_by_tenant_and_type(t, k).await
+    }
+    async fn update(&self, a: &AddOnSubscription) -> RepoResult<()> {
+        (**self).update(a).await
     }
 }

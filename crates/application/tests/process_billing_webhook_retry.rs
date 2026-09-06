@@ -74,5 +74,6 @@ async fn failed_webhook_processing_marks_event_pending_and_retry_succeeds() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(updated.plan_tier, PlanTier::Business);
+    // Existing subscription plan is authoritative; webhook metadata cannot overwrite it.
+    assert_eq!(updated.plan_tier, PlanTier::Free);
 }

@@ -78,6 +78,100 @@ async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscriptio
 }
 
 #[tokio::test]
+#[ignore = "requires DATABASE_URL"]
+async fn compare_and_set_rejects_stale_plan_and_rolls_back_period_changes() {
+    let pool = setup_pool().await;
+    let (tenant_id, subscription) = create_tenant_and_subscription(&pool).await;
+
+    let transaction = PostgresSubscriptionUsageTransaction::new(pool.clone());
+    let period_repo = PostgresSubscriptionUsagePeriodRepository::new(pool.clone());
+
+    let period1 = SubscriptionUsagePeriod::open(
+        SubscriptionUsagePeriodId(uuid::Uuid::new_v4()),
+        subscription.id,
+        5,
+        60,
+        7,
+        Utc::now(),
+    );
+
+    transaction
+        .change_usage(&subscription, None, &period1, None)
+        .await
+        .expect("initial usage transaction should succeed");
+
+    // Simulate a stale plan-change command: the caller believes the
+    // subscription is Business, but the persisted subscription is still
+    // Starter. The expected-old-plan CAS must therefore fail.
+    let mut stale_subscription = subscription.clone();
+    stale_subscription
+        .apply_verified_payment(PlanTier::Business)
+        .expect("test plan transition should be valid");
+
+    let period2 = SubscriptionUsagePeriod::open(
+        SubscriptionUsagePeriodId(uuid::Uuid::new_v4()),
+        subscription.id,
+        20,
+        30,
+        30,
+        Utc::now(),
+    );
+
+    let result = transaction
+        .change_usage(
+            &stale_subscription,
+            Some(period1.id),
+            &period2,
+            Some(PlanTier::Business),
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "stale expected plan must be rejected by CAS"
+    );
+
+    let open_period = period_repo
+        .find_open_period(subscription.id)
+        .await
+        .expect("open-period lookup should succeed")
+        .expect("original period must remain open after rollback");
+
+    assert_eq!(
+        open_period.id, period1.id,
+        "failed CAS must roll back closing the previous period"
+    );
+
+    let period_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM subscription_usage_periods WHERE subscription_id = $1",
+    )
+    .bind(subscription.id.0)
+    .fetch_one(&pool)
+    .await
+    .expect("period count query should succeed");
+
+    assert_eq!(
+        period_count.0, 1,
+        "failed CAS must roll back insertion of the replacement period"
+    );
+
+    let persisted = sqlx::query_as::<_, (String,)>(
+        "SELECT plan_tier FROM subscriptions WHERE id = $1 AND tenant_id = $2",
+    )
+    .bind(subscription.id.0)
+    .bind(tenant_id.0)
+    .fetch_one(&pool)
+    .await
+    .expect("subscription should still exist");
+
+    assert_eq!(
+        persisted.0,
+        PlanTier::Starter.as_str(),
+        "failed CAS must not change the persisted plan"
+    );
+}
+
+#[tokio::test]
 #[ignore]
 async fn change_usage_closes_previous_period_opens_new_one_and_updates_subscription() {
     let pool = setup_pool().await;
@@ -103,7 +197,7 @@ async fn change_usage_closes_previous_period_opens_new_one_and_updates_subscript
         cycle_start,
     );
     transaction
-        .change_usage(&subscription, None, &period1)
+        .change_usage(&subscription, None, &period1, None)
         .await
         .expect("first change_usage should succeed");
 
@@ -120,7 +214,7 @@ async fn change_usage_closes_previous_period_opens_new_one_and_updates_subscript
         switch_at,
     );
     transaction
-        .change_usage(&subscription, Some(period1.id), &period2)
+        .change_usage(&subscription, Some(period1.id), &period2, None)
         .await
         .expect("second change_usage should succeed");
 

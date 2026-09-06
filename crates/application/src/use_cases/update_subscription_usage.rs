@@ -172,6 +172,7 @@ where
                 &subscription,
                 previous_open_period.map(|p| p.id),
                 &new_period,
+                None,
             )
             .await?;
 
@@ -314,6 +315,7 @@ mod tests {
             _subscription: &Subscription,
             _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
             _new_period: &SubscriptionUsagePeriod,
+            _expected_old_plan: Option<domain::enums::PlanTier>,
         ) -> Result<(), Box<dyn Error + Send + Sync>> {
             Ok(())
         }

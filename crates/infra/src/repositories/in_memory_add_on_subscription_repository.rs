@@ -26,6 +26,11 @@ impl AddOnSubscriptionRepository for InMemoryAddOnSubscriptionRepository {
     async fn find_by_id(&self, id: AddOnSubscriptionId) -> R<Option<AddOnSubscription>> {
         Ok(self.items.lock().unwrap().get(&id).cloned())
     }
+
+    async fn update(&self, a: &AddOnSubscription) -> R<()> {
+        self.items.lock().unwrap().insert(a.id, a.clone());
+        Ok(())
+    }
     async fn list_active_by_tenant(&self, t: TenantId) -> R<Vec<AddOnSubscription>> {
         Ok(self
             .items

@@ -160,6 +160,12 @@ pub use calculate_subscription_cycle_cost::*;
 pub use update_subscription_usage::*;
 
 pub mod add_on_subscription;
+pub mod change_subscription_plan;
+pub mod generate_invoice;
+pub mod verify_addon_checkout;
+pub use change_subscription_plan::*;
+pub use generate_invoice::*;
+pub use verify_addon_checkout::*;
 
 // H14 — Help Center & Support:
 pub use create_support_ticket::{CreateSupportTicketError, CreateSupportTicketUseCase};

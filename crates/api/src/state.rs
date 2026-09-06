@@ -108,6 +108,9 @@ pub struct AppState {
     pub wallet_repository: Arc<dyn WalletRepository>,
     pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
+    pub subscription_plan_change_repository:
+        Arc<dyn application::ports::SubscriptionPlanChangeRepository>,
+    pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -330,6 +333,40 @@ impl HealthCheckPort for NoopHealthCheckPort {
 }
 
 #[derive(Clone, Default)]
+struct NoopSubscriptionPlanChangeRepository;
+#[async_trait]
+impl application::ports::SubscriptionPlanChangeRepository for NoopSubscriptionPlanChangeRepository {
+    async fn create(&self, _: &domain::SubscriptionPlanChange) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn update(&self, _: &domain::SubscriptionPlanChange) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_id(
+        &self,
+        _: uuid::Uuid,
+        _: uuid::Uuid,
+    ) -> RepoResult<Option<domain::SubscriptionPlanChange>> {
+        Ok(None)
+    }
+}
+#[derive(Clone, Default)]
+struct NoopInvoiceRepository;
+#[async_trait]
+impl application::ports::InvoiceRepository for NoopInvoiceRepository {
+    async fn create_invoice(
+        &self,
+        _: &domain::Invoice,
+        _: &[domain::InvoiceLine],
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn list_by_tenant(&self, _: uuid::Uuid, _: u32) -> RepoResult<Vec<domain::Invoice>> {
+        Ok(vec![])
+    }
+}
+
+#[derive(Clone, Default)]
 struct NoopSubscriptionRepository;
 
 #[async_trait]
@@ -484,6 +521,7 @@ impl SubscriptionUsageTransaction for NoopSubscriptionUsageTransaction {
         _subscription: &Subscription,
         _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
         _new_period: &domain::entities::SubscriptionUsagePeriod,
+        _expected_old_plan: Option<domain::enums::PlanTier>,
     ) -> RepoResult<()> {
         Ok(())
     }
@@ -514,6 +552,9 @@ impl AddOnSubscriptionRepository for NoopAddOnSubscriptionRepository {
         _: domain::AddOnType,
     ) -> RepoResult<Vec<domain::AddOnSubscription>> {
         Ok(vec![])
+    }
+    async fn update(&self, _: &domain::AddOnSubscription) -> RepoResult<()> {
+        Ok(())
     }
 }
 #[derive(Clone, Default)]
@@ -969,6 +1010,8 @@ impl AppState {
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
+            subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
+            invoice_repository: Arc::new(NoopInvoiceRepository),
         }
     }
 
@@ -1008,6 +1051,10 @@ impl AppState {
         AL: AuditLogEntryRepository + 'static,
     {
         Self {
+            invoice_repository: Arc::new(NoopInvoiceRepository::default()),
+            subscription_plan_change_repository: Arc::new(
+                NoopSubscriptionPlanChangeRepository::default(),
+            ),
             monitor_repository: Arc::new(monitor_repository),
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),
@@ -1279,6 +1326,20 @@ impl AppState {
         G: GeoIpLookup + 'static,
     {
         self.geo_ip_lookup = Arc::new(geo_ip_lookup);
+        self
+    }
+    pub fn with_subscription_plan_change_repository<R>(mut self, repo: R) -> Self
+    where
+        R: application::ports::SubscriptionPlanChangeRepository + 'static,
+    {
+        self.subscription_plan_change_repository = Arc::new(repo);
+        self
+    }
+    pub fn with_invoice_repository<R>(mut self, repo: R) -> Self
+    where
+        R: application::ports::InvoiceRepository + 'static,
+    {
+        self.invoice_repository = Arc::new(repo);
         self
     }
 }

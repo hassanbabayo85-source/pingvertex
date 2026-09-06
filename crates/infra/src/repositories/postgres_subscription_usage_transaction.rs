@@ -36,6 +36,7 @@ impl SubscriptionUsageTransaction for PostgresSubscriptionUsageTransaction {
         subscription: &Subscription,
         previous_open_period_id: Option<SubscriptionUsagePeriodId>,
         new_period: &SubscriptionUsagePeriod,
+        expected_old_plan: Option<domain::enums::PlanTier>,
     ) -> TxResult<()> {
         let mut tx = self.pool.begin().await?;
 
@@ -67,31 +68,50 @@ impl SubscriptionUsageTransaction for PostgresSubscriptionUsageTransaction {
 
         // 3. Update the subscription's current usage snapshot.
         //
-        // SECURITY (defense-in-depth): `subscription` is always the row
-        // `UpdateSubscriptionUsageUseCase` loaded via
-        // `find_by_tenant_id(caller's own tenant_id)`, so `subscription.id`
-        // cannot currently be attacker-controlled across tenants. The
-        // `AND tenant_id = $7` predicate is a second, independent guard at
-        // the SQL layer, and `rows_affected() == 0` is treated as a hard
-        // error rather than a silent no-op so a tenant mismatch can never
-        // pass as success.
-        let result = sqlx::query(
-            "UPDATE subscriptions SET \
-             monitors = $2, interval_seconds = $3, retention_days = $4, pricing_version = $5, updated_at = $6 \
-             WHERE id = $1 \
-               AND tenant_id = $7",
-        )
-        .bind(subscription.id.0)
-        .bind(subscription.monitors.map(|m| m as i64))
-        .bind(subscription.interval_seconds.map(|i| i as i32))
-        .bind(subscription.retention_days.map(|r| r as i32))
-        .bind(subscription.pricing_version.map(|v| v as i32))
-        .bind(subscription.updated_at)
-        .bind(subscription.tenant_id.0)
-        .execute(&mut *tx)
-        .await?;
+        // SECURITY + CONCURRENCY: when a caller supplies the plan it
+        // originally observed, require that plan to still be current.
+        // Because this UPDATE is inside the same transaction that closes
+        // the old usage period and inserts the new one, a failed CAS causes
+        // the entire transaction to roll back.
+        let mut query = match expected_old_plan {
+            Some(_) => sqlx::query(
+                "UPDATE subscriptions SET                  plan_tier = $2, status = $3, trial_ends_at = $4, grace_period_ends_at = $5, current_period_ends_at = $6, canceled_at = $7, cancel_at_period_end = $8, monitors = $9, interval_seconds = $10, retention_days = $11, pricing_version = $12, updated_at = $13                  WHERE id = $1 AND tenant_id = $14 AND plan_tier = $15",
+            ),
+            None => sqlx::query(
+                "UPDATE subscriptions SET                  plan_tier = $2, status = $3, trial_ends_at = $4, grace_period_ends_at = $5, current_period_ends_at = $6, canceled_at = $7, cancel_at_period_end = $8, monitors = $9, interval_seconds = $10, retention_days = $11, pricing_version = $12, updated_at = $13                  WHERE id = $1 AND tenant_id = $14",
+            ),
+        };
+
+        query = query
+            .bind(subscription.id.0)
+            .bind(subscription.plan_tier.as_str())
+            .bind(subscription.status.as_str())
+            .bind(subscription.trial_ends_at)
+            .bind(subscription.grace_period_ends_at)
+            .bind(subscription.current_period_ends_at)
+            .bind(subscription.canceled_at)
+            .bind(subscription.cancel_at_period_end)
+            .bind(subscription.monitors.map(|m| m as i64))
+            .bind(subscription.interval_seconds.map(|i| i as i32))
+            .bind(subscription.retention_days.map(|r| r as i32))
+            .bind(subscription.pricing_version.map(|v| v as i32))
+            .bind(subscription.updated_at)
+            .bind(subscription.tenant_id.0);
+
+        if let Some(expected) = expected_old_plan {
+            query = query.bind(expected.as_str());
+        }
+
+        let result = query.execute(&mut *tx).await?;
 
         if result.rows_affected() == 0 {
+            if expected_old_plan.is_some() {
+                return Err(
+                    "subscription usage update affected no rows (id/tenant/expected-plan mismatch)"
+                        .into(),
+                );
+            }
+
             return Err("subscription usage update affected no rows (id/tenant mismatch)".into());
         }
 

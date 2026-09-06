@@ -63,7 +63,7 @@ impl Subscription {
             status: SubscriptionStatus::Active,
             trial_ends_at: None,
             grace_period_ends_at: None,
-            current_period_ends_at: None,
+            current_period_ends_at: Some(now + chrono::Duration::days(30)),
             canceled_at: None,
             cancel_at_period_end: false,
             monitors: None,
@@ -107,7 +107,7 @@ impl Subscription {
         self.status = SubscriptionStatus::Active;
         self.trial_ends_at = None;
         self.grace_period_ends_at = None;
-        self.current_period_ends_at = None;
+        self.current_period_ends_at = Some(Utc::now() + chrono::Duration::days(30));
         self.canceled_at = None;
         self.cancel_at_period_end = false;
         self.updated_at = Utc::now();

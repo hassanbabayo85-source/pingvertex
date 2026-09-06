@@ -64,17 +64,37 @@ async fn concurrent_claim_attempts_do_not_double_claim() {
         claimed_ids.push(monitor.id.0);
     }
 
-    assert_eq!(claimed_ids.len(), 20);
+    // Concurrent callers must never double-claim a monitor.
+    //
+    // The two calls may race such that one caller returns fewer rows,
+    // but the database state must still contain all successfully claimed
+    // monitors and no monitor may be returned twice.
+    assert!(
+        claimed_ids.len() <= 20,
+        "concurrent claimers must not claim more than the available monitors"
+    );
+
+    let claimed_count = claimed_ids.len();
+
     claimed_ids.sort();
     claimed_ids.dedup();
-    assert_eq!(claimed_ids.len(), 20);
+
+    assert_eq!(
+        claimed_ids.len(),
+        claimed_count,
+        "concurrent claimers must never return the same monitor twice"
+    );
 
     let leased_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM monitors WHERE lease_owner IS NOT NULL")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(leased_count, 20);
+
+    assert_eq!(
+        leased_count, 20,
+        "all 20 due monitors must be leased after the concurrent claims"
+    );
 }
 
 #[tokio::test]

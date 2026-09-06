@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use domain::Subscription;
 use domain::entities::SubscriptionUsagePeriod;
+use domain::enums::PlanTier;
 use domain::shared::ids::SubscriptionUsagePeriodId;
 
 pub type SubscriptionUsageTransactionResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -24,6 +25,7 @@ pub trait SubscriptionUsageTransaction: Send + Sync {
         subscription: &Subscription,
         previous_open_period_id: Option<SubscriptionUsagePeriodId>,
         new_period: &SubscriptionUsagePeriod,
+        expected_old_plan: Option<PlanTier>,
     ) -> SubscriptionUsageTransactionResult<()>;
 }
 
@@ -37,9 +39,15 @@ where
         subscription: &Subscription,
         previous_open_period_id: Option<SubscriptionUsagePeriodId>,
         new_period: &SubscriptionUsagePeriod,
+        expected_old_plan: Option<PlanTier>,
     ) -> SubscriptionUsageTransactionResult<()> {
         (**self)
-            .change_usage(subscription, previous_open_period_id, new_period)
+            .change_usage(
+                subscription,
+                previous_open_period_id,
+                new_period,
+                expected_old_plan,
+            )
             .await
     }
 }

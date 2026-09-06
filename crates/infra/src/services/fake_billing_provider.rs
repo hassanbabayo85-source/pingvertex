@@ -27,8 +27,10 @@ impl PaymentProvider for FakeBillingProvider {
         Ok(CheckoutDetails {
             provider_checkout_id: checkout_id.clone(),
             checkout_url: format!(
-                "https://checkout.fake.invalid/{checkout_id}?tier={}",
-                request.plan_tier.as_str()
+                "https://checkout.fake.invalid/{checkout_id}?tier={}&amount={}&currency={}",
+                request.plan_tier.as_str(),
+                request.amount_minor,
+                request.currency
             ),
         })
     }

@@ -26,19 +26,20 @@ use infra::{
     PostgresCheckoutSessionRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
-    PostgresHelpCategoryRepository, PostgresIncidentRepository,
+    PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresPAYGPricingRepository,
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
     PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
     PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository,
-    PostgresSubscriptionUsagePeriodRepository, PostgresSubscriptionUsageTransaction,
-    PostgresSupportTicketRepository, PostgresTenantInvitationRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUsageEventRepository,
-    PostgresUserRepository, PostgresWalletRepository, RedisPendingAuthCache, RedisRateLimiter,
-    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
+    PostgresStatusPageRepository, PostgresSubscriptionPlanChangeRepository,
+    PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
+    PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresUsageEventRepository, PostgresUserRepository,
+    PostgresWalletRepository, RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache,
+    S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
+    TwilioPricingService, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -190,7 +191,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rate_limiter(redis_rate_limiter.clone())
     .with_wallet_repository(PostgresWalletRepository::new(pool.clone()))
     .with_payg_pricing_repository(PostgresPAYGPricingRepository::new(pool.clone()))
-    .with_usage_event_repository(PostgresUsageEventRepository::new(pool.clone()));
+    .with_usage_event_repository(PostgresUsageEventRepository::new(pool.clone()))
+    .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
+        pool.clone(),
+    ))
+    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()));
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the

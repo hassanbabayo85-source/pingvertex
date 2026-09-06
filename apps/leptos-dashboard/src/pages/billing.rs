@@ -169,7 +169,7 @@ pub fn BillingPage() -> impl IntoView {
                     <p class="muted">"You will be redirected to the payment provider before any charge is finalized."</p>
                     <div class="inline-form">
                         <select prop:value=plan on:change=move|e|plan.set(event_target_value(&e))>
-                            <option value="starter">"Tier 1"</option><option value="pro">"Tier 5"</option><option value="starter0">"Tier 10"</option><option value="enterprise">"Tier 20"</option>
+                            <option value="starter">"Starter"</option><option value="pro">"Pro"</option><option value="business">"Business"</option><option value="enterprise">"Enterprise"</option>
                         </select>
                         <button class="btn btn-primary" disabled=move || checkout_busy.get() on:click=checkout>{move || if checkout_busy.get() {"Starting checkout…"} else {"Continue to checkout"}}</button>
                     </div>
