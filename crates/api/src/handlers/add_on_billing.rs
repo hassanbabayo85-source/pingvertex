@@ -186,6 +186,7 @@ pub async fn create_add_on(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to persist add-on checkout", e))?;
     let total_price = addon.total_price();
+    let _ = state.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(user.user_id().0.to_string(),Some(user.tenant_context().tenant_id().0),"subscription_changed","addon_subscription",Some(addon.id.0.to_string()),serde_json::json!({"action":"created","addon_type":addon.addon_type.as_str(),"quantity":addon.quantity}))).await;
     Ok(Json(AddOnResponse {
         id: addon.id.0.to_string(),
         addon_type: addon.addon_type.as_str().into(),
@@ -204,6 +205,7 @@ pub async fn billing_summary(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<BillingSummaryResponse>, ApiError> {
+    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant_id = user.tenant_context().tenant_id();
     let config = state
         .pricing_config_repository
@@ -377,3 +379,4 @@ pub async fn cancel_add_on(
         checkout_url: None,
     }))
 }
+

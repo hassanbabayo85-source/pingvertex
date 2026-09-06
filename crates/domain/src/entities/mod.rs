@@ -1,3 +1,5 @@
+mod financial_audit_log;
+pub use financial_audit_log::FinancialAuditLogEntry;
 pub mod assertion;
 pub use assertion::*;
 pub mod api_flow_step;
@@ -137,3 +139,4 @@ mod payg;
 pub use payg::{PAYGPricing, Payment, UsageEvent};
 mod invoice;
 pub use invoice::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};
+

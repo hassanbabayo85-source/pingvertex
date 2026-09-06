@@ -1,4 +1,4 @@
-use crate::ports::{PAYGPricingRepository, UsageEventRepository, WalletRepository};
+use crate::ports::{PAYGPricingRepository, UsageEventRepository, WalletRepository, FinancialAuditLogRepository};
 use chrono::{Duration, Utc};
 use domain::{CreditReservation, UsageEvent, WalletTransaction};
 use std::{error::Error, fmt, future::Future, sync::Arc, time::Duration as StdDuration};
@@ -64,6 +64,7 @@ impl Error for ChargeForUsageError {
 
 pub struct ChargeForUsageUseCase {
     wallet_repository: Arc<dyn WalletRepository>,
+    audit_log_repository: Option<Arc<dyn FinancialAuditLogRepository>>,
     pricing_repository: Arc<dyn PAYGPricingRepository>,
     usage_event_repository: Arc<dyn UsageEventRepository>,
 }
@@ -73,12 +74,10 @@ impl ChargeForUsageUseCase {
         pricing_repository: Arc<dyn PAYGPricingRepository>,
         usage_event_repository: Arc<dyn UsageEventRepository>,
     ) -> Self {
-        Self {
-            wallet_repository,
-            pricing_repository,
-            usage_event_repository,
-        }
+        Self { wallet_repository, pricing_repository, usage_event_repository, audit_log_repository: None }
     }
+
+    pub fn with_audit_log_repository(mut self, repo: Arc<dyn FinancialAuditLogRepository>) -> Self { self.audit_log_repository = Some(repo); self }
 
     pub async fn execute<F, Fut, E>(
         &self,
@@ -200,15 +199,14 @@ impl ChargeForUsageUseCase {
 
         let event = self
             .record_event(
-                &input,
-                input.units,
-                pricing.unit_price,
-                charge_units,
-                pricing.version,
-                &pricing.currency,
-                "CAPTURED",
-            )
-            .await?;
+                &input, input.units, pricing.unit_price, charge_units, pricing.version, &pricing.currency, "CAPTURED",
+            ).await?;
+        if let Some(audit) = &self.audit_log_repository {
+            audit.create(&domain::FinancialAuditLogEntry::new(
+                "system:payg", Some(input.tenant_id), "payg_charged", "wallet_transaction",
+                Some(transaction.id.to_string()), serde_json::json!({"operation":input.operation,"units":input.units,"charge_units":charge_units,"currency":pricing.currency}),
+            )).await.map_err(ChargeForUsageError::Repository)?;
+        }
 
         Ok(ChargeForUsageResult {
             usage_event: event,
@@ -313,3 +311,4 @@ fn validate_input(input: &ChargeForUsageInput) -> Result<(), ChargeForUsageError
     }
     Ok(())
 }
+

@@ -195,7 +195,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
         pool.clone(),
     ))
-    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()));
+    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()))
+    .with_financial_audit_log_repository(infra::PostgresFinancialAuditLogRepository::new(pool.clone()));
+    app_state = app_state.with_payment_repository(infra::PostgresPaymentRepository::new(pool.clone()));
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the
@@ -412,3 +414,4 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 }
+

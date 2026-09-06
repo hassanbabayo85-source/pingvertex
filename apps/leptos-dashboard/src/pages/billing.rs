@@ -11,6 +11,9 @@ fn can_bill(role: &Role) -> bool {
 pub fn BillingPage() -> impl IntoView {
     let auth = use_auth();
     let summary = RwSignal::new(None::<billing::BillingSummary>);
+    let subscription = RwSignal::new(None::<billing::Subscription>);
+    let plans = RwSignal::new(Vec::<billing::Plan>::new());
+    let cancel_busy = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let notice = RwSignal::new(None::<String>);
     let plan = RwSignal::new("starter".to_string());
@@ -35,6 +38,8 @@ pub fn BillingPage() -> impl IntoView {
                 Ok(v) => summary.set(Some(v)),
                 Err(e) => error.set(Some(e.to_string())),
             }
+            match billing::subscription().await { Ok(v) => subscription.set(v), Err(e) => error.set(Some(e.to_string())) }
+            match billing::plans().await { Ok(v) => plans.set(v), Err(e) => error.set(Some(e.to_string())) }
         })
     });
 
@@ -123,6 +128,15 @@ pub fn BillingPage() -> impl IntoView {
         });
     };
 
+    let cancel = move |_| {
+        if cancel_busy.get() { return; }
+        cancel_busy.set(true); error.set(None);
+        spawn_local(async move {
+            match billing::cancel_subscription(true).await { Ok(v) => { subscription.set(Some(v)); notice.set(Some("Cancellation scheduled for the end of the current period.".into())); }, Err(e) => error.set(Some(e.to_string())) }
+            cancel_busy.set(false);
+        });
+    };
+
     view! {
         <div class="feature-page">
             <header class="page-header"><div><span class="eyebrow">"Subscription"</span><h1>"Billing"</h1></div></header>
@@ -139,6 +153,17 @@ pub fn BillingPage() -> impl IntoView {
                     </div> }.into_any(),
                     None => view! { <div class="loading">"Loading billing…"</div> }.into_any(),
                 }}
+            </section>
+
+            <section class="card">
+                <div class="section-heading"><div><h2>"Subscription"</h2><p class="muted">"Tenant-scoped billing state from the backend."</p></div></div>
+                {move || subscription.get().map(|s| view! { <div class="overview-cards"><div><span class="card-label">"Plan"</span><span class="card-value">{s.plan_tier.clone()}</span></div><div><span class="card-label">"Status"</span><span class="card-value">{s.status.clone()}</span></div><div><span class="card-label">"Period end"</span><span class="card-value">{s.current_period_ends_at.clone().unwrap_or_else(|| "—".into())}</span></div></div> })}
+                {move || if can() && subscription.get().map(|s| s.status != "canceled" && !s.cancel_at_period_end).unwrap_or(false) { view!{<button class="btn" disabled=move||cancel_busy.get() on:click=cancel>{move||if cancel_busy.get(){"Scheduling…"}else{"Cancel at period end"}}</button>}.into_any() } else { ().into_any() }}
+            </section>
+
+            <section class="card">
+                <div class="section-heading"><div><h2>"Plans"</h2><p class="muted">"Limits and prices are read from the active server configuration."</p></div></div>
+                <div class="overview-cards">{move || plans.get().into_iter().map(|p| view!{<div><span class="card-label">{p.tier.clone()}</span><span class="card-value">{format!("{} {}",p.monthly_price,p.currency)}</span><span class="muted">{format!("{} monitors · {}s · {}d",p.max_monitors,p.min_check_interval_seconds,p.history_retention_days)}</span></div>}).collect_view()}</div>
             </section>
 
             <section class="card">
@@ -180,3 +205,4 @@ pub fn BillingPage() -> impl IntoView {
         </div>
     }
 }
+

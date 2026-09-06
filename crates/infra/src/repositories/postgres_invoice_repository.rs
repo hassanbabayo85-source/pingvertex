@@ -44,19 +44,15 @@ impl InvoiceRepository for PostgresInvoiceRepository {
         Ok(rows
             .into_iter()
             .map(|r| Invoice {
-                id: r.id,
-                tenant_id: r.tenant_id,
-                invoice_number: r.invoice_number,
-                currency: r.currency,
-                subtotal: r.subtotal,
-                tax: r.tax,
-                total: r.total,
-                status: r.status.parse().unwrap_or(InvoiceStatus::Open),
-                period_start: r.period_start,
-                period_end: r.period_end,
-                created_at: r.created_at,
-                paid_at: r.paid_at,
-            })
-            .collect())
+                id: r.id, tenant_id: r.tenant_id, invoice_number: r.invoice_number, currency: r.currency,
+                subtotal: r.subtotal, tax: r.tax, total: r.total, status: r.status.parse().unwrap_or(InvoiceStatus::Open),
+                period_start: r.period_start, period_end: r.period_end, created_at: r.created_at, paid_at: r.paid_at,
+            }).collect())
+    }
+    async fn find_by_id_for_tenant(&self, id: Uuid, tenant_id: Uuid) -> InvoiceRepoResult<Option<Invoice>> {
+        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,invoice_number,currency,subtotal,tax,total,status,period_start,period_end,created_at,paid_at FROM invoices WHERE id=$1 AND tenant_id=$2")
+            .bind(id).bind(tenant_id).fetch_optional(&self.pool).await?;
+        Ok(r.map(|r| Invoice{id:r.id,tenant_id:r.tenant_id,invoice_number:r.invoice_number,currency:r.currency,subtotal:r.subtotal,tax:r.tax,total:r.total,status:r.status.parse().unwrap_or(InvoiceStatus::Open),period_start:r.period_start,period_end:r.period_end,created_at:r.created_at,paid_at:r.paid_at}))
     }
 }
+

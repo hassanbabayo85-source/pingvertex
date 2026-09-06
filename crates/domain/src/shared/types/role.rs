@@ -28,6 +28,7 @@ impl Role {
                 ViewMonitor,
                 ViewIncident,
                 ViewSupportTickets,
+                ViewBilling,
                 CreateSupportTicket,
                 ReplySupportTicket,
             ],
@@ -48,6 +49,7 @@ impl Role {
                 ManageUsers,
                 ManageApiKeys,
                 ViewSupportTickets,
+                ViewBilling,
                 CreateSupportTicket,
                 ReplySupportTicket,
                 ManageSupportTicketStatus,
@@ -70,12 +72,14 @@ impl Role {
                 ManageApiKeys,
                 ManageBilling,
                 ViewSupportTickets,
+                ViewBilling,
                 CreateSupportTicket,
                 ReplySupportTicket,
                 ManageSupportTicketStatus,
             ],
             Role::Auditor => &[
                 ViewOwnProfile,
+                ViewBilling,
                 ViewMonitor,
                 ViewIncident,
                 ViewTenantSettings,
@@ -83,6 +87,7 @@ impl Role {
             ],
             Role::Viewer => &[
                 ViewOwnProfile,
+                ViewBilling,
                 ViewMonitor,
                 ViewIncident,
                 ViewSupportTickets,
@@ -128,3 +133,4 @@ mod tests {
         assert!(!Role::Member.has_permission(Permission::ManageUsers));
     }
 }
+

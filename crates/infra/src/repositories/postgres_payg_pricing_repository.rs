@@ -53,4 +53,8 @@ impl PAYGPricingRepository for PostgresPAYGPricingRepository {
         ).bind(operation).fetch_optional(&self.pool).await?;
         Ok(row.map(Row::into_domain))
     }
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
+        let rows=sqlx::query_as::<_,Row>("SELECT id,version,operation,unit_name,unit_price,currency,effective_from,effective_until,active FROM payg_pricing_configs WHERE active=TRUE AND effective_from<=now() AND (effective_until IS NULL OR effective_until>now()) ORDER BY operation,version DESC").fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(Row::into_domain).collect())
+    }
 }

@@ -1,6 +1,6 @@
 use crate::{error::ApiError, state::AppState};
 use application::use_cases::calculate_pricing_quote::CalculatePricingQuoteUseCase;
-use axum::{Json, extract::State};
+use axum::{Json, extract::{Extension, State}};
 use domain::pricing::PricingInput;
 
 #[derive(Debug, serde::Deserialize)]
@@ -52,3 +52,15 @@ pub async fn pricing_quote(
 
     Ok(Json(quote.into()))
 }
+
+
+pub async fn pricing_quote_authenticated(
+    State(state): State<AppState>,
+    Extension(user): Extension<domain::shared::types::AuthenticatedUser>,
+    Json(request): Json<PricingQuoteRequest>,
+) -> Result<Json<crate::handlers::pricing_types::PricingQuoteResponse>, ApiError> {
+    user.require(domain::shared::types::Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    pricing_quote(State(state), Json(request)).await
+}
+

@@ -33,6 +33,11 @@ impl MeterUsageUseCase {
         }
     }
 
+    pub fn with_audit_log_repository(mut self, repo: Arc<dyn crate::ports::FinancialAuditLogRepository>) -> Self {
+        self.charge = self.charge.with_audit_log_repository(repo);
+        self
+    }
+
     /// Authentication/tenant identification belongs to the API/auth boundary;
     /// this use case accepts only the authenticated tenant id and never trusts
     /// a client-supplied price or total.
@@ -59,3 +64,4 @@ impl MeterUsageUseCase {
             .await
     }
 }
+
