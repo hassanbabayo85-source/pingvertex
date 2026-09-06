@@ -14,6 +14,7 @@ use domain::pricing::{PricingConfig, PricingInput};
 use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AddOnStatus, AddOnType, Plan};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +34,8 @@ pub struct AddOnResponse {
     pub total_price: String,
     pub currency: String,
     pub status: String,
+    pub checkout_session_id: Option<String>,
+    pub checkout_url: Option<String>,
 }
 #[derive(Debug, Serialize)]
 pub struct BillingSummaryResponse {
@@ -116,10 +119,28 @@ pub async fn create_add_on(
             ));
         }
     };
+    let tenant_id = user.tenant_context().tenant_id();
+    let sub = state
+        .subscription_repository
+        .find_by_tenant_id(tenant_id)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load subscription", e))?;
+    let plan_tier = sub
+        .as_ref()
+        .filter(|s| {
+            matches!(
+                s.status,
+                domain::SubscriptionStatus::Active | domain::SubscriptionStatus::Trialing
+            )
+        })
+        .map(|s| s.plan_tier)
+        .ok_or_else(|| {
+            ApiError::conflict("an active subscription is required before purchasing an add-on")
+        })?;
     let uc = CreateAddOnSubscriptionUseCase::new(state.add_on_subscription_repository.clone());
-    let addon = uc
+    let mut addon = uc
         .execute(
-            user.tenant_context().tenant_id(),
+            tenant_id,
             addon_type,
             req.quantity,
             req.tier,
@@ -129,6 +150,41 @@ pub async fn create_add_on(
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to create add-on subscription", e))?;
+    let amount_minor = (addon.total_price() * Decimal::from(100))
+        .round()
+        .to_i64()
+        .ok_or_else(|| ApiError::bad_request("add-on price is out of range"))?;
+    let checkout = state
+        .payment_provider
+        .create_checkout(&application::ports::CheckoutRequest {
+            tenant_id,
+            plan_tier,
+            amount_minor,
+            currency: addon.currency.clone(),
+        })
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to create add-on payment checkout", e)
+        })?;
+    addon.attach_checkout(checkout.provider_checkout_id.clone());
+    state
+        .add_on_subscription_repository
+        .update(&addon)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to attach add-on checkout", e))?;
+    let mut session = domain::CheckoutSession::new_pending(
+        domain::CheckoutSessionId::new(),
+        tenant_id,
+        plan_tier,
+        state.payment_provider.provider_name().into(),
+    );
+    session.attach_provider_checkout_id(checkout.provider_checkout_id);
+    session.attach_addon(addon.id.0, addon.total_price(), addon.currency.clone());
+    state
+        .checkout_session_repository
+        .create(&session)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to persist add-on checkout", e))?;
     let total_price = addon.total_price();
     Ok(Json(AddOnResponse {
         id: addon.id.0.to_string(),
@@ -139,6 +195,8 @@ pub async fn create_add_on(
         total_price: total_price.to_string(),
         currency: addon.currency,
         status: addon.status.as_str().into(),
+        checkout_session_id: Some(session.id.0.to_string()),
+        checkout_url: Some(checkout.checkout_url),
     }))
 }
 
@@ -205,6 +263,8 @@ pub async fn billing_summary(
             total_price: total.to_string(),
             currency: a.currency,
             status: a.status.as_str().into(),
+            checkout_session_id: None,
+            checkout_url: None,
         });
     }
     let total = base.monthly_price + addon_total;
@@ -222,6 +282,7 @@ pub async fn billing_summary(
 mod tests {
     use super::*;
     use rust_decimal::Decimal;
+    use rust_decimal::prelude::ToPrimitive;
 
     #[test]
     fn addon_total_is_added_to_base() {
@@ -256,4 +317,64 @@ mod tests {
     fn rum_is_explicitly_rejected_by_request_path() {
         assert!(parse_type("rum").is_ok());
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct VerifyAddOnRequest {
+    pub checkout_session_id: uuid::Uuid,
+}
+#[derive(Debug, serde::Deserialize)]
+pub struct CancelAddOnRequest {
+    pub addon_subscription_id: uuid::Uuid,
+}
+pub async fn verify_add_on(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<VerifyAddOnRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_manage_billing(&user)?;
+    let uc = application::use_cases::VerifyAddOnCheckoutUseCase::new(
+        state.checkout_session_repository.clone(),
+        state.add_on_subscription_repository.clone(),
+        state.payment_provider.clone(),
+    );
+    let (id, status) = uc
+        .execute(user.tenant_context().tenant_id().0, req.checkout_session_id)
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source(
+                "failed to verify add-on payment",
+                std::io::Error::other(e.to_string()),
+            )
+        })?;
+    Ok(Json(
+        serde_json::json!({"addon_subscription_id":id,"status":status.as_str()}),
+    ))
+}
+pub async fn cancel_add_on(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<CancelAddOnRequest>,
+) -> Result<Json<AddOnResponse>, ApiError> {
+    require_manage_billing(&user)?;
+    let uc = CreateAddOnSubscriptionUseCase::new(state.add_on_subscription_repository.clone());
+    let a = uc
+        .cancel(
+            domain::AddOnSubscriptionId(req.addon_subscription_id),
+            user.tenant_context().tenant_id(),
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to cancel add-on", e))?;
+    Ok(Json(AddOnResponse {
+        id: a.id.0.to_string(),
+        addon_type: a.addon_type.as_str().into(),
+        quantity: a.quantity,
+        tier: a.tier.clone(),
+        unit_price: a.price.to_string(),
+        total_price: a.total_price().to_string(),
+        currency: a.currency,
+        status: a.status.as_str().into(),
+        checkout_session_id: None,
+        checkout_url: None,
+    }))
 }

@@ -7,6 +7,7 @@ use application::ports::{
 use async_trait::async_trait;
 use domain::Subscription;
 use domain::entities::SubscriptionUsagePeriod;
+use domain::enums::PlanTier;
 use domain::shared::ids::SubscriptionUsagePeriodId;
 
 /// Test-only in-memory stand-in for `SubscriptionUsageTransaction`.
@@ -44,7 +45,20 @@ impl SubscriptionUsageTransaction for InMemorySubscriptionUsageTransaction {
         subscription: &Subscription,
         previous_open_period_id: Option<SubscriptionUsagePeriodId>,
         new_period: &SubscriptionUsagePeriod,
+        expected_old_plan: Option<PlanTier>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(expected) = expected_old_plan {
+            let current = self
+                .subscription_repository
+                .find_by_tenant_id(subscription.tenant_id)
+                .await?
+                .ok_or("subscription not found")?;
+
+            if current.plan_tier != expected {
+                return Err("subscription plan changed concurrently".into());
+            }
+        }
+
         if let Some(period_id) = previous_open_period_id {
             self.usage_period_repository
                 .close_period(period_id, new_period.start_at)

@@ -4,7 +4,8 @@ use axum::{
 };
 
 use crate::handlers::{
-    billing_summary, billing_webhook, create_add_on, initiate_checkout, verify_checkout,
+    billing_summary, billing_webhook, cancel_add_on, change_plan, create_add_on, initiate_checkout,
+    list_invoices, verify_add_on, verify_checkout, verify_plan_change,
 };
 use crate::state::AppState;
 
@@ -14,6 +15,11 @@ pub fn router() -> Router<AppState> {
         .route("/billing/checkout", post(initiate_checkout))
         .route("/billing/checkout/verify", post(verify_checkout))
         .route("/billing/addons", post(create_add_on))
+        .route("/billing/addons/verify", post(verify_add_on))
+        .route("/billing/addons/cancel", post(cancel_add_on))
+        .route("/billing/plan-change", post(change_plan))
+        .route("/billing/plan-change/verify", post(verify_plan_change))
+        .route("/billing/invoices", get(list_invoices))
         .route("/billing/summary", get(billing_summary))
 }
 

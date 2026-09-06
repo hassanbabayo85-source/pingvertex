@@ -30,7 +30,7 @@ fn command(
 }
 
 #[tokio::test]
-async fn duplicate_delivery_is_safely_ignored() {
+async fn duplicate_delivery_and_forged_plan_tier_are_safely_ignored() {
     let subscriptions = InMemorySubscriptionRepository::new();
     let idempotency = InMemoryBillingWebhookIdempotencyRepository::new();
     let audit = InMemoryBillingAuditLogRepository::new();
@@ -59,7 +59,9 @@ async fn duplicate_delivery_is_safely_ignored() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(after_first.plan_tier, PlanTier::Business);
+    // The webhook's Business tier is untrusted metadata. The
+    // persisted subscription tier remains authoritative.
+    assert_eq!(after_first.plan_tier, PlanTier::Pro);
     assert_eq!(after_first.status, SubscriptionStatus::Active);
 
     // Duplicate delivery with same provider_event_id.
@@ -71,7 +73,7 @@ async fn duplicate_delivery_is_safely_ignored() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(after_second.plan_tier, PlanTier::Business);
+    assert_eq!(after_second.plan_tier, PlanTier::Pro);
     assert_eq!(after_second.status, SubscriptionStatus::Active);
 
     // Only one audit log entry should exist.
@@ -79,7 +81,7 @@ async fn duplicate_delivery_is_safely_ignored() {
 }
 
 #[tokio::test]
-async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
+async fn payment_succeeded_transitions_expired_to_active_without_overwriting_tier() {
     let subscriptions = InMemorySubscriptionRepository::new();
     let idempotency = InMemoryBillingWebhookIdempotencyRepository::new();
     let audit = InMemoryBillingAuditLogRepository::new();
@@ -111,7 +113,9 @@ async fn payment_succeeded_transitions_expired_to_active_and_updates_tier() {
         .unwrap()
         .unwrap();
     assert_eq!(updated.status, SubscriptionStatus::Active);
-    assert_eq!(updated.plan_tier, PlanTier::Enterprise);
+    // Even an Enterprise value supplied by the webhook must not overwrite
+    // the existing subscription's authoritative Free tier.
+    assert_eq!(updated.plan_tier, PlanTier::Free);
 }
 
 #[tokio::test]

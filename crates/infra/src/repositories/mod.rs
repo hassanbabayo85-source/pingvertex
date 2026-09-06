@@ -128,6 +128,7 @@ pub use in_memory_history_retention_repository::InMemoryHistoryRetentionReposito
 pub use postgres_history_retention_repository::PostgresHistoryRetentionRepository;
 pub mod in_memory_pricing_config_repository;
 pub mod postgres_pricing_config_repository;
+pub use in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;
 
 // H12 — Proration Service:
@@ -141,9 +142,17 @@ pub use postgres_subscription_usage_period_repository::PostgresSubscriptionUsage
 pub use postgres_subscription_usage_transaction::PostgresSubscriptionUsageTransaction;
 
 pub mod in_memory_add_on_subscription_repository;
+pub mod in_memory_invoice_repository;
+pub mod in_memory_subscription_plan_change_repository;
 pub mod postgres_add_on_subscription_repository;
+pub mod postgres_invoice_repository;
+pub mod postgres_subscription_plan_change_repository;
 pub use in_memory_add_on_subscription_repository::InMemoryAddOnSubscriptionRepository;
+pub use in_memory_invoice_repository::InMemoryInvoiceRepository;
+pub use in_memory_subscription_plan_change_repository::InMemorySubscriptionPlanChangeRepository;
 pub use postgres_add_on_subscription_repository::PostgresAddOnSubscriptionRepository;
+pub use postgres_invoice_repository::PostgresInvoiceRepository;
+pub use postgres_subscription_plan_change_repository::PostgresSubscriptionPlanChangeRepository;
 
 // H14 — Help Center & Support:
 pub mod in_memory_help_article_repository;

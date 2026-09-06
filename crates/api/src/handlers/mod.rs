@@ -177,7 +177,11 @@ pub use subscription_types::*;
 pub use update_subscription_usage::*;
 
 pub mod add_on_billing;
-pub use add_on_billing::{billing_summary, create_add_on};
+pub mod change_plan;
+pub mod invoices;
+pub use add_on_billing::{billing_summary, cancel_add_on, create_add_on, verify_add_on};
+pub use change_plan::{change_plan, verify_plan_change};
+pub use invoices::list_invoices;
 
 // H14 — Help Center & Support:
 pub use help_center::{

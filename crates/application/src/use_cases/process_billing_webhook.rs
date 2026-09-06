@@ -9,7 +9,8 @@ use domain::{
 use crate::commands::{ProcessBillingWebhookCommand, ProcessBillingWebhookOutcome};
 use crate::ports::billing_webhook_idempotency_repository::WebhookIdempotencyClaim;
 use crate::ports::{
-    BillingAuditLogRepository, BillingWebhookIdempotencyRepository, SubscriptionRepository,
+    AddOnSubscriptionRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
+    SubscriptionRepository,
 };
 use crate::use_cases::billing_webhook_support::BillingWebhookError;
 
@@ -19,6 +20,7 @@ pub struct ProcessBillingWebhookUseCase<I, A, S> {
     idempotency_repository: I,
     audit_log_repository: A,
     subscription_repository: S,
+    addon_repository: Option<std::sync::Arc<dyn AddOnSubscriptionRepository>>,
 }
 
 impl<I, A, S> ProcessBillingWebhookUseCase<I, A, S>
@@ -36,7 +38,16 @@ where
             idempotency_repository,
             audit_log_repository,
             subscription_repository,
+            addon_repository: None,
         }
+    }
+
+    pub fn with_addon_repository(
+        mut self,
+        r: std::sync::Arc<dyn AddOnSubscriptionRepository>,
+    ) -> Self {
+        self.addon_repository = Some(r);
+        self
     }
 
     pub async fn execute(
@@ -78,29 +89,70 @@ where
         &self,
         command: &ProcessBillingWebhookCommand,
     ) -> Result<(), BillingWebhookError> {
-        let subscription = self
-            .subscription_repository
-            .find_by_tenant_id(command.tenant_id)
-            .await?;
-
-        match &command.event_type {
-            BillingWebhookEventType::PaymentSucceeded
-            | BillingWebhookEventType::SubscriptionRenewed => {
-                self.handle_successful_payment(command.tenant_id, command.plan_tier, subscription)
-                    .await?;
-            }
-            BillingWebhookEventType::PaymentFailed => {
-                self.handle_failed_payment(command.tenant_id, subscription)
-                    .await?;
-            }
-            BillingWebhookEventType::SubscriptionCanceled => {
-                self.handle_cancellation(
-                    command.tenant_id,
-                    subscription,
-                    command.cancel_at_period_end,
-                    command.current_period_ends_at,
+        if let Some(id) = command
+            .payload
+            .get("addon_subscription_id")
+            .and_then(|v| v.as_str())
+            .and_then(|v| v.parse::<uuid::Uuid>().ok())
+        {
+            let repo = self.addon_repository.as_ref().ok_or_else(|| {
+                BillingWebhookError::Other(
+                    std::io::Error::other("add-on repository not configured").into(),
                 )
+            })?;
+            let mut addon = repo
+                .find_by_id(domain::AddOnSubscriptionId(id))
+                .await?
+                .ok_or(BillingWebhookError::SubscriptionNotFound)?;
+            if addon.tenant_id != command.tenant_id {
+                return Err(BillingWebhookError::SubscriptionNotFound);
+            }
+            match command.event_type {
+                BillingWebhookEventType::PaymentSucceeded
+                | BillingWebhookEventType::SubscriptionRenewed => addon
+                    .activate_after_verified_payment()
+                    .map_err(|e| BillingWebhookError::Other(std::io::Error::other(e).into()))?,
+                BillingWebhookEventType::PaymentFailed => addon
+                    .mark_failed()
+                    .map_err(|e| BillingWebhookError::Other(std::io::Error::other(e).into()))?,
+                BillingWebhookEventType::SubscriptionCanceled => {
+                    if addon.status == domain::AddOnStatus::Active {
+                        addon.cancel().map_err(|e| {
+                            BillingWebhookError::Other(std::io::Error::other(e).into())
+                        })?
+                    }
+                }
+            }
+            repo.update(&addon).await?;
+        } else {
+            let subscription = self
+                .subscription_repository
+                .find_by_tenant_id(command.tenant_id)
                 .await?;
+
+            match &command.event_type {
+                BillingWebhookEventType::PaymentSucceeded
+                | BillingWebhookEventType::SubscriptionRenewed => {
+                    self.handle_successful_payment(
+                        command.tenant_id,
+                        command.plan_tier,
+                        subscription,
+                    )
+                    .await?;
+                }
+                BillingWebhookEventType::PaymentFailed => {
+                    self.handle_failed_payment(command.tenant_id, subscription)
+                        .await?;
+                }
+                BillingWebhookEventType::SubscriptionCanceled => {
+                    self.handle_cancellation(
+                        command.tenant_id,
+                        subscription,
+                        command.cancel_at_period_end,
+                        command.current_period_ends_at,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -131,9 +183,11 @@ where
     ) -> Result<(), BillingWebhookError> {
         match existing {
             Some(mut subscription) => {
-                let target_tier = plan_tier.unwrap_or(subscription.plan_tier);
+                // The persisted subscription is authoritative for an
+                // existing tenant. Never allow webhook payload metadata
+                // to overwrite its plan tier.
                 subscription
-                    .apply_verified_payment(target_tier)
+                    .apply_verified_payment(subscription.plan_tier)
                     .map_err(BillingWebhookError::from)?;
                 self.subscription_repository.update(&subscription).await?;
             }

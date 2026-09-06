@@ -26,6 +26,8 @@ pub struct BillingWebhookPayload {
     #[serde(default)]
     pub plan_tier: Option<String>,
     #[serde(default)]
+    pub addon_subscription_id: Option<uuid::Uuid>,
+    #[serde(default)]
     pub cancel_at_period_end: bool,
     #[serde(default)]
     pub current_period_ends_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -71,14 +73,21 @@ pub async fn billing_webhook(
         plan_tier,
         cancel_at_period_end: payload.cancel_at_period_end,
         current_period_ends_at: payload.current_period_ends_at,
-        payload: payload.data,
+        payload: {
+            let mut d = payload.data;
+            if let Some(id) = payload.addon_subscription_id {
+                d["addon_subscription_id"] = serde_json::Value::String(id.to_string())
+            }
+            d
+        },
     };
 
     let use_case = ProcessBillingWebhookUseCase::new(
         state.billing_webhook_idempotency_repository.clone(),
         state.billing_audit_log_repository.clone(),
         state.subscription_repository.clone(),
-    );
+    )
+    .with_addon_repository(state.add_on_subscription_repository.clone());
 
     let outcome = use_case
         .execute(command)

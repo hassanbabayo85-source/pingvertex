@@ -27,7 +27,11 @@ struct Row {
     price: Decimal,
     currency: String,
     status: String,
+    provider_checkout_id: Option<String>,
+    paid_at: Option<DateTime<Utc>>,
+    canceled_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 impl Row {
     fn into_domain(self) -> Result<AddOnSubscription, Box<dyn Error + Send + Sync>> {
@@ -40,22 +44,41 @@ impl Row {
             price: self.price,
             currency: self.currency,
             status: self.status.parse().map_err(std::io::Error::other)?,
+            provider_checkout_id: self.provider_checkout_id,
+            paid_at: self.paid_at,
+            canceled_at: self.canceled_at,
             created_at: self.created_at,
+            updated_at: self.updated_at,
         })
     }
 }
 #[async_trait]
 impl AddOnSubscriptionRepository for PostgresAddOnSubscriptionRepository {
     async fn create(&self, a: &AddOnSubscription) -> RepoResult<()> {
-        sqlx::query("INSERT INTO addon_subscriptions (id,tenant_id,addon_type,quantity,tier,price,currency,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(a.id.0).bind(a.tenant_id.0).bind(a.addon_type.as_str()).bind(i64::try_from(a.quantity)?).bind(&a.tier).bind(a.price).bind(&a.currency).bind(a.status.as_str()).bind(a.created_at).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO addon_subscriptions (id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+            .bind(a.id.0)
+            .bind(a.tenant_id.0)
+            .bind(a.addon_type.as_str())
+            .bind(i64::try_from(a.quantity)?)
+            .bind(&a.tier)
+            .bind(a.price)
+            .bind(&a.currency)
+            .bind(a.status.as_str())
+            .bind(&a.provider_checkout_id)
+            .bind(a.paid_at)
+            .bind(a.canceled_at)
+            .bind(a.created_at)
+            .bind(a.updated_at)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
     async fn find_by_id(&self, id: AddOnSubscriptionId) -> RepoResult<Option<AddOnSubscription>> {
-        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,created_at FROM addon_subscriptions WHERE id=$1").bind(id.0).fetch_optional(&self.pool).await?;
+        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at FROM addon_subscriptions WHERE id=$1").bind(id.0).fetch_optional(&self.pool).await?;
         r.map(Row::into_domain).transpose()
     }
     async fn list_active_by_tenant(&self, t: TenantId) -> RepoResult<Vec<AddOnSubscription>> {
-        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,created_at FROM addon_subscriptions WHERE tenant_id=$1 AND status='active' ORDER BY created_at DESC").bind(t.0).fetch_all(&self.pool).await?;
+        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at FROM addon_subscriptions WHERE tenant_id=$1 AND status='active' ORDER BY created_at DESC").bind(t.0).fetch_all(&self.pool).await?;
         r.into_iter().map(Row::into_domain).collect()
     }
     async fn list_by_tenant_and_type(
@@ -63,7 +86,39 @@ impl AddOnSubscriptionRepository for PostgresAddOnSubscriptionRepository {
         t: TenantId,
         k: AddOnType,
     ) -> RepoResult<Vec<AddOnSubscription>> {
-        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,created_at FROM addon_subscriptions WHERE tenant_id=$1 AND addon_type=$2 ORDER BY created_at DESC").bind(t.0).bind(k.as_str()).fetch_all(&self.pool).await?;
+        let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at FROM addon_subscriptions WHERE tenant_id=$1 AND addon_type=$2 ORDER BY created_at DESC").bind(t.0).bind(k.as_str()).fetch_all(&self.pool).await?;
         r.into_iter().map(Row::into_domain).collect()
+    }
+
+    async fn update(&self, a: &AddOnSubscription) -> RepoResult<()> {
+        sqlx::query(
+            "UPDATE addon_subscriptions
+             SET addon_type=$2,
+                 quantity=$3,
+                 tier=$4,
+                 price=$5,
+                 currency=$6,
+                 status=$7,
+                 provider_checkout_id=$8,
+                 paid_at=$9,
+                 canceled_at=$10,
+                 updated_at=$11
+             WHERE id=$1 AND tenant_id=$12",
+        )
+        .bind(a.id.0)
+        .bind(a.addon_type.as_str())
+        .bind(i64::try_from(a.quantity)?)
+        .bind(&a.tier)
+        .bind(a.price)
+        .bind(&a.currency)
+        .bind(a.status.as_str())
+        .bind(&a.provider_checkout_id)
+        .bind(a.paid_at)
+        .bind(a.canceled_at)
+        .bind(a.updated_at)
+        .bind(a.tenant_id.0)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

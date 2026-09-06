@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::enums::{CheckoutStatus, PlanTier};
 use crate::shared::ids::{CheckoutSessionId, TenantId};
+use rust_decimal::Decimal;
+use uuid::Uuid;
 
 /// A provider-agnostic checkout session.
 ///
@@ -19,6 +21,10 @@ pub struct CheckoutSession {
     /// Opaque checkout identifier returned by the payment provider.
     pub provider: String,
     pub provider_checkout_id: Option<String>,
+    pub plan_change_id: Option<Uuid>,
+    pub addon_subscription_id: Option<Uuid>,
+    pub amount: Option<Decimal>,
+    pub currency: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -38,6 +44,10 @@ impl CheckoutSession {
             status: CheckoutStatus::Pending,
             provider,
             provider_checkout_id: None,
+            plan_change_id: None,
+            addon_subscription_id: None,
+            amount: None,
+            currency: None,
             created_at: now,
             updated_at: now,
         }
@@ -46,6 +56,19 @@ impl CheckoutSession {
     pub fn attach_provider_checkout_id(&mut self, provider_checkout_id: String) {
         self.provider_checkout_id = Some(provider_checkout_id);
         self.updated_at = Utc::now();
+    }
+
+    pub fn attach_plan_change(&mut self, id: Uuid, amount: Decimal, currency: String) {
+        self.plan_change_id = Some(id);
+        self.amount = Some(amount);
+        self.currency = Some(currency);
+        self.updated_at = Utc::now()
+    }
+    pub fn attach_addon(&mut self, id: Uuid, amount: Decimal, currency: String) {
+        self.addon_subscription_id = Some(id);
+        self.amount = Some(amount);
+        self.currency = Some(currency);
+        self.updated_at = Utc::now()
     }
 
     pub fn mark_completed(&mut self) {

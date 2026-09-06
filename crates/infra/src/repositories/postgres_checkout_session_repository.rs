@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use domain::CheckoutSession;
 use domain::enums::{CheckoutStatus, PlanTier};
 use domain::shared::ids::{CheckoutSessionId, TenantId};
+use rust_decimal::Decimal;
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
@@ -30,6 +31,10 @@ struct CheckoutSessionRow {
     status: String,
     provider: String,
     provider_checkout_id: Option<String>,
+    plan_change_id: Option<Uuid>,
+    addon_subscription_id: Option<Uuid>,
+    amount: Option<Decimal>,
+    currency: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -43,6 +48,10 @@ impl CheckoutSessionRow {
             status: session.status.as_str().to_owned(),
             provider: session.provider.clone(),
             provider_checkout_id: session.provider_checkout_id.clone(),
+            plan_change_id: session.plan_change_id,
+            addon_subscription_id: session.addon_subscription_id,
+            amount: session.amount,
+            currency: session.currency.clone(),
             created_at: session.created_at,
             updated_at: session.updated_at,
         }
@@ -65,6 +74,10 @@ impl CheckoutSessionRow {
             status,
             provider: self.provider,
             provider_checkout_id: self.provider_checkout_id,
+            plan_change_id: self.plan_change_id,
+            addon_subscription_id: self.addon_subscription_id,
+            amount: self.amount,
+            currency: self.currency,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -77,9 +90,8 @@ impl CheckoutSessionRepository for PostgresCheckoutSessionRepository {
         let row = CheckoutSessionRow::from_domain(session);
         sqlx::query(
             "INSERT INTO checkout_sessions \
-             (id, tenant_id, plan_tier, status, provider, provider_checkout_id, \
-              created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+             (id, tenant_id, plan_tier, status, provider, provider_checkout_id, plan_change_id, addon_subscription_id, amount, currency, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(row.id)
         .bind(row.tenant_id)
@@ -87,6 +99,7 @@ impl CheckoutSessionRepository for PostgresCheckoutSessionRepository {
         .bind(row.status)
         .bind(row.provider)
         .bind(row.provider_checkout_id)
+        .bind(row.plan_change_id).bind(row.addon_subscription_id).bind(row.amount).bind(row.currency)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.pool)
@@ -99,7 +112,7 @@ impl CheckoutSessionRepository for PostgresCheckoutSessionRepository {
         id: CheckoutSessionId,
     ) -> CheckoutRepoResult<Option<CheckoutSession>> {
         let row = sqlx::query_as::<_, CheckoutSessionRow>(
-            "SELECT id, tenant_id, plan_tier, status, provider, provider_checkout_id, \
+            "SELECT id, tenant_id, plan_tier, status, provider, provider_checkout_id, plan_change_id, addon_subscription_id, amount, currency, \
              created_at, updated_at \
              FROM checkout_sessions WHERE id = $1",
         )
@@ -114,8 +127,7 @@ impl CheckoutSessionRepository for PostgresCheckoutSessionRepository {
         let row = CheckoutSessionRow::from_domain(session);
         sqlx::query(
             "UPDATE checkout_sessions SET \
-             plan_tier = $2, status = $3, provider = $4, provider_checkout_id = $5, \
-             updated_at = $6 \
+             plan_tier = $2, status = $3, provider = $4, provider_checkout_id = $5, plan_change_id=$6, addon_subscription_id=$7, amount=$8, currency=$9, updated_at = $10 \
              WHERE id = $1",
         )
         .bind(row.id)
@@ -123,6 +135,7 @@ impl CheckoutSessionRepository for PostgresCheckoutSessionRepository {
         .bind(row.status)
         .bind(row.provider)
         .bind(row.provider_checkout_id)
+        .bind(row.plan_change_id).bind(row.addon_subscription_id).bind(row.amount).bind(row.currency)
         .bind(row.updated_at)
         .execute(&self.pool)
         .await?;

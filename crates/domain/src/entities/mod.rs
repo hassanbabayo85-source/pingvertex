@@ -54,6 +54,8 @@ pub use plan::Plan;
 
 mod subscription;
 pub use subscription::Subscription;
+mod subscription_plan_change;
+pub use subscription_plan_change::*;
 
 // B14 — Billing Provider Abstraction & Checkout:
 mod checkout_session;
@@ -130,4 +132,4 @@ pub use wallet::{CreditReservation, Wallet, WalletTransaction, WalletTransaction
 mod payg;
 pub use payg::{PAYGPricing, Payment, UsageEvent};
 mod invoice;
-pub use invoice::Invoice;
+pub use invoice::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};

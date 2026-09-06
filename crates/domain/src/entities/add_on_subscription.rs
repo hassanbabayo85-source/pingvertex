@@ -35,6 +35,7 @@ pub enum AddOnStatus {
     Pending,
     Active,
     Canceled,
+    Failed,
 }
 impl AddOnStatus {
     pub fn as_str(&self) -> &'static str {
@@ -42,6 +43,7 @@ impl AddOnStatus {
             Self::Pending => "pending",
             Self::Active => "active",
             Self::Canceled => "canceled",
+            Self::Failed => "failed",
         }
     }
 }
@@ -52,6 +54,7 @@ impl std::str::FromStr for AddOnStatus {
             "pending" => Ok(Self::Pending),
             "active" => Ok(Self::Active),
             "canceled" => Ok(Self::Canceled),
+            "failed" => Ok(Self::Failed),
             x => Err(format!("unknown add-on status: {x}")),
         }
     }
@@ -66,7 +69,11 @@ pub struct AddOnSubscription {
     pub price: Decimal,
     pub currency: String,
     pub status: AddOnStatus,
+    pub provider_checkout_id: Option<String>,
+    pub paid_at: Option<DateTime<Utc>>,
+    pub canceled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 impl AddOnSubscription {
     #[allow(clippy::too_many_arguments)]
@@ -89,6 +96,7 @@ impl AddOnSubscription {
         if currency.trim().is_empty() {
             return Err("add-on currency must not be empty".into());
         }
+        let now = Utc::now();
         Ok(Self {
             id,
             tenant_id,
@@ -98,10 +106,44 @@ impl AddOnSubscription {
             price,
             currency,
             status,
-            created_at: Utc::now(),
+            provider_checkout_id: None,
+            paid_at: None,
+            canceled_at: None,
+            created_at: now,
+            updated_at: now,
         })
     }
     pub fn total_price(&self) -> Decimal {
         self.price * Decimal::from(self.quantity)
+    }
+    pub fn attach_checkout(&mut self, id: String) {
+        self.provider_checkout_id = Some(id);
+        self.updated_at = Utc::now()
+    }
+    pub fn activate_after_verified_payment(&mut self) -> Result<(), String> {
+        if self.status != AddOnStatus::Pending {
+            return Err(format!("cannot activate add-on from {:?}", self.status));
+        }
+        self.status = AddOnStatus::Active;
+        self.paid_at = Some(Utc::now());
+        self.updated_at = Utc::now();
+        Ok(())
+    }
+    pub fn mark_failed(&mut self) -> Result<(), String> {
+        if self.status != AddOnStatus::Pending {
+            return Err(format!("cannot fail add-on from {:?}", self.status));
+        }
+        self.status = AddOnStatus::Failed;
+        self.updated_at = Utc::now();
+        Ok(())
+    }
+    pub fn cancel(&mut self) -> Result<(), String> {
+        if self.status != AddOnStatus::Active {
+            return Err(format!("cannot cancel add-on from {:?}", self.status));
+        }
+        self.status = AddOnStatus::Canceled;
+        self.canceled_at = Some(Utc::now());
+        self.updated_at = Utc::now();
+        Ok(())
     }
 }
