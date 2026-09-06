@@ -105,10 +105,17 @@ pub async fn billing_webhook(
             BillingWebhookEventType::SubscriptionRenewed => "subscription_changed",
             BillingWebhookEventType::SubscriptionCanceled => "subscription_canceled",
         };
-        let _ = state.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(
-            "billing:webhook", Some(command.tenant_id.0), audit_action, "billing_webhook",
-            Some(command.provider_event_id.clone()), sanitize_financial_metadata(&command.payload),
-        )).await;
+        let _ = state
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                "billing:webhook",
+                Some(command.tenant_id.0),
+                audit_action,
+                "billing_webhook",
+                Some(command.provider_event_id.clone()),
+                sanitize_financial_metadata(&command.payload),
+            ))
+            .await;
     }
 
     let status = if outcome.processed {
@@ -125,7 +132,6 @@ pub async fn billing_webhook(
     ))
 }
 
-
 pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Value {
     fn walk(v: &serde_json::Value) -> serde_json::Value {
         match v {
@@ -133,7 +139,15 @@ pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Val
                 let mut out = serde_json::Map::new();
                 for (k, val) in map {
                     let lower = k.to_ascii_lowercase();
-                    if lower.contains("password") || lower.contains("credential") || lower.contains("secret") || lower.contains("api_key") || lower.contains("apikey") || lower.contains("token") { continue; }
+                    if lower.contains("password")
+                        || lower.contains("credential")
+                        || lower.contains("secret")
+                        || lower.contains("api_key")
+                        || lower.contains("apikey")
+                        || lower.contains("token")
+                    {
+                        continue;
+                    }
                     out.insert(k.clone(), walk(val));
                 }
                 serde_json::Value::Object(out)
@@ -273,4 +287,3 @@ mod tests {
         assert!(verify_signature("secret", &headers, b"{}").is_err());
     }
 }
-

@@ -73,7 +73,17 @@ pub async fn change_plan(
         .execute(u.tenant_context().tenant_id(), tier)
         .await
         .map_err(err)?;
-    let _ = s.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(u.user_id().0.to_string(),Some(u.tenant_context().tenant_id().0),"subscription_changed","subscription_plan_change",Some(o.plan_change_id.to_string()),serde_json::json!({"new_plan":tier.as_str(),"amount":o.calculated_amount.to_string()}))).await;
+    let _ = s
+        .financial_audit_log_repository
+        .create(&domain::FinancialAuditLogEntry::new(
+            u.user_id().0.to_string(),
+            Some(u.tenant_context().tenant_id().0),
+            "subscription_changed",
+            "subscription_plan_change",
+            Some(o.plan_change_id.to_string()),
+            serde_json::json!({"new_plan":tier.as_str(),"amount":o.calculated_amount.to_string()}),
+        ))
+        .await;
     Ok((
         StatusCode::OK,
         Json(ChangePlanResponse {
@@ -107,7 +117,19 @@ pub async fn verify_plan_change(
         .apply_verified_change(u.tenant_context().tenant_id(), r.checkout_session_id)
         .await
         .map_err(err)?;
-    if o.applied { let _ = s.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(u.user_id().0.to_string(),Some(u.tenant_context().tenant_id().0),"subscription_changed","subscription_plan_change",Some(o.plan_change_id.to_string()),serde_json::json!({"verified":true}))).await; }
+    if o.applied {
+        let _ = s
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                u.user_id().0.to_string(),
+                Some(u.tenant_context().tenant_id().0),
+                "subscription_changed",
+                "subscription_plan_change",
+                Some(o.plan_change_id.to_string()),
+                serde_json::json!({"verified":true}),
+            ))
+            .await;
+    }
     Ok(Json(ChangePlanResponse {
         plan_change_id: o.plan_change_id,
         calculated_amount: o.calculated_amount.to_string(),
@@ -116,4 +138,3 @@ pub async fn verify_plan_change(
         applied: o.applied,
     }))
 }
-

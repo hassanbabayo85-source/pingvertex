@@ -124,7 +124,8 @@ pub async fn get_wallet(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<WalletResponse>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant_id = user.tenant_context().tenant_id().0;
     let wallet = state
         .wallet_repository
@@ -167,7 +168,8 @@ pub async fn list_wallet_transactions(
     Extension(user): Extension<AuthenticatedUser>,
     Query(q): Query<LimitQuery>,
 ) -> Result<Json<Vec<WalletTransactionResponse>>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant_id = user.tenant_context().tenant_id().0;
     let rows = state
         .wallet_repository
@@ -195,7 +197,8 @@ pub async fn notifications(
     Extension(user): Extension<AuthenticatedUser>,
     Query(q): Query<LimitQuery>,
 ) -> Result<Json<Vec<WalletNotificationResponse>>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let rows = state
         .wallet_repository
         .list_balance_notifications(user.tenant_context().tenant_id().0, q.limit.unwrap_or(50))
@@ -271,7 +274,8 @@ pub async fn get_settings(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<WalletSettings>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let mut s = state
         .wallet_repository
         .get_settings(user.tenant_context().tenant_id().0)
@@ -386,7 +390,17 @@ pub async fn request_refund(
         ));
     }
 
-    let _ = state.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(user.user_id().0.to_string(), Some(tenant_id.0), "wallet_refunded", "wallet_refund_request", Some(idempotency_key.clone()), serde_json::json!({"amount_units": req.amount_units, "currency": currency}))).await;
+    let _ = state
+        .financial_audit_log_repository
+        .create(&domain::FinancialAuditLogEntry::new(
+            user.user_id().0.to_string(),
+            Some(tenant_id.0),
+            "wallet_refunded",
+            "wallet_refund_request",
+            Some(idempotency_key.clone()),
+            serde_json::json!({"amount_units": req.amount_units, "currency": currency}),
+        ))
+        .await;
 
     let d = state
         .payment_provider
@@ -417,7 +431,8 @@ pub async fn usage_report(
     Extension(user): Extension<AuthenticatedUser>,
     Query(q): Query<UsageQuery>,
 ) -> Result<Json<UsageReportResponse>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let to =
         q.to.as_deref()
             .map(|v| v.parse::<DateTime<Utc>>())
@@ -494,4 +509,3 @@ pub async fn usage_report(
             .collect(),
     }))
 }
-

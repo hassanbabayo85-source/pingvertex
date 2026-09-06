@@ -19,6 +19,7 @@ where
     async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
         (**self).find_active(operation).await
     }
-    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> { (**self).list_active().await }
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
+        (**self).list_active().await
+    }
 }
-

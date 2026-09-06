@@ -205,7 +205,8 @@ pub async fn billing_summary(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<BillingSummaryResponse>, ApiError> {
-    user.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    user.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant_id = user.tenant_context().tenant_id();
     let config = state
         .pricing_config_repository
@@ -379,4 +380,3 @@ pub async fn cancel_add_on(
         checkout_url: None,
     }))
 }
-

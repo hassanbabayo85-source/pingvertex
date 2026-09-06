@@ -20,10 +20,10 @@ pub mod user_repository;
 // Sabbin ports:
 pub mod api_key_repository;
 pub mod audit_log_entry_repository;
-pub mod financial_audit_log_repository;
 pub mod backup_code_repository;
 pub mod custom_domain_verifier;
 pub mod escalation_policy_repository;
+pub mod financial_audit_log_repository;
 pub mod maintenance_window_repository;
 pub mod pending_auth_cache;
 pub mod rate_limiter;
@@ -80,10 +80,10 @@ pub use user_repository::UserRepository;
 // Sabbin re-exports:
 pub use api_key_repository::ApiKeyRepository;
 pub use audit_log_entry_repository::AuditLogEntryRepository;
-pub use financial_audit_log_repository::{FinancialAuditLogRepository, FinancialAuditRepoResult};
 pub use backup_code_repository::BackupCodeRepository;
 pub use custom_domain_verifier::{CustomDomainVerifier, VerifierResult};
 pub use escalation_policy_repository::EscalationPolicyRepository;
+pub use financial_audit_log_repository::{FinancialAuditLogRepository, FinancialAuditRepoResult};
 pub use maintenance_window_repository::MaintenanceWindowRepository;
 pub use pending_auth_cache::{PendingAuthCache, PendingAuthCacheResult};
 pub use rate_limiter::{RateLimiter, RateLimiterResult};
@@ -201,5 +201,4 @@ pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageRepo
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
 
 pub mod payment_repository;
-pub use payment_repository::{PaymentRepository, PaymentRepoResult};
-
+pub use payment_repository::{PaymentRepoResult, PaymentRepository};

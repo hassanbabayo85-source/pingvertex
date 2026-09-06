@@ -43,7 +43,8 @@ pub async fn list_invoices(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<InvoiceResponse>>, ApiError> {
-    u.require(Permission::ViewBilling).map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+    u.require(Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let rows = s
         .invoice_repository
         .list_by_tenant(u.tenant_context().tenant_id().0, 50)
@@ -51,4 +52,3 @@ pub async fn list_invoices(
         .map_err(|e| ApiError::internal_with_source("failed to load invoices", e))?;
     Ok(Json(rows.into_iter().map(Into::into).collect()))
 }
-

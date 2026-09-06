@@ -1,5 +1,6 @@
 use application::ports::{
-    PaymentProvider, PaymentVerification, WalletRepository, WalletTopUpRequest, FinancialAuditLogRepository,
+    FinancialAuditLogRepository, PaymentProvider, PaymentVerification, WalletRepository,
+    WalletTopUpRequest,
 };
 use chrono::Utc;
 use domain::AutoTopUpAttempt;
@@ -27,7 +28,10 @@ impl AutoTopUpWorker {
         }
     }
 
-    pub fn with_audit_repository(mut self, audit: Arc<dyn FinancialAuditLogRepository>) -> Self { self.audit = Some(audit); self }
+    pub fn with_audit_repository(mut self, audit: Arc<dyn FinancialAuditLogRepository>) -> Self {
+        self.audit = Some(audit);
+        self
+    }
 
     pub async fn run_forever(
         &self,
@@ -127,4 +131,3 @@ impl AutoTopUpWorker {
         }
     }
 }
-

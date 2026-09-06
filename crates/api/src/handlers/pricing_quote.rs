@@ -1,6 +1,9 @@
 use crate::{error::ApiError, state::AppState};
 use application::use_cases::calculate_pricing_quote::CalculatePricingQuoteUseCase;
-use axum::{Json, extract::{Extension, State}};
+use axum::{
+    Json,
+    extract::{Extension, Query, State},
+};
 use domain::pricing::PricingInput;
 
 #[derive(Debug, serde::Deserialize)]
@@ -13,6 +16,24 @@ pub struct PricingQuoteRequest {
 pub async fn pricing_quote(
     State(state): State<AppState>,
     Json(request): Json<PricingQuoteRequest>,
+) -> Result<Json<crate::handlers::pricing_types::PricingQuoteResponse>, ApiError> {
+    calculate_quote(&state, request).await
+}
+
+pub async fn pricing_quote_authenticated(
+    State(state): State<AppState>,
+    Extension(user): Extension<domain::shared::types::AuthenticatedUser>,
+    Query(request): Query<PricingQuoteRequest>,
+) -> Result<Json<crate::handlers::pricing_types::PricingQuoteResponse>, ApiError> {
+    user.require(domain::shared::types::Permission::ViewBilling)
+        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+
+    calculate_quote(&state, request).await
+}
+
+async fn calculate_quote(
+    state: &AppState,
+    request: PricingQuoteRequest,
 ) -> Result<Json<crate::handlers::pricing_types::PricingQuoteResponse>, ApiError> {
     let use_case = CalculatePricingQuoteUseCase::new(state.pricing_config_repository.clone());
 
@@ -34,14 +55,20 @@ pub async fn pricing_quote(
                     domain::pricing::PricingValidationError::MonitorsZero => {
                         ApiError::bad_request("monitors must be greater than zero")
                     }
-                    domain::pricing::PricingValidationError::IntervalTooLow { min } => {
-                        ApiError::bad_request(format!("interval_seconds must be at least {min} seconds"))
-                    }
                     domain::pricing::PricingValidationError::MonitorsExceedMax { max } => {
-                        ApiError::bad_request(format!("monitors exceeds maximum allowed ({max})"))
+                        ApiError::bad_request(format!(
+                            "monitors exceeds maximum allowed ({max})"
+                        ))
+                    }
+                    domain::pricing::PricingValidationError::IntervalTooLow { min } => {
+                        ApiError::bad_request(format!(
+                            "interval_seconds must be at least {min}"
+                        ))
                     }
                     domain::pricing::PricingValidationError::RetentionExceedsMax { max } => {
-                        ApiError::bad_request(format!("retention_days exceeds maximum allowed ({max})"))
+                        ApiError::bad_request(format!(
+                            "retention_days exceeds maximum allowed ({max})"
+                        ))
                     }
                 }
             }
@@ -52,15 +79,3 @@ pub async fn pricing_quote(
 
     Ok(Json(quote.into()))
 }
-
-
-pub async fn pricing_quote_authenticated(
-    State(state): State<AppState>,
-    Extension(user): Extension<domain::shared::types::AuthenticatedUser>,
-    Json(request): Json<PricingQuoteRequest>,
-) -> Result<Json<crate::handlers::pricing_types::PricingQuoteResponse>, ApiError> {
-    user.require(domain::shared::types::Permission::ViewBilling)
-        .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
-    pricing_quote(State(state), Json(request)).await
-}
-

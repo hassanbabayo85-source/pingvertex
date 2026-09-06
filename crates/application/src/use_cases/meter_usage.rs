@@ -33,7 +33,10 @@ impl MeterUsageUseCase {
         }
     }
 
-    pub fn with_audit_log_repository(mut self, repo: Arc<dyn crate::ports::FinancialAuditLogRepository>) -> Self {
+    pub fn with_audit_log_repository(
+        mut self,
+        repo: Arc<dyn crate::ports::FinancialAuditLogRepository>,
+    ) -> Self {
         self.charge = self.charge.with_audit_log_repository(repo);
         self
     }
@@ -64,4 +67,3 @@ impl MeterUsageUseCase {
             .await
     }
 }
-
