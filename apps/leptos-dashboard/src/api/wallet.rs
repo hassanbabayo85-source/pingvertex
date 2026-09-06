@@ -12,6 +12,25 @@ pub struct Wallet {
     pub critical_balance_threshold_units: i64,
 }
 #[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct WalletNotification {
+    pub id: String,
+    pub event_type: String,
+    pub message: String,
+    pub read_at: Option<String>,
+    pub created_at: String,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct RefundRequest {
+    pub provider_payment_id: String,
+    pub amount_units: i64,
+    pub currency: Option<String>,
+}
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RefundResponse {
+    pub provider_refund_id: String,
+    pub status: String,
+}
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct WalletTransaction {
     pub id: String,
     pub transaction_type: String,
@@ -97,6 +116,12 @@ pub async fn get() -> Result<Wallet, ApiError> {
 }
 pub async fn transactions() -> Result<Vec<WalletTransaction>, ApiError> {
     client::get_json("/wallet/transactions").await
+}
+pub async fn notifications() -> Result<Vec<WalletNotification>, ApiError> {
+    client::get_json("/wallet/notifications").await
+}
+pub async fn refund(req: &RefundRequest) -> Result<RefundResponse, ApiError> {
+    client::post_json("/wallet/refund", req).await
 }
 pub async fn top_up(req: &TopUpRequest) -> Result<TopUpResponse, ApiError> {
     client::post_json("/wallet/top-up", req).await
