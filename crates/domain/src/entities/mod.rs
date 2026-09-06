@@ -128,8 +128,9 @@ pub use rum_resource_error::{RumResourceError, RumResourceType};
 
 pub mod wallet;
 pub use wallet::{
-    AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification, WalletSettings,
-    WalletTransaction, WalletTransactionType,
+    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification,
+    WalletRefundRequest, WalletSettings, WalletTopUpSession, WalletTransaction,
+    WalletTransactionType,
 };
 
 mod payg;

@@ -8,6 +8,7 @@ use application::ports::{MonitorRepository, NotificationChannelRepository};
 use async_trait::async_trait;
 use domain::{
     entities::NotificationChannel,
+    enums::NotificationChannelKind,
     shared::ids::{MonitorId, NotificationChannelId, TenantId, UserId},
 };
 
@@ -128,6 +129,22 @@ impl NotificationChannelRepository for InMemoryNotificationChannelRepository {
             .unwrap()
             .values()
             .filter(|channel| channel.monitor_id == monitor_id && channel.enabled)
+            .cloned()
+            .collect())
+    }
+
+    async fn list_enabled_email_by_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<Vec<NotificationChannel>> {
+        Ok(self
+            .channels
+            .read()
+            .unwrap()
+            .values()
+            .filter(|c| {
+                c.tenant_id == tenant_id && c.enabled && c.kind == NotificationChannelKind::Email
+            })
             .cloned()
             .collect())
     }

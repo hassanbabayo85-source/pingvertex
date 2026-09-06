@@ -130,5 +130,52 @@ pub struct WalletNotification {
     pub dedupe_key: String,
     pub message: String,
     pub read_at: Option<DateTime<Utc>>,
+    pub email_sent_at: Option<DateTime<Utc>>,
+    pub email_processing_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletTopUpSession {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub provider: String,
+    pub provider_checkout_id: String,
+    pub provider_payment_id: Option<String>,
+    pub amount_units: i64,
+    pub refunded_amount_units: i64,
+    pub currency: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl WalletTopUpSession {
+    pub const PENDING: &'static str = "PENDING";
+    pub const COMPLETED: &'static str = "COMPLETED";
+    pub const FAILED: &'static str = "FAILED";
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoTopUpAttempt {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub amount_units: i64,
+    pub status: String,
+    pub provider_reference: Option<String>,
+    pub error_message: Option<String>,
+    pub attempted_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletRefundRequest {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub provider_payment_id: String,
+    pub amount_units: i64,
+    pub idempotency_key: String,
+    pub provider_refund_id: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

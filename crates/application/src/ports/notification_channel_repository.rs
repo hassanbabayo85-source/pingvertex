@@ -62,6 +62,15 @@ pub trait NotificationChannelRepository: Send + Sync {
         &self,
         monitor_id: MonitorId,
     ) -> RepoResult<Vec<NotificationChannel>>;
+    /// Returns enabled email destinations belonging to the tenant.
+    /// Used only for account-level billing alerts.
+    async fn list_enabled_email_by_tenant(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<Vec<NotificationChannel>> {
+        let _ = tenant_id;
+        Ok(Vec::new())
+    }
 
     /// Fetches a single channel with NO ownership filtering. For callers
     /// that authorize the result themselves against the caller's tenant
@@ -144,6 +153,12 @@ where
         monitor_id: MonitorId,
     ) -> RepoResult<Vec<NotificationChannel>> {
         (**self).list_enabled_by_monitor(monitor_id).await
+    }
+    async fn list_enabled_email_by_tenant(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<Vec<NotificationChannel>> {
+        (**self).list_enabled_email_by_tenant(tenant_id).await
     }
 
     async fn find_by_id(

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
-    AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification, WalletSettings,
-    WalletTransaction, WalletTransactionType,
+    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification,
+    WalletSettings, WalletTopUpSession, WalletTransaction, WalletTransactionType,
 };
 use std::error::Error;
 use std::sync::Arc;
@@ -55,6 +55,49 @@ pub trait WalletRepository: Send + Sync {
         description: Option<&str>,
     ) -> WalletRepoResult<WalletTransaction>;
 
+    async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()>;
+    async fn find_top_up_session(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>>;
+    async fn complete_top_up_session(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+        provider_payment_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>>;
+    async fn refundable_top_up(
+        &self,
+        tenant_id: Uuid,
+        provider_payment_id: &str,
+        amount_units: i64,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>>;
+    async fn record_verified_refund(
+        &self,
+        tenant_id: Uuid,
+        provider_payment_id: &str,
+        amount_units: i64,
+        provider_refund_id: &str,
+    ) -> WalletRepoResult<bool>;
+    async fn create_refund_request(
+        &self,
+        request: &domain::WalletRefundRequest,
+    ) -> WalletRepoResult<Option<domain::WalletRefundRequest>>;
+    async fn set_refund_provider_id(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+        provider_refund_id: &str,
+    ) -> WalletRepoResult<()>;
+    async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()>;
+    async fn claim_auto_top_up(
+        &self,
+        tenant_id: Uuid,
+        lease_id: Uuid,
+        lease_for: std::time::Duration,
+    ) -> WalletRepoResult<bool>;
+    async fn release_auto_top_up(&self, tenant_id: Uuid, lease_id: Uuid) -> WalletRepoResult<()>;
     async fn get_settings(&self, tenant_id: Uuid) -> WalletRepoResult<WalletSettings>;
     async fn update_settings(&self, settings: &WalletSettings) -> WalletRepoResult<WalletSettings>;
     async fn expire_credit(
@@ -87,6 +130,17 @@ pub trait WalletRepository: Send + Sync {
         tenant_id: Uuid,
         limit: u32,
     ) -> WalletRepoResult<Vec<WalletNotification>>;
+    async fn claim_pending_email_notifications(
+        &self,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<WalletNotification>> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+    async fn mark_balance_notification_emailed(&self, id: Uuid) -> WalletRepoResult<bool> {
+        let _ = id;
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -139,6 +193,86 @@ where
                 description,
             )
             .await
+    }
+    async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {
+        (**self).create_top_up_session(session).await
+    }
+    async fn find_top_up_session(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        (**self)
+            .find_top_up_session(tenant_id, provider_checkout_id)
+            .await
+    }
+    async fn complete_top_up_session(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+        provider_payment_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        (**self)
+            .complete_top_up_session(tenant_id, provider_checkout_id, provider_payment_id)
+            .await
+    }
+    async fn refundable_top_up(
+        &self,
+        tenant_id: Uuid,
+        provider_payment_id: &str,
+        amount_units: i64,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        (**self)
+            .refundable_top_up(tenant_id, provider_payment_id, amount_units)
+            .await
+    }
+    async fn record_verified_refund(
+        &self,
+        tenant_id: Uuid,
+        provider_payment_id: &str,
+        amount_units: i64,
+        provider_refund_id: &str,
+    ) -> WalletRepoResult<bool> {
+        (**self)
+            .record_verified_refund(
+                tenant_id,
+                provider_payment_id,
+                amount_units,
+                provider_refund_id,
+            )
+            .await
+    }
+    async fn create_refund_request(
+        &self,
+        request: &domain::WalletRefundRequest,
+    ) -> WalletRepoResult<Option<domain::WalletRefundRequest>> {
+        (**self).create_refund_request(request).await
+    }
+    async fn set_refund_provider_id(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+        provider_refund_id: &str,
+    ) -> WalletRepoResult<()> {
+        (**self)
+            .set_refund_provider_id(tenant_id, idempotency_key, provider_refund_id)
+            .await
+    }
+    async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()> {
+        (**self).record_auto_top_up_attempt(attempt).await
+    }
+    async fn claim_auto_top_up(
+        &self,
+        tenant_id: Uuid,
+        lease_id: Uuid,
+        lease_for: std::time::Duration,
+    ) -> WalletRepoResult<bool> {
+        (**self)
+            .claim_auto_top_up(tenant_id, lease_id, lease_for)
+            .await
+    }
+    async fn release_auto_top_up(&self, tenant_id: Uuid, lease_id: Uuid) -> WalletRepoResult<()> {
+        (**self).release_auto_top_up(tenant_id, lease_id).await
     }
     async fn get_settings(&self, tenant_id: Uuid) -> WalletRepoResult<WalletSettings> {
         (**self).get_settings(tenant_id).await

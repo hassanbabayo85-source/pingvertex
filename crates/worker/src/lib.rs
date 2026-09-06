@@ -72,3 +72,6 @@ pub mod wallet_expiration_worker;
 pub use wallet_expiration_worker::WalletExpirationWorker;
 pub mod auto_top_up_worker;
 pub use auto_top_up_worker::AutoTopUpWorker;
+
+pub mod wallet_notification_email_worker;
+pub use wallet_notification_email_worker::WalletNotificationEmailWorker;

@@ -1,0 +1,122 @@
+use crate::api::wallet;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+
+fn usd(units: i64) -> String {
+    let sign=if units<0{"-"}else{""};
+    let a=units.unsigned_abs();
+    format!("{sign}${}.{:02}",a/1_000_000,(a%1_000_000)/10_000)
+}
+
+#[component]
+pub fn WalletPage() -> impl IntoView {
+    let wallet=RwSignal::new(None::<wallet::Wallet>);
+    let transactions=RwSignal::new(Vec::<wallet::WalletTransaction>::new());
+    let settings=RwSignal::new(None::<wallet::WalletSettings>);
+    let error=RwSignal::new(None::<String>);
+    let notice=RwSignal::new(None::<String>);
+    let amount=RwSignal::new(25_i64);
+    let loading=RwSignal::new(false);
+    let auto_enabled=RwSignal::new(false);
+    let threshold=RwSignal::new(5_i64);
+    let auto_amount=RwSignal::new(20_i64);
+    let payment_method=RwSignal::new(String::new());
+    let daily_limit=RwSignal::new(100_i64);
+    let monthly_limit=RwSignal::new(500_i64);
+    let retry_limit=RwSignal::new(3_i32);
+    let low_threshold=RwSignal::new(5_i64);
+    let critical_threshold=RwSignal::new(1_i64);
+
+    let reload=move || {
+        spawn_local(async move {
+            match wallet::get().await { Ok(v)=>wallet.set(Some(v)), Err(e)=>error.set(Some(e.to_string())) }
+            match wallet::transactions().await { Ok(v)=>transactions.set(v), Err(e)=>error.set(Some(e.to_string())) }
+            match wallet::settings().await {
+                Ok(v)=>{
+                    auto_enabled.set(v.auto_top_up_enabled);
+                    threshold.set(v.auto_top_up_threshold_units/1_000_000);
+                    auto_amount.set(v.auto_top_up_amount_units/1_000_000);
+                    payment_method.set(v.payment_method.unwrap_or_default());
+                    daily_limit.set(v.daily_top_up_limit_units/1_000_000);
+                    monthly_limit.set(v.monthly_top_up_limit_units/1_000_000);
+                    retry_limit.set(v.retry_limit);
+                    low_threshold.set(v.low_balance_threshold_units/1_000_000);
+                    critical_threshold.set(v.critical_balance_threshold_units/1_000_000);
+                    settings.set(Some(v));
+                }
+                Err(e)=>error.set(Some(e.to_string()))
+            }
+        });
+    };
+    Effect::new(move |_| reload());
+
+    let top_up=move |_| {
+        loading.set(true);
+        let a=amount.get().clamp(1,1000)*1_000_000;
+        spawn_local(async move {
+            match wallet::top_up(&wallet::TopUpRequest{amount_units:a,payment_method:None}).await {
+                Ok(v)=>{ if let Some(w)=web_sys::window(){let _=w.location().set_href(&v.checkout_url);} }
+                Err(e)=>{error.set(Some(e.to_string()));loading.set(false);}
+            }
+        });
+    };
+
+    let save_settings=move |_| {
+        loading.set(true);
+        let req=wallet::WalletSettingsRequest{
+            low_balance_threshold_units:low_threshold.get().max(0)*1_000_000,
+            critical_balance_threshold_units:critical_threshold.get().max(0)*1_000_000,
+            auto_top_up_enabled:auto_enabled.get(),
+            auto_top_up_threshold_units:threshold.get().max(0)*1_000_000,
+            auto_top_up_amount_units:auto_amount.get().clamp(1,1000)*1_000_000,
+            payment_method:(!payment_method.get().trim().is_empty()).then_some(payment_method.get()),
+            daily_top_up_limit_units:daily_limit.get().max(1)*1_000_000,
+            monthly_top_up_limit_units:monthly_limit.get().max(1)*1_000_000,
+            retry_limit:retry_limit.get().clamp(0,10),
+        };
+        spawn_local(async move {
+            match wallet::update_settings(&req).await {
+                Ok(v)=>{settings.set(Some(v));notice.set(Some("Wallet settings saved.".to_owned()));}
+                Err(e)=>error.set(Some(e.to_string()))
+            }
+            loading.set(false);
+        });
+    };
+
+    view!{
+        <div class="feature-page">
+            <header class="page-header"><div><span class="eyebrow">"BILLING"</span><h1>"Wallet"</h1><p class="muted">"Prepaid PAYG balance for metered operations."</p></div></header>
+            {move||error.get().map(|e|view!{<div class="error" role="alert">{e}</div>})}
+            {move||notice.get().map(|n|view!{<div class="success" role="status">{n}</div>})}
+
+            {move||wallet.get().map(|w|view!{<section class="card">
+                <div class="section-heading"><div><h2>"Wallet status"</h2><p class="muted">"PAYG stops safely at zero; thresholds only control warnings and automation."</p></div><strong>{w.status.clone()}</strong></div>
+                <div class="overview-cards"><div><span class="card-label">"Balance"</span><span class="card-value">{usd(w.balance_units)}</span></div><div><span class="card-label">"Low"</span><span class="card-value">{usd(w.low_balance_threshold_units)}</span></div><div><span class="card-label">"Critical"</span><span class="card-value">{usd(w.critical_balance_threshold_units)}</span></div></div>
+                {if w.status=="WARNING"{view!{<div class="notice">"Your PAYG balance is low. Consider topping up."</div>}}else if w.status=="CRITICAL"{view!{<div class="warning">"Your PAYG balance is critically low."</div>}}else if w.status=="BLOCKED"{view!{<div class="error">"PAYG is blocked because your balance is zero."</div>}}else{view!{<></>}}}
+            </section>})}
+
+            <section class="card"><div class="section-heading"><div><h2>"Top up"</h2><p class="muted">"The server validates the amount and creates the provider checkout."</p></div></div>
+                <div class="inline-form">{[5_i64,10,25,50,100].into_iter().map(|v|view!{<button type="button" class=move||if amount.get()==v{"btn btn-primary"}else{"btn"} on:click=move |_|amount.set(v)}>{format!("${v}")}</button>}).collect_view()}
+                <label>"Custom "<input type="number" min="1" max="1000" prop:value=move||amount.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){amount.set(v)}/></label>
+                <button class="btn btn-primary" disabled=move||loading.get() on:click=top_up>{move||if loading.get(){"Starting checkout…"}else{"Continue to payment →"}}</button></div>
+            </section>
+
+            <section class="card"><div class="section-heading"><div><h2>"Auto top-up"</h2><p class="muted">"Hard daily/monthly limits and a finite retry budget protect against runaway charges."</p></div></div>
+                <div class="stack-form">
+                    <label class="check-row"><input type="checkbox" prop:checked=move||auto_enabled.get() on:change=move|e|auto_enabled.set(event_target::<web_sys::HtmlInputElement>(&e).checked())/>" Enable auto top-up"</label>
+                    <div class="inline-form">
+                        <label>"Trigger below ($)"<input type="number" min="0" prop:value=move||threshold.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){threshold.set(v)}/></label>
+                        <label>"Top-up amount ($)"<input type="number" min="1" max="1000" prop:value=move||auto_amount.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){auto_amount.set(v)}/></label>
+                        <label>"Daily limit ($)"<input type="number" min="1" prop:value=move||daily_limit.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){daily_limit.set(v)}/></label>
+                        <label>"Monthly limit ($)"<input type="number" min="1" prop:value=move||monthly_limit.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){monthly_limit.set(v)}/></label>
+                        <label>"Retry limit"<input type="number" min="0" max="10" prop:value=move||retry_limit.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){retry_limit.set(v)}/></label>
+                    </div>
+                    <label>"Saved payment method ID "<input type="password" autocomplete="off" prop:value=move||payment_method.get() on:input=move|e|payment_method.set(event_target_value(&e))/></label>
+                    <div class="inline-form"><label>"Low warning ($)"<input type="number" min="0" prop:value=move||low_threshold.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){low_threshold.set(v)}/></label><label>"Critical warning ($)"<input type="number" min="0" prop:value=move||critical_threshold.get().to_string() on:input=move|e|if let Ok(v)=event_target_value(&e).parse(){critical_threshold.set(v)}/></label><button class="btn btn-primary" disabled=move||loading.get() on:click=save_settings>"Save settings"</button></div>
+                </div>
+            </section>
+
+            <section class="card"><div class="section-heading"><h2>"Recent transactions"</h2><a class="btn" href="/billing/transactions">"View all transactions"</a></div><div class="table-shell"><table class="data-table"><thead><tr><th>"Date"</th><th>"Type"</th><th>"Description"</th><th>"Amount"</th><th>"Balance"</th></tr></thead><tbody>{move||transactions.get().into_iter().map(|t|view!{<tr><td>{t.created_at}</td><td>{t.transaction_type}</td><td>{t.description.unwrap_or_default()}</td><td>{usd(t.amount_units)}</td><td>{usd(t.balance_after_units)}</td></tr>}).collect_view()}</tbody></table></div></section>
+        </div>
+    }
+}

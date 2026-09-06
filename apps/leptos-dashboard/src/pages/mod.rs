@@ -35,3 +35,5 @@ pub mod wallet;
 pub mod usage;
 
 pub mod invoices;
+
+pub mod transactions;

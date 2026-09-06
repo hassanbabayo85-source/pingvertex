@@ -1,4 +1,5 @@
 use crate::api::client::{self, ApiError};
+use js_sys::encode_uri_component;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -106,6 +107,49 @@ pub async fn settings() -> Result<WalletSettings, ApiError> {
 pub async fn update_settings(req: &WalletSettingsRequest) -> Result<WalletSettings, ApiError> {
     client::put_json("/wallet/settings", req).await
 }
-pub async fn usage() -> Result<UsageReport, ApiError> {
-    client::get_json("/wallet/usage").await
+pub async fn usage(
+    from: Option<&str>,
+    to: Option<&str>,
+    operation: Option<&str>,
+    status: Option<&str>,
+) -> Result<UsageReport, ApiError> {
+    let mut query = Vec::new();
+    if let Some(v) = from {
+        if !v.is_empty() {
+            query.push(format!(
+                "from={}",
+                encode_uri_component(v).as_string().unwrap_or_default()
+            ));
+        }
+    }
+    if let Some(v) = to {
+        if !v.is_empty() {
+            query.push(format!(
+                "to={}",
+                encode_uri_component(v).as_string().unwrap_or_default()
+            ));
+        }
+    }
+    if let Some(v) = operation {
+        if !v.is_empty() {
+            query.push(format!(
+                "operation={}",
+                encode_uri_component(v).as_string().unwrap_or_default()
+            ));
+        }
+    }
+    if let Some(v) = status {
+        if !v.is_empty() {
+            query.push(format!(
+                "status={}",
+                encode_uri_component(v).as_string().unwrap_or_default()
+            ));
+        }
+    }
+    let path = if query.is_empty() {
+        "/wallet/usage".to_owned()
+    } else {
+        format!("/wallet/usage?{}", query.join("&"))
+    };
+    client::get_json(&path).await
 }

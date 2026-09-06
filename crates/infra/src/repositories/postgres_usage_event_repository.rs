@@ -95,7 +95,7 @@ impl UsageEventRepository for PostgresUsageEventRepository {
              AND ($4::text IS NULL OR operation=$4) AND ($5::text IS NULL OR status=$5)
              ORDER BY created_at DESC LIMIT $6"
         ).bind(tenant_id).bind(from).bind(to).bind(operation).bind(status).bind(limit.clamp(1,500) as i64).fetch_all(&self.pool).await?;
-        let today_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(charge_units),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('day', now()) AND created_at < date_trunc('day', now()) + interval '1 day' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
+        let today_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('day', now()) AND created_at < date_trunc('day', now()) + interval '1 day' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
         let month_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
         let month_spend: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(charge_units),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
         #[derive(sqlx::FromRow)]

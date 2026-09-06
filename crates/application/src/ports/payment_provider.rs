@@ -31,6 +31,8 @@ pub struct WalletTopUpRequest {
     pub tenant_id: TenantId,
     pub amount_units: i64,
     pub currency: String,
+    /// Provider-side idempotency key. Must be unique per payment attempt.
+    pub idempotency_key: String,
     pub payment_method: Option<String>,
 }
 
@@ -40,6 +42,7 @@ pub struct RefundRequest {
     pub provider_payment_id: String,
     pub amount_units: i64,
     pub currency: String,
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
