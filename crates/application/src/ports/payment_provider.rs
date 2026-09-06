@@ -27,6 +27,26 @@ pub struct CheckoutRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalletTopUpRequest {
+    pub tenant_id: TenantId,
+    pub amount_units: i64,
+    pub currency: String,
+    pub payment_method: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefundRequest {
+    pub tenant_id: TenantId,
+    pub provider_payment_id: String,
+    pub amount_units: i64,
+    pub currency: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefundDetails {
+    pub provider_refund_id: String,
+}
+
 pub struct CheckoutDetails {
     pub provider_checkout_id: String,
     pub checkout_url: String,
@@ -50,6 +70,30 @@ pub trait PaymentProvider: Send + Sync {
         &self,
         provider_checkout_id: &str,
     ) -> PaymentProviderResult<PaymentVerification>;
+
+    async fn create_wallet_top_up(
+        &self,
+        _request: &WalletTopUpRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        Err(std::io::Error::other("wallet top-up is not supported by this billing provider").into())
+    }
+
+    async fn charge_saved_payment_method(
+        &self,
+        _request: &WalletTopUpRequest,
+    ) -> PaymentProviderResult<PaymentVerification> {
+        Err(std::io::Error::other(
+            "automatic wallet top-up is not supported by this billing provider",
+        )
+        .into())
+    }
+
+    async fn refund_payment(
+        &self,
+        _request: &RefundRequest,
+    ) -> PaymentProviderResult<RefundDetails> {
+        Err(std::io::Error::other("refunds are not supported by this billing provider").into())
+    }
 }
 
 #[async_trait]
@@ -73,5 +117,23 @@ where
         provider_checkout_id: &str,
     ) -> PaymentProviderResult<PaymentVerification> {
         (**self).verify_payment(provider_checkout_id).await
+    }
+    async fn create_wallet_top_up(
+        &self,
+        request: &WalletTopUpRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        (**self).create_wallet_top_up(request).await
+    }
+    async fn charge_saved_payment_method(
+        &self,
+        request: &WalletTopUpRequest,
+    ) -> PaymentProviderResult<PaymentVerification> {
+        (**self).charge_saved_payment_method(request).await
+    }
+    async fn refund_payment(
+        &self,
+        request: &RefundRequest,
+    ) -> PaymentProviderResult<RefundDetails> {
+        (**self).refund_payment(request).await
     }
 }

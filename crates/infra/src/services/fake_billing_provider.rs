@@ -41,4 +41,34 @@ impl PaymentProvider for FakeBillingProvider {
     ) -> PaymentProviderResult<PaymentVerification> {
         Ok(PaymentVerification::Paid)
     }
+    async fn create_wallet_top_up(
+        &self,
+        request: &application::ports::WalletTopUpRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        let id = Uuid::new_v4().to_string();
+        Ok(CheckoutDetails {
+            provider_checkout_id: id.clone(),
+            checkout_url: format!(
+                "https://checkout.fake.invalid/{id}?type=wallet_top_up&amount={}&currency={}",
+                request.amount_units, request.currency
+            ),
+        })
+    }
+    async fn charge_saved_payment_method(
+        &self,
+        request: &application::ports::WalletTopUpRequest,
+    ) -> PaymentProviderResult<PaymentVerification> {
+        if request.payment_method.as_deref().unwrap_or("").is_empty() {
+            return Ok(PaymentVerification::Failed);
+        }
+        Ok(PaymentVerification::Paid)
+    }
+    async fn refund_payment(
+        &self,
+        _request: &application::ports::RefundRequest,
+    ) -> PaymentProviderResult<application::ports::RefundDetails> {
+        Ok(application::ports::RefundDetails {
+            provider_refund_id: Uuid::new_v4().to_string(),
+        })
+    }
 }

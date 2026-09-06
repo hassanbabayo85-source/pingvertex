@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::{CreditReservation, Wallet, WalletTransaction, WalletTransactionType};
+use domain::{
+    AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification, WalletSettings,
+    WalletTransaction, WalletTransactionType,
+};
 use std::error::Error;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -51,6 +54,39 @@ pub trait WalletRepository: Send + Sync {
         idempotency_key: &str,
         description: Option<&str>,
     ) -> WalletRepoResult<WalletTransaction>;
+
+    async fn get_settings(&self, tenant_id: Uuid) -> WalletRepoResult<WalletSettings>;
+    async fn update_settings(&self, settings: &WalletSettings) -> WalletRepoResult<WalletSettings>;
+    async fn expire_credit(
+        &self,
+        tenant_id: Uuid,
+        amount_units: i64,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<Option<WalletTransaction>>;
+    async fn grant_promotional_credit(
+        &self,
+        tenant_id: Uuid,
+        amount_units: i64,
+        expires_at: DateTime<Utc>,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction>;
+    async fn expire_promotional_credits(&self, limit: u32) -> WalletRepoResult<u64>;
+    async fn auto_top_up_candidates(&self, limit: u32)
+    -> WalletRepoResult<Vec<AutoTopUpCandidate>>;
+    async fn record_balance_notification(
+        &self,
+        tenant_id: Uuid,
+        event_type: &str,
+        dedupe_key: &str,
+        message: &str,
+    ) -> WalletRepoResult<bool>;
+    async fn list_balance_notifications(
+        &self,
+        tenant_id: Uuid,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<WalletNotification>>;
 }
 
 #[async_trait]
@@ -103,5 +139,67 @@ where
                 description,
             )
             .await
+    }
+    async fn get_settings(&self, tenant_id: Uuid) -> WalletRepoResult<WalletSettings> {
+        (**self).get_settings(tenant_id).await
+    }
+    async fn update_settings(&self, settings: &WalletSettings) -> WalletRepoResult<WalletSettings> {
+        (**self).update_settings(settings).await
+    }
+    async fn expire_credit(
+        &self,
+        tenant_id: Uuid,
+        amount_units: i64,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<Option<WalletTransaction>> {
+        (**self)
+            .expire_credit(tenant_id, amount_units, idempotency_key, description)
+            .await
+    }
+    async fn grant_promotional_credit(
+        &self,
+        tenant_id: Uuid,
+        amount_units: i64,
+        expires_at: DateTime<Utc>,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction> {
+        (**self)
+            .grant_promotional_credit(
+                tenant_id,
+                amount_units,
+                expires_at,
+                idempotency_key,
+                description,
+            )
+            .await
+    }
+    async fn expire_promotional_credits(&self, limit: u32) -> WalletRepoResult<u64> {
+        (**self).expire_promotional_credits(limit).await
+    }
+    async fn auto_top_up_candidates(
+        &self,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<AutoTopUpCandidate>> {
+        (**self).auto_top_up_candidates(limit).await
+    }
+    async fn record_balance_notification(
+        &self,
+        tenant_id: Uuid,
+        event_type: &str,
+        dedupe_key: &str,
+        message: &str,
+    ) -> WalletRepoResult<bool> {
+        (**self)
+            .record_balance_notification(tenant_id, event_type, dedupe_key, message)
+            .await
+    }
+    async fn list_balance_notifications(
+        &self,
+        tenant_id: Uuid,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<WalletNotification>> {
+        (**self).list_balance_notifications(tenant_id, limit).await
     }
 }

@@ -31,3 +31,7 @@ pub mod verify_email;
 pub mod proxy_checks;
 
 pub mod wallet;
+
+pub mod usage;
+
+pub mod invoices;

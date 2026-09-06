@@ -909,6 +909,61 @@ impl WalletRepository for NoopWalletRepository {
     ) -> RepoResult<domain::WalletTransaction> {
         Err("wallet repository is not configured".into())
     }
+    async fn get_settings(&self, tenant_id: uuid::Uuid) -> RepoResult<domain::WalletSettings> {
+        let mut s = domain::WalletSettings::default();
+        s.tenant_id = tenant_id;
+        Ok(s)
+    }
+    async fn update_settings(
+        &self,
+        settings: &domain::WalletSettings,
+    ) -> RepoResult<domain::WalletSettings> {
+        Ok(settings.clone())
+    }
+    async fn expire_credit(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _amount_units: i64,
+        _idempotency_key: &str,
+        _description: Option<&str>,
+    ) -> RepoResult<Option<domain::WalletTransaction>> {
+        Ok(None)
+    }
+    async fn grant_promotional_credit(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _amount_units: i64,
+        _expires_at: DateTime<Utc>,
+        _idempotency_key: &str,
+        _description: Option<&str>,
+    ) -> RepoResult<domain::WalletTransaction> {
+        Err("wallet repository is not configured".into())
+    }
+    async fn expire_promotional_credits(&self, _limit: u32) -> RepoResult<u64> {
+        Ok(0)
+    }
+    async fn auto_top_up_candidates(
+        &self,
+        _limit: u32,
+    ) -> RepoResult<Vec<domain::AutoTopUpCandidate>> {
+        Ok(vec![])
+    }
+    async fn record_balance_notification(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _event_type: &str,
+        _dedupe_key: &str,
+        _message: &str,
+    ) -> RepoResult<bool> {
+        Ok(false)
+    }
+    async fn list_balance_notifications(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _limit: u32,
+    ) -> RepoResult<Vec<domain::WalletNotification>> {
+        Ok(vec![])
+    }
 }
 
 #[derive(Clone, Default)]
@@ -933,6 +988,24 @@ impl UsageEventRepository for NoopUsageEventRepository {
     }
     async fn create(&self, event: &domain::UsageEvent) -> RepoResult<domain::UsageEvent> {
         Ok(event.clone())
+    }
+    async fn report(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _from: DateTime<Utc>,
+        _to: DateTime<Utc>,
+        _operation: Option<&str>,
+        _status: Option<&str>,
+        _limit: u32,
+    ) -> RepoResult<application::ports::UsageReport> {
+        Ok(application::ports::UsageReport {
+            today_usage_units: 0,
+            month_usage_units: 0,
+            month_spend_units: 0,
+            daily: vec![],
+            by_operation: vec![],
+            rows: vec![],
+        })
     }
 }
 
