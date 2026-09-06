@@ -12,6 +12,7 @@ fn usd(units: i64) -> String {
 pub fn WalletPage() -> impl IntoView {
     let wallet = RwSignal::new(None::<wallet::Wallet>);
     let transactions = RwSignal::new(Vec::<wallet::WalletTransaction>::new());
+    let notifications = RwSignal::new(Vec::<wallet::WalletNotification>::new());
     let settings = RwSignal::new(None::<wallet::WalletSettings>);
     let error = RwSignal::new(None::<String>);
     let notice = RwSignal::new(None::<String>);
@@ -26,6 +27,8 @@ pub fn WalletPage() -> impl IntoView {
     let retry_limit = RwSignal::new(3_i32);
     let low_threshold = RwSignal::new(5_i64);
     let critical_threshold = RwSignal::new(1_i64);
+    let refund_payment_id = RwSignal::new(String::new());
+    let refund_amount = RwSignal::new(0_i64);
 
     let reload = move || {
         spawn_local(async move {
@@ -35,6 +38,10 @@ pub fn WalletPage() -> impl IntoView {
             }
             match wallet::transactions().await {
                 Ok(v) => transactions.set(v),
+                Err(e) => error.set(Some(e.to_string())),
+            }
+            match wallet::notifications().await {
+                Ok(v) => notifications.set(v),
                 Err(e) => error.set(Some(e.to_string())),
             }
             match wallet::settings().await {
@@ -480,6 +487,100 @@ pub fn WalletPage() -> impl IntoView {
                             }}
                         </button>
                     </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="section-heading">
+                    <div>
+                        <h2>"Wallet notifications"</h2>
+                        <p class="muted">"Low-balance, critical-balance and payment events for this wallet."</p>
+                    </div>
+                </div>
+                {move || if notifications.get().is_empty() {
+                    view! { <p class="muted">"No wallet notifications yet."</p> }.into_any()
+                } else {
+                    view! {
+                        <div class="stack-form">
+                            {move || notifications.get().into_iter().map(|n| view! {
+                                <div class="notice">
+                                    <strong>{n.event_type}</strong>
+                                    <div>{n.message}</div>
+                                    <small class="muted">{n.created_at}</small>
+                                </div>
+                            }).collect_view()}
+                        </div>
+                    }.into_any()
+                }}
+            </section>
+
+            <section class="card">
+                <div class="section-heading">
+                    <div>
+                        <h2>"Request a refund"</h2>
+                        <p class="muted">"Refund a verified wallet top-up. Refunds are processed by the payment provider and finalized by webhook verification."</p>
+                    </div>
+                </div>
+                <div class="stack-form">
+                    <label>
+                        "Provider payment ID"
+                        <input
+                            type="text"
+                            autocomplete="off"
+                            prop:value=move || refund_payment_id.get()
+                            on:input=move |event| refund_payment_id.set(event_target_value(&event))
+                            disabled=move || loading.get()
+                        />
+                    </label>
+                    <label>
+                        "Refund amount ($)"
+                        <input
+                            type="number"
+                            min="0.01"
+                            max="1000"
+                            step="0.01"
+                            prop:value=move || {
+                                let units = refund_amount.get();
+                                format!("{}.{:02}", units / 1_000_000, (units % 1_000_000) / 10_000)
+                            }
+                            on:input=move |event| {
+                                let raw = event_target_value(&event);
+                                if let Ok(value) = raw.parse::<f64>() {
+                                    refund_amount.set((value * 1_000_000.0).round() as i64);
+                                }
+                            }
+                            disabled=move || loading.get()
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        class="btn btn-primary"
+                        disabled=move || loading.get() || refund_payment_id.get().trim().is_empty() || refund_amount.get() <= 0
+                        on:click=move |_| {
+                            error.set(None);
+                            notice.set(None);
+                            loading.set(true);
+                            let req = wallet::RefundRequest {
+                                provider_payment_id: refund_payment_id.get().trim().to_owned(),
+                                amount_units: refund_amount.get(),
+                                currency: Some("USD".to_owned()),
+                            };
+                            spawn_local(async move {
+                                match wallet::refund(&req).await {
+                                    Ok(v) => {
+                                        notice.set(Some(format!("Refund {} submitted; provider status: {}.", v.provider_refund_id, v.status)));
+                                        refund_payment_id.set(String::new());
+                                        refund_amount.set(0);
+                                    }
+                                    Err(e) => error.set(Some(e.to_string())),
+                                }
+                                loading.set(false);
+                            });
+                        }
+                    >
+                        {move || if loading.get() { "Submitting…" } else { "Submit refund" }}
+                    </button>
+                    <p class="muted">"Refunds require billing permission and must match a refundable payment owned by this tenant."</p>
                 </div>
             </section>
 
