@@ -119,3 +119,20 @@ pub async fn verify_checkout(id: &str) -> Result<VerifyCheckoutResponse, ApiErro
 pub async fn add_on(req: &AddOnRequest) -> Result<AddOn, ApiError> {
     client::post_json("/billing/addons", req).await
 }
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Invoice {
+    pub invoice_number: String,
+    pub currency: String,
+    pub subtotal: String,
+    pub tax: String,
+    pub total: String,
+    pub status: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub created_at: String,
+    pub paid_at: Option<String>,
+}
+pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
+    client::get_json("/billing/invoices").await
+}

@@ -76,7 +76,7 @@ pub async fn billing_webhook(
         payload: {
             let mut d = payload.data;
             if let Some(id) = payload.addon_subscription_id {
-                d["addon_subscription_id"] = serde_json::Value::String(id.to_string())
+                d["addon_subscription_id"] = serde_json::Value::String(id.to_string());
             }
             d
         },
@@ -87,7 +87,8 @@ pub async fn billing_webhook(
         state.billing_audit_log_repository.clone(),
         state.subscription_repository.clone(),
     )
-    .with_addon_repository(state.add_on_subscription_repository.clone());
+    .with_addon_repository(state.add_on_subscription_repository.clone())
+    .with_wallet_repository(state.wallet_repository.clone());
 
     let outcome = use_case
         .execute(command)

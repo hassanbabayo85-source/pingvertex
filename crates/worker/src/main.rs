@@ -2,11 +2,12 @@ mod config;
 
 use std::{error::Error, sync::Arc, time::Duration};
 
-use application::ports::StatusPageCache;
+use application::ports::{PaymentProvider, StatusPageCache};
 use async_trait::async_trait;
 use infra::{
-    AesGcmProxyCredentialCipher, HickoryCustomDomainVerifier, NotificationDispatcher,
-    PostgresApiFlowRepository, PostgresCheckRepository, PostgresDiagnosticReportRepository,
+    AesGcmProxyCredentialCipher, BillingConfig, DisabledBillingProvider, FakeBillingProvider,
+    HickoryCustomDomainVerifier, NotificationDispatcher, PostgresApiFlowRepository,
+    PostgresCheckRepository, PostgresDiagnosticReportRepository,
     PostgresEscalationPolicyRepository, PostgresHistoryRetentionRepository,
     PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
@@ -17,10 +18,10 @@ use infra::{
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
-    CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
-    IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
+    AutoTopUpWorker, CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper,
+    IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, RetentionWorker, TenantNotificationRateLimiter,
-    init_rustls_crypto_provider, metrics, run_durable,
+    WalletExpirationWorker, init_rustls_crypto_provider, metrics, run_durable,
 };
 
 #[derive(Clone, Default)]
@@ -74,6 +75,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let pool = create_pool(&worker_config.database_url).await?;
 
     let cancel_token = CancellationToken::new();
+    let billing_config = BillingConfig::try_from_env()?;
+    let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
+        "fake" => Arc::new(FakeBillingProvider),
+        "disabled" => Arc::new(DisabledBillingProvider),
+        other => return Err(format!("unsupported billing provider: {other}").into()),
+    };
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
     let check_repository = Arc::new(PostgresCheckRepository::new(pool.clone()));
@@ -92,6 +99,19 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let tenant_repository = Arc::new(PostgresTenantRepository::new(pool.clone()));
     let subscription_repository = Arc::new(PostgresSubscriptionRepository::new(pool.clone()));
+    let wallet_repository = Arc::new(infra::PostgresWalletRepository::new(pool.clone()));
+    let auto_top_up_worker = AutoTopUpWorker::new(
+        wallet_repository.clone(),
+        billing_provider,
+        Duration::from_secs(300),
+    );
+    let auto_top_up_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {
+            tracing::error!(error=%err,"auto top-up worker stopped unexpectedly");
+        }
+    });
+
     let history_retention_repository =
         Arc::new(PostgresHistoryRetentionRepository::new(pool.clone()));
 
@@ -173,6 +193,18 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 error = %err,
                 "proxy check worker stopped unexpectedly"
             );
+        }
+    });
+
+    let wallet_expiration_worker =
+        WalletExpirationWorker::new(wallet_repository, Duration::from_secs(300), 200);
+    let wallet_expiration_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = wallet_expiration_worker
+            .run_forever(wallet_expiration_cancel)
+            .await
+        {
+            tracing::error!(error=%err, "wallet expiration worker stopped unexpectedly");
         }
     });
 

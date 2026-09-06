@@ -80,3 +80,55 @@ impl CreditReservation {
     pub const RELEASED: &'static str = "RELEASED";
     pub const EXPIRED: &'static str = "EXPIRED";
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletSettings {
+    pub tenant_id: Uuid,
+    pub low_balance_threshold_units: i64,
+    pub critical_balance_threshold_units: i64,
+    pub auto_top_up_enabled: bool,
+    pub auto_top_up_threshold_units: i64,
+    pub auto_top_up_amount_units: i64,
+    pub payment_method: Option<String>,
+    pub daily_top_up_limit_units: i64,
+    pub monthly_top_up_limit_units: i64,
+    pub retry_limit: i32,
+}
+
+impl Default for WalletSettings {
+    fn default() -> Self {
+        Self {
+            tenant_id: Uuid::nil(),
+            low_balance_threshold_units: 5_000_000,
+            critical_balance_threshold_units: 1_000_000,
+            auto_top_up_enabled: false,
+            auto_top_up_threshold_units: 5_000_000,
+            auto_top_up_amount_units: 20_000_000,
+            payment_method: None,
+            daily_top_up_limit_units: 100_000_000,
+            monthly_top_up_limit_units: 500_000_000,
+            retry_limit: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoTopUpCandidate {
+    pub tenant_id: Uuid,
+    pub balance_units: i64,
+    pub settings: WalletSettings,
+    pub daily_spend_units: i64,
+    pub monthly_spend_units: i64,
+    pub daily_attempts: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletNotification {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub event_type: String,
+    pub dedupe_key: String,
+    pub message: String,
+    pub read_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}

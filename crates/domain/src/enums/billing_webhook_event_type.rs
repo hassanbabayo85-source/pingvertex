@@ -16,6 +16,8 @@ pub enum BillingWebhookEventType {
     SubscriptionRenewed,
     /// The provider canceled the subscription.
     SubscriptionCanceled,
+    /// A provider-confirmed refund.
+    PaymentRefunded,
 }
 
 impl BillingWebhookEventType {
@@ -25,6 +27,7 @@ impl BillingWebhookEventType {
             Self::PaymentFailed => "payment_failed",
             Self::SubscriptionRenewed => "subscription_renewed",
             Self::SubscriptionCanceled => "subscription_canceled",
+            Self::PaymentRefunded => "payment_refunded",
         }
     }
 }
@@ -38,6 +41,7 @@ impl std::str::FromStr for BillingWebhookEventType {
             "payment_failed" => Ok(Self::PaymentFailed),
             "subscription_renewed" => Ok(Self::SubscriptionRenewed),
             "subscription_canceled" => Ok(Self::SubscriptionCanceled),
+            "payment_refunded" => Ok(Self::PaymentRefunded),
             other => Err(crate::errors::DomainError::InvalidBillingWebhookEventType(
                 other.to_owned(),
             )),

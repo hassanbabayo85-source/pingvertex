@@ -124,6 +124,7 @@ pub use checkout_session_repository::CheckoutSessionRepository;
 pub use payment_provider::{
     CheckoutDetails, CheckoutRequest, PaymentProvider, PaymentProviderResult, PaymentVerification,
 };
+pub use payment_provider::{RefundDetails, RefundRequest, WalletTopUpRequest};
 
 // B15 — Billing Webhooks:
 pub mod billing_audit_log_repository;
@@ -194,4 +195,5 @@ pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletReposito
 pub mod payg_pricing_repository;
 pub use payg_pricing_repository::{PAYGPricingRepository, PaygPricingRepoResult};
 pub mod usage_event_repository;
+pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};

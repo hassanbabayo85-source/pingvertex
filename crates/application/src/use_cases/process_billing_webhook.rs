@@ -10,7 +10,7 @@ use crate::commands::{ProcessBillingWebhookCommand, ProcessBillingWebhookOutcome
 use crate::ports::billing_webhook_idempotency_repository::WebhookIdempotencyClaim;
 use crate::ports::{
     AddOnSubscriptionRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
-    SubscriptionRepository,
+    SubscriptionRepository, WalletRepository,
 };
 use crate::use_cases::billing_webhook_support::BillingWebhookError;
 
@@ -21,6 +21,7 @@ pub struct ProcessBillingWebhookUseCase<I, A, S> {
     audit_log_repository: A,
     subscription_repository: S,
     addon_repository: Option<std::sync::Arc<dyn AddOnSubscriptionRepository>>,
+    wallet_repository: Option<std::sync::Arc<dyn WalletRepository>>,
 }
 
 impl<I, A, S> ProcessBillingWebhookUseCase<I, A, S>
@@ -39,6 +40,7 @@ where
             audit_log_repository,
             subscription_repository,
             addon_repository: None,
+            wallet_repository: None,
         }
     }
 
@@ -47,6 +49,10 @@ where
         r: std::sync::Arc<dyn AddOnSubscriptionRepository>,
     ) -> Self {
         self.addon_repository = Some(r);
+        self
+    }
+    pub fn with_wallet_repository(mut self, r: std::sync::Arc<dyn WalletRepository>) -> Self {
+        self.wallet_repository = Some(r);
         self
     }
 
@@ -89,7 +95,88 @@ where
         &self,
         command: &ProcessBillingWebhookCommand,
     ) -> Result<(), BillingWebhookError> {
-        if let Some(id) = command
+        let is_wallet_topup = command
+            .payload
+            .get("wallet_top_up")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if is_wallet_topup
+            && matches!(
+                command.event_type,
+                BillingWebhookEventType::PaymentSucceeded
+            )
+        {
+            let wallet = self.wallet_repository.as_ref().ok_or_else(|| {
+                BillingWebhookError::Other(
+                    std::io::Error::other("wallet repository not configured").into(),
+                )
+            })?;
+            let amount = command
+                .payload
+                .get("amount_units")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("wallet top-up amount missing").into(),
+                    )
+                })?;
+            let payment_id = command
+                .payload
+                .get("payment_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&command.provider_event_id);
+            wallet
+                .credit(
+                    command.tenant_id.0,
+                    amount,
+                    domain::WalletTransactionType::TopUp,
+                    &format!("topup:{payment_id}"),
+                    Some("Wallet top-up"),
+                )
+                .await
+                .map_err(|e| BillingWebhookError::Other(e))?;
+            let _ = wallet
+                .record_balance_notification(
+                    command.tenant_id.0,
+                    "TOP_UP_SUCCESS",
+                    &command.provider_event_id,
+                    "Wallet top-up successful",
+                )
+                .await;
+        } else if matches!(command.event_type, BillingWebhookEventType::PaymentRefunded) {
+            let wallet = self.wallet_repository.as_ref().ok_or_else(|| {
+                BillingWebhookError::Other(
+                    std::io::Error::other("wallet repository not configured").into(),
+                )
+            })?;
+            let amount = command
+                .payload
+                .get("amount_units")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| {
+                    BillingWebhookError::Other(
+                        std::io::Error::other("refund amount missing").into(),
+                    )
+                })?;
+            wallet
+                .credit(
+                    command.tenant_id.0,
+                    amount,
+                    domain::WalletTransactionType::Refund,
+                    &format!("refund:{}", command.provider_event_id),
+                    Some("Verified payment refund"),
+                )
+                .await
+                .map_err(|e| BillingWebhookError::Other(e))?;
+            let _ = wallet
+                .record_balance_notification(
+                    command.tenant_id.0,
+                    "REFUND_SUCCESS",
+                    &command.provider_event_id,
+                    "Refund credited to your wallet",
+                )
+                .await;
+        } else if let Some(id) = command
             .payload
             .get("addon_subscription_id")
             .and_then(|v| v.as_str())
@@ -122,6 +209,7 @@ where
                         })?
                     }
                 }
+                BillingWebhookEventType::PaymentRefunded => {}
             }
             repo.update(&addon).await?;
         } else {
@@ -153,6 +241,7 @@ where
                     )
                     .await?;
                 }
+                BillingWebhookEventType::PaymentRefunded => {}
             }
         }
 
