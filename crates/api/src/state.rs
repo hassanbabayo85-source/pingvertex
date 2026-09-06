@@ -4,14 +4,13 @@ use std::time::Instant;
 
 use application::ports::{
     AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
-    AuditLogEntryRepository, BillingAuditLogRepository, FinancialAuditLogRepository, BillingWebhookIdempotencyRepository,
-    PaymentRepository,
+    AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
     CheckRepository, CheckoutDetails, CheckoutRequest, CheckoutSessionRepository,
     CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
-    EscalationPolicyRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
-    HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
-    MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider,
+    EscalationPolicyRepository, FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort,
+    HealthCheckResult, HelpArticleRepository, HelpCategoryRepository, IncidentRepository,
+    LogoStorage, MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
+    NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider, PaymentRepository,
     PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository, RateLimiter,
     RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
     SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
@@ -357,16 +356,31 @@ impl application::ports::SubscriptionPlanChangeRepository for NoopSubscriptionPl
 struct NoopPaymentRepository;
 #[async_trait]
 impl PaymentRepository for NoopPaymentRepository {
- async fn record(&self, _p: &domain::Payment) -> RepoResult<()> { Ok(()) }
- async fn find_by_provider_payment_id(&self, _provider:&str, _id:&str) -> RepoResult<Option<domain::Payment>> { Ok(None) }
+    async fn record(&self, _p: &domain::Payment) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_provider_payment_id(
+        &self,
+        _provider: &str,
+        _id: &str,
+    ) -> RepoResult<Option<domain::Payment>> {
+        Ok(None)
+    }
 }
 
 struct NoopFinancialAuditLogRepository;
 
 #[async_trait]
 impl FinancialAuditLogRepository for NoopFinancialAuditLogRepository {
-    async fn create(&self, _entry: &domain::FinancialAuditLogEntry) -> RepoResult<()> { Ok(()) }
-    async fn list_by_tenant(&self, _tenant_id: uuid::Uuid) -> RepoResult<Vec<domain::FinancialAuditLogEntry>> { Ok(Vec::new()) }
+    async fn create(&self, _entry: &domain::FinancialAuditLogEntry) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn list_by_tenant(
+        &self,
+        _tenant_id: uuid::Uuid,
+    ) -> RepoResult<Vec<domain::FinancialAuditLogEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 struct NoopInvoiceRepository;
@@ -382,8 +396,21 @@ impl application::ports::InvoiceRepository for NoopInvoiceRepository {
     async fn list_by_tenant(&self, _: uuid::Uuid, _: u32) -> RepoResult<Vec<domain::Invoice>> {
         Ok(vec![])
     }
-    async fn find_by_id_for_tenant(&self, _: uuid::Uuid, _: uuid::Uuid) -> RepoResult<Option<domain::Invoice>> {
+    async fn find_by_id_for_tenant(
+        &self,
+        _: uuid::Uuid,
+        _: uuid::Uuid,
+    ) -> RepoResult<Option<domain::Invoice>> {
         Ok(None)
+    }
+    async fn update_status_for_tenant(
+        &self,
+        _: uuid::Uuid,
+        _: uuid::Uuid,
+        _: domain::InvoiceStatus,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> RepoResult<()> {
+        Ok(())
     }
 }
 
@@ -1063,8 +1090,12 @@ impl WalletRepository for NoopWalletRepository {
 struct NoopPAYGPricingRepository;
 #[async_trait]
 impl PAYGPricingRepository for NoopPAYGPricingRepository {
-    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> { Ok(None) }
-    async fn list_active(&self) -> RepoResult<Vec<domain::PAYGPricing>> { Ok(Vec::new()) }
+    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> {
+        Ok(None)
+    }
+    async fn list_active(&self) -> RepoResult<Vec<domain::PAYGPricing>> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Clone, Default)]
@@ -1503,10 +1534,17 @@ impl AppState {
         self
     }
     pub fn with_payment_repository<R>(mut self, repo: R) -> Self
-    where R: PaymentRepository + 'static { self.payment_repository = Arc::new(repo); self }
+    where
+        R: PaymentRepository + 'static,
+    {
+        self.payment_repository = Arc::new(repo);
+        self
+    }
 
     pub fn with_financial_audit_log_repository<R>(mut self, repo: R) -> Self
-    where R: FinancialAuditLogRepository + 'static {
+    where
+        R: FinancialAuditLogRepository + 'static,
+    {
         self.financial_audit_log_repository = Arc::new(repo);
         self
     }
@@ -1519,4 +1557,3 @@ impl AppState {
         self
     }
 }
-

@@ -38,8 +38,14 @@ pub fn BillingPage() -> impl IntoView {
                 Ok(v) => summary.set(Some(v)),
                 Err(e) => error.set(Some(e.to_string())),
             }
-            match billing::subscription().await { Ok(v) => subscription.set(v), Err(e) => error.set(Some(e.to_string())) }
-            match billing::plans().await { Ok(v) => plans.set(v), Err(e) => error.set(Some(e.to_string())) }
+            match billing::subscription().await {
+                Ok(v) => subscription.set(v),
+                Err(e) => error.set(Some(e.to_string())),
+            }
+            match billing::plans().await {
+                Ok(v) => plans.set(v),
+                Err(e) => error.set(Some(e.to_string())),
+            }
         })
     });
 
@@ -129,10 +135,21 @@ pub fn BillingPage() -> impl IntoView {
     };
 
     let cancel = move |_| {
-        if cancel_busy.get() { return; }
-        cancel_busy.set(true); error.set(None);
+        if cancel_busy.get() {
+            return;
+        }
+        cancel_busy.set(true);
+        error.set(None);
         spawn_local(async move {
-            match billing::cancel_subscription(true).await { Ok(v) => { subscription.set(Some(v)); notice.set(Some("Cancellation scheduled for the end of the current period.".into())); }, Err(e) => error.set(Some(e.to_string())) }
+            match billing::cancel_subscription(true).await {
+                Ok(v) => {
+                    subscription.set(Some(v));
+                    notice.set(Some(
+                        "Cancellation scheduled for the end of the current period.".into(),
+                    ));
+                }
+                Err(e) => error.set(Some(e.to_string())),
+            }
             cancel_busy.set(false);
         });
     };
@@ -205,4 +222,3 @@ pub fn BillingPage() -> impl IntoView {
         </div>
     }
 }
-

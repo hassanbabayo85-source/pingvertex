@@ -45,11 +45,17 @@ pub async fn verify_checkout(
         domain::CheckoutStatus::Pending => None,
     };
     if let Some(action) = audit_action {
-        let _ = state.financial_audit_log_repository.create(&domain::FinancialAuditLogEntry::new(
-            authenticated_user.user_id().0.to_string(), Some(authenticated_user.tenant_context().tenant_id().0),
-            action, "checkout_session", Some(checkout_session_id.0.to_string()),
-            serde_json::json!({"status": outcome.checkout_status.as_str()}),
-        )).await;
+        let _ = state
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                authenticated_user.user_id().0.to_string(),
+                Some(authenticated_user.tenant_context().tenant_id().0),
+                action,
+                "checkout_session",
+                Some(checkout_session_id.0.to_string()),
+                serde_json::json!({"status": outcome.checkout_status.as_str()}),
+            ))
+            .await;
     }
 
     Ok((
@@ -65,4 +71,3 @@ impl VerifyCheckoutResponse {
         }
     }
 }
-

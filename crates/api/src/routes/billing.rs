@@ -4,8 +4,9 @@ use axum::{
 };
 
 use crate::handlers::{
-    billing_summary, billing_webhook, cancel_add_on, change_plan, create_add_on, initiate_checkout,
-    list_invoices, verify_add_on, verify_checkout, verify_plan_change, get_subscription, cancel_subscription, list_plans, get_invoice,
+    billing_summary, billing_webhook, cancel_add_on, cancel_subscription, change_plan,
+    create_add_on, get_invoice, get_subscription, initiate_checkout, list_invoices, list_plans,
+    verify_add_on, verify_checkout, verify_plan_change,
 };
 use crate::state::AppState;
 
@@ -15,8 +16,14 @@ pub fn router() -> Router<AppState> {
         .route("/billing/subscription", get(get_subscription))
         .route("/billing/subscription/cancel", post(cancel_subscription))
         .route("/billing/plans", get(list_plans))
-        .route("/payg/pricing", get(crate::handlers::payg_pricing::payg_pricing))
-        .route("/billing/quote", post(crate::handlers::pricing_quote::pricing_quote_authenticated))
+        .route(
+            "/payg/pricing",
+            get(crate::handlers::payg_pricing::payg_pricing),
+        )
+        .route(
+            "/billing/quote",
+            get(crate::handlers::pricing_quote::pricing_quote_authenticated),
+        )
         .route("/billing/checkout", post(initiate_checkout))
         .route("/billing/checkout/verify", post(verify_checkout))
         .route("/billing/addons", post(create_add_on))
@@ -27,7 +34,10 @@ pub fn router() -> Router<AppState> {
         .route("/billing/invoices", get(list_invoices))
         .route("/billing/invoices/{id}", get(get_invoice))
         .route("/billing/usage", get(crate::handlers::wallet::usage_report))
-        .route("/billing/usage/summary", get(crate::handlers::wallet::usage_report))
+        .route(
+            "/billing/usage/summary",
+            get(crate::handlers::wallet::usage_report),
+        )
         .route("/billing/summary", get(billing_summary))
 }
 
@@ -38,4 +48,3 @@ pub fn router() -> Router<AppState> {
 pub fn webhook_router() -> Router<AppState> {
     Router::new().route("/billing/webhook", post(billing_webhook))
 }
-

@@ -44,15 +44,68 @@ impl InvoiceRepository for PostgresInvoiceRepository {
         Ok(rows
             .into_iter()
             .map(|r| Invoice {
-                id: r.id, tenant_id: r.tenant_id, invoice_number: r.invoice_number, currency: r.currency,
-                subtotal: r.subtotal, tax: r.tax, total: r.total, status: r.status.parse().unwrap_or(InvoiceStatus::Open),
-                period_start: r.period_start, period_end: r.period_end, created_at: r.created_at, paid_at: r.paid_at,
-            }).collect())
+                id: r.id,
+                tenant_id: r.tenant_id,
+                invoice_number: r.invoice_number,
+                currency: r.currency,
+                subtotal: r.subtotal,
+                tax: r.tax,
+                total: r.total,
+                status: r.status.parse().unwrap_or(InvoiceStatus::Open),
+                period_start: r.period_start,
+                period_end: r.period_end,
+                created_at: r.created_at,
+                paid_at: r.paid_at,
+            })
+            .collect())
     }
-    async fn find_by_id_for_tenant(&self, id: Uuid, tenant_id: Uuid) -> InvoiceRepoResult<Option<Invoice>> {
+    async fn find_by_id_for_tenant(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> InvoiceRepoResult<Option<Invoice>> {
         let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,invoice_number,currency,subtotal,tax,total,status,period_start,period_end,created_at,paid_at FROM invoices WHERE id=$1 AND tenant_id=$2")
             .bind(id).bind(tenant_id).fetch_optional(&self.pool).await?;
-        Ok(r.map(|r| Invoice{id:r.id,tenant_id:r.tenant_id,invoice_number:r.invoice_number,currency:r.currency,subtotal:r.subtotal,tax:r.tax,total:r.total,status:r.status.parse().unwrap_or(InvoiceStatus::Open),period_start:r.period_start,period_end:r.period_end,created_at:r.created_at,paid_at:r.paid_at}))
+        Ok(r.map(|r| Invoice {
+            id: r.id,
+            tenant_id: r.tenant_id,
+            invoice_number: r.invoice_number,
+            currency: r.currency,
+            subtotal: r.subtotal,
+            tax: r.tax,
+            total: r.total,
+            status: r.status.parse().unwrap_or(InvoiceStatus::Open),
+            period_start: r.period_start,
+            period_end: r.period_end,
+            created_at: r.created_at,
+            paid_at: r.paid_at,
+        }))
+    }
+    async fn update_status_for_tenant(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        status: InvoiceStatus,
+        paid_at: Option<DateTime<Utc>>,
+    ) -> InvoiceRepoResult<()> {
+        let result = sqlx::query(
+            "UPDATE invoices
+             SET status = $1, paid_at = $2
+             WHERE id = $3 AND tenant_id = $4",
+        )
+        .bind(status.as_str())
+        .bind(paid_at)
+        .bind(id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() != 1 {
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::NotFound, "invoice not found").into(),
+            );
+        }
+
+        Ok(())
     }
 }
-
