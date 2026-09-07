@@ -209,9 +209,9 @@ mod tests {
     fn free_tier_returns_zero() {
         let config = test_config();
         let input = PricingInput {
-            monitors: 5,
-            interval_seconds: 600,
-            retention_days: 1,
+            monitors: 20,
+            interval_seconds: 300,
+            retention_days: 2,
         };
         let quote = calculate_price(input, &config).unwrap();
         assert!(quote.is_free);
@@ -222,9 +222,9 @@ mod tests {
     fn above_free_tier_applies_minimum_price() {
         let config = test_config();
         let input = PricingInput {
-            monitors: 6,
-            interval_seconds: 600,
-            retention_days: 1,
+            monitors: 21,
+            interval_seconds: 300,
+            retention_days: 2,
         };
         let quote = calculate_price(input, &config).unwrap();
         assert!(!quote.is_free);

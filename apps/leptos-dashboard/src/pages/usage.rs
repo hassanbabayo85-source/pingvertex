@@ -247,10 +247,9 @@ pub fn UsagePage() -> impl IntoView {
                     <div><span class="card-label">"SMS"</span><span class="card-value">"sms"</span></div>
                     <div><span class="card-label">"RUM"</span><span class="card-value">"rum_event"</span></div>
                     <div><span class="card-label">"Storage"</span><span class="card-value">"storage"</span></div>
-                    <div><span class="card-label">"Network egress"</span><span class="card-value">"network_egress"</span></div>
                     <div><span class="card-label">"Heartbeat"</span><span class="card-value">"heartbeat_ping"</span></div>
                 </div>
-                <p class="muted">"Heartbeat billing applies to accepted pings; timeout evaluation is not billed. Network egress currently reserves one billable MB per active check because the checker contract does not expose wire-byte counters."</p>
+                <p class="muted">"Monitor checks are billed once per actual billable attempt. Target failures, timeouts, DNS failures, and connection refusals are billable when the external attempt started; validation and internal pre-attempt failures are not billed. Proxy jobs are metered per proxy entry."</p>
             </section>
 
             {move || {

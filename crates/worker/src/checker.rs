@@ -2,6 +2,10 @@ use std::{
     collections::HashMap,
     error::Error as StdError,
     net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -28,11 +32,16 @@ const MAX_HTTP_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
 pub struct HttpCheckOutcome {
     pub result: CheckResult,
     pub error_kind: CheckErrorKind,
+    pub attempted: bool,
 }
 
 impl HttpCheckOutcome {
     fn new(result: CheckResult, error_kind: CheckErrorKind) -> Self {
-        Self { result, error_kind }
+        Self {
+            result,
+            error_kind,
+            attempted: true,
+        }
     }
 
     fn failure(
@@ -44,6 +53,20 @@ impl HttpCheckOutcome {
         Self {
             result: CheckResult::failure(region, latency_ms, error),
             error_kind,
+            attempted: false,
+        }
+    }
+
+    fn failure_attempted(
+        region: RegionCode,
+        latency_ms: u128,
+        error_kind: CheckErrorKind,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            result: CheckResult::failure(region, latency_ms, error),
+            error_kind,
+            attempted: true,
         }
     }
 
@@ -57,6 +80,7 @@ impl HttpCheckOutcome {
         Self {
             result: CheckResult::failure_with_status(region, status, latency_ms, error),
             error_kind,
+            attempted: true,
         }
     }
 }
@@ -120,8 +144,14 @@ pub async fn check_http(monitor: &Monitor) -> HttpCheckOutcome {
 
     let timeout_duration = Duration::from_secs(monitor.timeout_seconds.into());
     let overall_started = Instant::now();
+    let attempt_started = Arc::new(AtomicBool::new(false));
 
-    match tokio::time::timeout(timeout_duration, check_http_real(monitor)).await {
+    match tokio::time::timeout(
+        timeout_duration,
+        check_http_real(monitor, Arc::clone(&attempt_started)),
+    )
+    .await
+    {
         Ok(outcome) => outcome,
         Err(_) => {
             let mut outcome = HttpCheckOutcome::failure(
@@ -130,6 +160,7 @@ pub async fn check_http(monitor: &Monitor) -> HttpCheckOutcome {
                 CheckErrorKind::Timeout,
                 "HTTP check timed out",
             );
+            outcome.attempted = attempt_started.load(Ordering::Acquire);
 
             let diag = run_diagnostics(monitor, None, CheckErrorKind::Timeout).await;
             outcome.result = outcome
@@ -143,7 +174,7 @@ pub async fn check_http(monitor: &Monitor) -> HttpCheckOutcome {
 /// SSRF-safe, DNS-pinned HTTP/HTTPS check body. The caller wraps this in
 /// `tokio::time::timeout` so DNS + TCP + TLS + response are all bounded
 /// by the monitor's single timeout budget.
-async fn check_http_real(monitor: &Monitor) -> HttpCheckOutcome {
+async fn check_http_real(monitor: &Monitor, attempt_started: Arc<AtomicBool>) -> HttpCheckOutcome {
     let started = Instant::now();
 
     let destination = match crate::ssrf::resolve_and_validate_destination(&monitor.url).await {
@@ -204,6 +235,7 @@ async fn check_http_real(monitor: &Monitor) -> HttpCheckOutcome {
     };
 
     let request_started = Instant::now();
+    attempt_started.store(true, Ordering::Release);
     let response_result = pinned_client
         .request(method, destination.url.clone())
         .send()

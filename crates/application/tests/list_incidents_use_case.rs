@@ -60,7 +60,7 @@ async fn lists_incidents_for_monitor() {
         url: "https://example.com".into(),
         method: HttpMethod::Get,
         expected_status: 200,
-        interval_seconds: 60,
+        interval_seconds: 300,
         timeout_seconds: 10,
         assertions: vec![],
         is_public: false,

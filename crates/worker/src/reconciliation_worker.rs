@@ -180,13 +180,196 @@ impl ReconciliationWorker {
         .execute(&self.pool)
         .await?;
 
-        let report = serde_json::json!({"provider_source":"signed_billing_webhook_observations","window_start":start,"window_end":end,"missing_payment":missing_payment,"duplicate_payment":duplicate_payment,"incorrect_amount":incorrect_amount,"orphan_webhook":orphan_webhook,"wallet_mismatch":wallet_mismatch,"invoice_mismatch":invoice_mismatch,"payg_usage_repaired":payg_usage_repaired,"payg_audit_missing_before_repair":payg_audit_repaired});
+        // PAYG consistency checks. These are intentionally tenant-scoped and
+        // keyed by the durable request id, which is the logical execution
+        // identity shared by reservations, usage events and debit ledger rows.
+        let execution_without_usage: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM proxy_check_jobs j
+            WHERE EXISTS (
+                SELECT 1 FROM proxy_entries pe
+                WHERE pe.job_id=j.id AND pe.result_json IS NOT NULL
+              )
+              AND (
+                    j.status IN ('completed','failed')
+                    OR (j.status='running' AND j.heartbeat_at < now() - interval '5 minutes')
+                  )
+              AND NOT EXISTS (
+                  SELECT 1 FROM api_usage_events e
+                  WHERE e.tenant_id=j.tenant_id
+                    AND e.request_id='proxy-check:' || j.id::text
+              )
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let captured_reservation_without_usage: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM credit_reservations r
+            JOIN user_wallets w ON w.id=r.wallet_id
+            JOIN wallet_transactions wt
+              ON wt.reference_type='credit_reservation'
+             AND wt.reference_id=r.id::text
+             AND wt.transaction_type='DEBIT'
+            LEFT JOIN api_usage_events e
+              ON e.tenant_id=w.tenant_id AND e.request_id=r.request_id
+            WHERE r.status='CAPTURED' AND e.id IS NULL
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let chargeable_usage_without_debit: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM api_usage_events e
+            LEFT JOIN credit_reservations r
+              ON r.request_id=e.request_id
+             AND EXISTS (
+                 SELECT 1 FROM user_wallets w
+                 WHERE w.id=r.wallet_id AND w.tenant_id=e.tenant_id
+             )
+            LEFT JOIN wallet_transactions wt
+              ON wt.reference_type='credit_reservation'
+             AND wt.reference_id=r.id::text
+             AND wt.transaction_type='DEBIT'
+            WHERE e.status='CAPTURED'
+              AND e.charge_units > 0
+              AND wt.id IS NULL
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let duplicate_usage_events: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM (
+                SELECT tenant_id, request_id
+                FROM api_usage_events
+                GROUP BY tenant_id, request_id
+                HAVING COUNT(*) > 1
+            ) d
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let duplicate_payg_charges: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM (
+                SELECT w.tenant_id, r.request_id
+                FROM credit_reservations r
+                JOIN user_wallets w ON w.id=r.wallet_id
+                JOIN wallet_transactions wt
+                  ON wt.reference_type='credit_reservation'
+                 AND wt.reference_id=r.id::text
+                 AND wt.transaction_type='DEBIT'
+                GROUP BY w.tenant_id, r.request_id
+                HAVING COUNT(*) > 1
+            ) d
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        let pending_reservations_past_expiry: i64 = sqlx::query_scalar::<sqlx::Postgres, i64>(
+            r#"
+            WITH expired AS (
+                SELECT id
+                FROM credit_reservations
+                WHERE status='PENDING' AND expires_at <= now()
+                ORDER BY expires_at
+                LIMIT 1000
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE credit_reservations r
+            SET status='EXPIRED', updated_at=now()
+            FROM expired
+            WHERE r.id=expired.id
+            RETURNING 1
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .len() as i64;
+
+        // Compare the dashboard's charge source of truth (usage events) with
+        // PAYG debit ledger totals per tenant. Non-PAYG debit transactions are
+        // deliberately excluded.
+        let ledger_report_mismatch: i64 = sqlx::query_scalar(
+            r#"
+            WITH usage AS (
+                SELECT tenant_id, COALESCE(SUM(charge_units),0)::BIGINT total
+                FROM api_usage_events
+                WHERE status='CAPTURED' AND charge_units > 0
+                GROUP BY tenant_id
+            ),
+            ledger AS (
+                SELECT w.tenant_id,
+                       COALESCE(SUM(-wt.amount_units),0)::BIGINT total
+                FROM wallet_transactions wt
+                JOIN user_wallets w ON w.id=wt.wallet_id
+                JOIN credit_reservations r
+                  ON r.id::text=wt.reference_id
+                 AND r.wallet_id=w.id
+                WHERE wt.transaction_type='DEBIT'
+                  AND wt.reference_type='credit_reservation'
+                GROUP BY w.tenant_id
+            ),
+            tenants_seen AS (
+                SELECT tenant_id FROM usage
+                UNION
+                SELECT tenant_id FROM ledger
+            )
+            SELECT COUNT(*)
+            FROM tenants_seen t
+            LEFT JOIN usage u ON u.tenant_id=t.tenant_id
+            LEFT JOIN ledger l ON l.tenant_id=t.tenant_id
+            WHERE COALESCE(u.total,0) <> COALESCE(l.total,0)
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Keep the existing legacy repair, but only repair immutable financial
+        // gaps where a captured debit already proves the charge happened.
+        let report = serde_json::json!({
+            "provider_source":"signed_billing_webhook_observations",
+            "window_start":start,
+            "window_end":end,
+            "missing_payment":missing_payment,
+            "duplicate_payment":duplicate_payment,
+            "incorrect_amount":incorrect_amount,
+            "orphan_webhook":orphan_webhook,
+            "wallet_mismatch":wallet_mismatch,
+            "invoice_mismatch":invoice_mismatch,
+            "payg_execution_without_usage":execution_without_usage,
+            "payg_captured_reservation_without_usage":captured_reservation_without_usage,
+            "payg_chargeable_usage_without_debit":chargeable_usage_without_debit,
+            "payg_duplicate_usage_events":duplicate_usage_events,
+            "payg_duplicate_charges":duplicate_payg_charges,
+            "payg_pending_reservations_expired":pending_reservations_past_expiry,
+            "payg_ledger_report_mismatch":ledger_report_mismatch,
+            "payg_usage_repaired":payg_usage_repaired,
+            "payg_audit_missing_before_repair":payg_audit_repaired
+        });
         let total = missing_payment
             + duplicate_payment
             + incorrect_amount
             + orphan_webhook
             + wallet_mismatch
-            + invoice_mismatch;
+            + invoice_mismatch
+            + execution_without_usage
+            + captured_reservation_without_usage
+            + chargeable_usage_without_debit
+            + duplicate_usage_events
+            + duplicate_payg_charges
+            + ledger_report_mismatch;
         for (kind, count) in [
             ("missing_payment", missing_payment),
             ("duplicate_payment", duplicate_payment),
@@ -194,6 +377,22 @@ impl ReconciliationWorker {
             ("orphan_webhook", orphan_webhook),
             ("wallet_mismatch", wallet_mismatch),
             ("invoice_mismatch", invoice_mismatch),
+            ("payg_execution_without_usage", execution_without_usage),
+            (
+                "payg_captured_reservation_without_usage",
+                captured_reservation_without_usage,
+            ),
+            (
+                "payg_chargeable_usage_without_debit",
+                chargeable_usage_without_debit,
+            ),
+            ("payg_duplicate_usage_events", duplicate_usage_events),
+            ("payg_duplicate_charges", duplicate_payg_charges),
+            (
+                "payg_pending_reservations_expired",
+                pending_reservations_past_expiry,
+            ),
+            ("payg_ledger_report_mismatch", ledger_report_mismatch),
         ] {
             if count > 0 {
                 metrics::counter!("billing_reconciliation_mismatches_total", "kind" => kind)
@@ -208,7 +407,21 @@ impl ReconciliationWorker {
         let status = if total == 0 { "ok" } else { "mismatch" };
         sqlx::query("INSERT INTO billing_reconciliation_reports(id,run_started_at,run_finished_at,window_start,window_end,status,mismatch_counts,report) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
    .bind(Uuid::new_v4()).bind(started).bind(Utc::now()).bind(start).bind(end).bind(status)
-   .bind(serde_json::json!({"missing_payment":missing_payment,"duplicate_payment":duplicate_payment,"incorrect_amount":incorrect_amount,"orphan_webhook":orphan_webhook,"wallet_mismatch":wallet_mismatch,"invoice_mismatch":invoice_mismatch}))
+   .bind(serde_json::json!({
+       "missing_payment":missing_payment,
+       "duplicate_payment":duplicate_payment,
+       "incorrect_amount":incorrect_amount,
+       "orphan_webhook":orphan_webhook,
+       "wallet_mismatch":wallet_mismatch,
+       "invoice_mismatch":invoice_mismatch,
+       "payg_execution_without_usage":execution_without_usage,
+       "payg_captured_reservation_without_usage":captured_reservation_without_usage,
+       "payg_chargeable_usage_without_debit":chargeable_usage_without_debit,
+       "payg_duplicate_usage_events":duplicate_usage_events,
+       "payg_duplicate_charges":duplicate_payg_charges,
+       "payg_pending_reservations_expired":pending_reservations_past_expiry,
+       "payg_ledger_report_mismatch":ledger_report_mismatch
+   }))
    .bind(&report).execute(&self.pool).await?;
         if total > 0 {
             tracing::warn!(
@@ -218,6 +431,13 @@ impl ReconciliationWorker {
                 orphan_webhook,
                 wallet_mismatch,
                 invoice_mismatch,
+                execution_without_usage,
+                captured_reservation_without_usage,
+                chargeable_usage_without_debit,
+                duplicate_usage_events,
+                duplicate_payg_charges,
+                pending_reservations_past_expiry,
+                ledger_report_mismatch,
                 "billing reconciliation mismatch detected"
             );
         } else {

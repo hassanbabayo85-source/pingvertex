@@ -25,7 +25,7 @@ async fn lists_all_monitors_successfully() {
             url: format!("https://example{}.com", i),
             method: HttpMethod::Get,
             expected_status: 200,
-            interval_seconds: 60,
+            interval_seconds: 300,
             timeout_seconds: 10,
             assertions: vec![],
             is_public: false,

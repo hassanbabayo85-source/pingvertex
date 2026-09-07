@@ -20,6 +20,7 @@ type OutcomeResult = std::result::Result<DnsCheckOutcome, Box<dyn std::error::Er
 pub struct DnsCheckOutcome {
     pub result: CheckResult,
     pub error_kind: CheckErrorKind,
+    pub attempted: bool,
 }
 
 impl DnsCheckOutcome {
@@ -27,6 +28,7 @@ impl DnsCheckOutcome {
         Self {
             result: CheckResult::success(region, 0, latency_ms),
             error_kind: CheckErrorKind::Unknown,
+            attempted: true,
         }
     }
 
@@ -39,6 +41,7 @@ impl DnsCheckOutcome {
         Self {
             result: CheckResult::failure(region, latency_ms, error),
             error_kind,
+            attempted: true,
         }
     }
 }

@@ -184,7 +184,9 @@ where
         usage_event: Option<&domain::UsageEvent>,
         audit_entries: &[domain::FinancialAuditLogEntry],
     ) -> WalletRepoResult<WalletTransaction> {
-        (**self).capture(reservation_id, usage_event, audit_entries).await
+        (**self)
+            .capture(reservation_id, usage_event, audit_entries)
+            .await
     }
     async fn release(&self, reservation_id: Uuid) -> WalletRepoResult<()> {
         (**self).release(reservation_id).await

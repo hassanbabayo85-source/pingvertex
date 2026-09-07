@@ -199,5 +199,6 @@ pub mod charge_for_usage;
 pub mod meter_usage;
 pub use charge_for_usage::{
     ChargeForUsageError, ChargeForUsageInput, ChargeForUsageResult, ChargeForUsageUseCase,
+    MeteredAttempt,
 };
 pub use meter_usage::{MeterUsageInput, MeterUsageUseCase};

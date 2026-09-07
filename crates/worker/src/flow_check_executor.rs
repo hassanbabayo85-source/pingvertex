@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use domain::{Check, CheckStatus, ErrorType, Monitor, MonitorKind, RegionCode};
 use tracing::{error, info};
 
+use crate::durable_scheduler::CheckExecution;
 use crate::flow_executor::{FlowExecutionResult, execute_flow};
 use crate::incident_evaluator::IncidentEvaluator;
 
@@ -49,32 +50,52 @@ impl FlowCheckExecutor {
 
 #[async_trait]
 impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         if monitor.kind != MonitorKind::Flow {
-            return Err(format!(
-                "FlowCheckExecutor only supports Flow monitors, got {:?}",
-                monitor.kind
-            )
-            .into());
+            return Ok(CheckExecution::failed(
+                false,
+                format!(
+                    "FlowCheckExecutor received unsupported monitor kind {:?}",
+                    monitor.kind
+                ),
+            ));
         }
 
-        let flow = self
+        let flow = match self
             .api_flow_repository
             .find_by_monitor_id(monitor.id)
-            .await?
-            .ok_or_else(|| {
-                format!(
-                    "monitor {} is kind=Flow but has no api_flow row",
-                    monitor.id.0
-                )
-            })?;
+            .await
+        {
+            Ok(Some(flow)) => flow,
+            Ok(None) => {
+                return Ok(CheckExecution::failed(
+                    false,
+                    format!(
+                        "monitor {} is kind=Flow but has no api_flow row",
+                        monitor.id.0
+                    ),
+                ));
+            }
+            Err(err) => {
+                return Ok(CheckExecution::failed(
+                    false,
+                    format!("failed to load flow: {err}"),
+                ));
+            }
+        };
 
         let result = execute_flow(&flow, &self.http_client).await;
+        let attempted = result.outcomes.iter().any(|o| o.attempted);
 
         let check_id = self.id_generator.next_check_id().await;
         let check = build_check(check_id, monitor, &result);
 
-        self.check_repository.save(&check).await?;
+        if let Err(err) = self.check_repository.save(&check).await {
+            return Ok(CheckExecution::failed(
+                attempted,
+                format!("failed to persist check: {err}"),
+            ));
+        }
 
         info!(
             monitor_id = %monitor.id.0,
@@ -91,14 +112,13 @@ impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
             .evaluate(monitor, result.passed)
             .await
         {
-            error!(
-                monitor_id = %monitor.id.0,
-                error = %err,
-                "failed to evaluate incident state"
-            );
+            error!(monitor_id = %monitor.id.0, error = %err, "failed to evaluate incident state");
         }
 
-        Ok(())
+        Ok(CheckExecution {
+            attempted,
+            error: None,
+        })
     }
 }
 

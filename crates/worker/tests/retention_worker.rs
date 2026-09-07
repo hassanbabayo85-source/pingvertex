@@ -10,7 +10,8 @@ use domain::{
     shared::ids::{CheckId, MonitorId, SubscriptionId, TenantId, UserId},
 };
 use infra::{
-    InMemoryHistoryRetentionRepository, InMemorySubscriptionRepository, InMemoryTenantRepository,
+    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository,
+    InMemorySubscriptionRepository, InMemoryTenantRepository,
 };
 use uuid::Uuid;
 use worker::{RetentionWorker, retention_worker::DEFAULT_BATCH_SIZE};
@@ -62,8 +63,8 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
         .await
         .unwrap();
 
-    // Free retains 1 day; Starter retains 30 days.
-    let old_free = sample_check_older_than_days(2);
+    // Free retains 2 days; Starter retains 30 days.
+    let old_free = sample_check_older_than_days(3);
     let recent_free = sample_check_older_than_days(0);
     let old_starter = sample_check_older_than_days(10);
 
@@ -75,6 +76,7 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
         tenant_repo,
         subscription_repo,
         history_repo.clone(),
+        Arc::new(InMemoryPricingConfigRepository::default()),
         100,
         Duration::from_secs(3600),
         2,
@@ -100,7 +102,7 @@ async fn batching_does_not_delete_more_or_less_than_expected() {
         repo.seed_check(sample_check_older_than_days(2), tenant_id);
     }
 
-    let cutoff = Utc::now() - ChronoDuration::days(1);
+    let cutoff = Utc::now() - ChronoDuration::days(2);
     let batch_size = 2;
 
     let deleted1 = repo
@@ -139,9 +141,9 @@ async fn running_twice_is_idempotent() {
         .await
         .unwrap();
 
-    // Free retention is 1 day. Keep one fresh check and two checks beyond the cutoff.
-    let old1 = sample_check_older_than_days(2);
-    let old2 = sample_check_older_than_days(3);
+    // Free retention is 2 days. Keep one fresh check and two checks beyond the cutoff.
+    let old1 = sample_check_older_than_days(3);
+    let old2 = sample_check_older_than_days(4);
     let recent = sample_check_older_than_days(0);
 
     history_repo.seed_check(old1.clone(), tenant.id);
@@ -152,6 +154,7 @@ async fn running_twice_is_idempotent() {
         tenant_repo,
         subscription_repo,
         history_repo.clone(),
+        Arc::new(InMemoryPricingConfigRepository::default()),
         DEFAULT_BATCH_SIZE,
         Duration::from_secs(3600),
         2,
@@ -242,6 +245,7 @@ async fn bounded_concurrency_never_exceeds_configured_limit() {
         tenant_repo,
         subscription_repo,
         tracking_repo.clone(),
+        Arc::new(InMemoryPricingConfigRepository::default()),
         100,
         Duration::from_secs(3600),
         MAX_CONCURRENT_TENANTS,

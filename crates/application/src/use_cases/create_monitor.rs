@@ -6,8 +6,8 @@ use serde_json::json;
 use crate::{
     dto::CreateMonitorRequest,
     ports::{
-        AuditLogEntryRepository, IdGenerator, MonitorRepository, QuotaCheckOutcome,
-        SubscriptionRepository,
+        AuditLogEntryRepository, IdGenerator, MonitorRepository, PricingConfigRepository,
+        QuotaCheckOutcome, SubscriptionRepository,
     },
     queries::ResolveEntitlements,
     use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
@@ -22,12 +22,18 @@ use domain::{
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Legacy hard cap on the number of monitors a single user may create,
-/// used ONLY when this use case is constructed without
-/// `.with_entitlements(...)` (see that method's doc comment). Kept as a
-/// non-atomic fallback purely so pre-B13 unit tests that build this use
-/// case directly via `new(...)` keep compiling and passing unchanged.
-pub const MAX_MONITORS_PER_USER: usize = 10;
+/// Backwards-compatible fallback cap used only when this use case is constructed
+/// without `.with_entitlements(...)`. The production API always enables the
+/// atomic, tenant-scoped entitlement path. Keep this value aligned with the
+/// product Free-tier monitor limit so direct/unit-test construction cannot
+/// accidentally reintroduce the old 10-monitor contract.
+pub const MAX_MONITORS_PER_USER: usize = 20;
+
+/// Backwards-compatible fallback minimum interval for direct/unit-test
+/// construction without an entitlement repository. This mirrors the current
+/// Free-tier contract; production requests resolve the value from the plan.
+const DEFAULT_FREE_MIN_INTERVAL_SECONDS: u32 = 300;
+
 /// Hard cap on the number of assertions a single monitor may be created with.
 pub const MAX_ASSERTIONS_PER_MONITOR: usize = 20;
 
@@ -87,6 +93,7 @@ pub struct CreateMonitorUseCase<R, G> {
     id_generator: G,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
+    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
 }
 
 impl<R, G> CreateMonitorUseCase<R, G>
@@ -104,20 +111,29 @@ where
             id_generator,
             audit_log_entry_repository,
             subscription_repository: None,
+            pricing_config_repository: None,
         }
     }
 
     /// Enables B13's atomic, tenant-scoped, plan-entitlement-based quota
     /// enforcement and plan-minimum interval validation.
     ///
-    /// When this is NOT called, `execute` falls back to the pre-B13
-    /// behavior: a non-atomic count-then-compare against the hardcoded
-    /// `MAX_MONITORS_PER_USER` and the global `CheckInterval::MIN`.
+    /// When this is NOT called, `execute` retains the legacy non-atomic
+    /// fallback used by older direct/unit-test callers. Its limits are kept
+    /// aligned with the current Free-tier contract.
     pub fn with_entitlements(
         mut self,
-        _subscription_repository: Arc<dyn SubscriptionRepository>,
+        subscription_repository: Arc<dyn SubscriptionRepository>,
     ) -> Self {
-        self.subscription_repository = Some(_subscription_repository);
+        self.subscription_repository = Some(subscription_repository);
+        self
+    }
+
+    pub fn with_pricing_config_repository(
+        mut self,
+        repository: Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.pricing_config_repository = Some(repository);
         self
     }
 
@@ -141,13 +157,25 @@ where
 
         let (monitor_limit, min_interval) = match &self.subscription_repository {
             Some(repo) => {
-                let plan = ResolveEntitlementsUseCase::new(repo.clone())
-                    .execute(ResolveEntitlements { tenant_id })
-                    .await
-                    .map_err(CreateMonitorError::Other)?;
+                let plan = {
+                    let mut resolver = ResolveEntitlementsUseCase::new(repo.clone());
+
+                    if let Some(pricing) = &self.pricing_config_repository {
+                        resolver = resolver.with_pricing_config_repository(pricing.clone());
+                    }
+
+                    resolver
+                        .execute(ResolveEntitlements { tenant_id })
+                        .await
+                        .map_err(CreateMonitorError::Other)?
+                };
+
                 (plan.max_monitors, plan.min_check_interval_seconds)
             }
-            None => (MAX_MONITORS_PER_USER as u32, CheckInterval::MIN),
+            None => (
+                MAX_MONITORS_PER_USER as u32,
+                DEFAULT_FREE_MIN_INTERVAL_SECONDS,
+            ),
         };
 
         if request.interval_seconds < min_interval {
@@ -232,17 +260,22 @@ where
         if let Some(tcp_port) = request.tcp_port {
             builder = builder.tcp_port(tcp_port);
         }
+
         if let Some(dns_record_type) = request.dns_record_type {
             builder = builder.dns_record_type(dns_record_type);
         }
+
         if let Some(dns_expected_value) = request.dns_expected_value {
             builder = builder.dns_expected_value(dns_expected_value);
         }
+
         if request.kind == MonitorKind::Heartbeat {
             builder = builder.heartbeat_token(HeartbeatToken::generate());
+
             if let Some(interval) = request.heartbeat_interval_seconds {
                 builder = builder.heartbeat_interval_seconds(interval);
             }
+
             if let Some(grace) = request.heartbeat_grace_period_seconds {
                 builder = builder.heartbeat_grace_period_seconds(grace);
             }
@@ -262,6 +295,7 @@ where
                 input.expected_value.clone(),
             )
             .map_err(Box::<dyn Error + Send + Sync>::from)?;
+
             monitor
                 .add_assertion(assertion)
                 .map_err(Box::<dyn Error + Send + Sync>::from)?;
@@ -288,6 +322,7 @@ where
             }),
             created_at: Utc::now(),
         };
+
         self.audit_log_entry_repository.create(&entry).await?;
         Ok(())
     }

@@ -117,6 +117,7 @@ async fn expired_lease_makes_monitor_claimable_again() {
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].id.0, monitor_id);
     let first_claimed_at = claimed[0].claimed_at;
+    let first_execution_id = claimed[0].execution_id;
 
     // Simulate crash: manually force lease expiry.
     sqlx::query("UPDATE monitors SET lease_expires_at = now() - interval '1 second' WHERE id = $1")
@@ -141,6 +142,7 @@ async fn expired_lease_makes_monitor_claimable_again() {
     assert_eq!(claimed_again.len(), 1);
     assert_eq!(claimed_again[0].id.0, monitor_id);
     assert_eq!(claimed_again[0].claimed_at, first_claimed_at);
+    assert_eq!(claimed_again[0].execution_id, first_execution_id);
 
     // Complete claim clears lease and advances next_due_at.
     repo.complete_claim(MonitorId(monitor_id), second_owner)

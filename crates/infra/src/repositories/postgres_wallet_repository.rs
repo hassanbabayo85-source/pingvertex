@@ -130,7 +130,10 @@ fn validate_usage_for_reservation(
         || event.unit_price <= 0
         || event.status != "CAPTURED"
         || event.charge_units
-            != event.units_billed.checked_mul(event.unit_price).ok_or("usage charge overflow")?
+            != event
+                .units_billed
+                .checked_mul(event.unit_price)
+                .ok_or("usage charge overflow")?
     {
         return Err("usage event does not match PAYG reservation".into());
     }
@@ -247,8 +250,30 @@ impl WalletRepository for PostgresWalletRepository {
             .checked_sub(reserved_units)
             .ok_or("wallet reservation accounting overflow")?;
         if available < amount_units {
+            // Persist the billing block in the same wallet transaction. This is
+            // durable state, not merely a UI-derived balance label, so every
+            // worker/region observes the same decision.
+            sqlx::query(
+                "UPDATE user_wallets
+                 SET billing_status='PAYG_BALANCE_EXHAUSTED', updated_at=now()
+                 WHERE id=$1",
+            )
+            .bind(wallet.id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
             return Err("insufficient wallet balance".into());
         }
+
+        // A successful authorization is also the durable resume transition.
+        sqlx::query(
+            "UPDATE user_wallets
+             SET billing_status='ACTIVE', updated_at=now()
+             WHERE id=$1",
+        )
+        .bind(wallet.id)
+        .execute(&mut *tx)
+        .await?;
 
         let row = sqlx::query_as::<_, ReservationRow>(
             "INSERT INTO credit_reservations
@@ -279,7 +304,8 @@ impl WalletRepository for PostgresWalletRepository {
 
         let idem = format!("reservation:{reservation_id}");
         if r.status == CreditReservation::CAPTURED {
-            let q = format!("SELECT {TX_COLUMNS} FROM wallet_transactions WHERE idempotency_key=$1");
+            let q =
+                format!("SELECT {TX_COLUMNS} FROM wallet_transactions WHERE idempotency_key=$1");
             let row = sqlx::query_as::<_, TxRow>(&q)
                 .bind(&idem)
                 .fetch_one(&mut *tx)
@@ -365,11 +391,17 @@ impl WalletRepository for PostgresWalletRepository {
             promo_remaining -= used;
         }
 
-        sqlx::query("UPDATE user_wallets SET balance_units=$2,updated_at=now() WHERE id=$1")
-            .bind(wallet.id)
-            .bind(new_balance)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE user_wallets
+             SET balance_units=$2,
+                 billing_status=CASE WHEN $2 <= 0 THEN 'PAYG_BALANCE_EXHAUSTED' ELSE 'ACTIVE' END,
+                 updated_at=now()
+             WHERE id=$1",
+        )
+        .bind(wallet.id)
+        .bind(new_balance)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query(
             "UPDATE credit_reservations SET status='CAPTURED',updated_at=now() WHERE id=$1",
         )
@@ -505,11 +537,17 @@ impl WalletRepository for PostgresWalletRepository {
             .balance_units
             .checked_add(amount_units)
             .ok_or("wallet balance overflow")?;
-        sqlx::query("UPDATE user_wallets SET balance_units=$2,updated_at=now() WHERE id=$1")
-            .bind(wallet.id)
-            .bind(new_balance)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE user_wallets
+             SET balance_units=$2,
+                 billing_status='ACTIVE',
+                 updated_at=now()
+             WHERE id=$1",
+        )
+        .bind(wallet.id)
+        .bind(new_balance)
+        .execute(&mut *tx)
+        .await?;
         let q = format!(
             "INSERT INTO wallet_transactions
              (id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,description)
@@ -771,7 +809,8 @@ impl WalletRepository for PostgresWalletRepository {
              )",
         )
         .bind(i64::from(limit.min(10_000)))
-        .execute(&self.pool).await?;
+        .execute(&self.pool)
+        .await?;
         Ok(result.rows_affected())
     }
 

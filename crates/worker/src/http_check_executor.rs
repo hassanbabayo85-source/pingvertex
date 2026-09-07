@@ -7,6 +7,7 @@ use tracing::{error, info};
 
 use crate::check_error_mapping::map_check_error_kind_to_error_type;
 use crate::checker::check_http;
+use crate::durable_scheduler::CheckExecution;
 use crate::incident_evaluator::IncidentEvaluator;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -40,7 +41,7 @@ impl HttpCheckExecutor {
 
 #[async_trait]
 impl crate::durable_scheduler::CheckExecutor for HttpCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         if monitor.kind != MonitorKind::Http {
             return Err(format!(
                 "B18 HttpCheckExecutor only supports HTTP monitors, got {:?}",
@@ -82,7 +83,12 @@ impl crate::durable_scheduler::CheckExecutor for HttpCheckExecutor {
         )
         .with_cert_info(cert_expires_at, cert_days_remaining);
 
-        self.check_repository.save(&check).await?;
+        if let Err(err) = self.check_repository.save(&check).await {
+            return Ok(CheckExecution::failed(
+                outcome.attempted,
+                format!("failed to persist check: {err}"),
+            ));
+        }
 
         info!(
             monitor_id = %monitor.id.0,
@@ -111,6 +117,9 @@ impl crate::durable_scheduler::CheckExecutor for HttpCheckExecutor {
             );
         }
 
-        Ok(())
+        Ok(CheckExecution {
+            attempted: outcome.attempted,
+            error: None,
+        })
     }
 }

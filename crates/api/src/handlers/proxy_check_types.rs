@@ -14,6 +14,7 @@ pub struct ProxyCheckJobHttpResponse {
     pub heartbeat_at: Option<String>,
     pub completed_at: Option<String>,
     pub failed_at: Option<String>,
+    pub failure_code: Option<String>,
     pub canceled_at: Option<String>,
 }
 impl From<domain::entities::ProxyCheckJob> for ProxyCheckJobHttpResponse {
@@ -37,6 +38,13 @@ impl From<domain::entities::ProxyCheckJob> for ProxyCheckJobHttpResponse {
             heartbeat_at: job.heartbeat_at().map(|d| d.to_rfc3339()),
             completed_at: job.completed_at().map(|d| d.to_rfc3339()),
             failed_at: job.failed_at().map(|d| d.to_rfc3339()),
+            failure_code: job.failure_reason().map(|reason| {
+                if reason.starts_with("PAYG balance exhausted") {
+                    "PAYG_BALANCE_EXHAUSTED".to_owned()
+                } else {
+                    "JOB_FAILED".to_owned()
+                }
+            }),
             canceled_at: job.canceled_at().map(|d| d.to_rfc3339()),
         }
     }

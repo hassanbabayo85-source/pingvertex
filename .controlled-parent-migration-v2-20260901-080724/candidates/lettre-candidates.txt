@@ -1,3 +1,0 @@
-[+] cargo search lettre...
-1.4.1
-1.2.23

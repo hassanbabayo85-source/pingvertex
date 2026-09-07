@@ -200,7 +200,7 @@ pub fn BillingPage() -> impl IntoView {
 
             <section class="card">
                 <div class="section-heading"><div><h2>"Plans"</h2><p class="muted">"Limits and prices are read from the active server configuration."</p></div></div>
-                <div class="overview-cards">{move || plans.get().into_iter().map(|p| view!{<div><span class="card-label">{p.tier.clone()}</span><span class="card-value">{format!("{} {}",p.monthly_price,p.currency)}</span><span class="muted">{format!("{} monitors · {}s · {}d",p.max_monitors,p.min_check_interval_seconds,p.history_retention_days)}</span></div>}).collect_view()}</div>
+                <div class="overview-cards">{move || plans.get().into_iter().map(|p| view!{<div><span class="card-label">{p.tier.clone()}</span><span class="card-value">{format!("{} {}",p.monthly_price,p.currency)}</span><span class="muted">{format!("{} monitors · {} min checks · {} days history", p.max_monitors, p.min_check_interval_seconds / 60, p.history_retention_days)}</span></div>}).collect_view()}</div>
             </section>
 
             <section class="card">

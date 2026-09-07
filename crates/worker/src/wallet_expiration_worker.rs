@@ -26,11 +26,11 @@ impl WalletExpirationWorker {
         let mut ticker = tokio::time::interval(self.interval);
         loop {
             tokio::select! { _=cancel.cancelled()=>return Ok(()), _=ticker.tick()=>{ if let Err(e)=self.wallet_repository.expire_promotional_credits(self.batch_size).await { tracing::error!(error=%e,"promotional credit expiration failed"); }
-                    match self.wallet_repository.expire_pending_reservations(self.batch_size).await {
-                        Ok(count) if count > 0 => metrics::counter!("payg_reservations_expired_total").increment(count),
-                        Ok(_) => {}
-                        Err(e) => tracing::error!(error=%e,"PAYG reservation expiration failed"),
-                    } } }
+            match self.wallet_repository.expire_pending_reservations(self.batch_size).await {
+                Ok(count) if count > 0 => metrics::counter!("payg_reservations_expired_total").increment(count),
+                Ok(_) => {}
+                Err(e) => tracing::error!(error=%e,"PAYG reservation expiration failed"),
+            } } }
         }
     }
 }

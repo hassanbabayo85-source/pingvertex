@@ -1,3 +1,0 @@
-[+] cargo search rust_decimal...
-5.5.0
-1.10505.0

@@ -1,5 +1,6 @@
 use super::charge_for_usage::{
     ChargeForUsageError, ChargeForUsageInput, ChargeForUsageResult, ChargeForUsageUseCase,
+    MeteredAttempt,
 };
 use crate::ports::{PAYGPricingRepository, UsageEventRepository, WalletRepository};
 use std::fmt;
@@ -67,16 +68,83 @@ impl MeterUsageUseCase {
             .await
     }
 
+    pub async fn find_by_request(
+        &self,
+        tenant_id: uuid::Uuid,
+        request_id: &str,
+    ) -> Result<Option<domain::UsageEvent>, ChargeForUsageError> {
+        self.charge.find_usage_event(tenant_id, request_id).await
+    }
+
     /// Monitoring checks are billable attempts even when the target fails.
     pub async fn execute_attempt<F, Fut, E>(
-        &self, input: MeterUsageInput, operation: F,
+        &self,
+        input: MeterUsageInput,
+        operation: F,
     ) -> Result<ChargeForUsageResult, ChargeForUsageError>
-    where F: FnOnce() -> Fut, Fut: Future<Output = Result<(), E>>, E: fmt::Display,
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(), E>>,
+        E: fmt::Display,
     {
-        self.charge.execute_attempt(ChargeForUsageInput {
-            tenant_id: input.tenant_id, operation: input.operation,
-            units: input.units, request_id: input.request_id,
-        }, operation).await
+        self.charge
+            .execute_attempt(
+                ChargeForUsageInput {
+                    tenant_id: input.tenant_id,
+                    operation: input.operation,
+                    units: input.units,
+                    request_id: input.request_id,
+                },
+                operation,
+            )
+            .await
+    }
+
+    /// Runtime boundary with explicit attempted/not-attempted classification.
+    pub async fn execute_classified_attempt<F, Fut, E>(
+        &self,
+        input: MeterUsageInput,
+        operation: F,
+    ) -> Result<(ChargeForUsageResult, MeteredAttempt), ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<MeteredAttempt, E>>,
+        E: fmt::Display,
+    {
+        self.charge
+            .execute_classified_attempt(
+                ChargeForUsageInput {
+                    tenant_id: input.tenant_id,
+                    operation: input.operation,
+                    units: input.units,
+                    request_id: input.request_id,
+                },
+                operation,
+            )
+            .await
+    }
+
+    pub async fn execute_classified_attempt_with_output<F, Fut, E, T>(
+        &self,
+        input: MeterUsageInput,
+        operation: F,
+    ) -> Result<(ChargeForUsageResult, Option<T>), ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(MeteredAttempt, T), E>>,
+        E: fmt::Display,
+    {
+        self.charge
+            .execute_classified_attempt_with_output(
+                ChargeForUsageInput {
+                    tenant_id: input.tenant_id,
+                    operation: input.operation,
+                    units: input.units,
+                    request_id: input.request_id,
+                },
+                operation,
+            )
+            .await
     }
 
     /// Durable-worker variant: permits resuming a PENDING reservation after a

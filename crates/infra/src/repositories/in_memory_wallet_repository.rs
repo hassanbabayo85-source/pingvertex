@@ -611,8 +611,11 @@ impl WalletRepository for InMemoryWalletRepository {
         let mut changed = 0u64;
         for (_, _, reservations) in g.values_mut() {
             for reservation in reservations.values_mut() {
-                if changed >= u64::from(limit) { return Ok(changed); }
-                if reservation.status == CreditReservation::PENDING && reservation.expires_at <= now {
+                if changed >= u64::from(limit) {
+                    return Ok(changed);
+                }
+                if reservation.status == CreditReservation::PENDING && reservation.expires_at <= now
+                {
                     reservation.status = CreditReservation::EXPIRED.to_owned();
                     reservation.updated_at = now;
                     changed += 1;

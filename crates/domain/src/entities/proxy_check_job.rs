@@ -180,6 +180,16 @@ impl ProxyCheckJob {
         self.failure_reason = None;
     }
 
+    /// Rebuilds progress counters from the durable entry results before a retry.
+    /// This prevents a crash between entry persistence and job-progress persistence
+    /// from either double-counting or falsely failing an otherwise complete job.
+    pub fn rebuild_progress(&mut self, successful: u32, failed: u32) {
+        let checked = successful.saturating_add(failed).min(self.total_count);
+        self.successful_count = successful.min(checked);
+        self.failed_count = checked.saturating_sub(self.successful_count);
+        self.checked_count = checked;
+    }
+
     pub fn record_result(&mut self, successful: bool) {
         if self.checked_count >= self.total_count {
             return;

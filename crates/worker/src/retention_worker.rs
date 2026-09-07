@@ -4,7 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use application::{
-    ports::{HistoryRetentionRepository, SubscriptionRepository, TenantRepository},
+    ports::{
+        HistoryRetentionRepository, PricingConfigRepository, SubscriptionRepository,
+        TenantRepository,
+    },
     queries::ResolveEntitlements,
     use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
 };
@@ -23,30 +26,34 @@ pub struct SweepSummary {
     pub checks_deleted: u64,
 }
 
-pub struct RetentionWorker<T, S, H>
+pub struct RetentionWorker<T, S, H, P>
 where
     T: TenantRepository,
     S: SubscriptionRepository + 'static,
     H: HistoryRetentionRepository + 'static,
+    P: PricingConfigRepository + 'static,
 {
     tenant_repository: Arc<T>,
     subscription_repository: Arc<S>,
     history_repository: Arc<H>,
+    pricing_repository: Arc<P>,
     batch_size: u32,
     interval: Duration,
     max_concurrent_tenants: usize,
 }
 
-impl<T, S, H> RetentionWorker<T, S, H>
+impl<T, S, H, P> RetentionWorker<T, S, H, P>
 where
     T: TenantRepository,
     S: SubscriptionRepository + 'static,
     H: HistoryRetentionRepository + 'static,
+    P: PricingConfigRepository + 'static,
 {
     pub fn new(
         tenant_repository: Arc<T>,
         subscription_repository: Arc<S>,
         history_repository: Arc<H>,
+        pricing_repository: Arc<P>,
         batch_size: u32,
         interval: Duration,
         max_concurrent_tenants: usize,
@@ -55,6 +62,7 @@ where
             tenant_repository,
             subscription_repository,
             history_repository,
+            pricing_repository,
             batch_size,
             interval,
             max_concurrent_tenants,
@@ -75,6 +83,7 @@ where
             let permit = semaphore.clone().acquire_owned().await?;
             let subscription_repository = self.subscription_repository.clone();
             let history_repository = self.history_repository.clone();
+            let pricing_repository = self.pricing_repository.clone();
             let batch_size = self.batch_size;
             let checks_deleted = checks_deleted.clone();
 
@@ -82,6 +91,7 @@ where
                 let _permit = permit;
 
                 let plan = match ResolveEntitlementsUseCase::new(subscription_repository)
+                    .with_pricing_config_repository(pricing_repository)
                     .execute(ResolveEntitlements {
                         tenant_id: tenant.id,
                     })

@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use domain::{Monitor, MonitorKind};
 
 use crate::dns_check_executor::DnsCheckExecutor;
+use crate::durable_scheduler::CheckExecution;
 use crate::durable_scheduler::CheckExecutor;
 use crate::flow_check_executor::FlowCheckExecutor;
 use crate::http_check_executor::HttpCheckExecutor;
@@ -59,7 +60,7 @@ impl MultiCheckExecutor {
 
 #[async_trait]
 impl CheckExecutor for MultiCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         match monitor.kind {
             MonitorKind::Http => self.http.execute(monitor).await,
             MonitorKind::Tcp => self.tcp.execute(monitor).await,
@@ -70,10 +71,10 @@ impl CheckExecutor for MultiCheckExecutor {
                     monitor_id = %monitor.id.0,
                     "heartbeat monitor reached active executor; this is a scheduling bug"
                 );
-                Err(
-                    "heartbeat monitors must be handled by HeartbeatSweeper, not active executor"
-                        .into(),
-                )
+                Ok(CheckExecution::failed(
+                    false,
+                    "heartbeat monitors must be handled by HeartbeatSweeper, not active executor",
+                ))
             }
         }
     }

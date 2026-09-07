@@ -32,6 +32,7 @@ pub struct ProxyJob {
     pub heartbeat_at: Option<String>,
     pub completed_at: Option<String>,
     pub failed_at: Option<String>,
+    pub failure_code: Option<String>,
     pub canceled_at: Option<String>,
 }
 

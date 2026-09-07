@@ -1,7 +1,7 @@
 use std::{error::Error, sync::Arc, time::Duration};
 
 use application::ports::SchedulingRepository;
-use application::{MeterUsageInput, MeterUsageUseCase};
+use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::Monitor;
@@ -11,12 +11,33 @@ use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
+#[derive(Debug, Clone)]
+pub struct CheckExecution {
+    pub attempted: bool,
+    pub error: Option<String>,
+}
+
+impl CheckExecution {
+    pub fn success(attempted: bool) -> Self {
+        Self {
+            attempted,
+            error: None,
+        }
+    }
+    pub fn failed(attempted: bool, error: impl Into<String>) -> Self {
+        Self {
+            attempted,
+            error: Some(error.into()),
+        }
+    }
+}
+
 /// Executes the actual network check for a claimed monitor. B17 ships a
 /// stub implementation; B18/B19 will replace it with the real HTTP/TCP/
 /// DNS/heartbeat check logic and persistence.
 #[async_trait]
 pub trait CheckExecutor: Send + Sync + Clone + 'static {
-    async fn execute(&self, monitor: &Monitor) -> Result<()>;
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution>;
 }
 
 /// Blanket implementation so `Arc<T>` can be passed to the scheduler
@@ -26,7 +47,7 @@ impl<T> CheckExecutor for Arc<T>
 where
     T: CheckExecutor + Send + Sync + 'static,
 {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         (**self).execute(monitor).await
     }
 }
@@ -39,12 +60,12 @@ pub struct StubCheckExecutor;
 
 #[async_trait]
 impl CheckExecutor for StubCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         info!(
             monitor_id = %monitor.id.0,
             "B17 placeholder check executor: not performing real check yet"
         );
-        Ok(())
+        Ok(CheckExecution::success(false))
     }
 }
 
@@ -117,46 +138,38 @@ where
 
                     tasks.spawn(async move {
                         let monitor = claim.monitor;
-                        let request_id = format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
+                        let request_id =
+                            format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
                         let result = if let Some(metering) = metering {
-                            let network_egress_request_id = format!("network-egress:{}:{}", monitor.id.0, claim.execution_id);
-                            metering
-                                .execute_attempt(
-                                    MeterUsageInput {
-                                        tenant_id: monitor.tenant_id.0,
-                                        operation: "monitor_check".to_owned(),
-                                        units: 1,
-                                        request_id,
-                                    },
-                                    || {
-                                        let metering = metering.clone();
-                                        let monitor = monitor.clone();
-                                        async move {
-                                            metering
-                                                .execute_attempt(
-                                                    MeterUsageInput {
-                                                        tenant_id: monitor.tenant_id.0,
-                                                        operation: "network_egress".to_owned(),
-                                                        // The current checker contract does not expose wire-byte
-                                                        // counters. One billable MB is therefore reserved as the
-                                                        // minimum egress allowance for an active check. This keeps
-                                                        // billing fail-closed and avoids estimating usage from
-                                                        // attacker-controlled response metadata.
-                                                        units: 1,
-                                                        request_id: network_egress_request_id,
-                                                    },
-                                                    || executor.execute(&monitor),
-                                                )
-                                                .await
-                                                .map(|_| ())
-                                        }
-                                    },
-                                )
-                                .await
-                                .map(|_| ())
-                                .map_err(|err| -> Box<dyn Error + Send + Sync> { Box::new(err) })
+                            match metering.execute_classified_attempt(
+                                MeterUsageInput {
+                                    tenant_id: monitor.tenant_id.0,
+                                    operation: "monitor_check".to_owned(),
+                                    units: 1,
+                                    request_id,
+                                },
+                                || {
+                                    let executor = executor.clone();
+                                    let monitor = monitor.clone();
+                                    async move {
+                                        executor.execute(&monitor).await.map(|outcome| {
+                                            MeteredAttempt {
+                                                attempted: outcome.attempted,
+                                                error: outcome.error,
+                                            }
+                                        })
+                                    }
+                                },
+                            ).await {
+                                Ok(_) => Ok(()),
+                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
+                                    warn!(monitor_id=%monitor.id.0, reason=%reason, "monitor execution did not reach a billable attempt");
+                                    Ok(())
+                                }
+                                Err(err) => Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                            }
                         } else {
-                            executor.execute(&monitor).await
+                            executor.execute(&monitor).await.map(|_| ()).map_err(|err| err)
                         };
                         if let Err(err) = &result {
                             warn!(

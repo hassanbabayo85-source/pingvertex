@@ -4,8 +4,8 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::proxy_checker::run_proxy_check_job;
+use application::MeterUsageUseCase;
 use application::ports::ProxyCheckJobRepository;
-use application::{MeterUsageInput, MeterUsageUseCase};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -99,63 +99,53 @@ impl ProxyCheckWorker {
                 }
             };
 
-            let request_id = format!("proxy-check:{}", job_id);
-            let network_egress_request_id = format!("network-egress:proxy:{}", job_id);
-            let repository = Arc::clone(&self.repository);
-            let worker_id = self.worker_id.clone();
-            let metering = self.metering.clone();
-            let result = metering
-                .execute_recoverable(
-                    MeterUsageInput {
-                        tenant_id: tenant_id.0,
-                        operation: "proxy_check".to_owned(),
-                        units: 1,
-                        request_id,
-                    },
-                    || async {
-                        metering
-                            .execute_recoverable(
-                                MeterUsageInput {
-                                    tenant_id: tenant_id.0,
-                                    operation: "network_egress".to_owned(),
-                                    // One billable MB is the minimum egress
-                                    // allowance for a proxy job because the
-                                    // current proxy checker does not expose
-                                    // transport-byte counters.
-                                    units: 1,
-                                    request_id: network_egress_request_id,
-                                },
-                                || async {
-                                    run_proxy_check_job(
-                                        &*repository,
-                                        running_job,
-                                        entries,
-                                        &worker_id,
-                                    )
-                                    .await
-                                },
-                            )
-                            .await
-                            .map(|_| ())
-                    },
+            // A zero-entry job and a malformed persisted job do not perform a
+            // network attempt, so they must never consume PAYG credit.
+            if entries.is_empty() || entries.len() != running_job.total_count() as usize {
+                if let Err(err) = run_proxy_check_job(
+                    &*self.repository,
+                    running_job,
+                    entries,
+                    &self.worker_id,
+                    None,
                 )
-                .await;
+                .await
+                {
+                    error!(job_id=%job_id, error=%err, "proxy preflight failure");
+                }
+                continue;
+            }
+
+            // Per-entry billing now lives inside run_proxy_check_job, where the
+            // durable job + entry identity is available. This prevents a bulk
+            // proxy job from being charged once for many entries and keeps
+            // retries idempotent per logical proxy attempt.
+            let result = run_proxy_check_job(
+                &*self.repository,
+                running_job,
+                entries,
+                &self.worker_id,
+                Some(self.metering.clone()),
+            )
+            .await;
 
             if let Err(err) = result {
-                error!(job_id=%job_id, error=%err, "proxy check executor returned an unexpected error");
+                let reason = format!("proxy billing/execution failed: {err}");
+                error!(job_id=%job_id, error=%err, "proxy check executor failed");
                 // The executor normally terminalizes the job itself. This
                 // fallback prevents an unexpected propagated error from
-                // leaving a claimed job in running forever.
+                // leaving a claimed job in running forever and preserves a
+                // safe, user-visible billing reason.
                 if let Ok(Some(mut latest)) =
                     self.repository.find_job_by_id(job_id, tenant_id).await
                     && latest.status() == domain::ProxyCheckJobStatus::Running
-                    && latest.mark_failed("unexpected proxy check worker error")
+                    && latest.mark_failed(reason)
                     && let Err(update_err) = self.repository.update_job(&latest).await
                 {
                     error!(
                         job_id=%job_id,
                         error=%update_err,
-                        "failed to persist unexpected worker failure"
+                        "failed to persist proxy worker failure"
                     );
                 }
             }

@@ -20,6 +20,12 @@ pub struct ChargeForUsageResult {
     pub transaction: Option<WalletTransaction>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeteredAttempt {
+    pub attempted: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum ChargeForUsageError {
     InvalidInput(&'static str),
@@ -27,6 +33,7 @@ pub enum ChargeForUsageError {
     InvalidPricing(&'static str),
     InsufficientBalance,
     OperationFailed(String),
+    OperationNotAttempted(String),
     Repository(Box<dyn Error + Send + Sync>),
     ReservationInProgress,
     CaptureFailed(Box<dyn Error + Send + Sync>),
@@ -39,6 +46,7 @@ impl fmt::Display for ChargeForUsageError {
             Self::InvalidPricing(m) => write!(f, "{m}"),
             Self::InsufficientBalance => write!(f, "PAYG balance is insufficient"),
             Self::OperationFailed(m) => write!(f, "metered operation failed: {m}"),
+            Self::OperationNotAttempted(m) => write!(f, "metered operation was not attempted: {m}"),
             Self::Repository(_) | Self::CaptureFailed(_) => {
                 write!(f, "PAYG repository operation failed")
             }
@@ -89,6 +97,17 @@ impl ChargeForUsageUseCase {
         self
     }
 
+    pub async fn find_usage_event(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+    ) -> Result<Option<UsageEvent>, ChargeForUsageError> {
+        self.usage_event_repository
+            .find_by_request(tenant_id, request_id)
+            .await
+            .map_err(ChargeForUsageError::Repository)
+    }
+
     pub async fn execute<F, Fut, E>(
         &self,
         input: ChargeForUsageInput,
@@ -125,35 +144,291 @@ impl ChargeForUsageUseCase {
     /// external operation runs once, then financial capture records the debit,
     /// usage event, and audits as one atomic repository transaction.
     pub async fn execute_attempt<F, Fut, E>(
-        &self, input: ChargeForUsageInput, operation: F,
+        &self,
+        input: ChargeForUsageInput,
+        operation: F,
     ) -> Result<ChargeForUsageResult, ChargeForUsageError>
-    where F: FnOnce() -> Fut, Fut: Future<Output = Result<(), E>>, E: fmt::Display,
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(), E>>,
+        E: fmt::Display,
     {
         validate_input(&input)?;
-        if let Some(event) = self.usage_event_repository.find_by_request(input.tenant_id, &input.request_id).await.map_err(ChargeForUsageError::Repository)? {
-            return Ok(ChargeForUsageResult { usage_event: event, transaction: None });
+        if let Some(event) = self
+            .usage_event_repository
+            .find_by_request(input.tenant_id, &input.request_id)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+        {
+            return Ok(ChargeForUsageResult {
+                usage_event: event,
+                transaction: None,
+            });
         }
-        let pricing = self.pricing_repository.find_active(&input.operation).await.map_err(ChargeForUsageError::Repository)?.ok_or(ChargeForUsageError::NoPricing)?;
-        if pricing.unit_price <= 0 { return Err(ChargeForUsageError::InvalidPricing("active PAYG unit price must be positive")); }
-        let charge_units = input.units.checked_mul(pricing.unit_price).ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
-        let wallet = self.wallet_repository.get_or_create(input.tenant_id, &pricing.currency).await.map_err(ChargeForUsageError::Repository)?;
-        if wallet.currency != pricing.currency { return Err(ChargeForUsageError::InvalidPricing("PAYG pricing currency does not match the tenant wallet currency")); }
-        let reservation = self.wallet_repository.reserve(input.tenant_id, charge_units, &input.operation, &input.request_id, Utc::now() + Duration::seconds(60)).await.map_err(|e| if e.to_string() == "insufficient wallet balance" { ChargeForUsageError::InsufficientBalance } else { ChargeForUsageError::Repository(e) })?;
-        if !reservation.created && reservation.reservation.status != CreditReservation::PENDING {
-            if reservation.reservation.status == CreditReservation::CAPTURED {
-                if let Some(event) = self.usage_event_repository.find_by_request(input.tenant_id, &input.request_id).await.map_err(ChargeForUsageError::Repository)? {
-                    return Ok(ChargeForUsageResult { usage_event: event, transaction: None });
+        let pricing = self
+            .pricing_repository
+            .find_active(&input.operation)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+            .ok_or(ChargeForUsageError::NoPricing)?;
+        if pricing.unit_price <= 0 {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "active PAYG unit price must be positive",
+            ));
+        }
+        let charge_units = input
+            .units
+            .checked_mul(pricing.unit_price)
+            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+        let wallet = self
+            .wallet_repository
+            .get_or_create(input.tenant_id, &pricing.currency)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if wallet.currency != pricing.currency {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "PAYG pricing currency does not match the tenant wallet currency",
+            ));
+        }
+        let reservation = self
+            .wallet_repository
+            .reserve(
+                input.tenant_id,
+                charge_units,
+                &input.operation,
+                &input.request_id,
+                Utc::now() + Duration::seconds(60),
+            )
+            .await
+            .map_err(|e| {
+                if e.to_string() == "insufficient wallet balance" {
+                    ChargeForUsageError::InsufficientBalance
+                } else {
+                    ChargeForUsageError::Repository(e)
                 }
+            })?;
+        if !reservation.created && reservation.reservation.status != CreditReservation::PENDING {
+            if reservation.reservation.status == CreditReservation::CAPTURED
+                && let Some(event) = self
+                    .usage_event_repository
+                    .find_by_request(input.tenant_id, &input.request_id)
+                    .await
+                    .map_err(ChargeForUsageError::Repository)?
+            {
+                return Ok(ChargeForUsageResult {
+                    usage_event: event,
+                    transaction: None,
+                });
             }
             return Err(ChargeForUsageError::ReservationInProgress);
         }
         let operation_result = operation().await;
-        let event = self.build_event(&input, input.units, pricing.unit_price, charge_units, pricing.version, &pricing.currency, "CAPTURED");
+        let event = self.build_event(
+            &input,
+            input.units,
+            pricing.unit_price,
+            charge_units,
+            pricing.version,
+            &pricing.currency,
+            "CAPTURED",
+        );
         let audits = self.build_payg_audits(&input, &event);
-        let transaction = self.wallet_repository.capture(reservation.reservation.id, Some(&event), &audits).await.map_err(ChargeForUsageError::CaptureFailed)?;
-        let event = self.usage_event_repository.create(&event).await.map_err(ChargeForUsageError::Repository)?;
-        if let Err(err) = operation_result { return Err(ChargeForUsageError::OperationFailed(format!("{err}; usage_event={}", event.id))); }
-        Ok(ChargeForUsageResult { usage_event: event, transaction: Some(transaction) })
+        let transaction = self
+            .wallet_repository
+            .capture(reservation.reservation.id, Some(&event), &audits)
+            .await
+            .map_err(ChargeForUsageError::CaptureFailed)?;
+        let event = self
+            .usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if let Err(err) = operation_result {
+            return Err(ChargeForUsageError::OperationFailed(format!(
+                "{err}; usage_event={}",
+                event.id
+            )));
+        }
+        Ok(ChargeForUsageResult {
+            usage_event: event,
+            transaction: Some(transaction),
+        })
+    }
+
+    /// Runtime billing boundary. Only an operation that explicitly reports
+    /// `attempted=true` is captured. Pre-attempt failures release the reservation.
+    pub async fn execute_classified_attempt<F, Fut, E>(
+        &self,
+        input: ChargeForUsageInput,
+        operation: F,
+    ) -> Result<(ChargeForUsageResult, MeteredAttempt), ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<MeteredAttempt, E>>,
+        E: fmt::Display,
+    {
+        self.execute_classified_attempt_with_output(input, || async {
+            operation().await.map(|attempt| (attempt.clone(), attempt))
+        })
+        .await
+        .map(|(result, attempt)| {
+            (
+                result,
+                attempt.unwrap_or(MeteredAttempt {
+                    // A replay means the durable execution was already
+                    // finalized by an earlier worker. The caller must not
+                    // execute the external operation again.
+                    attempted: true,
+                    error: None,
+                }),
+            )
+        })
+    }
+
+    pub async fn execute_classified_attempt_with_output<F, Fut, E, T>(
+        &self,
+        input: ChargeForUsageInput,
+        operation: F,
+    ) -> Result<(ChargeForUsageResult, Option<T>), ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(MeteredAttempt, T), E>>,
+        E: fmt::Display,
+    {
+        validate_input(&input)?;
+        if let Some(event) = self
+            .usage_event_repository
+            .find_by_request(input.tenant_id, &input.request_id)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+        {
+            return Ok((
+                ChargeForUsageResult {
+                    usage_event: event,
+                    transaction: None,
+                },
+                None,
+            ));
+        }
+        let pricing = self
+            .pricing_repository
+            .find_active(&input.operation)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+            .ok_or(ChargeForUsageError::NoPricing)?;
+        if pricing.unit_price <= 0 {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "active PAYG unit price must be positive",
+            ));
+        }
+        let charge_units = input
+            .units
+            .checked_mul(pricing.unit_price)
+            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+        let wallet = self
+            .wallet_repository
+            .get_or_create(input.tenant_id, &pricing.currency)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if wallet.currency != pricing.currency {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "PAYG pricing currency does not match the tenant wallet currency",
+            ));
+        }
+        let reservation = self
+            .wallet_repository
+            .reserve(
+                input.tenant_id,
+                charge_units,
+                &input.operation,
+                &input.request_id,
+                Utc::now() + Duration::seconds(60),
+            )
+            .await
+            .map_err(|e| {
+                if e.to_string() == "insufficient wallet balance" {
+                    ChargeForUsageError::InsufficientBalance
+                } else {
+                    ChargeForUsageError::Repository(e)
+                }
+            })?;
+        if !reservation.created {
+            if reservation.reservation.status == CreditReservation::CAPTURED {
+                if let Some(event) = self
+                    .usage_event_repository
+                    .find_by_request(input.tenant_id, &input.request_id)
+                    .await
+                    .map_err(ChargeForUsageError::Repository)?
+                {
+                    return Ok((
+                        ChargeForUsageResult {
+                            usage_event: event,
+                            transaction: None,
+                        },
+                        None,
+                    ));
+                }
+            }
+            // Another live worker owns the reservation. Never run the external
+            // operation twice for the same durable execution identity. If the
+            // owner crashed, the reservation expiry worker will make the request
+            // reusable and the scheduler can retry it.
+            return Err(ChargeForUsageError::ReservationInProgress);
+        }
+        let (attempt, output) = match operation().await {
+            Ok(value) => value,
+            Err(err) => {
+                self.wallet_repository
+                    .release(reservation.reservation.id)
+                    .await
+                    .map_err(ChargeForUsageError::Repository)?;
+                return Err(ChargeForUsageError::OperationNotAttempted(err.to_string()));
+            }
+        };
+        if !attempt.attempted {
+            self.wallet_repository
+                .release(reservation.reservation.id)
+                .await
+                .map_err(ChargeForUsageError::Repository)?;
+            return Err(ChargeForUsageError::OperationNotAttempted(
+                attempt
+                    .error
+                    .unwrap_or_else(|| "pre-attempt failure".to_owned()),
+            ));
+        }
+        let event = self.build_event(
+            &input,
+            input.units,
+            pricing.unit_price,
+            charge_units,
+            pricing.version,
+            &pricing.currency,
+            "CAPTURED",
+        );
+        let audits = self.build_payg_audits(&input, &event);
+        let transaction = self
+            .wallet_repository
+            .capture(reservation.reservation.id, Some(&event), &audits)
+            .await
+            .map_err(ChargeForUsageError::CaptureFailed)?;
+        let event = self
+            .usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if let Some(err) = attempt.error {
+            return Err(ChargeForUsageError::OperationFailed(format!(
+                "{err}; usage_event={}",
+                event.id
+            )));
+        }
+        Ok((
+            ChargeForUsageResult {
+                usage_event: event,
+                transaction: Some(transaction),
+            },
+            Some(output),
+        ))
     }
 
     async fn execute_internal<F, Fut, E>(
@@ -332,27 +607,47 @@ impl ChargeForUsageUseCase {
         status: &str,
     ) -> UsageEvent {
         UsageEvent {
-            id: Uuid::new_v4(), tenant_id: input.tenant_id,
-            operation: input.operation.clone(), units_requested: input.units,
-            units_billed, unit_price, charge_units, currency: currency.to_owned(),
-            pricing_version, request_id: input.request_id.clone(), status: status.to_owned(),
+            id: Uuid::new_v4(),
+            tenant_id: input.tenant_id,
+            operation: input.operation.clone(),
+            units_requested: input.units,
+            units_billed,
+            unit_price,
+            charge_units,
+            currency: currency.to_owned(),
+            pricing_version,
+            request_id: input.request_id.clone(),
+            status: status.to_owned(),
             created_at: Utc::now(),
         }
     }
 
-    fn build_payg_audits(&self, input: &ChargeForUsageInput, event: &UsageEvent) -> Vec<domain::FinancialAuditLogEntry> {
-        if self.audit_log_repository.is_none() { return Vec::new(); }
+    fn build_payg_audits(
+        &self,
+        input: &ChargeForUsageInput,
+        event: &UsageEvent,
+    ) -> Vec<domain::FinancialAuditLogEntry> {
+        if self.audit_log_repository.is_none() {
+            return Vec::new();
+        }
         let metadata = serde_json::json!({
             "operation": input.operation, "units": input.units,
             "charge_units": event.charge_units, "currency": event.currency,
             "pricing_version": event.pricing_version,
         });
-        ["payg_charged", "wallet_debited"].into_iter().map(|action| {
-            domain::FinancialAuditLogEntry::new(
-                "system:payg", Some(input.tenant_id), action,
-                "payg_request", Some(input.request_id.clone()), metadata.clone(),
-            )
-        }).collect()
+        ["payg_charged", "wallet_debited"]
+            .into_iter()
+            .map(|action| {
+                domain::FinancialAuditLogEntry::new(
+                    "system:payg",
+                    Some(input.tenant_id),
+                    action,
+                    "payg_request",
+                    Some(input.request_id.clone()),
+                    metadata.clone(),
+                )
+            })
+            .collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -366,8 +661,19 @@ impl ChargeForUsageUseCase {
         currency: &str,
         status: &str,
     ) -> Result<UsageEvent, ChargeForUsageError> {
-        let event = self.build_event(input, units_billed, unit_price, charge_units, pricing_version, currency, status);
-        self.usage_event_repository.create(&event).await.map_err(ChargeForUsageError::Repository)
+        let event = self.build_event(
+            input,
+            units_billed,
+            unit_price,
+            charge_units,
+            pricing_version,
+            currency,
+            status,
+        );
+        self.usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)
     }
 
     async fn recover_captured_event(

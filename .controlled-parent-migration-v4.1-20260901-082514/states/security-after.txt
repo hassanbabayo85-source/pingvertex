@@ -1,5 +1,0 @@
-quick-xml=0.38.4
-rkyv=0.7.46
-rsa=0.9.10
-quick_xml_target=FAIL
-rkyv_target=FAIL
