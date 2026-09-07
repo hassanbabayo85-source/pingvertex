@@ -985,7 +985,12 @@ impl WalletRepository for NoopWalletRepository {
     ) -> RepoResult<application::ports::ReservationOutcome> {
         Err("wallet repository is not configured".into())
     }
-    async fn capture(&self, _reservation_id: uuid::Uuid) -> RepoResult<domain::WalletTransaction> {
+    async fn capture(
+        &self,
+        _reservation_id: uuid::Uuid,
+        _usage_event: Option<&domain::UsageEvent>,
+        _audit_entries: &[domain::FinancialAuditLogEntry],
+    ) -> RepoResult<domain::WalletTransaction> {
         Err("wallet repository is not configured".into())
     }
     async fn release(&self, _reservation_id: uuid::Uuid) -> RepoResult<()> {
@@ -1104,6 +1109,9 @@ impl WalletRepository for NoopWalletRepository {
         Err("wallet repository is not configured".into())
     }
     async fn expire_promotional_credits(&self, _limit: u32) -> RepoResult<u64> {
+        Ok(0)
+    }
+    async fn expire_pending_reservations(&self, _limit: u32) -> RepoResult<u64> {
         Ok(0)
     }
     async fn auto_top_up_candidates(

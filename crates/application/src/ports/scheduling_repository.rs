@@ -15,6 +15,7 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct ClaimedMonitor {
     pub monitor: Monitor,
     pub claimed_at: DateTime<Utc>,
+    pub execution_id: Uuid,
 }
 impl Deref for ClaimedMonitor {
     type Target = Monitor;

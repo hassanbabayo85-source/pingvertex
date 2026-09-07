@@ -98,6 +98,10 @@ pub fn UsagePage() -> impl IntoView {
                 </div>
             </header>
 
+            <div class="notice" role="note">
+                "Monitoring attempts are billed when a check runs, including failed target checks or network errors."
+            </div>
+
             {move || {
                 error.get().map(|message| {
                     view! {

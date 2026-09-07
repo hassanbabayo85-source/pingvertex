@@ -78,9 +78,9 @@ where
         }
     }
 
-    /// Enables PAYG billing at the scheduler's claim boundary. Billing is
-    /// intentionally performed here, after the atomic scheduler claim and
-    /// before the executor can touch the network.
+    /// Enables PAYG billing for durable monitor executions. The scheduler
+    /// supplies the stable execution identity; metering finalizes the charge
+    /// after the actual attempt, including failed target/network attempts.
     pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
         self.metering = Some(metering);
         self
@@ -117,23 +117,11 @@ where
 
                     tasks.spawn(async move {
                         let monitor = claim.monitor;
-                        let request_id = format!(
-                            "monitor-check:{}:{}",
-                            monitor.id.0,
-                            claim
-                                .claimed_at
-                                .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
-                        );
+                        let request_id = format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
                         let result = if let Some(metering) = metering {
-                            let network_egress_request_id = format!(
-                                "network-egress:{}:{}",
-                                monitor.id.0,
-                                claim
-                                    .claimed_at
-                                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true,)
-                            );
+                            let network_egress_request_id = format!("network-egress:{}:{}", monitor.id.0, claim.execution_id);
                             metering
-                                .execute_recoverable(
+                                .execute_attempt(
                                     MeterUsageInput {
                                         tenant_id: monitor.tenant_id.0,
                                         operation: "monitor_check".to_owned(),
@@ -145,7 +133,7 @@ where
                                         let monitor = monitor.clone();
                                         async move {
                                             metering
-                                                .execute_recoverable(
+                                                .execute_attempt(
                                                     MeterUsageInput {
                                                         tenant_id: monitor.tenant_id.0,
                                                         operation: "network_egress".to_owned(),

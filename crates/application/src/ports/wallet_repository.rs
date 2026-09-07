@@ -37,9 +37,16 @@ pub trait WalletRepository: Send + Sync {
         expires_at: DateTime<Utc>,
     ) -> WalletRepoResult<ReservationOutcome>;
 
-    /// Captures a pending reservation and writes the immutable debit ledger
-    /// entry atomically. Idempotent for an already-captured reservation.
-    async fn capture(&self, reservation_id: Uuid) -> WalletRepoResult<WalletTransaction>;
+    /// Captures a pending reservation and writes the immutable debit ledger.
+    /// When supplied, the usage event and financial audit rows are committed in
+    /// the same database transaction as the debit. Replays of CAPTURED rows
+    /// backfill missing event/audit rows without creating another debit.
+    async fn capture(
+        &self,
+        reservation_id: Uuid,
+        usage_event: Option<&domain::UsageEvent>,
+        audit_entries: &[domain::FinancialAuditLogEntry],
+    ) -> WalletRepoResult<WalletTransaction>;
 
     /// Releases a pending reservation without charging the wallet.
     async fn release(&self, reservation_id: Uuid) -> WalletRepoResult<()>;
@@ -116,6 +123,7 @@ pub trait WalletRepository: Send + Sync {
         description: Option<&str>,
     ) -> WalletRepoResult<WalletTransaction>;
     async fn expire_promotional_credits(&self, limit: u32) -> WalletRepoResult<u64>;
+    async fn expire_pending_reservations(&self, limit: u32) -> WalletRepoResult<u64>;
     async fn auto_top_up_candidates(&self, limit: u32)
     -> WalletRepoResult<Vec<AutoTopUpCandidate>>;
     async fn record_balance_notification(
@@ -170,8 +178,13 @@ where
             .reserve(tenant_id, amount_units, operation, request_id, expires_at)
             .await
     }
-    async fn capture(&self, reservation_id: Uuid) -> WalletRepoResult<WalletTransaction> {
-        (**self).capture(reservation_id).await
+    async fn capture(
+        &self,
+        reservation_id: Uuid,
+        usage_event: Option<&domain::UsageEvent>,
+        audit_entries: &[domain::FinancialAuditLogEntry],
+    ) -> WalletRepoResult<WalletTransaction> {
+        (**self).capture(reservation_id, usage_event, audit_entries).await
     }
     async fn release(&self, reservation_id: Uuid) -> WalletRepoResult<()> {
         (**self).release(reservation_id).await
@@ -311,6 +324,9 @@ where
     }
     async fn expire_promotional_credits(&self, limit: u32) -> WalletRepoResult<u64> {
         (**self).expire_promotional_credits(limit).await
+    }
+    async fn expire_pending_reservations(&self, limit: u32) -> WalletRepoResult<u64> {
+        (**self).expire_pending_reservations(limit).await
     }
     async fn auto_top_up_candidates(
         &self,
