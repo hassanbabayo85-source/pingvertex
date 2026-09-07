@@ -1,7 +1,0 @@
-error: specification `hashbrown` is ambiguous
-help: re-run this command with one of the following specifications
-  hashbrown@0.12.3
-  hashbrown@0.14.5
-  hashbrown@0.15.5
-  hashbrown@0.16.1
-  hashbrown@0.17.1

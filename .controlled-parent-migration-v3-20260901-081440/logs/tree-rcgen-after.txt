@@ -1,4 +1,0 @@
-rcgen v0.14.10
-[dev-dependencies]
-├── api v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/api)
-└── worker v0.1.0 (/home/abubakar-hassan-babayo/uptime-monitor/crates/worker)

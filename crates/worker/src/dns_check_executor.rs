@@ -7,6 +7,7 @@ use tracing::{error, info};
 
 use crate::check_error_mapping::map_check_error_kind_to_error_type;
 use crate::dns_checker::check_dns_outcome;
+use crate::durable_scheduler::CheckExecution;
 use crate::incident_evaluator::IncidentEvaluator;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -36,7 +37,7 @@ impl DnsCheckExecutor {
 
 #[async_trait]
 impl crate::durable_scheduler::CheckExecutor for DnsCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         if monitor.kind != MonitorKind::Dns {
             return Err(format!(
                 "DnsCheckExecutor only supports DNS monitors, got {:?}",
@@ -45,7 +46,10 @@ impl crate::durable_scheduler::CheckExecutor for DnsCheckExecutor {
             .into());
         }
 
-        let outcome = check_dns_outcome(monitor).await?;
+        let outcome = match check_dns_outcome(monitor).await {
+            Ok(outcome) => outcome,
+            Err(err) => return Ok(CheckExecution::failed(false, err.to_string())),
+        };
 
         let status_code = outcome.result.status_code;
         let latency_ms = outcome.result.latency_ms;
@@ -75,7 +79,12 @@ impl crate::durable_scheduler::CheckExecutor for DnsCheckExecutor {
             error_message,
         );
 
-        self.check_repository.save(&check).await?;
+        if let Err(err) = self.check_repository.save(&check).await {
+            return Ok(CheckExecution::failed(
+                outcome.attempted,
+                format!("failed to persist check: {err}"),
+            ));
+        }
 
         info!(
             monitor_id = %monitor.id.0,
@@ -98,6 +107,9 @@ impl crate::durable_scheduler::CheckExecutor for DnsCheckExecutor {
             );
         }
 
-        Ok(())
+        Ok(CheckExecution {
+            attempted: outcome.attempted,
+            error: None,
+        })
     }
 }

@@ -1,6 +1,9 @@
 use std::error::Error;
 
-use crate::{ports::SubscriptionRepository, queries::ResolveEntitlements};
+use crate::{
+    ports::{PricingConfigRepository, SubscriptionRepository},
+    queries::ResolveEntitlements,
+};
 use domain::{Plan, enums::PlanTier, enums::SubscriptionStatus};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -19,6 +22,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// subscriptions fall back to Free, same as having no row at all.
 pub struct ResolveEntitlementsUseCase<R> {
     repository: R,
+    pricing_repository: Option<std::sync::Arc<dyn PricingConfigRepository>>,
 }
 
 impl<R> ResolveEntitlementsUseCase<R>
@@ -26,7 +30,18 @@ where
     R: SubscriptionRepository,
 {
     pub fn new(repository: R) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            pricing_repository: None,
+        }
+    }
+
+    pub fn with_pricing_config_repository(
+        mut self,
+        repository: std::sync::Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.pricing_repository = Some(repository);
+        self
     }
 
     pub async fn execute(&self, query: ResolveEntitlements) -> UseCaseResult<Plan> {
@@ -35,7 +50,17 @@ where
             .find_test_plan_override(query.tenant_id)
             .await?
         {
-            return Ok(Plan::for_tier(test_tier));
+            let mut plan = Plan::for_tier(test_tier);
+            if test_tier == PlanTier::Free {
+                if let Some(pricing_repository) = &self.pricing_repository {
+                    if let Some(config) = pricing_repository.find_active_config().await? {
+                        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                        plan.history_retention_days = config.free_tier.retention_days;
+                    }
+                }
+            }
+            return Ok(plan);
         }
 
         let plan_tier = self
@@ -50,6 +75,16 @@ where
             })
             .unwrap_or(PlanTier::Free);
 
-        Ok(Plan::for_tier(plan_tier))
+        let mut plan = Plan::for_tier(plan_tier);
+        if plan_tier == PlanTier::Free {
+            if let Some(pricing_repository) = &self.pricing_repository {
+                if let Some(config) = pricing_repository.find_active_config().await? {
+                    plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                    plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                    plan.history_retention_days = config.free_tier.retention_days;
+                }
+            }
+        }
+        Ok(plan)
     }
 }

@@ -41,9 +41,9 @@ INSERT INTO pricing_configs (
     10000,                    -- max_monitors
     3650,                     -- max_retention_days
     3.00,                     -- min_paid_monthly_price
-    30,                       -- free_monitors
-    180,                      -- free_interval_seconds
-    3,                        -- free_retention_days
+    20,                       -- free_monitors
+    300,                      -- free_interval_seconds
+    2,                        -- free_retention_days
     512,                      -- avg_billable_network_bytes_per_check
     0.12,                     -- cost_per_gb_egress
     1.20,                     -- cost_safety_buffer

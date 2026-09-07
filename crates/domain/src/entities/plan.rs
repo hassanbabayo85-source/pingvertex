@@ -18,9 +18,9 @@ impl Plan {
         match tier {
             PlanTier::Free => Self {
                 tier,
-                max_monitors: 5,
-                min_check_interval_seconds: 600,
-                history_retention_days: 1,
+                max_monitors: 20,
+                min_check_interval_seconds: 300,
+                history_retention_days: 2,
                 max_locations: 1,
                 max_team_members: 1,
                 rum_enabled: false,
@@ -75,11 +75,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn free_plan_is_bootstrap_safe() {
+    fn free_plan_matches_product_entitlements() {
         let p = Plan::for_tier(PlanTier::Free);
-        assert_eq!(p.max_monitors, 5);
-        assert_eq!(p.min_check_interval_seconds, 600);
-        assert_eq!(p.history_retention_days, 1);
+        assert_eq!(p.max_monitors, 20);
+        assert_eq!(p.min_check_interval_seconds, 300);
+        assert_eq!(p.history_retention_days, 2);
         assert_eq!(p.max_locations, 1);
         assert_eq!(p.max_team_members, 1);
         assert!(!p.rum_enabled);

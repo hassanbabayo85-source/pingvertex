@@ -31,6 +31,7 @@ use std::{
 };
 
 use application::ports::ProxyCheckJobRepository;
+use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use base64::Engine;
 use domain::ProxyScheme;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
@@ -454,7 +455,7 @@ where
 /// reported as `reachable: false` with a descriptive `error`, never as a
 /// panic or a propagated `Result` — one bad proxy entry must never stop
 /// the rest of the job from being checked.
-async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
+async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
     let target = format!(
         "{}://{}:{}",
         proxy_scheme_str(entry.scheme()),
@@ -466,7 +467,12 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
 
     let destination = match crate::ssrf::resolve_and_validate_public_destination(&target).await {
         Ok(destination) => destination,
-        Err(err) => return proxy_result(entry, started, false, false, Some(err)),
+        Err(err) => {
+            let result = proxy_result(entry, started, false, false, Some(err.clone()));
+            let code = result.error_code.as_deref().unwrap_or_default();
+            let attempted = code != "PRIVATE_IP_BLOCKED" && code != "INVALID_PROXY";
+            return (result, attempted);
+        }
     };
 
     let connect_timeout = Duration::from_secs(PER_ENTRY_TIMEOUT_SECS);
@@ -550,12 +556,9 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
                     let connector = match crate::proxy_tls::tls_connector() {
                         Ok(c) => c,
                         Err(err) => {
-                            return proxy_result(
-                                entry,
-                                started,
-                                false,
-                                false,
-                                Some(err.to_string()),
+                            return (
+                                proxy_result(entry, started, false, false, Some(err.to_string())),
+                                true,
                             );
                         }
                     };
@@ -563,12 +566,9 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
                     {
                         Ok(name) => name,
                         Err(err) => {
-                            return proxy_result(
-                                entry,
-                                started,
-                                false,
-                                false,
-                                Some(err.to_string()),
+                            return (
+                                proxy_result(entry, started, false, false, Some(err.to_string())),
+                                true,
                             );
                         }
                     };
@@ -649,7 +649,8 @@ async fn check_single_entry(entry: &ProxyEntry) -> ProxyResult {
         }
     };
 
-    proxy_result(entry, started, reachable, supports_https, error)
+    let result = proxy_result(entry, started, reachable, supports_https, error);
+    (result, true)
 }
 
 /// Runs every entry of `job` through `check_single_entry`, persisting
@@ -673,6 +674,7 @@ pub async fn run_proxy_check_job<R>(
     mut job: ProxyCheckJob,
     entries: Vec<ProxyEntry>,
     worker_id: &str,
+    metering: Option<Arc<MeterUsageUseCase>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     R: ProxyCheckJobRepository + ?Sized,
@@ -696,28 +698,89 @@ where
         return Ok(());
     }
 
+    let persisted_successes = entries
+        .iter()
+        .filter(|e| e.result().is_some_and(|r| r.reachable))
+        .count() as u32;
+    let persisted_failures = entries
+        .iter()
+        .filter(|e| e.result().is_some_and(|r| !r.reachable))
+        .count() as u32;
+    job.rebuild_progress(persisted_successes, persisted_failures);
+
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CHECKS_PER_JOB));
     let mut tasks = JoinSet::new();
     for entry in entries {
+        let had_existing_result = entry.result().is_some();
         let semaphore = Arc::clone(&semaphore);
+        let metering = metering.clone();
+        let job_for_task = job.clone();
+
         tasks.spawn(async move {
             let _permit = semaphore
                 .acquire_owned()
                 .await
                 .expect("semaphore remains open");
             let mut entry = entry;
-            let result = check_single_entry(&entry).await;
+            let entry_id = entry.id();
+            let job_id = job_for_task.id();
+            let (result, billing_blocked) = if let Some(metering) = metering.clone() {
+                let request_id = format!("proxy-check:{}:{}", job_id, entry_id);
+                if had_existing_result && metering.find_by_request(job_for_task.tenant_id().0, &request_id).await?.is_some() {
+                    (entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("PAYG execution was already finalized".to_owned()))), false)
+                } else {
+                match metering.execute_classified_attempt_with_output(
+                    MeterUsageInput {
+                        tenant_id: job_for_task.tenant_id().0,
+                        operation: "proxy_check".to_owned(),
+                        units: 1,
+                        request_id,
+                    },
+                    || async {
+                        if had_existing_result {
+                            let result = entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("persisted proxy result missing".to_owned())));
+                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted: true, error: None }, result))
+                        } else {
+                            let (result, attempted) = check_single_entry(&entry).await;
+                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted, error: None }, result))
+                        }
+                    },
+                ).await {
+                    Ok((_, Some(result))) => (result, false),
+                    Ok((_, None)) => {
+                        (entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("PAYG execution was already finalized".to_owned()))), false)
+                    }
+                    Err(application::ChargeForUsageError::InsufficientBalance) => {
+                        let result = entry.result().cloned().unwrap_or_else(|| proxy_result(
+                            &entry, Instant::now(), false, false,
+                            Some("PAYG balance exhausted; top up the wallet to resume proxy checks".to_owned()),
+                        ));
+                        (result, true)
+                    }
+                    Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
+                        let result = proxy_result(&entry, Instant::now(), false, false, Some(reason));
+                        (result, false)
+                    }
+                    Err(err) => return Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                }
+                }
+            } else {
+                let (result, _) = check_single_entry(&entry).await;
+                (result, false)
+            };
             entry.set_result(result);
-            entry
+            Ok((entry, !had_existing_result, billing_blocked))
         });
     }
 
     let mut fatal_reason: Option<String> = None;
+    let mut billing_blocked = false;
     let heartbeat_every = Duration::from_secs(15);
 
     loop {
         match timeout(heartbeat_every, tasks.join_next()).await {
-            Ok(Some(Ok(entry))) => {
+            Ok(Some(Ok(Ok((entry, should_count, entry_billing_blocked))))) => {
+                billing_blocked |= entry_billing_blocked;
                 if let Err(err) = repository.update_entry(&entry, job.tenant_id()).await {
                     fatal_reason.get_or_insert_with(|| {
                         format!("failed to persist proxy entry result: {err}")
@@ -726,7 +789,9 @@ where
                     continue;
                 }
 
-                job.record_result(entry.result().is_some_and(|r| r.reachable));
+                if should_count {
+                    job.record_result(entry.result().is_some_and(|r| r.reachable));
+                }
 
                 // Persist progress periodically rather than once per proxy;
                 // the entry result itself is already durably stored. This keeps
@@ -762,9 +827,14 @@ where
                     }
                 }
             }
+            Ok(Some(Ok(Err(err)))) => {
+                fatal_reason.get_or_insert_with(|| format!("proxy entry task failed: {err}"));
+                warn!(job_id=%job.id(), error=%err, "proxy entry task failed");
+            }
             Ok(Some(Err(join_err))) => {
-                fatal_reason.get_or_insert_with(|| format!("proxy entry task failed: {join_err}"));
-                warn!(job_id=%job.id(), error=%join_err, "proxy entry task failed");
+                fatal_reason
+                    .get_or_insert_with(|| format!("proxy entry task join failed: {join_err}"));
+                warn!(job_id=%job.id(), error=%join_err, "proxy entry task join failed");
             }
             Ok(None) => break,
             Err(_) => match repository.heartbeat(job.id(), worker_id).await {
@@ -781,6 +851,14 @@ where
                 }
             },
         }
+    }
+
+    if billing_blocked {
+        // Keep the durable job Running when one or more entries were blocked by
+        // insufficient PAYG balance. The lease will expire, stale-job recovery
+        // will return it to Pending, and a later sweep can retry after top-up.
+        repository.update_job(&job).await?;
+        return Ok(());
     }
 
     if let Some(reason) = fatal_reason {
@@ -845,7 +923,7 @@ mod tests {
             .await
             .unwrap();
 
-        run_proxy_check_job(&repo, running_job, entries, "test-worker")
+        run_proxy_check_job(&repo, running_job, entries, "test-worker", None)
             .await
             .unwrap();
 

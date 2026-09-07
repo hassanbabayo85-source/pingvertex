@@ -11,9 +11,10 @@ use infra::{
     PostgresEscalationPolicyRepository, PostgresHistoryRetentionRepository,
     PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
-    PostgresPAYGPricingRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository, PostgresTenantRepository,
-    PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
+    PostgresPAYGPricingRepository, PostgresPricingConfigRepository,
+    PostgresProxyCheckJobRepository, PostgresSchedulingRepository, PostgresStatusPageRepository,
+    PostgresSubscriptionRepository, PostgresTenantRepository, PostgresUsageEventRepository,
+    RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -254,6 +255,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         tenant_repository,
         subscription_repository,
         history_retention_repository,
+        Arc::new(PostgresPricingConfigRepository::new(pool.clone())),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,

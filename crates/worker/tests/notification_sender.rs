@@ -57,7 +57,7 @@ fn make_monitor(tenant_id: TenantId) -> Monitor {
         url: "https://example.com".to_string(),
         method: HttpMethod::Get,
         expected_status: 200,
-        interval_seconds: 60,
+        interval_seconds: 300,
         timeout_seconds: 10,
         regions: vec![],
         kind: MonitorKind::Http,

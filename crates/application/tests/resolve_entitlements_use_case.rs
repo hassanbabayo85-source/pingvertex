@@ -17,9 +17,9 @@ async fn defaults_to_free_plan_when_no_subscription_exists() {
         .unwrap();
 
     assert_eq!(plan.tier, PlanTier::Free);
-    assert_eq!(plan.max_monitors, 5);
-    assert_eq!(plan.min_check_interval_seconds, 600);
-    assert_eq!(plan.history_retention_days, 1);
+    assert_eq!(plan.max_monitors, 20);
+    assert_eq!(plan.min_check_interval_seconds, 300);
+    assert_eq!(plan.history_retention_days, 2);
 }
 
 #[tokio::test]
@@ -123,4 +123,27 @@ async fn canceled_subscription_falls_back_to_free_plan() {
         .unwrap();
 
     assert_eq!(plan.tier, PlanTier::Free);
+}
+
+#[tokio::test]
+async fn free_entitlements_follow_active_database_pricing_config() {
+    let subscription_repository = InMemorySubscriptionRepository::new();
+    let pricing_repository = infra::InMemoryPricingConfigRepository::default().with_config({
+        let mut config = domain::pricing::PricingConfig::default_config();
+        config.free_tier.monitors = 7;
+        config.free_tier.interval_seconds = 420;
+        config.free_tier.retention_days = 4;
+        config
+    });
+    let tenant_id = TenantId::new();
+
+    let plan = ResolveEntitlementsUseCase::new(subscription_repository)
+        .with_pricing_config_repository(std::sync::Arc::new(pricing_repository))
+        .execute(ResolveEntitlements { tenant_id })
+        .await
+        .unwrap();
+
+    assert_eq!(plan.max_monitors, 7);
+    assert_eq!(plan.min_check_interval_seconds, 420);
+    assert_eq!(plan.history_retention_days, 4);
 }

@@ -6,6 +6,7 @@ use domain::{Check, CheckStatus, ErrorType, Monitor, MonitorKind};
 use tracing::{error, info};
 
 use crate::check_error_mapping::map_check_error_kind_to_error_type;
+use crate::durable_scheduler::CheckExecution;
 use crate::incident_evaluator::IncidentEvaluator;
 use crate::tcp_checker::check_tcp_outcome;
 
@@ -36,7 +37,7 @@ impl TcpCheckExecutor {
 
 #[async_trait]
 impl crate::durable_scheduler::CheckExecutor for TcpCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<()> {
+    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         if monitor.kind != MonitorKind::Tcp {
             return Err(format!(
                 "TcpCheckExecutor only supports TCP monitors, got {:?}",
@@ -45,7 +46,10 @@ impl crate::durable_scheduler::CheckExecutor for TcpCheckExecutor {
             .into());
         }
 
-        let outcome = check_tcp_outcome(monitor).await?;
+        let outcome = match check_tcp_outcome(monitor).await {
+            Ok(outcome) => outcome,
+            Err(err) => return Ok(CheckExecution::failed(false, err.to_string())),
+        };
 
         let status_code = outcome.result.status_code;
         let latency_ms = outcome.result.latency_ms;
@@ -75,7 +79,12 @@ impl crate::durable_scheduler::CheckExecutor for TcpCheckExecutor {
             error_message,
         );
 
-        self.check_repository.save(&check).await?;
+        if let Err(err) = self.check_repository.save(&check).await {
+            return Ok(CheckExecution::failed(
+                outcome.attempted,
+                format!("failed to persist check: {err}"),
+            ));
+        }
 
         info!(
             monitor_id = %monitor.id.0,
@@ -98,6 +107,9 @@ impl crate::durable_scheduler::CheckExecutor for TcpCheckExecutor {
             );
         }
 
-        Ok(())
+        Ok(CheckExecution {
+            attempted: outcome.attempted,
+            error: None,
+        })
     }
 }

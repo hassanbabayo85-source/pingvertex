@@ -5,7 +5,9 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    ports::{AuditLogEntryRepository, MonitorRepository, SubscriptionRepository},
+    ports::{
+        AuditLogEntryRepository, MonitorRepository, PricingConfigRepository, SubscriptionRepository,
+    },
     queries::ResolveEntitlements,
     use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
 };
@@ -23,6 +25,7 @@ pub struct UpdateMonitorUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
+    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -37,6 +40,7 @@ where
             repository,
             audit_log_entry_repository,
             subscription_repository: None,
+            pricing_config_repository: None,
         }
     }
 
@@ -47,6 +51,14 @@ where
         subscription_repository: Arc<dyn SubscriptionRepository>,
     ) -> Self {
         self.subscription_repository = Some(subscription_repository);
+        self
+    }
+
+    pub fn with_pricing_config_repository(
+        mut self,
+        repository: Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.pricing_config_repository = Some(repository);
         self
     }
 
@@ -75,9 +87,16 @@ where
         // Resolve min interval (plan or fallback)
         let min_interval = match &self.subscription_repository {
             Some(repo) => {
-                let plan = ResolveEntitlementsUseCase::new(repo.clone())
-                    .execute(ResolveEntitlements { tenant_id })
-                    .await?;
+                let plan = {
+                    let mut resolver = ResolveEntitlementsUseCase::new(repo.clone());
+
+                    if let Some(pricing) = &self.pricing_config_repository {
+                        resolver = resolver.with_pricing_config_repository(pricing.clone());
+                    }
+
+                    resolver.execute(ResolveEntitlements { tenant_id }).await?
+                };
+
                 plan.min_check_interval_seconds
             }
             None => CheckInterval::MIN,
@@ -153,6 +172,7 @@ where
             }),
             created_at: Utc::now(),
         };
+
         self.audit_log_entry_repository.create(&entry).await?;
 
         Ok(Some(monitor))

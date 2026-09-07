@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
@@ -71,6 +71,7 @@ pub struct FlowStepOutcome {
     pub step_order: u16,
     pub step_name: String,
     pub passed: bool,
+    pub attempted: bool,
     pub status_code: Option<u16>,
     pub error: Option<String>,
     pub assertion_results: Vec<domain::value_objects::AssertionEvaluationResult>,
@@ -132,12 +133,14 @@ pub async fn execute_flow_with_resolver(
     // KAFIN a fara aiwatar da kowanne step, don haka idan timeout ya kama
     // mu a tsakiyar wani step, mun san wanne ne.
     let in_flight_step: Arc<AtomicU16> = Arc::new(AtomicU16::new(0));
+    let in_flight_attempted: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     let run = run_all_steps(
         flow,
         resolver,
         Arc::clone(&outcomes_so_far),
         Arc::clone(&in_flight_step),
+        Arc::clone(&in_flight_attempted),
     );
 
     match tokio::time::timeout(Duration::from_secs(FLOW_TOTAL_TIMEOUT_SECS), run).await {
@@ -180,6 +183,7 @@ pub async fn execute_flow_with_resolver(
                 step_order: stalled_step,
                 step_name: stalled_name,
                 passed: false,
+                attempted: in_flight_attempted.load(Ordering::Acquire),
                 status_code: None,
                 error: Some("flow exceeded 60s total timeout".to_string()),
                 assertion_results: Vec::new(),
@@ -210,13 +214,16 @@ async fn run_all_steps(
     resolver: &DestinationResolverFn,
     outcomes_so_far: Arc<Mutex<Vec<FlowStepOutcome>>>,
     in_flight_step: Arc<AtomicU16>,
+    in_flight_attempted: Arc<AtomicBool>,
 ) {
     let mut results: HashMap<u16, StepResult> = HashMap::new();
 
     for step in flow.steps() {
         in_flight_step.store(step.order, Ordering::SeqCst);
+        in_flight_attempted.store(false, Ordering::Release);
 
-        let (outcome, step_result) = execute_step(step, &results, resolver).await;
+        let (outcome, step_result) =
+            execute_step(step, &results, resolver, Arc::clone(&in_flight_attempted)).await;
 
         if let Some(step_result) = step_result {
             results.insert(step.order, step_result);
@@ -236,6 +243,7 @@ async fn run_all_steps(
     }
 
     in_flight_step.store(0, Ordering::SeqCst);
+    in_flight_attempted.store(false, Ordering::Release);
 }
 
 /// Aiwatar da step guda ɗaya kaɗai: resolve placeholders -> SSRF guard ->
@@ -249,6 +257,7 @@ async fn execute_step(
     step: &domain::entities::ApiFlowStep,
     results: &HashMap<u16, StepResult>,
     resolver: &DestinationResolverFn,
+    in_flight_attempted: Arc<AtomicBool>,
 ) -> (FlowStepOutcome, Option<StepResult>) {
     let step_name = step.name.as_str().to_string();
 
@@ -256,6 +265,7 @@ async fn execute_step(
         step_order: step.order,
         step_name: step_name.clone(),
         passed: false,
+        attempted: false,
         status_code: None,
         error: Some(error),
         assertion_results: Vec::new(),
@@ -329,6 +339,7 @@ async fn execute_step(
     }
 
     let started = Instant::now();
+    in_flight_attempted.store(true, Ordering::Release);
     let response = request_builder.send().await;
     let latency = started.elapsed().as_millis();
 
@@ -402,6 +413,7 @@ async fn execute_step(
         FlowStepOutcome {
             step_order: step.order,
             step_name,
+            attempted: true,
             passed: all_passed,
             status_code: Some(status),
             error,

@@ -586,6 +586,17 @@ pub fn ProxyChecksPage() -> impl IntoView {
                             <span><strong>{current.failed_count}</strong>" Failed"</span>
                             <span><strong>{format!("{}%", progress)}</strong>" Progress"</span>
                         </div>
+                        {if status == "failed" {
+                            current.failure_code.clone().map(|code| {
+                                let message = match code.as_str() {
+                                    "PAYG_BALANCE_EXHAUSTED" => "PAYG balance exhausted. Top up the wallet to resume proxy checks.",
+                                    _ => "The proxy check job failed. Refresh to see whether it can be retried.",
+                                };
+                                view! { <div class="error" role="alert">{message}</div> }
+                            }).into_any()
+                        } else {
+                            ().into_any()
+                        }}
                     </section>
                 }
             })}

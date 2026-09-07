@@ -22,8 +22,9 @@ use domain::{
 use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryNotificationOutboxRepository, InMemoryProxyCheckJobRepository,
-    InMemoryStatusPageRepository, InMemorySubscriptionRepository, InMemoryTenantRepository,
+    InMemoryNotificationOutboxRepository, InMemoryPricingConfigRepository,
+    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemorySubscriptionRepository,
+    InMemoryTenantRepository,
 };
 use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, OutboxWorker,
@@ -232,6 +233,7 @@ async fn retention_worker_stops_gracefully_on_cancellation() {
         Arc::new(InMemoryTenantRepository::new()),
         Arc::new(InMemorySubscriptionRepository::new()),
         Arc::new(InMemoryHistoryRetentionRepository::new()),
+        Arc::new(InMemoryPricingConfigRepository::default()),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         Duration::from_millis(10),
         2,

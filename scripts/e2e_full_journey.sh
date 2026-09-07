@@ -144,6 +144,23 @@ else
 fi
 
 # ---------------------------------------------------------------------
+step "FREE INTERVAL BOUNDARY"
+if [ "$MONITOR_ID" != "missing" ]; then
+  FREE_299_BODY=$(jq -n '{name:"E2E free-299-rejected", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:10, assertions:[]}')
+  FREE_299_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
+    -H 'Content-Type: application/json' -d "$FREE_299_BODY")
+  require_status "Free 299s monitor should be rejected" "400" "$FREE_299_STATUS"
+
+  FREE_300_BODY=$(jq -n '{name:"E2E free-300-accepted", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:300, timeout_seconds:10, assertions:[]}')
+  FREE_300_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/monitors" \
+    -H 'Content-Type: application/json' -d "$FREE_300_BODY")
+  FREE_300_STATUS=$(echo "$FREE_300_RESP" | tail -1)
+  require_status "Free 300s monitor should be accepted" "201" "$FREE_300_STATUS"
+else
+  fail "skipped FREE INTERVAL BOUNDARY because monitor id is missing"
+fi
+
+# ---------------------------------------------------------------------
 step "CHECK + HISTORY (UP)"
 if [ "$MONITOR_ID" != "missing" ]; then
   FOUND_UP=false
@@ -271,7 +288,7 @@ fi
 # ---------------------------------------------------------------------
 step "ENTITLEMENT CHANGE"
 if [ "$CHECKOUT_STATUS" = "200" ] && [ "${VERIFY_CHECKOUT_STATUS:-}" = "200" ]; then
-  FAST_MONITOR_BODY=$(jq -n '{name:"E2E fast", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:60, timeout_seconds:5, assertions:[]}')
+  FAST_MONITOR_BODY=$(jq -n '{name:"E2E fast", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:5, assertions:[]}')
   FAST_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
     -H 'Content-Type: application/json' -d "$FAST_MONITOR_BODY")
   require_status "create monitor at Tier1 min interval (60s) after upgrade" "201" "$FAST_STATUS"
@@ -282,7 +299,7 @@ fi
 # ---------------------------------------------------------------------
 step "QUOTA (duplicate submit)"
 if [ "$MONITOR_ID" != "missing" ]; then
-  DUP_MONITOR_BODY=$(jq -n '{name:"E2E dup", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:60, timeout_seconds:5, assertions:[]}')
+  DUP_MONITOR_BODY=$(jq -n '{name:"E2E dup", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:5, assertions:[]}')
   DUP_STATUS1=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
     -H 'Content-Type: application/json' -d "$DUP_MONITOR_BODY")
   sleep 1
@@ -337,10 +354,10 @@ fi
 step "EXPIRED SUBSCRIPTION / DOWNGRADE EFFECT"
 if [ -n "$TENANT_ID" ]; then
   sleep 2
-  EXPIRED_MONITOR_BODY=$(jq -n '{name:"E2E should fail", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:60, timeout_seconds:5, assertions:[]}')
+  EXPIRED_MONITOR_BODY=$(jq -n '{name:"E2E should fail", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:5, assertions:[]}')
   EXPIRED_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
     -H 'Content-Type: application/json' -d "$EXPIRED_MONITOR_BODY")
-  require_status "create 60s monitor after downgrade should fail (Free plan min 600)" "400" "$EXPIRED_STATUS"
+  require_status "create 299s monitor after downgrade should fail (Free plan min 300)" "400" "$EXPIRED_STATUS"
 else
   fail "tenant_id missing; cannot test expired subscription"
 fi

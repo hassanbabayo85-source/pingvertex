@@ -92,6 +92,9 @@ impl ApiError {
             application::ChargeForUsageError::OperationFailed(message) => {
                 Self::internal_with_source("metered operation failed", message)
             }
+            application::ChargeForUsageError::OperationNotAttempted(message) => {
+                Self::bad_request(message)
+            }
             application::ChargeForUsageError::NoPricing
             | application::ChargeForUsageError::InvalidPricing(_) => {
                 Self::internal("PAYG pricing is unavailable")

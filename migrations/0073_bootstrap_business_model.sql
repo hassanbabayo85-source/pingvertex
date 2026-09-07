@@ -36,11 +36,11 @@ ALTER TABLE checkout_sessions
     ADD CONSTRAINT chk_checkout_sessions_plan_tier
     CHECK (plan_tier IN ('free', 'starter', 'pro', 'business', 'enterprise'));
 
--- Bootstrap-safe Free tier: 5 monitors, 10-minute checks, 24-hour retention.
+-- Bootstrap-safe Free tier: 20 monitors, 5-minute checks, 2-day retention.
 UPDATE pricing_configs
-SET free_monitors = 5,
-    free_interval_seconds = 600,
-    free_retention_days = 1
+SET free_monitors = 20,
+    free_interval_seconds = 300,
+    free_retention_days = 2
 WHERE version = (SELECT MAX(version) FROM pricing_configs);
 
 COMMIT;

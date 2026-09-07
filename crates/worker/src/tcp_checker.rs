@@ -16,6 +16,7 @@ type OutcomeResult = std::result::Result<TcpCheckOutcome, Box<dyn std::error::Er
 pub struct TcpCheckOutcome {
     pub result: CheckResult,
     pub error_kind: CheckErrorKind,
+    pub attempted: bool,
 }
 
 impl TcpCheckOutcome {
@@ -23,6 +24,20 @@ impl TcpCheckOutcome {
         Self {
             result: CheckResult::success(region, 0, latency_ms),
             error_kind: CheckErrorKind::Unknown,
+            attempted: true,
+        }
+    }
+
+    fn failure_attempted(
+        region: RegionCode,
+        latency_ms: u128,
+        error_kind: CheckErrorKind,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            result: CheckResult::failure(region, latency_ms, error),
+            error_kind,
+            attempted: true,
         }
     }
 
@@ -35,6 +50,7 @@ impl TcpCheckOutcome {
         Self {
             result: CheckResult::failure(region, latency_ms, error),
             error_kind,
+            attempted: false,
         }
     }
 }
@@ -91,13 +107,13 @@ pub async fn check_tcp_outcome(monitor: &Monitor) -> OutcomeResult {
             RegionCode::default_region(),
             latency_ms,
         )),
-        Ok(Err(err)) => Ok(TcpCheckOutcome::failure(
+        Ok(Err(err)) => Ok(TcpCheckOutcome::failure_attempted(
             RegionCode::default_region(),
             latency_ms,
             CheckErrorKind::ConnectionError,
             format!("TCP connection failed: {err}"),
         )),
-        Err(_) => Ok(TcpCheckOutcome::failure(
+        Err(_) => Ok(TcpCheckOutcome::failure_attempted(
             RegionCode::default_region(),
             latency_ms,
             CheckErrorKind::Timeout,

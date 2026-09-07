@@ -1,9 +1,0 @@
-rust-s3|0.37.2|REJECTED|security-not-resolved
-aws-creds|0.39.1|REJECTED|security-not-resolved
-chrono|0.4.45|ACCEPTED|security-improvement
-hashbrown|0.17.1|ACCEPTED|security-improvement
-litemap|0.8.3|ACCEPTED|security-improvement
-rust_decimal|1.42.1|ACCEPTED|security-improvement
-lettre|0.11.23|ACCEPTED|security-improvement
-rcgen|0.14.10|ACCEPTED|security-improvement
-sqlx|0.8.6|ACCEPTED|security-improvement

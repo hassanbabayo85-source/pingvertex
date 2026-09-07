@@ -302,27 +302,51 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
     );
 }
 
-
 #[tokio::test]
 async fn monitoring_attempt_is_billed_when_operation_fails() {
     let (wallet, pricing, usage, tenant) = setup(25, 12);
     wallet.get_or_create(tenant, "USD").await.unwrap();
-    wallet.credit(tenant, 100, domain::WalletTransactionType::TopUp, "attempt-topup", None).await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "attempt-topup",
+            None,
+        )
+        .await
+        .unwrap();
 
     let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
-    let result = uc.execute_attempt(
-        ChargeForUsageInput {
-            tenant_id: tenant,
-            operation: "proxy_check".into(),
-            units: 1,
-            request_id: "attempt-failure".into(),
-        },
-        || async { Err::<(), _>("HTTP 500") },
-    ).await;
+    let result = uc
+        .execute_attempt(
+            ChargeForUsageInput {
+                tenant_id: tenant,
+                operation: "proxy_check".into(),
+                units: 1,
+                request_id: "attempt-failure".into(),
+            },
+            || async { Err::<(), _>("HTTP 500") },
+        )
+        .await;
 
-    assert!(matches!(result, Err(ChargeForUsageError::OperationFailed(_))));
-    assert_eq!(wallet.get_or_create(tenant, "USD").await.unwrap().balance_units, 75);
-    let event = usage.find_by_request(tenant, "attempt-failure").await.unwrap().unwrap();
+    assert!(matches!(
+        result,
+        Err(ChargeForUsageError::OperationFailed(_))
+    ));
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        75
+    );
+    let event = usage
+        .find_by_request(tenant, "attempt-failure")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(event.status, "CAPTURED");
     assert_eq!(event.charge_units, 25);
 }
@@ -331,21 +355,287 @@ async fn monitoring_attempt_is_billed_when_operation_fails() {
 async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
     let (wallet, pricing, usage, tenant) = setup(10, 13);
     wallet.get_or_create(tenant, "USD").await.unwrap();
-    wallet.credit(tenant, 100, domain::WalletTransactionType::TopUp, "expiry-topup", None).await.unwrap();
-    wallet.reserve(tenant, 10, "proxy_check", "expiry-retry", Utc::now() - Duration::seconds(1)).await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "expiry-topup",
+            None,
+        )
+        .await
+        .unwrap();
+    wallet
+        .reserve(
+            tenant,
+            10,
+            "proxy_check",
+            "expiry-retry",
+            Utc::now() - Duration::seconds(1),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(wallet.expire_pending_reservations(50).await.unwrap(), 1);
     let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage);
-    let result = uc.execute(
-        ChargeForUsageInput {
-            tenant_id: tenant,
-            operation: "proxy_check".into(),
-            units: 1,
-            request_id: "expiry-retry".into(),
-        },
-        || async { Ok::<_, &'static str>(()) },
-    ).await.unwrap();
+    let result = uc
+        .execute(
+            ChargeForUsageInput {
+                tenant_id: tenant,
+                operation: "proxy_check".into(),
+                units: 1,
+                request_id: "expiry-retry".into(),
+            },
+            || async { Ok::<_, &'static str>(()) },
+        )
+        .await
+        .unwrap();
 
     assert_eq!(result.usage_event.charge_units, 10);
-    assert_eq!(wallet.get_or_create(tenant, "USD").await.unwrap().balance_units, 90);
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        90
+    );
+}
+
+#[tokio::test]
+async fn classified_pre_attempt_failure_releases_reservation_without_debit() {
+    let (wallet, pricing, usage, tenant) = setup(25, 20);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "classified-preflight-topup",
+            None,
+        )
+        .await
+        .unwrap();
+
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
+    let result = uc
+        .execute_classified_attempt(
+            ChargeForUsageInput {
+                tenant_id: tenant,
+                operation: "proxy_check".into(),
+                units: 1,
+                request_id: "classified-preflight".into(),
+            },
+            || async {
+                Ok::<_, &'static str>(application::MeteredAttempt {
+                    attempted: false,
+                    error: Some("SSRF validation blocked the target".into()),
+                })
+            },
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ChargeForUsageError::OperationNotAttempted(_))
+    ));
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        100
+    );
+    assert!(
+        usage
+            .find_by_request(tenant, "classified-preflight")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn classified_attempt_failure_is_captured_and_billed_once() {
+    let (wallet, pricing, usage, tenant) = setup(25, 21);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "classified-attempt-topup",
+            None,
+        )
+        .await
+        .unwrap();
+
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
+    let input = ChargeForUsageInput {
+        tenant_id: tenant,
+        operation: "proxy_check".into(),
+        units: 1,
+        request_id: "classified-attempt".into(),
+    };
+    let result = uc
+        .execute_classified_attempt(input.clone(), || async {
+            Ok::<_, &'static str>(application::MeteredAttempt {
+                attempted: true,
+                error: Some("connection refused".into()),
+            })
+        })
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ChargeForUsageError::OperationFailed(_))
+    ));
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        75
+    );
+
+    let replay = uc
+        .execute_classified_attempt(input, || async {
+            Err::<application::MeteredAttempt, _>(
+                "idempotent replay must not execute the operation",
+            )
+        })
+        .await
+        .unwrap();
+    assert_eq!(replay.0.usage_event.charge_units, 25);
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        75
+    );
+}
+
+#[tokio::test]
+async fn crash_after_attempt_before_capture_is_recoverable_without_double_debit() {
+    let (wallet, pricing, usage, tenant) = setup(10, 22);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "crash-after-attempt-topup",
+            None,
+        )
+        .await
+        .unwrap();
+
+    wallet
+        .reserve(
+            tenant,
+            10,
+            "proxy_check",
+            "crash-after-attempt",
+            Utc::now() - Duration::seconds(1),
+        )
+        .await
+        .unwrap();
+    // The external attempt is assumed to have happened immediately before a
+    // worker crash. The reservation expiry worker makes the durable request
+    // reusable; the retry performs the logical execution once more but still
+    // permits only one ledger debit for the request.
+    wallet.expire_pending_reservations(50).await.unwrap();
+
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
+    let result = uc
+        .execute_classified_attempt(
+            ChargeForUsageInput {
+                tenant_id: tenant,
+                operation: "proxy_check".into(),
+                units: 1,
+                request_id: "crash-after-attempt".into(),
+            },
+            || async {
+                Ok::<_, &'static str>(application::MeteredAttempt {
+                    attempted: true,
+                    error: None,
+                })
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.0.usage_event.charge_units, 10);
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        90
+    );
+}
+
+#[tokio::test]
+async fn concurrent_same_execution_id_can_debit_at_most_once() {
+    let (wallet, pricing, usage, tenant) = setup(10, 23);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "same-execution-topup",
+            None,
+        )
+        .await
+        .unwrap();
+
+    let uc = Arc::new(ChargeForUsageUseCase::new(
+        wallet.clone(),
+        pricing,
+        usage.clone(),
+    ));
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let uc = uc.clone();
+        tasks.push(tokio::spawn(async move {
+            uc.execute_classified_attempt(
+                ChargeForUsageInput {
+                    tenant_id: tenant,
+                    operation: "proxy_check".into(),
+                    units: 1,
+                    request_id: "same-execution".into(),
+                },
+                || async {
+                    Ok::<_, &'static str>(application::MeteredAttempt {
+                        attempted: true,
+                        error: None,
+                    })
+                },
+            )
+            .await
+        }));
+    }
+    for task in tasks {
+        let _ = task.await.unwrap();
+    }
+
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        90
+    );
+    let event = usage
+        .find_by_request(tenant, "same-execution")
+        .await
+        .unwrap();
+    assert!(event.is_some());
 }
