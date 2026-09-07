@@ -6102,3 +6102,52 @@ html[data-theme="dark"] .dashboard-action-notice,
 html[data-theme="dark"] .row-menu-popover { background: var(--pv-surface); border-color: var(--pv-border); }
 html[data-theme="dark"] .metric-icon-monitors { background: var(--pv-primary-soft); }
 html[data-theme="dark"] .topbar-notification-badge { border-color: var(--pv-surface); }
+
+/* =========================================================
+   Dashboard polish pass — appended, does not remove/override
+   any existing rule other than the two explicitly noted below.
+   ========================================================= */
+
+/* Subtle reference gridlines behind the 24h trend charts so an
+   empty/sparse chart (new accounts, freshly-added monitors) reads
+   as "a chart with little data yet" instead of "broken/blank". */
+.trend-grid {
+  stroke: var(--border-subtle, var(--border));
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Overrides the earlier `.trend-point:focus { outline: none; }` rule.
+   Same selector + same specificity, so the rule that appears later in
+   the stylesheet wins — nothing above needs to be touched or deleted.
+   These points have tabindex="0" (they're the keyboard-reachable data
+   markers), so removing the outline entirely left keyboard users with
+   no visible focus indicator. */
+.trend-point:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A little more life on hover for primary surfaces, matching the
+   shadow tokens the design already defines. */
+.card,
+.dashboard-widget {
+  transition: transform var(--transition-standard, 180ms ease),
+              box-shadow var(--transition-standard, 180ms ease);
+}
+.card:hover,
+.dashboard-widget:hover {
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .dashboard-widget {
+    transition: none;
+  }
+  .card:hover,
+  .dashboard-widget:hover {
+    transform: none;
+  }
+}
