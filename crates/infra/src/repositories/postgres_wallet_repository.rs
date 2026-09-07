@@ -117,7 +117,10 @@ const TX_COLUMNS: &str = "id,tenant_id,wallet_id,transaction_type,amount_units,b
 #[async_trait]
 impl WalletRepository for PostgresWalletRepository {
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
-        let mut tx = self.pool.begin().await?;
+        // This endpoint is read-heavy. `FOR UPDATE` here needlessly serialized
+        // concurrent dashboard reads against the wallet row. The unique
+        // tenant constraint makes the insert race-safe; the following plain
+        // SELECT is sufficient because callers are not mutating the wallet.
         sqlx::query(
             "INSERT INTO user_wallets(id,tenant_id,currency) VALUES($1,$2,$3)
              ON CONFLICT(tenant_id) DO NOTHING",
@@ -125,16 +128,15 @@ impl WalletRepository for PostgresWalletRepository {
         .bind(Uuid::new_v4())
         .bind(tenant_id)
         .bind(currency)
-        .execute(&mut *tx)
+        .execute(&self.pool)
         .await?;
         let row = sqlx::query_as::<_, WalletRow>(
             "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
-             FROM user_wallets WHERE tenant_id=$1 FOR UPDATE",
+             FROM user_wallets WHERE tenant_id=$1",
         )
         .bind(tenant_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&self.pool)
         .await?;
-        tx.commit().await?;
         Ok(row.into_domain())
     }
 

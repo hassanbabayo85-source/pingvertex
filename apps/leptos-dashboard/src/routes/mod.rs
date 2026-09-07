@@ -9,6 +9,8 @@ use crate::pages::dashboard_overview::DashboardOverviewPage;
 use crate::pages::escalation::EscalationPage;
 use crate::pages::forgot_password::ForgotPasswordPage;
 use crate::pages::help_center::HelpCenterPage;
+use crate::pages::incident_detail::IncidentDetailPage;
+use crate::pages::incidents::IncidentsPage;
 use crate::pages::invitations::InvitationsPage;
 use crate::pages::invoices::InvoicesPage;
 use crate::pages::login::LoginPage;
@@ -59,6 +61,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("monitors/new") view=MonitorFormPage/>
                     <Route path=path!("monitors/:id") view=MonitorDetailPage/>
                     <Route path=path!("monitors/:id/edit") view=MonitorFormPage/>
+                    <Route path=path!("incidents") view=IncidentsPage/>
+                    <Route path=path!("incidents/:id") view=IncidentDetailPage/>
                     <Route path=path!("proxy-check") view=ProxyChecksPage/>
                     <Route path=path!("proxy-checks") view=ProxyChecksPage/>
                     <Route path=path!("rum") view=RumDashboardPage/>

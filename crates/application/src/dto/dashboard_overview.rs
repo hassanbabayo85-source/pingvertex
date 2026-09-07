@@ -16,8 +16,10 @@ pub struct MonitorSummary {
 pub struct IncidentSummary {
     pub id: String,
     pub monitor_id: String,
+    pub monitor_name: String,
     pub started_at: DateTime<Utc>,
     pub acknowledged_at: Option<DateTime<Utc>>,
+    pub resolved_at: Option<DateTime<Utc>>,
 }
 
 /// Per-monitor overview item shown on the dashboard.
@@ -25,6 +27,7 @@ pub struct IncidentSummary {
 pub struct MonitorOverviewItem {
     pub id: String,
     pub name: String,
+    pub kind: String,
     pub url: String,
     pub enabled: bool,
     pub status: Option<CheckStatus>,
@@ -58,6 +61,13 @@ pub struct DashboardPerformance {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DashboardBadges {
+    pub active_incidents: u32,
+    pub unread_notifications: u32,
+    pub pending_invitations: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DashboardOverview {
     pub monitor_summary: MonitorSummary,
     pub monitors: Vec<MonitorOverviewItem>,
@@ -70,6 +80,7 @@ impl From<&Monitor> for MonitorOverviewItem {
         Self {
             id: monitor.id.0.to_string(),
             name: monitor.name.as_str().to_owned(),
+            kind: format!("{:?}", monitor.kind).to_ascii_lowercase(),
             url: monitor.url.clone(),
             enabled: monitor.enabled,
             status: None,
@@ -85,8 +96,10 @@ impl From<&Incident> for IncidentSummary {
         Self {
             id: incident.id.0.to_string(),
             monitor_id: incident.monitor_id.0.to_string(),
+            monitor_name: String::new(),
             started_at: incident.started_at,
             acknowledged_at: incident.acknowledged_at,
+            resolved_at: incident.resolved_at,
         }
     }
 }

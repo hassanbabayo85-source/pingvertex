@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domain::shared::ids::TenantId;
 
-use crate::dto::DashboardOverview;
+use crate::dto::{DashboardBadges, DashboardOverview};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -12,6 +12,8 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 #[async_trait]
 pub trait DashboardRepository: Send + Sync {
     async fn get_overview(&self, tenant_id: TenantId) -> RepoResult<DashboardOverview>;
+
+    async fn get_badges(&self, tenant_id: TenantId) -> RepoResult<DashboardBadges>;
 }
 
 #[async_trait]
@@ -21,5 +23,9 @@ where
 {
     async fn get_overview(&self, tenant_id: TenantId) -> RepoResult<DashboardOverview> {
         (**self).get_overview(tenant_id).await
+    }
+
+    async fn get_badges(&self, tenant_id: TenantId) -> RepoResult<DashboardBadges> {
+        (**self).get_badges(tenant_id).await
     }
 }

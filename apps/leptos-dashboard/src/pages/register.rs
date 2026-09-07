@@ -1,4 +1,5 @@
 use crate::auth::api;
+use crate::auth::oauth::OAuthButtons;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -66,6 +67,8 @@ pub fn RegisterPage() -> impl IntoView {
                 }}
 
                 {move || error.get().map(|e| view! { <div class="form-error">{e}</div> })}
+
+                <OAuthButtons/>
 
                 <div class="auth-links">
                     <a href="/login">"Already have an account? Sign in"</a>

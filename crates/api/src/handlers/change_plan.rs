@@ -84,6 +84,19 @@ pub async fn change_plan(
             serde_json::json!({"new_plan":tier.as_str(),"amount":o.calculated_amount.to_string()}),
         ))
         .await;
+    if o.applied && o.calculated_amount < rust_decimal::Decimal::ZERO {
+        let _ = s
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                u.user_id().0.to_string(),
+                Some(u.tenant_context().tenant_id().0),
+                "wallet_credited",
+                "subscription_plan_change",
+                Some(o.plan_change_id.to_string()),
+                serde_json::json!({"amount":(-o.calculated_amount).to_string(),"reason":"downgrade_proration"}),
+            ))
+            .await;
+    }
     Ok((
         StatusCode::OK,
         Json(ChangePlanResponse {
@@ -118,6 +131,17 @@ pub async fn verify_plan_change(
         .await
         .map_err(err)?;
     if o.applied {
+        let _ = s
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                u.user_id().0.to_string(),
+                Some(u.tenant_context().tenant_id().0),
+                "payment_verified",
+                "checkout_session",
+                Some(r.checkout_session_id.to_string()),
+                serde_json::json!({"status":"completed"}),
+            ))
+            .await;
         let _ = s
             .financial_audit_log_repository
             .create(&domain::FinancialAuditLogEntry::new(

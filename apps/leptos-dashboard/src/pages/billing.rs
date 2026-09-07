@@ -26,6 +26,7 @@ pub fn BillingPage() -> impl IntoView {
     let quote_busy = RwSignal::new(false);
     let checkout_busy = RwSignal::new(false);
     let verify_busy = RwSignal::new(false);
+    let initial_loading = RwSignal::new(true);
 
     let can = move || match auth.state.get() {
         AuthState::Authenticated(u) => can_bill(&u.role),
@@ -33,6 +34,10 @@ pub fn BillingPage() -> impl IntoView {
     };
 
     Effect::new(move |_| {
+        if !can() {
+            initial_loading.set(false);
+            return;
+        }
         spawn_local(async move {
             match billing::summary().await {
                 Ok(v) => summary.set(Some(v)),
@@ -46,6 +51,7 @@ pub fn BillingPage() -> impl IntoView {
                 Ok(v) => plans.set(v),
                 Err(e) => error.set(Some(e.to_string())),
             }
+            initial_loading.set(false);
         })
     });
 
@@ -155,10 +161,24 @@ pub fn BillingPage() -> impl IntoView {
     };
 
     view! {
-        <div class="feature-page">
-            <header class="page-header"><div><span class="eyebrow">"Subscription"</span><h1>"Billing"</h1></div></header>
-            {move || error.get().map(|e| view! { <div class="error">{e}</div> })}
-            {move || notice.get().map(|n| view! { <div class="success">{n}</div> })}
+        <div class="feature-page billing-page">
+            <header class="page-header"><div><span class="eyebrow">"Subscription"</span><h1>"Billing"</h1><p class="page-subtitle">"Manage your plan, checkout, and billing details in one place."</p></div></header>
+            {move || if !can() {
+                view! { <div class="empty-state" role="status">
+                    <h2>"Billing access required"</h2>
+                    <p>"Only the tenant owner can manage subscription and checkout settings."</p>
+                </div> }.into_any()
+            } else {
+                ().into_any()
+            }}
+            {move || error.get().map(|e| view! { <div class="error" role="alert" aria-live="assertive">{e}</div> })}
+            {move || notice.get().map(|n| view! { <div class="success" role="status" aria-live="polite">{n}</div> })}
+
+            {move || if can() && initial_loading.get() {
+                view! { <div class="loading" role="status" aria-live="polite">"Loading billing…"</div> }.into_any()
+            } else {
+                ().into_any()
+            }}
 
             <section class="card">
                 <div class="section-heading"><h2>"Current billing"</h2><span class="muted">"Pricing is authoritative on the server."</span></div>
@@ -168,7 +188,7 @@ pub fn BillingPage() -> impl IntoView {
                         <div class="card"><span class="card-label">"Add-ons"</span><span class="card-value">{format!("{} {}",s.add_ons_total,s.currency)}</span></div>
                         <div class="card"><span class="card-label">"Total"</span><span class="card-value">{format!("{} {}",s.total,s.currency)}</span></div>
                     </div> }.into_any(),
-                    None => view! { <div class="loading">"Loading billing…"</div> }.into_any(),
+                    None => view! { <div class="empty-state"><h3>"No billing summary"</h3><p>"Billing data is not available yet."</p></div> }.into_any(),
                 }}
             </section>
 

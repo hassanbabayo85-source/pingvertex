@@ -12,10 +12,10 @@ use application::ports::{
     LogoStorage, MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
     NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider, PaymentRepository,
     PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository, RateLimiter,
-    RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SecretCipher,
-    SmsProviderPricing, StatusPageCache, StatusPageRepository, SubscriptionRepository,
-    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
-    UsageEventRepository, WalletRepository,
+    RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository,
+    SchedulingRepository, SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
+    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
+    SupportTicketRepository, UsageEventRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -28,7 +28,7 @@ use domain::shared::ids::{ApiKeyId, CheckoutSessionId, MonitorId, StatusPageId, 
 use domain::{CheckoutSession, EscalationPolicy, MaintenanceWindow};
 use infra::{Argon2PasswordHasher, UuidIdGenerator};
 
-use application::dto::DashboardOverview;
+use application::dto::{DashboardBadges, DashboardOverview};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -71,6 +71,7 @@ pub struct AppState {
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
     pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
+    pub scheduling_repository: Arc<dyn SchedulingRepository>,
     /// B34: backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
     /// healthy) until `with_health_check_port` substitutes a real check —
     /// see `main.rs`, which wires `infra::PostgresHealthCheck`.
@@ -140,6 +141,42 @@ impl DashboardRepository for NoopDashboardRepository {
                 trend: Vec::new(),
             },
         })
+    }
+
+    async fn get_badges(&self, _tenant_id: TenantId) -> RepoResult<DashboardBadges> {
+        Ok(DashboardBadges {
+            active_incidents: 0,
+            unread_notifications: 0,
+            pending_invitations: 0,
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSchedulingRepository;
+
+#[async_trait]
+impl SchedulingRepository for NoopSchedulingRepository {
+    async fn claim_due_monitors(
+        &self,
+        _limit: u32,
+        _lease_owner: uuid::Uuid,
+        _lease_duration: std::time::Duration,
+        _now: DateTime<Utc>,
+    ) -> RepoResult<Vec<domain::Monitor>> {
+        Ok(Vec::new())
+    }
+
+    async fn complete_claim(&self, _monitor_id: MonitorId) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn request_immediate_checks(&self, _tenant_id: TenantId) -> RepoResult<u64> {
+        Ok(0)
+    }
+
+    async fn recover_expired_leases(&self, _now: DateTime<Utc>) -> RepoResult<u64> {
+        Ok(0)
     }
 }
 
@@ -1189,6 +1226,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
+            scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
             subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
@@ -1283,6 +1321,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
+            scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
             subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
@@ -1371,6 +1410,14 @@ impl AppState {
         R: AgentLeaseRepository + 'static,
     {
         self.agent_lease_repository = Some(Arc::new(agent_lease_repository));
+        self
+    }
+
+    pub fn with_scheduling_repository<R>(mut self, scheduling_repository: R) -> Self
+    where
+        R: SchedulingRepository + 'static,
+    {
+        self.scheduling_repository = Arc::new(scheduling_repository);
         self
     }
 

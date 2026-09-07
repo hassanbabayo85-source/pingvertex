@@ -30,6 +30,8 @@ pub async fn oauth_apple(
         state.password_hasher.clone(),
         state.token_service.clone(),
         state.registration_transaction.clone(),
+        state.oauth_identity_repository.clone(),
+        "apple",
     );
 
     let response = use_case.execute(identity).await.map_err(|err| {

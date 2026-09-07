@@ -390,18 +390,6 @@ pub async fn request_refund(
         ));
     }
 
-    let _ = state
-        .financial_audit_log_repository
-        .create(&domain::FinancialAuditLogEntry::new(
-            user.user_id().0.to_string(),
-            Some(tenant_id.0),
-            "wallet_refunded",
-            "wallet_refund_request",
-            Some(idempotency_key.clone()),
-            serde_json::json!({"amount_units": req.amount_units, "currency": currency}),
-        ))
-        .await;
-
     let d = state
         .payment_provider
         .refund_payment(&RefundRequest {

@@ -1,4 +1,5 @@
 use crate::api::client::{self, ApiError};
+use js_sys::encode_uri_component;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -139,7 +140,19 @@ pub async fn summary() -> Result<BillingSummary, ApiError> {
     client::get_json("/billing/summary").await
 }
 pub async fn quote(req: &QuoteRequest) -> Result<Quote, ApiError> {
-    client::post_json("/billing/quote", req).await
+    let path = format!(
+        "/billing/quote?monitors={}&interval_seconds={}&retention_days={}",
+        encode_uri_component(&req.monitors.to_string())
+            .as_string()
+            .unwrap_or_default(),
+        encode_uri_component(&req.interval_seconds.to_string())
+            .as_string()
+            .unwrap_or_default(),
+        encode_uri_component(&req.retention_days.to_string())
+            .as_string()
+            .unwrap_or_default(),
+    );
+    client::get_json(&path).await
 }
 pub async fn checkout(plan_tier: &str) -> Result<CheckoutResponse, ApiError> {
     client::post_json(

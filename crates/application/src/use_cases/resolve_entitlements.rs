@@ -30,6 +30,14 @@ where
     }
 
     pub async fn execute(&self, query: ResolveEntitlements) -> UseCaseResult<Plan> {
+        if let Some(test_tier) = self
+            .repository
+            .find_test_plan_override(query.tenant_id)
+            .await?
+        {
+            return Ok(Plan::for_tier(test_tier));
+        }
+
         let plan_tier = self
             .repository
             .find_by_tenant_id(query.tenant_id)

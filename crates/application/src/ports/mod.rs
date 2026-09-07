@@ -105,6 +105,8 @@ pub use email_verification_token_repository::EmailVerificationTokenRepository;
 
 // OAuth re-exports:
 pub use id_token_verifier::{IdTokenVerifier, OidcVerifierResult, VerifiedIdentity};
+pub mod oauth_identity_repository;
+pub use oauth_identity_repository::{OAuthIdentityRepoResult, OAuthIdentityRepository};
 
 // B6 — Password reset:
 pub mod password_reset_mailer;

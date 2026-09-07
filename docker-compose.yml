@@ -165,6 +165,9 @@ services:
     working_dir: /app/apps/leptos-dashboard
     environment:
       CARGO_TARGET_DIR: /tmp/target
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI:-}
     volumes:
       - .:/app
       - frontend_dist:/app/apps/leptos-dashboard/dist

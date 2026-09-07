@@ -158,3 +158,69 @@ async fn expired_lease_makes_monitor_claimable_again() {
             .unwrap();
     assert!(next_due_at > chrono::Utc::now());
 }
+
+#[tokio::test]
+#[serial]
+async fn immediate_check_request_is_tenant_scoped_and_preserves_leases() {
+    let pool = common::setup_pool().await;
+    let user_a = Uuid::new_v4();
+    let tenant_a = common::insert_user(&pool, domain::UserId(user_a)).await;
+    let user_b = Uuid::new_v4();
+    let tenant_b = common::insert_user(&pool, domain::UserId(user_b)).await;
+
+    let a1 = insert_due_monitor(&pool, "manual-a-1", user_a, tenant_a.0).await;
+    let a2 = insert_due_monitor(&pool, "manual-a-2", user_a, tenant_a.0).await;
+    let b1 = insert_due_monitor(&pool, "manual-b-1", user_b, tenant_b.0).await;
+
+    // Keep tenant B's monitor in the future so the test can verify
+    // that request_immediate_checks() does not affect another tenant.
+    sqlx::query(
+        "UPDATE monitors SET next_due_at = now() + interval '10 minutes' WHERE id = $1"
+    )
+    .bind(b1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let lease_owner = Uuid::new_v4();
+    sqlx::query("UPDATE monitors SET lease_owner = $1, lease_expires_at = now() + interval '60 seconds', lease_claimed_at = now(), next_due_at = now() + interval '10 minutes' WHERE id = $2")
+        .bind(lease_owner)
+        .bind(a2)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let repo = PostgresSchedulingRepository::new(pool.clone());
+    let queued = repo.request_immediate_checks(tenant_a).await.unwrap();
+    assert_eq!(queued, 2);
+
+    let a1_due: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT next_due_at FROM monitors WHERE id = $1")
+            .bind(a1)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let a2_due: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT next_due_at FROM monitors WHERE id = $1")
+            .bind(a2)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let b1_due: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT next_due_at FROM monitors WHERE id = $1")
+            .bind(b1)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(a1_due <= chrono::Utc::now());
+    assert!(a2_due <= chrono::Utc::now());
+    assert!(b1_due > chrono::Utc::now());
+
+    let preserved_owner: Option<Uuid> =
+        sqlx::query_scalar("SELECT lease_owner FROM monitors WHERE id = $1")
+            .bind(a2)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(preserved_owner, Some(lease_owner));
+}

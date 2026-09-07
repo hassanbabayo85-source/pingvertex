@@ -6,6 +6,7 @@ use crate::components::search_input::SearchInput;
 use crate::components::status_badge::StatusBadge;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
 const PAGE_SIZE: usize = 20;
@@ -286,7 +287,7 @@ pub fn MonitorsPage() -> impl IntoView {
                                                     view! {
                                                         <tr>
                                                             <td>
-                                                                <a href=format!("/monitors/{id}")>{m.name.clone()}</a>
+                                                                <A href=format!("/monitors/{id}") attr:class="monitor-link">{m.name.clone()}</A>
                                                             </td>
                                                             <td>{m.kind.clone()}</td>
                                                             <td><StatusBadge status=status_display/></td>

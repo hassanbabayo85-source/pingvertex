@@ -11,11 +11,11 @@ use domain::{
 
 use application::ports::{
     BackupCodeRepository, EmailVerificationMailer, EmailVerificationTokenRepository,
-    IdTokenVerifier, PasswordHasher, PasswordResetMailer, PasswordResetMailerResult,
-    PendingAuthCache, PendingAuthCacheResult, RateLimiter, RateLimiterResult,
-    RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher, SecretCipherError,
-    TenantInvitationRepository, TenantMembershipRepository, TenantRepository, TokenService,
-    UserRepository,
+    IdTokenVerifier, OAuthIdentityRepository, PasswordHasher, PasswordResetMailer,
+    PasswordResetMailerResult, PendingAuthCache, PendingAuthCacheResult, RateLimiter,
+    RateLimiterResult, RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher,
+    SecretCipherError, TenantInvitationRepository, TenantMembershipRepository, TenantRepository,
+    TokenService, UserRepository,
 };
 use infra::UuidIdGenerator;
 
@@ -55,6 +55,19 @@ impl IdTokenVerifier for NoopIdTokenVerifier {
     ) -> Result<application::ports::VerifiedIdentity, Box<dyn std::error::Error + Send + Sync>>
     {
         Err("OAuth sign-in is not configured on this AuthState".into())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopOAuthIdentityRepository;
+
+#[async_trait]
+impl OAuthIdentityRepository for NoopOAuthIdentityRepository {
+    async fn find_user_id(&self, _provider: &str, _subject: &str) -> RepoResult<Option<UserId>> {
+        Ok(None)
+    }
+    async fn link(&self, _provider: &str, _subject: &str, _user_id: UserId) -> RepoResult<()> {
+        Err("OAuth identity repository is not configured".into())
     }
 }
 
@@ -325,6 +338,7 @@ pub struct AuthState {
     /// OAuth — Continue with Google / Apple:
     pub google_id_token_verifier: Arc<dyn IdTokenVerifier>,
     pub apple_id_token_verifier: Arc<dyn IdTokenVerifier>,
+    pub oauth_identity_repository: Arc<dyn OAuthIdentityRepository>,
 }
 
 impl AuthState {
@@ -364,6 +378,7 @@ impl AuthState {
             invitation_repository: Arc::new(NoopTenantInvitationRepository),
             google_id_token_verifier: Arc::new(NoopIdTokenVerifier),
             apple_id_token_verifier: Arc::new(NoopIdTokenVerifier),
+            oauth_identity_repository: Arc::new(NoopOAuthIdentityRepository),
         }
     }
 
@@ -427,13 +442,20 @@ impl AuthState {
     /// omitting the call — that keeps the failure mode explicit
     /// ("Google sign-in is not configured") instead of falling back to
     /// the default `NoopIdTokenVerifier`'s generic message.
-    pub fn with_oauth<G, A>(mut self, google_verifier: G, apple_verifier: A) -> Self
+    pub fn with_oauth<G, A, O>(
+        mut self,
+        google_verifier: G,
+        apple_verifier: A,
+        identity_repository: O,
+    ) -> Self
     where
         G: IdTokenVerifier + 'static,
         A: IdTokenVerifier + 'static,
+        O: OAuthIdentityRepository + 'static,
     {
         self.google_id_token_verifier = Arc::new(google_verifier);
         self.apple_id_token_verifier = Arc::new(apple_verifier);
+        self.oauth_identity_repository = Arc::new(identity_repository);
         self
     }
 }

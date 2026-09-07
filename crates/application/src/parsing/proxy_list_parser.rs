@@ -311,4 +311,37 @@ https://user:pass@1.2.3.4:8083
         let err = parse_json(&huge).unwrap_err();
         assert!(err.contains("exceeds maximum allowed"));
     }
+    #[test]
+    fn csv_supports_ipv6_and_all_protocols() {
+        let input = "[2001:4860:4860::8888]:8080
+https://1.2.3.4:8443
+socks5://1.2.3.4:1080
+socks://user:pass@1.2.3.4:1081
+";
+        let entries = parse_csv(input).unwrap();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0].host, "2001:4860:4860::8888");
+        assert_eq!(entries[0].scheme, ProxyScheme::Http);
+        assert_eq!(entries[1].scheme, ProxyScheme::Https);
+        assert_eq!(entries[2].scheme, ProxyScheme::Socks5);
+        assert_eq!(entries[3].username.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn parser_rejects_invalid_scheme_and_malformed_ipv6() {
+        assert!(parse_csv("ftp://1.2.3.4:80").is_err());
+        assert!(parse_csv("[2001:db8::1:8080").is_err());
+    }
+
+    #[test]
+    fn json_rejects_more_than_500_entries() {
+        let input = serde_json::to_string(
+            &(0..501)
+                .map(|_| serde_json::json!({"host":"1.2.3.4","port":8080,"scheme":"Http"}))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let err = parse_json(&input).unwrap_err();
+        assert!(err.contains("maximum allowed is 500"));
+    }
 }

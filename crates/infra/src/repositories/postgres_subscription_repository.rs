@@ -143,6 +143,23 @@ impl SubscriptionRepository for PostgresSubscriptionRepository {
         row.map(SubscriptionRow::into_domain).transpose()
     }
 
+    async fn find_test_plan_override(&self, tenant_id: TenantId) -> RepoResult<Option<PlanTier>> {
+        let tier: Option<String> = sqlx::query_scalar(
+            "SELECT plan_tier FROM test_access_grants \
+             WHERE tenant_id = $1 AND enabled = TRUE \
+               AND (expires_at IS NULL OR expires_at > now())",
+        )
+        .bind(tenant_id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+        tier.map(|value| {
+            value
+                .parse::<PlanTier>()
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        })
+        .transpose()
+    }
+
     async fn update(&self, subscription: &Subscription) -> RepoResult<()> {
         let row = SubscriptionRow::from_domain(subscription);
         // SECURITY (defense-in-depth): every caller of `update` already

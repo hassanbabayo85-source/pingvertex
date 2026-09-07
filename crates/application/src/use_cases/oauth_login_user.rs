@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::{
     dto::AuthResponse,
     ports::{
-        IdGenerator, PasswordHasher, RegistrationTransaction, TokenService, UserRepository,
-        VerifiedIdentity,
+        IdGenerator, OAuthIdentityRepository, PasswordHasher, RegistrationTransaction,
+        TokenService, UserRepository, VerifiedIdentity,
     },
 };
 
@@ -32,28 +32,27 @@ const MAX_USERNAME_ATTEMPTS: u8 = 6;
 /// guarantee a password-registered user gets — there is no second,
 /// weaker account-creation path hiding in this use case.
 ///
-/// Matching an EXISTING account is done by verified email alone (no
-/// `oauth_provider`/`oauth_subject` columns exist yet — see
-/// `VerifiedIdentity::subject` doc comment). This is safe because the
-/// provider only ever issues an `id_token` for an email it has already
-/// confirmed the caller owns — the same trust assumption
-/// `ResetPasswordUseCase` already relies on for email-based account
-/// recovery.
-pub struct OAuthLoginUseCase<R, G, H, T, RT> {
+/// Existing linked identities are matched by `(provider, sub)`. Verified email is
+/// consulted only the first time a provider identity is linked to an existing
+/// password account, after which the immutable provider subject is authoritative.
+pub struct OAuthLoginUseCase<R, G, H, T, RT, O> {
     repository: R,
     id_generator: G,
     password_hasher: H,
     token_service: T,
     registration_transaction: RT,
+    oauth_identity_repository: O,
+    provider: &'static str,
 }
 
-impl<R, G, H, T, RT> OAuthLoginUseCase<R, G, H, T, RT>
+impl<R, G, H, T, RT, O> OAuthLoginUseCase<R, G, H, T, RT, O>
 where
     R: UserRepository,
     G: IdGenerator,
     H: PasswordHasher,
     T: TokenService,
     RT: RegistrationTransaction,
+    O: OAuthIdentityRepository,
 {
     pub fn new(
         repository: R,
@@ -61,6 +60,8 @@ where
         password_hasher: H,
         token_service: T,
         registration_transaction: RT,
+        oauth_identity_repository: O,
+        provider: &'static str,
     ) -> Self {
         Self {
             repository,
@@ -68,6 +69,8 @@ where
             password_hasher,
             token_service,
             registration_transaction,
+            oauth_identity_repository,
+            provider,
         }
     }
 
@@ -81,14 +84,48 @@ where
 
         let email = Email::new(identity.email)?;
 
-        if let Some(user) = self.repository.find_by_email(&email).await? {
+        // Prefer the provider's immutable subject once it has been linked.
+        // Email is used only for first-time linking/provisioning.
+        if let Some(user_id) = self
+            .oauth_identity_repository
+            .find_user_id(self.provider, &identity.subject)
+            .await?
+        {
+            let mut user = self
+                .repository
+                .find_by_id(&user_id)
+                .await?
+                .ok_or("linked OAuth account no longer exists")?;
             match user.status() {
                 UserStatus::Suspended | UserStatus::Deleted => {
                     return Err("account is not available".into());
                 }
-                UserStatus::Active | UserStatus::PendingVerification => {}
+                UserStatus::PendingVerification => {
+                    user.mark_email_verified(Utc::now());
+                    self.repository.update(&user).await?;
+                }
+                UserStatus::Active => {}
             }
+            let token = self.token_service.generate(user.id()).await?;
+            return Ok(AuthResponse {
+                access_token: token,
+            });
+        }
 
+        if let Some(mut user) = self.repository.find_by_email(&email).await? {
+            match user.status() {
+                UserStatus::Suspended | UserStatus::Deleted => {
+                    return Err("account is not available".into());
+                }
+                UserStatus::PendingVerification => {
+                    user.mark_email_verified(Utc::now());
+                    self.repository.update(&user).await?;
+                }
+                UserStatus::Active => {}
+            }
+            self.oauth_identity_repository
+                .link(self.provider, &identity.subject, user.id())
+                .await?;
             let token = self.token_service.generate(user.id()).await?;
             return Ok(AuthResponse {
                 access_token: token,
@@ -144,6 +181,10 @@ where
 
         self.registration_transaction
             .register_user_with_tenant(&user, &tenant, &membership)
+            .await?;
+
+        self.oauth_identity_repository
+            .link(self.provider, &identity.subject, user.id())
             .await?;
 
         let token = self.token_service.generate(user.id()).await?;

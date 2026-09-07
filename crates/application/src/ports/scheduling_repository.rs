@@ -34,6 +34,14 @@ pub trait SchedulingRepository: Send + Sync {
     /// Called after an execution attempt finishes (success or error).
     async fn complete_claim(&self, monitor_id: MonitorId) -> RepoResult<()>;
 
+    /// Marks all eligible monitors in a tenant due immediately without
+    /// disturbing an active lease. The worker scheduler will claim them on
+    /// its next pass.
+    async fn request_immediate_checks(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<u64>;
+
     /// Clears leases whose `lease_expires_at` is earlier than `now`,
     /// making those monitors claimable again. Returns the number of
     /// recovered leases.
@@ -59,6 +67,13 @@ where
 
     async fn complete_claim(&self, monitor_id: MonitorId) -> RepoResult<()> {
         (**self).complete_claim(monitor_id).await
+    }
+
+    async fn request_immediate_checks(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<u64> {
+        (**self).request_immediate_checks(tenant_id).await
     }
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {

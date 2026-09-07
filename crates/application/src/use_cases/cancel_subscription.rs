@@ -24,7 +24,14 @@ where
             .await?
             .ok_or(SubscriptionLifecycleError::SubscriptionNotFound)?;
 
-        subscription.cancel(command.at_period_end, command.current_period_ends_at)?;
+        // The current period end is authoritative billing state. Never trust a
+        // client-provided timestamp for the subscription lifecycle.
+        let period_ends_at = if command.at_period_end {
+            subscription.current_period_ends_at
+        } else {
+            None
+        };
+        subscription.cancel(command.at_period_end, period_ends_at)?;
 
         self.repository.update(&subscription).await?;
         Ok(())

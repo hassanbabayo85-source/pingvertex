@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
-use domain::{Subscription, shared::ids::TenantId};
+use domain::{Subscription, enums::PlanTier, shared::ids::TenantId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -17,6 +17,12 @@ pub trait SubscriptionRepository: Send + Sync {
 
     async fn find_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Option<Subscription>>;
 
+    /// Internal QA-only entitlement override. Production repositories may resolve this
+    /// from a separate test-access table; in-memory/default repositories return None.
+    async fn find_test_plan_override(&self, _tenant_id: TenantId) -> RepoResult<Option<PlanTier>> {
+        Ok(None)
+    }
+
     async fn update(&self, subscription: &Subscription) -> RepoResult<()>;
 }
 
@@ -31,6 +37,10 @@ where
 
     async fn find_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Option<Subscription>> {
         (**self).find_by_tenant_id(tenant_id).await
+    }
+
+    async fn find_test_plan_override(&self, tenant_id: TenantId) -> RepoResult<Option<PlanTier>> {
+        (**self).find_test_plan_override(tenant_id).await
     }
 
     async fn update(&self, subscription: &Subscription) -> RepoResult<()> {

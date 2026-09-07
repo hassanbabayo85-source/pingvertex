@@ -11,6 +11,7 @@ use crate::components::status_badge::StatusBadge;
 use crate::components::table_shell::TableShell;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 
 fn status_from_checks(monitor: &Monitor, checks: &[Check]) -> String {
@@ -584,7 +585,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                             let can_ack = status == "open";
                                             view! {
                                                 <tr>
-                                                    <td>{incident.first_seen}</td>
+                                                    <td><A href=format!("/incidents/{}", incident.id) attr:class="incident-link">{incident.first_seen}</A></td>
                                                     <td><StatusBadge status=status.to_string()/></td>
                                                     <td>{format!("{} ms", incident.duration_ms)}</td>
                                                     <td>{incident.last_seen_at.unwrap_or_else(|| "—".into())}</td>

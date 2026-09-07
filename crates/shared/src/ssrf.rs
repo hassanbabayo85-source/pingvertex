@@ -685,4 +685,61 @@ mod tests {
             std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
         }
     }
+    #[test]
+    fn private_ip_matrix_covers_common_ssrf_ranges() {
+        let blocked = [
+            "0.0.0.0",
+            "10.1.2.3",
+            "100.64.1.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.168.1.1",
+            "192.0.2.1",
+            "198.18.0.1",
+            "203.0.113.10",
+            "224.0.0.1",
+            "240.0.0.1",
+            "::",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "ff02::1",
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+        ];
+        for raw in blocked {
+            let ip: IpAddr = raw.parse().expect(raw);
+            assert!(is_private_ip(ip), "expected SSRF block for {raw}");
+        }
+    }
+
+    #[test]
+    fn public_ip_matrix_has_known_safe_addresses() {
+        for raw in [
+            "1.1.1.1",
+            "8.8.8.8",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+        ] {
+            let ip: IpAddr = raw.parse().expect(raw);
+            assert!(!is_private_ip(ip), "unexpected SSRF block for {raw}");
+        }
+    }
+
+    #[tokio::test]
+    async fn public_proxy_destination_rejects_localhost_and_private_literals() {
+        for url in [
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://[::1]:8080",
+            "http://169.254.169.254:80",
+            "http://[::ffff:169.254.169.254]:80",
+        ] {
+            assert!(
+                resolve_and_validate_public_destination(url).await.is_err(),
+                "expected proxy destination rejection for {url}"
+            );
+        }
+    }
 }

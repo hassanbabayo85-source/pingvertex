@@ -1,5 +1,6 @@
 use crate::auth::api::{self, LoginResult};
 use crate::auth::context::{use_auth, AuthState};
+use crate::auth::oauth::OAuthButtons;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -122,6 +123,8 @@ pub fn LoginPage() -> impl IntoView {
                 }}
 
                 {move || error.get().map(|e| view! { <div class="form-error">{e}</div> })}
+
+                <OAuthButtons/>
 
                 <div class="auth-links">
                     <a href="/forgot-password">"Forgot password?"</a>

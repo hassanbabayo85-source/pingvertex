@@ -13,3 +13,12 @@ groups:
       - alert: WorkerFailures
         expr: increase(worker_checks_total{result="failure"}[5m]) > 5
         for: 2m
+
+      - alert: BillingReconciliationMismatch
+        expr: billing_reconciliation_last_status == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Billing reconciliation mismatch detected"
+          description: "The daily billing reconciliation worker found one or more financial mismatches."
