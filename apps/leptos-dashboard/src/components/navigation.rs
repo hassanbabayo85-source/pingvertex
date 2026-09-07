@@ -64,7 +64,7 @@ pub const NAV_GROUPS: &[NavGroup] = &[
             },
             NavItem {
                 label: "Incidents",
-                href: "/monitors",
+                href: "/incidents",
                 status: NavStatus::Available,
             },
             NavItem {

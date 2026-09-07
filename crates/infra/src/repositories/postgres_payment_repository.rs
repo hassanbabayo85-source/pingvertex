@@ -44,7 +44,15 @@ impl Row {
 #[async_trait]
 impl PaymentRepository for PostgresPaymentRepository {
     async fn record(&self, p: &Payment) -> PaymentRepoResult<()> {
-        sqlx::query("INSERT INTO payments(id,tenant_id,amount_units,currency,status,provider,provider_payment_id,idempotency_key,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (tenant_id,idempotency_key) DO UPDATE SET status=EXCLUDED.status,provider_payment_id=COALESCE(payments.provider_payment_id,EXCLUDED.provider_payment_id),updated_at=EXCLUDED.updated_at").bind(p.id).bind(p.tenant_id).bind(p.amount_units).bind(&p.currency).bind(&p.status).bind(&p.provider).bind(&p.provider_payment_id).bind(&p.idempotency_key).bind(p.created_at).bind(p.updated_at).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO payments(id,tenant_id,amount_units,currency,status,provider,provider_payment_id,idempotency_key,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (tenant_id,idempotency_key) DO UPDATE SET
+                status=CASE
+                    WHEN payments.status IN ('succeeded','paid','completed')
+                         AND EXCLUDED.status IN ('failed','pending')
+                    THEN payments.status
+                    ELSE EXCLUDED.status
+                END,
+                provider_payment_id=COALESCE(payments.provider_payment_id,EXCLUDED.provider_payment_id),
+                updated_at=EXCLUDED.updated_at").bind(p.id).bind(p.tenant_id).bind(p.amount_units).bind(&p.currency).bind(&p.status).bind(&p.provider).bind(&p.provider_payment_id).bind(&p.idempotency_key).bind(p.created_at).bind(p.updated_at).execute(&self.pool).await?;
         Ok(())
     }
     async fn find_by_provider_payment_id(

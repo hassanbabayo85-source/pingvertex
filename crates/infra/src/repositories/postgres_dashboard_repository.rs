@@ -2,8 +2,8 @@ use std::error::Error;
 
 use application::{
     dto::{
-        DashboardOverview, DashboardPerformance, DashboardTrendPoint, IncidentSummary,
-        IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
+        DashboardBadges, DashboardOverview, DashboardPerformance, DashboardTrendPoint,
+        IncidentSummary, IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
     },
     ports::DashboardRepository,
 };
@@ -31,6 +31,7 @@ impl PostgresDashboardRepository {
 struct MonitorWithLatest {
     id: Uuid,
     name: String,
+    kind: String,
     url: String,
     enabled: bool,
     latest_status: Option<i16>,
@@ -45,8 +46,10 @@ struct MonitorWithLatest {
 struct RecentIncidentRow {
     id: Uuid,
     monitor_id: Uuid,
+    monitor_name: String,
     started_at: DateTime<Utc>,
     acknowledged_at: Option<DateTime<Utc>>,
+    resolved_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -70,6 +73,7 @@ impl DashboardRepository for PostgresDashboardRepository {
             SELECT
                 m.id,
                 m.name,
+                m.kind,
                 m.url,
                 m.enabled,
                 lc.status AS latest_status,
@@ -108,8 +112,10 @@ impl DashboardRepository for PostgresDashboardRepository {
             SELECT
                 i.id,
                 i.monitor_id,
+                m.name AS monitor_name,
                 i.started_at,
-                i.acknowledged_at
+                i.acknowledged_at,
+                i.resolved_at
             FROM incidents i
             JOIN monitors m ON i.monitor_id = m.id
             WHERE m.tenant_id = $1
@@ -206,7 +212,8 @@ impl DashboardRepository for PostgresDashboardRepository {
 
             monitors.push(MonitorOverviewItem {
                 id: row.id.to_string(),
-                name: row.name,
+                name: row.name.clone(),
+                kind: row.kind,
                 url: row.url,
                 enabled: row.enabled,
                 status,
@@ -215,8 +222,10 @@ impl DashboardRepository for PostgresDashboardRepository {
                 open_incident: row.open_incident_id.map(|incident_id| IncidentSummary {
                     id: incident_id.to_string(),
                     monitor_id: row.id.to_string(),
+                    monitor_name: row.name.clone(),
                     started_at: row.open_incident_started_at.unwrap_or_else(Utc::now),
                     acknowledged_at: row.open_incident_acknowledged_at,
+                    resolved_at: None,
                 }),
             });
         }
@@ -276,8 +285,10 @@ impl DashboardRepository for PostgresDashboardRepository {
                 .map(|r| IncidentSummary {
                     id: r.id.to_string(),
                     monitor_id: r.monitor_id.to_string(),
+                    monitor_name: r.monitor_name,
                     started_at: r.started_at,
                     acknowledged_at: r.acknowledged_at,
+                    resolved_at: r.resolved_at,
                 })
                 .collect(),
         };
@@ -287,6 +298,37 @@ impl DashboardRepository for PostgresDashboardRepository {
             monitors,
             incident_summary,
             performance,
+        })
+    }
+
+    async fn get_badges(&self, tenant_id: TenantId) -> RepoResult<DashboardBadges> {
+        #[derive(Debug, sqlx::FromRow)]
+        struct BadgeRow {
+            active_incidents: i64,
+            unread_notifications: i64,
+            pending_invitations: i64,
+        }
+
+        let row = sqlx::query_as::<_, BadgeRow>(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM incidents i
+                 JOIN monitors m ON m.id = i.monitor_id
+                 WHERE m.tenant_id = $1 AND i.resolved_at IS NULL) AS active_incidents,
+                (SELECT COUNT(*) FROM wallet_notifications n
+                 WHERE n.tenant_id = $1 AND n.read_at IS NULL) AS unread_notifications,
+                (SELECT COUNT(*) FROM tenant_invitations ti
+                 WHERE ti.tenant_id = $1 AND ti.accepted_at IS NULL AND ti.revoked_at IS NULL AND ti.expires_at > NOW()) AS pending_invitations
+            "#,
+        )
+        .bind(tenant_id.0)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(DashboardBadges {
+            active_incidents: u32::try_from(row.active_incidents).unwrap_or(u32::MAX),
+            unread_notifications: u32::try_from(row.unread_notifications).unwrap_or(u32::MAX),
+            pending_invitations: u32::try_from(row.pending_invitations).unwrap_or(u32::MAX),
         })
     }
 }

@@ -88,6 +88,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let dashboard_manual_check_routes = dashboard::manual_check_router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(2)
+                .finish()
+                .expect("valid dashboard manual-check rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let notification_routes = notifications::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -383,6 +394,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", monitor_routes)
         .nest("/api/v1", check_routes)
         .nest("/api/v1", dashboard_routes)
+        .nest("/api/v1", dashboard_manual_check_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
@@ -462,6 +474,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .with_state(app_state.clone());
 
     let dashboard_routes = dashboard::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let dashboard_manual_check_routes = dashboard::manual_check_router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
@@ -564,6 +580,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", monitor_routes)
         .nest("/api/v1", check_routes)
         .nest("/api/v1", dashboard_routes)
+        .nest("/api/v1", dashboard_manual_check_routes)
         .nest("/api/v1", notification_routes)
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)

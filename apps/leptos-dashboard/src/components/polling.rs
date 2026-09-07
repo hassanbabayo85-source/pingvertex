@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-const BASE_DELAY: Duration = Duration::from_secs(15);
+const BASE_DELAY: Duration = Duration::from_secs(10);
 const HIDDEN_DELAY: Duration = Duration::from_secs(60);
 const MAX_FAILURE_DELAY: Duration = Duration::from_secs(300);
 

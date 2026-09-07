@@ -52,8 +52,11 @@ pub struct MonitorSummary {
 pub struct IncidentSummary {
     pub id: String,
     pub monitor_id: String,
+    #[serde(default)]
+    pub monitor_name: String,
     pub started_at: String,
     pub acknowledged_at: Option<String>,
+    pub resolved_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -66,6 +69,8 @@ pub struct IncidentSummaryData {
 pub struct MonitorOverviewItem {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub kind: String,
     pub url: String,
     pub enabled: bool,
     pub status: Option<String>,
@@ -101,6 +106,20 @@ pub struct DashboardOverview {
     pub monitors: Vec<MonitorOverviewItem>,
     pub incident_summary: IncidentSummaryData,
     pub performance: DashboardPerformance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct DashboardBadges {
+    pub active_incidents: u32,
+    pub unread_notifications: u32,
+    pub pending_invitations: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct RunChecksResponse {
+    pub queued: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -276,6 +295,24 @@ pub async fn set_monitor_enabled(id: &str, enabled: bool) -> Result<(), String> 
 
 pub async fn fetch_overview() -> Result<DashboardOverview, String> {
     client::get_json::<DashboardOverview>("/dashboard/overview")
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn fetch_badges() -> Result<DashboardBadges, String> {
+    client::get_json::<DashboardBadges>("/dashboard/badges")
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn run_checks_now() -> Result<RunChecksResponse, String> {
+    client::post_json::<RunChecksResponse, _>("/dashboard/checks/now", &serde_json::json!({}))
+        .await
+        .map_err(to_string_err)
+}
+
+pub async fn fetch_incident(incident_id: &str) -> Result<Incident, String> {
+    client::get_json::<Incident>(&format!("/incidents/{incident_id}"))
         .await
         .map_err(to_string_err)
 }

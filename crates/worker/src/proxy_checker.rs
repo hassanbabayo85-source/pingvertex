@@ -189,10 +189,6 @@ where
     let mut chunk = [0u8; 1024];
 
     loop {
-        if buf.len() > MAX_PROXY_RESPONSE_HEADER_BYTES {
-            return Err("proxy response headers exceeded size limit".to_string());
-        }
-
         let n = timeout(timeout_duration, stream.read(&mut chunk))
             .await
             .map_err(|_| "timed out waiting for proxy response".to_string())?
@@ -202,6 +198,9 @@ where
             return Err("proxy closed connection before completing response headers".to_string());
         }
 
+        if buf.len().saturating_add(n) > MAX_PROXY_RESPONSE_HEADER_BYTES {
+            return Err("proxy response headers exceeded size limit".to_string());
+        }
         buf.extend_from_slice(&chunk[..n]);
 
         if buf.windows(4).any(|w| w == b"\r\n\r\n") {

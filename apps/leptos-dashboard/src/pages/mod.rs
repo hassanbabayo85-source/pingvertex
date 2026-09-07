@@ -7,6 +7,8 @@ pub mod dashboard_overview;
 pub mod escalation;
 pub mod forgot_password;
 pub mod help_center;
+pub mod incident_detail;
+pub mod incidents;
 pub mod invitations;
 pub mod login;
 pub mod logout;

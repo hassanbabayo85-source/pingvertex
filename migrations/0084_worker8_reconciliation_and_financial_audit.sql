@@ -1,5 +1,20 @@
 BEGIN;
 
+-- B15 originally omitted provider-confirmed refund events from the event
+-- constraint even though the domain/webhook handler supports them. Repair
+-- the constraint so refund webhooks can be durably recorded.
+ALTER TABLE billing_audit_log
+    DROP CONSTRAINT IF EXISTS chk_billing_audit_log_event_type;
+ALTER TABLE billing_audit_log
+    ADD CONSTRAINT chk_billing_audit_log_event_type
+    CHECK (event_type IN (
+        'payment_succeeded',
+        'payment_failed',
+        'subscription_renewed',
+        'subscription_canceled',
+        'payment_refunded'
+    ));
+
 -- Worker 8: durable financial audit trail and reconciliation reports.
 -- Monetary values remain integer smallest-currency units in payments/wallets;
 -- report payloads are JSON for diagnostics only.
@@ -29,7 +44,7 @@ CREATE TRIGGER trg_financial_audit_log_immutable
 BEFORE UPDATE OR DELETE ON financial_audit_log
 FOR EACH ROW EXECUTE FUNCTION prevent_financial_audit_log_mutation();
 REVOKE UPDATE, DELETE ON financial_audit_log FROM PUBLIC;
-GRANT INSERT, SELECT ON financial_audit_log TO PUBLIC;
+REVOKE ALL ON financial_audit_log FROM PUBLIC;
 
 -- Provider payment references must be unique. NULL remains allowed while a
 -- payment is still pending and has no provider-side payment id.
@@ -55,4 +70,3 @@ CREATE INDEX IF NOT EXISTS idx_billing_reconciliation_reports_created
     ON billing_reconciliation_reports(created_at DESC);
 
 COMMIT;
-

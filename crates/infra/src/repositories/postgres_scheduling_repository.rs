@@ -95,6 +95,26 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         Ok(())
     }
 
+    async fn request_immediate_checks(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+    ) -> RepoResult<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE monitors
+            SET next_due_at = LEAST(next_due_at, NOW())
+            WHERE tenant_id = $1
+              AND enabled = TRUE
+              AND kind <> 'heartbeat'
+            "#,
+        )
+        .bind(tenant_id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         let result = sqlx::query(
             r#"

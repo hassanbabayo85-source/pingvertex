@@ -4,6 +4,7 @@ use axum::{
     Json,
     extract::{Extension, Path, State},
 };
+use domain::pricing::{PricingInput, calculate_price};
 use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{Plan, PlanTier, Subscription};
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,10 @@ pub async fn get_subscription(
 #[derive(Debug, Deserialize)]
 pub struct CancelSubscriptionRequest {
     pub at_period_end: bool,
+    /// Ignored for security: the server derives the period end from the
+    /// authenticated tenant's persisted subscription. Kept as an optional
+    /// field so older clients do not fail deserialization.
+    #[serde(default)]
     pub current_period_ends_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -78,7 +83,7 @@ pub async fn cancel_subscription(
     uc.execute(CancelSubscription {
         tenant_id: tenant,
         at_period_end: req.at_period_end,
-        current_period_ends_at: req.current_period_ends_at,
+        current_period_ends_at: None,
     })
     .await
     .map_err(|e| ApiError::internal_with_source("failed to cancel subscription", e))?;
@@ -128,9 +133,8 @@ pub async fn list_plans(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load pricing config", e))?
         .ok_or_else(|| ApiError::internal("pricing configuration missing"))?;
-    let uc = application::use_cases::calculate_pricing_quote::CalculatePricingQuoteUseCase::new(
-        s.pricing_config_repository.clone(),
-    );
+    // The active pricing config is already loaded above. Reuse it for every
+    // plan instead of issuing one database lookup per tier (N+1 query pattern).
     let mut out = Vec::new();
     for tier in [
         PlanTier::Free,
@@ -140,14 +144,15 @@ pub async fn list_plans(
         PlanTier::Enterprise,
     ] {
         let p = Plan::for_tier(tier);
-        let q = uc
-            .execute(domain::pricing::PricingInput {
+        let q = calculate_price(
+            PricingInput {
                 monitors: p.max_monitors as u64,
                 interval_seconds: p.min_check_interval_seconds,
                 retention_days: p.history_retention_days,
-            })
-            .await
-            .map_err(|e| ApiError::internal_with_source("failed to calculate plan price", e))?;
+            },
+            &cfg,
+        )
+        .map_err(|e| ApiError::internal_with_source("failed to calculate plan price", e))?;
         out.push(PlanResponse {
             tier: tier.as_str().into(),
             max_monitors: p.max_monitors,

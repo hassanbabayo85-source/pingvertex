@@ -186,7 +186,7 @@ where
                     )
                 })?;
 
-            wallet
+            let wallet_transaction = wallet
                 .credit(
                     command.tenant_id.0,
                     completed.amount_units,
@@ -202,6 +202,23 @@ where
                 )
                 .await
                 .map_err(BillingWebhookError::Other)?;
+            if let Some(audit) = &self.financial_audit_repository {
+                audit
+                    .create(&domain::FinancialAuditLogEntry::new(
+                        "billing:webhook",
+                        Some(command.tenant_id.0),
+                        "wallet_credited",
+                        "wallet_transaction",
+                        Some(wallet_transaction.id.to_string()),
+                        serde_json::json!({
+                            "amount_units": completed.amount_units,
+                            "currency": completed.currency,
+                            "provider_payment_id": payment_id
+                        }),
+                    ))
+                    .await
+                    .map_err(BillingWebhookError::Other)?;
+            }
             if let Some(payments) = &self.payment_repository {
                 if let Some(payment_id) = command.payload.get("payment_id").and_then(|v| v.as_str())
                 {
@@ -223,7 +240,7 @@ where
                         .await
                         .map_err(BillingWebhookError::Other)?;
                     if let Some(audit) = &self.financial_audit_repository {
-                        audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_failed","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
+                        audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
                     }
                 }
             }
@@ -388,18 +405,20 @@ where
                 BillingWebhookEventType::PaymentFailed => {
                     self.handle_failed_payment(command.tenant_id, subscription)
                         .await?;
-                    if let Some(payments) = &self.payment_repository {
-                        if let Some(payment_id) =
-                            command.payload.get("payment_id").and_then(|v| v.as_str())
+
+                    if let Some(payment_id) =
+                        command.payload.get("payment_id").and_then(|v| v.as_str())
+                    {
+                        let amount_units =
+                            command.payload.get("amount_units").and_then(|v| v.as_i64());
+
+                        if let (Some(payments), Some(amount_units)) =
+                            (&self.payment_repository, amount_units)
                         {
                             let p = domain::Payment {
                                 id: uuid::Uuid::new_v4(),
                                 tenant_id: command.tenant_id.0,
-                                amount_units: command
-                                    .payload
-                                    .get("amount_units")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(1),
+                                amount_units,
                                 currency: command
                                     .payload
                                     .get("currency")
@@ -409,17 +428,58 @@ where
                                 status: "failed".into(),
                                 provider: "webhook".into(),
                                 provider_payment_id: Some(payment_id.to_owned()),
-                                idempotency_key: format!("provider:{}:failed", payment_id),
+                                idempotency_key: format!("provider:{}", payment_id),
                                 created_at: chrono::Utc::now(),
                                 updated_at: chrono::Utc::now(),
                             };
+
                             payments
                                 .record(&p)
                                 .await
                                 .map_err(BillingWebhookError::Other)?;
+
                             if let Some(audit) = &self.financial_audit_repository {
-                                audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
+                                audit
+                                    .create(&domain::FinancialAuditLogEntry::new(
+                                        "billing:webhook",
+                                        Some(command.tenant_id.0),
+                                        "payment_failed",
+                                        "payment",
+                                        Some(p.id.to_string()),
+                                        serde_json::json!({
+                                            "provider": p.provider,
+                                            "provider_payment_id": payment_id,
+                                            "amount_units": p.amount_units,
+                                            "currency": p.currency
+                                        }),
+                                    ))
+                                    .await
+                                    .map_err(BillingWebhookError::Other)?;
                             }
+                        } else if let Some(audit) = &self.financial_audit_repository {
+                            // A failed payment can legitimately omit its amount.
+                            // Do not invent a financial amount just to create a
+                            // Payment row; retain the failed-payment audit instead.
+                            audit
+                                .create(&domain::FinancialAuditLogEntry::new(
+                                    "billing:webhook",
+                                    Some(command.tenant_id.0),
+                                    "payment_failed",
+                                    "payment",
+                                    Some(payment_id.to_owned()),
+                                    serde_json::json!({
+                                        "provider": "webhook",
+                                        "provider_payment_id": payment_id,
+                                        "amount_units": null,
+                                        "currency": command
+                                            .payload
+                                            .get("currency")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("USD")
+                                    }),
+                                ))
+                                .await
+                                .map_err(BillingWebhookError::Other)?;
                         }
                     }
                 }

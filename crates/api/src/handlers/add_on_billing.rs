@@ -349,6 +349,22 @@ pub async fn verify_add_on(
                 std::io::Error::other(e.to_string()),
             )
         })?;
+    if status == domain::CheckoutStatus::Completed {
+        state
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                user.user_id().0.to_string(),
+                Some(user.tenant_context().tenant_id().0),
+                "payment_verified",
+                "checkout_session",
+                Some(req.checkout_session_id.to_string()),
+                serde_json::json!({"status":"completed","addon_subscription_id":id}),
+            ))
+            .await
+            .map_err(|e| {
+                ApiError::internal_with_source("failed to write financial audit log", e)
+            })?;
+    }
     Ok(Json(
         serde_json::json!({"addon_subscription_id":id,"status":status.as_str()}),
     ))
@@ -367,6 +383,18 @@ pub async fn cancel_add_on(
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to cancel add-on", e))?;
+    state
+        .financial_audit_log_repository
+        .create(&domain::FinancialAuditLogEntry::new(
+            user.user_id().0.to_string(),
+            Some(user.tenant_context().tenant_id().0),
+            "subscription_canceled",
+            "addon_subscription",
+            Some(a.id.0.to_string()),
+            serde_json::json!({"addon_type":a.addon_type.as_str()}),
+        ))
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to write financial audit log", e))?;
     Ok(Json(AddOnResponse {
         id: a.id.0.to_string(),
         addon_type: a.addon_type.as_str().into(),

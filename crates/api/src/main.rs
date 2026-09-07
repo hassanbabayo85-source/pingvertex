@@ -28,18 +28,18 @@ use infra::{
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
-    PostgresNotificationChannelRepository, PostgresPAYGPricingRepository,
-    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
-    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
-    PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionPlanChangeRepository,
-    PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
-    PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
-    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
-    PostgresTenantRepository, PostgresUsageEventRepository, PostgresUserRepository,
-    PostgresWalletRepository, RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache,
-    S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer, SmtpPasswordResetMailer,
-    TwilioPricingService, UuidIdGenerator, create_pool,
+    PostgresNotificationChannelRepository, PostgresOAuthIdentityRepository,
+    PostgresPAYGPricingRepository, PostgresPricingConfigRepository,
+    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
+    PostgresResetPasswordTokenRepository, PostgresRumAnalyticsRepository,
+    PostgresRumEventRepository, PostgresRumSiteRepository, PostgresStatusPageRepository,
+    PostgresSubscriptionPlanChangeRepository, PostgresSubscriptionRepository,
+    PostgresSubscriptionUsagePeriodRepository, PostgresSubscriptionUsageTransaction,
+    PostgresSupportTicketRepository, PostgresTenantInvitationRepository,
+    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUsageEventRepository,
+    PostgresUserRepository, PostgresWalletRepository, RedisPendingAuthCache, RedisRateLimiter,
+    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
+    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -173,6 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
+    .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
     .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()))
@@ -331,7 +332,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_password_reset(reset_password_token_repository, password_reset_mailer)
     .with_invitation_repository(invitation_repository)
-    .with_oauth(google_id_token_verifier, apple_id_token_verifier);
+    .with_oauth(
+        google_id_token_verifier,
+        apple_id_token_verifier,
+        PostgresOAuthIdentityRepository::new(pool.clone()),
+    );
 
     let plain_app = build_router(app_state.clone(), auth_state);
     let internal_agent_app = build_internal_agent_router(app_state);

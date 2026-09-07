@@ -59,7 +59,7 @@ pub use oauth_login_request::OAuthLoginRequest;
 // H6 — Dashboard Overview Aggregated Backend API:
 pub mod dashboard_overview;
 pub use dashboard_overview::{
-    DashboardOverview, DashboardPerformance, DashboardTrendPoint, IncidentSummary,
+    DashboardBadges, DashboardOverview, DashboardPerformance, DashboardTrendPoint, IncidentSummary,
     IncidentSummaryData, MonitorOverviewItem, MonitorSummary,
 };
 

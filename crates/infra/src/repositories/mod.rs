@@ -31,6 +31,7 @@ pub mod postgres_maintenance_window_repository;
 pub mod postgres_monitor_repository;
 pub mod postgres_notification_channel_repository;
 pub mod postgres_notification_outbox_repository;
+pub mod postgres_oauth_identity_repository;
 pub mod postgres_payment_repository;
 pub mod postgres_proxy_check_job_repository;
 pub mod postgres_registration_transaction;
@@ -77,6 +78,7 @@ pub use postgres_maintenance_window_repository::PostgresMaintenanceWindowReposit
 pub use postgres_monitor_repository::*;
 pub use postgres_notification_channel_repository::*;
 pub use postgres_notification_outbox_repository::PostgresNotificationOutboxRepository;
+pub use postgres_oauth_identity_repository::PostgresOAuthIdentityRepository;
 pub use postgres_payment_repository::PostgresPaymentRepository;
 pub use postgres_proxy_check_job_repository::PostgresProxyCheckJobRepository;
 pub use postgres_registration_transaction::PostgresRegistrationTransaction;

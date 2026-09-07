@@ -50,10 +50,21 @@ pub async fn billing_webhook(
         .as_ref()
         .ok_or_else(|| ApiError::internal("billing webhook secret is not configured"))?;
 
+    const MAX_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
+    if body.len() > MAX_WEBHOOK_BODY_BYTES {
+        return Err(ApiError::bad_request(
+            "billing webhook payload is too large",
+        ));
+    }
+
     verify_signature(secret, &headers, &body)?;
 
     let payload: BillingWebhookPayload = serde_json::from_slice(&body)
         .map_err(|_| ApiError::bad_request("invalid billing webhook payload"))?;
+
+    if payload.event_id.trim().is_empty() || payload.event_id.len() > 256 {
+        return Err(ApiError::bad_request("invalid billing webhook event id"));
+    }
 
     let event_type: BillingWebhookEventType = payload
         .event_type

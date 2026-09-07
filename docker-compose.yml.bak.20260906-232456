@@ -1,0 +1,184 @@
+services:
+  # ⚠️  DEVELOPMENT/LOCAL USE ONLY. The `POSTGRES_PASSWORD`/
+  # `GF_SECURITY_ADMIN_PASSWORD` defaults below (`postgres`/`admin`) are
+  # intentionally weak, predictable dev credentials and MUST NOT reach
+  # production. `docker-compose.prod.yml` overrides both to fail closed
+  # (`${VAR:?must be set}`) if unset — always deploy with:
+  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+  # Never run `docker compose up` with only this base file against a
+  # production/internet-reachable host. See `.env.example` for the
+  # variables to set for local development.
+  postgres:
+    image: postgres:16.6
+    container_name: uptime-monitor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: uptime_monitor
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d uptime_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: uptime-monitor-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis_data:/data
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: uptime-monitor-migrate
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+    entrypoint: ["sh", "-c"]
+    command:
+      - "sqlx database create || true && sqlx migrate run --source migrations"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: uptime-monitor-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+      RUST_LOG: info
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "3443:3443"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: uptime-monitor-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+      RUST_LOG: info
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
+    ports:
+      - "127.0.0.1:3001:3001"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: uptime-monitor-prometheus
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml
+    secrets:
+      - metrics_token
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: uptime-monitor-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:3002:3000"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: uptime-monitor-alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "127.0.0.1:9093:9093"
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: uptime-monitor-agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AGENT_API_BASE_URL: https://api:3443/internal/v1
+      RUST_LOG: info
+
+  # Leptos frontend build job (one-shot)
+  frontend-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: uptime-monitor-frontend-build
+    working_dir: /app/apps/leptos-dashboard
+    environment:
+      CARGO_TARGET_DIR: /tmp/target
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI:-}
+    volumes:
+      - .:/app
+      - frontend_dist:/app/apps/leptos-dashboard/dist
+    command: trunk build --release
+    restart: "no"
+
+volumes:
+  postgres_data:
+  frontend_dist:
+  redis_data:
+
+secrets:
+  metrics_token:
+    file: .metrics_token
