@@ -15,6 +15,12 @@ pub struct RumIngestRequest {
     /// which site this beacon belongs to; NOT a credential.
     pub site_key: String,
 
+    /// Unique id for this beacon. It is used only for PAYG idempotency and
+    /// must not contain PII. The SDK generates a fresh random value per
+    /// beacon so transport retries cannot double-charge the same ingestion.
+    #[serde(default)]
+    pub request_id: Option<String>,
+
     /// Opaque, client-generated identifier grouping events from the same
     /// browser tab-session. Must not be (or contain) any PII.
     pub session_key: String,

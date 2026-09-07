@@ -3,7 +3,9 @@ use std::fmt;
 
 use domain::errors::DomainError;
 use domain::shared::ids::{RumJsErrorId, RumPageViewId, RumResourceErrorId, RumSessionId};
-use domain::{RumJsError, RumPageView, RumResourceError, RumResourceType, RumSession, RumVitals};
+use domain::{
+    RumJsError, RumPageView, RumResourceError, RumResourceType, RumSession, RumSite, RumVitals,
+};
 
 use crate::dto::RumIngestRequest;
 use crate::ports::{RumEventRepository, RumSiteRepository};
@@ -111,12 +113,7 @@ where
         request: RumIngestRequest,
         country_code: Option<String>,
     ) -> Result<(), IngestRumEventError> {
-        if request.js_errors.len() > MAX_JS_ERRORS_PER_BEACON {
-            return Err(IngestRumEventError::TooManyJsErrors);
-        }
-        if request.resource_errors.len() > MAX_RESOURCE_ERRORS_PER_BEACON {
-            return Err(IngestRumEventError::TooManyResourceErrors);
-        }
+        self.validate_request(&request)?;
 
         let site = self
             .site_repository
@@ -124,6 +121,24 @@ where
             .await
             .map_err(IngestRumEventError::Other)?
             .ok_or(IngestRumEventError::UnknownSite)?;
+
+        self.execute_for_site(request, country_code, site).await
+    }
+
+    /// Same ingestion path after the caller has already resolved the site.
+    /// This avoids a second identical DB lookup on the public handler while
+    /// retaining a server-side site-key equality check as the security
+    /// boundary.
+    pub async fn execute_for_site(
+        &self,
+        request: RumIngestRequest,
+        country_code: Option<String>,
+        site: RumSite,
+    ) -> Result<(), IngestRumEventError> {
+        self.validate_request(&request)?;
+        if request.site_key != site.site_key {
+            return Err(IngestRumEventError::UnknownSite);
+        }
 
         let session = RumSession::new(
             RumSessionId::new(),
@@ -134,13 +149,6 @@ where
             request.browser_version.clone(),
             request.os_name.clone(),
             parse_device_type(request.device_type.as_deref()),
-            // Resolved by the CALLER (the ingestion handler) from the
-            // connection's IP via `GeoIpLookup`, BEFORE this use case
-            // runs — never from the beacon body, which never contains
-            // geography at all (see Task D's SDK: it doesn't collect
-            // this). See `HANDOVER.md` for the caveat about this only
-            // being accurate when there is no reverse proxy in front of
-            // this service.
             country_code,
         );
 
@@ -220,6 +228,16 @@ where
                 .map_err(IngestRumEventError::Other)?;
         }
 
+        Ok(())
+    }
+
+    fn validate_request(&self, request: &RumIngestRequest) -> Result<(), IngestRumEventError> {
+        if request.js_errors.len() > MAX_JS_ERRORS_PER_BEACON {
+            return Err(IngestRumEventError::TooManyJsErrors);
+        }
+        if request.resource_errors.len() > MAX_RESOURCE_ERRORS_PER_BEACON {
+            return Err(IngestRumEventError::TooManyResourceErrors);
+        }
         Ok(())
     }
 }
@@ -318,6 +336,7 @@ mod tests {
     fn sample_request(site_key: &str) -> RumIngestRequest {
         RumIngestRequest {
             site_key: site_key.to_string(),
+            request_id: Some("rum-test-request-1".to_string()),
             session_key: "sess_123".to_string(),
             browser_name: Some("Chrome".to_string()),
             browser_version: Some("128".to_string()),
@@ -336,6 +355,31 @@ mod tests {
             js_errors: vec![],
             resource_errors: vec![],
         }
+    }
+
+    #[tokio::test]
+    async fn pre_resolved_site_must_match_request_site_key() {
+        let site_repo = FakeSiteRepository::default();
+        let event_repo = FakeEventRepository::default();
+        let tenant_id = TenantId::new();
+        let site = RumSite::new(
+            RumSiteId::new(),
+            tenant_id,
+            "My Site".to_string(),
+            "example.com".to_string(),
+        )
+        .unwrap();
+        site_repo.create(&site).await.unwrap();
+
+        let use_case = IngestRumEventUseCase::new(site_repo, event_repo);
+        let request = sample_request("rum_wrong_site_key");
+
+        let err = use_case
+            .execute_for_site(request, None, site)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, IngestRumEventError::UnknownSite));
     }
 
     #[tokio::test]

@@ -219,29 +219,28 @@ where
                     .await
                     .map_err(BillingWebhookError::Other)?;
             }
-            if let Some(payments) = &self.payment_repository {
-                if let Some(payment_id) = command.payload.get("payment_id").and_then(|v| v.as_str())
-                {
-                    let amount_units = completed.amount_units;
-                    let p = domain::Payment {
-                        id: uuid::Uuid::new_v4(),
-                        tenant_id: command.tenant_id.0,
-                        amount_units,
-                        currency: completed.currency.clone(),
-                        status: "succeeded".into(),
-                        provider: "webhook".into(),
-                        provider_payment_id: Some(payment_id.to_owned()),
-                        idempotency_key: format!("provider:{}", payment_id),
-                        created_at: chrono::Utc::now(),
-                        updated_at: chrono::Utc::now(),
-                    };
-                    payments
-                        .record(&p)
-                        .await
-                        .map_err(BillingWebhookError::Other)?;
-                    if let Some(audit) = &self.financial_audit_repository {
-                        audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
-                    }
+            if let Some(payments) = &self.payment_repository
+                && let Some(payment_id) = command.payload.get("payment_id").and_then(|v| v.as_str())
+            {
+                let amount_units = completed.amount_units;
+                let p = domain::Payment {
+                    id: uuid::Uuid::new_v4(),
+                    tenant_id: command.tenant_id.0,
+                    amount_units,
+                    currency: completed.currency.clone(),
+                    status: "succeeded".into(),
+                    provider: "webhook".into(),
+                    provider_payment_id: Some(payment_id.to_owned()),
+                    idempotency_key: format!("provider:{}", payment_id),
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                };
+                payments
+                    .record(&p)
+                    .await
+                    .map_err(BillingWebhookError::Other)?;
+                if let Some(audit) = &self.financial_audit_repository {
+                    audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
                 }
             }
             let _ = wallet
@@ -370,35 +369,35 @@ where
                             ))
                             .await;
                     }
-                    if let Some(payments) = &self.payment_repository {
-                        if let (Some(payment_id), Some(amount_units)) = (
+                    if let Some(payments) = &self.payment_repository
+                        && let (Some(payment_id), Some(amount_units)) = (
                             command.payload.get("payment_id").and_then(|v| v.as_str()),
                             command.payload.get("amount_units").and_then(|v| v.as_i64()),
-                        ) {
-                            let p = domain::Payment {
-                                id: uuid::Uuid::new_v4(),
-                                tenant_id: command.tenant_id.0,
-                                amount_units,
-                                currency: command
-                                    .payload
-                                    .get("currency")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("USD")
-                                    .to_owned(),
-                                status: "succeeded".into(),
-                                provider: "webhook".into(),
-                                provider_payment_id: Some(payment_id.to_owned()),
-                                idempotency_key: format!("provider:{}", payment_id),
-                                created_at: chrono::Utc::now(),
-                                updated_at: chrono::Utc::now(),
-                            };
-                            payments
-                                .record(&p)
-                                .await
-                                .map_err(BillingWebhookError::Other)?;
-                            if let Some(audit) = &self.financial_audit_repository {
-                                audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
-                            }
+                        )
+                    {
+                        let p = domain::Payment {
+                            id: uuid::Uuid::new_v4(),
+                            tenant_id: command.tenant_id.0,
+                            amount_units,
+                            currency: command
+                                .payload
+                                .get("currency")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("USD")
+                                .to_owned(),
+                            status: "succeeded".into(),
+                            provider: "webhook".into(),
+                            provider_payment_id: Some(payment_id.to_owned()),
+                            idempotency_key: format!("provider:{}", payment_id),
+                            created_at: chrono::Utc::now(),
+                            updated_at: chrono::Utc::now(),
+                        };
+                        payments
+                            .record(&p)
+                            .await
+                            .map_err(BillingWebhookError::Other)?;
+                        if let Some(audit) = &self.financial_audit_repository {
+                            audit.create(&domain::FinancialAuditLogEntry::new("billing:webhook",Some(command.tenant_id.0),"payment_created","payment",Some(p.id.to_string()),serde_json::json!({"provider":p.provider,"amount_units":p.amount_units,"currency":p.currency}))).await.map_err(BillingWebhookError::Other)?;
                         }
                     }
                 }

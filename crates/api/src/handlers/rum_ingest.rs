@@ -12,9 +12,10 @@ use axum::{
 use serde_json::{Value, json};
 use tracing::warn;
 
+use application::MeterUsageInput;
 use application::dto::RumIngestRequest;
 use application::ports::RumSiteRepository;
-use application::use_cases::{IngestRumEventError, IngestRumEventUseCase};
+use application::use_cases::IngestRumEventUseCase;
 
 use crate::state::AppState;
 
@@ -44,6 +45,7 @@ const MAX_RUM_BEACON_BYTES: usize = 8 * 1024;
 /// `handlers::heartbeat`.
 const RUM_INGEST_MAX_REQUESTS_PER_SITE: u32 = 200;
 const RUM_INGEST_WINDOW_SECS: u64 = 10;
+const MAX_RUM_REQUEST_ID_BYTES: usize = 128;
 
 /// AUDIT ISSUE #8 fix: per-(site_key, IP) ceiling layered UNDER the
 /// per-site limit above, using the same fixed window.
@@ -71,6 +73,13 @@ const RUM_INGEST_MAX_REQUESTS_PER_SOURCE: u32 = 40;
 /// security control (site existence is still authoritatively checked by
 /// `RumSiteRepository::find_by_site_key`, and the rate limiter's Redis
 /// keys self-expire regardless — see `RedisRateLimiter`).
+fn is_well_formed_request_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_RUM_REQUEST_ID_BYTES
+        && value.is_ascii()
+        && value.bytes().all(|b| b.is_ascii_graphic())
+}
+
 fn is_well_formed_site_key(site_key: &str) -> bool {
     match site_key.strip_prefix("rum_") {
         Some(rest) => rest.len() == 32 && rest.chars().all(|c| c.is_ascii_hexdigit()),
@@ -184,7 +193,9 @@ pub async fn collect_rum_event(
         }
     };
 
-    if !is_well_formed_site_key(&payload.site_key) {
+    if !is_well_formed_site_key(&payload.site_key)
+        || payload.request_id.as_deref().map(is_well_formed_request_id) == Some(false)
+    {
         return (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" })));
     }
 
@@ -265,12 +276,23 @@ pub async fn collect_rum_event(
     // authoritative tenant/site resolution remains
     // `RumSiteRepository::find_by_site_key` inside
     // `IngestRumEventUseCase`, unchanged by this check.
-    if let Ok(Some(site)) = state
+    let site = match state
         .rum_site_repository
         .find_by_site_key(&payload.site_key)
         .await
-        && !request_host_matches_site_domain(&headers, &site.domain)
     {
+        Ok(Some(site)) => site,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" }))),
+        Err(err) => {
+            warn!(error = %err, "RUM site lookup failed during metering");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error" })),
+            );
+        }
+    };
+
+    if !request_host_matches_site_domain(&headers, &site.domain) {
         warn!("RUM beacon Origin/Referer host did not match the site's configured domain");
     }
 
@@ -280,31 +302,62 @@ pub async fn collect_rum_event(
         state.rum_site_repository.clone(),
         state.rum_event_repository.clone(),
     );
+    let request_id = format!(
+        "rum:{}",
+        payload
+            .request_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    );
 
-    match use_case.execute(payload, country_code).await {
-        Ok(()) => (StatusCode::ACCEPTED, Json(json!({ "status": "ok" }))),
-        Err(IngestRumEventError::UnknownSite) => {
-            // Same shape as the well-formed-but-nonexistent case above —
-            // never distinguishable from "malformed site_key" by response
-            // shape or status code, so this can't be used to enumerate
-            // valid site keys.
-            (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" })))
-        }
-        Err(err @ IngestRumEventError::Validation(_))
-        | Err(err @ IngestRumEventError::TooManyJsErrors)
-        | Err(err @ IngestRumEventError::TooManyResourceErrors) => {
-            warn!(error = %err, "RUM beacon rejected: malformed payload");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "status": "rejected" })),
+    if let Some(metering) = &state.payg_metering {
+        match metering
+            .execute(
+                MeterUsageInput {
+                    tenant_id: site.tenant_id.0,
+                    operation: "rum_event".to_owned(),
+                    units: 1,
+                    request_id,
+                },
+                || use_case.execute_for_site(payload, country_code, site.clone()),
             )
+            .await
+        {
+            Ok(_) => (StatusCode::ACCEPTED, Json(json!({ "status": "ok" }))),
+            Err(application::use_cases::ChargeForUsageError::InsufficientBalance) => (
+                StatusCode::PAYMENT_REQUIRED,
+                Json(json!({ "status": "insufficient_balance" })),
+            ),
+            Err(err) => {
+                warn!(error = %err, "RUM beacon rejected by PAYG metering");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "status": "error" })),
+                )
+            }
         }
-        Err(IngestRumEventError::Other(err)) => {
-            warn!(error = %err, "failed to persist RUM event");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "status": "error" })),
-            )
+    } else {
+        match use_case.execute(payload, country_code).await {
+            Ok(()) => (StatusCode::ACCEPTED, Json(json!({ "status": "ok" }))),
+            Err(application::use_cases::IngestRumEventError::UnknownSite) => {
+                (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" })))
+            }
+            Err(err @ application::use_cases::IngestRumEventError::Validation(_))
+            | Err(err @ application::use_cases::IngestRumEventError::TooManyJsErrors)
+            | Err(err @ application::use_cases::IngestRumEventError::TooManyResourceErrors) => {
+                warn!(error = %err, "RUM beacon rejected: malformed payload");
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "status": "rejected" })),
+                )
+            }
+            Err(application::use_cases::IngestRumEventError::Other(err)) => {
+                warn!(error = %err, "failed to persist RUM event");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "status": "error" })),
+                )
+            }
         }
     }
 }
@@ -312,6 +365,19 @@ pub async fn collect_rum_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepts_bounded_ascii_request_ids() {
+        assert!(is_well_formed_request_id("rum_0123456789abcdef"));
+    }
+
+    #[test]
+    fn rejects_oversized_or_non_ascii_request_ids() {
+        assert!(!is_well_formed_request_id(
+            &"x".repeat(MAX_RUM_REQUEST_ID_BYTES + 1)
+        ));
+        assert!(!is_well_formed_request_id("rum-ƙey"));
+    }
 
     #[test]
     fn accepts_well_formed_site_keys() {

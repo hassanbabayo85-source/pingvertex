@@ -160,7 +160,11 @@ async fn custom_domain_verification_worker_stops_gracefully_on_cancellation() {
 
 #[tokio::test]
 async fn proxy_check_worker_stops_gracefully_on_cancellation() {
-    let worker = ProxyCheckWorker::new(Arc::new(InMemoryProxyCheckJobRepository::new()));
+    let wallet = Arc::new(infra::InMemoryWalletRepository::default());
+    let pricing = Arc::new(infra::InMemoryPAYGPricingRepository::default());
+    let usage = Arc::new(infra::InMemoryUsageEventRepository::default());
+    let metering = Arc::new(application::MeterUsageUseCase::new(wallet, pricing, usage));
+    let worker = ProxyCheckWorker::new(Arc::new(InMemoryProxyCheckJobRepository::new()), metering);
 
     let token = CancellationToken::new();
     token.cancel();

@@ -184,6 +184,26 @@ impl WalletRepository for PostgresWalletRepository {
             "SELECT id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at
              FROM credit_reservations WHERE wallet_id=$1 AND request_id=$2",
         ).bind(wallet.id).bind(request_id).fetch_optional(&mut *tx).await? {
+            if existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now() {
+                let refreshed = sqlx::query_as::<_, ReservationRow>(
+                    "UPDATE credit_reservations
+                     SET amount_units=$3, operation=$4, expires_at=$5, status='PENDING', updated_at=now()
+                     WHERE wallet_id=$1 AND request_id=$2 AND status='PENDING' AND expires_at<=now()
+                     RETURNING id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at",
+                )
+                .bind(wallet.id)
+                .bind(request_id)
+                .bind(amount_units)
+                .bind(operation)
+                .bind(expires_at)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some(refreshed) = refreshed {
+                    tx.commit().await?;
+                    return Ok(ReservationOutcome { reservation: refreshed.into_domain(), created: true });
+                }
+            }
+
             tx.commit().await?;
             return Ok(ReservationOutcome { reservation: existing.into_domain(), created: false });
         }

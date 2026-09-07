@@ -1,0 +1,159 @@
+use std::{error::Error, sync::Arc, time::Duration};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
+use uuid::Uuid;
+
+use crate::proxy_checker::run_proxy_check_job;
+use application::{MeterUsageInput, MeterUsageUseCase};
+use application::ports::ProxyCheckJobRepository;
+
+type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+
+const PROXY_CHECK_POLL_INTERVAL_SECS: u64 = 5;
+const MAX_JOBS_PER_SWEEP: usize = 10;
+const PROXY_JOB_LEASE_SECS: i64 = 60;
+const PROXY_JOB_MAX_RETRIES: u32 = 3;
+
+#[derive(Clone)]
+pub struct ProxyCheckWorker {
+    repository: Arc<dyn ProxyCheckJobRepository>,
+    metering: Arc<MeterUsageUseCase>,
+    worker_id: String,
+}
+impl ProxyCheckWorker {
+    pub fn new(
+        repository: Arc<dyn ProxyCheckJobRepository>,
+        metering: Arc<MeterUsageUseCase>,
+    ) -> Self {
+        Self {
+            repository,
+            metering,
+            worker_id: Uuid::new_v4().to_string(),
+        }
+    }
+
+    pub async fn run_once(&self) -> Result<()> {
+        let stale_before = chrono::Utc::now() - chrono::Duration::seconds(PROXY_JOB_LEASE_SECS);
+        if let Err(err) = self
+            .repository
+            .recover_stale_jobs(stale_before, PROXY_JOB_MAX_RETRIES)
+            .await
+        {
+            error!(error=%err, "proxy stale-job recovery failed");
+        }
+
+        let jobs = self
+            .repository
+            .find_pending_jobs(MAX_JOBS_PER_SWEEP)
+            .await?;
+        for candidate in jobs {
+            let job_id = candidate.id();
+
+            // Atomic claim is the single source of truth for ownership.
+            // No executor-side mark_running is allowed.
+            if !self
+                .repository
+                .try_mark_running(job_id, &self.worker_id)
+                .await?
+            {
+                continue;
+            }
+
+            let tenant_id = candidate.tenant_id();
+            let running_job = match self.repository.find_job_by_id(job_id, tenant_id).await {
+                Ok(Some(job)) if job.status() == domain::ProxyCheckJobStatus::Running => job,
+                Ok(Some(_)) => continue,
+                Ok(None) => {
+                    error!(job_id=%job_id, "claimed proxy check job disappeared");
+                    continue;
+                }
+                Err(err) => {
+                    error!(job_id=%job_id, error=%err, "failed to reload claimed proxy check job");
+                    let mut failed = candidate.clone();
+                    failed.set_worker_lease(self.worker_id.clone(), chrono::Utc::now());
+                    if failed.mark_failed("failed to reload claimed proxy check job") {
+                        let _ = self.repository.update_job(&failed).await;
+                    }
+                    continue;
+                }
+            };
+
+            let entries = match self
+                .repository
+                .find_entries_by_job_id(job_id, tenant_id)
+                .await
+            {
+                Ok(entries) => entries,
+                Err(err) => {
+                    let mut failed = running_job;
+                    if failed.mark_failed(format!("failed to load proxy entries: {err}"))
+                        && let Err(update_err) = self.repository.update_job(&failed).await
+                    {
+                        error!(
+                            job_id=%job_id,
+                            error=%update_err,
+                            "failed to persist entry-load failure"
+                        );
+                    }
+                    continue;
+                }
+            };
+
+            let request_id = format!("proxy-check:{}", job_id);
+            let repository = Arc::clone(&self.repository);
+            let worker_id = self.worker_id.clone();
+            let result = self
+                .metering
+                .execute_recoverable(
+                    MeterUsageInput {
+                        tenant_id: tenant_id.0,
+                        operation: "proxy_check".to_owned(),
+                        units: 1,
+                        request_id,
+                    },
+                    || async {
+                        run_proxy_check_job(&*repository, running_job, entries, &worker_id).await
+                    },
+                )
+                .await;
+
+            if let Err(err) = result {
+                error!(job_id=%job_id, error=%err, "proxy check executor returned an unexpected error");
+                // The executor normally terminalizes the job itself. This
+                // fallback prevents an unexpected propagated error from
+                // leaving a claimed job in running forever.
+                if let Ok(Some(mut latest)) =
+                    self.repository.find_job_by_id(job_id, tenant_id).await
+                    && latest.status() == domain::ProxyCheckJobStatus::Running
+                    && latest.mark_failed("unexpected proxy check worker error")
+                    && let Err(update_err) = self.repository.update_job(&latest).await
+                {
+                    error!(
+                        job_id=%job_id,
+                        error=%update_err,
+                        "failed to persist unexpected worker failure"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn run_forever(&self, token: CancellationToken) -> Result<()> {
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(PROXY_CHECK_POLL_INTERVAL_SECS));
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("proxy check worker cancellation requested; shutting down");
+                    return Ok(());
+                }
+                _ = interval.tick() => {
+                    if let Err(err) = self.run_once().await {
+                        error!(error=%err, "proxy check worker sweep failed");
+                    }
+                }
+            }
+        }
+    }
+}

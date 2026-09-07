@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::proxy_checker::run_proxy_check_job;
 use application::ports::ProxyCheckJobRepository;
+use application::{MeterUsageInput, MeterUsageUseCase};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -16,12 +17,17 @@ const PROXY_JOB_MAX_RETRIES: u32 = 3;
 #[derive(Clone)]
 pub struct ProxyCheckWorker {
     repository: Arc<dyn ProxyCheckJobRepository>,
+    metering: Arc<MeterUsageUseCase>,
     worker_id: String,
 }
 impl ProxyCheckWorker {
-    pub fn new(repository: Arc<dyn ProxyCheckJobRepository>) -> Self {
+    pub fn new(
+        repository: Arc<dyn ProxyCheckJobRepository>,
+        metering: Arc<MeterUsageUseCase>,
+    ) -> Self {
         Self {
             repository,
+            metering,
             worker_id: Uuid::new_v4().to_string(),
         }
     }
@@ -93,9 +99,49 @@ impl ProxyCheckWorker {
                 }
             };
 
-            if let Err(err) =
-                run_proxy_check_job(&*self.repository, running_job, entries, &self.worker_id).await
-            {
+            let request_id = format!("proxy-check:{}", job_id);
+            let network_egress_request_id = format!("network-egress:proxy:{}", job_id);
+            let repository = Arc::clone(&self.repository);
+            let worker_id = self.worker_id.clone();
+            let metering = self.metering.clone();
+            let result = metering
+                .execute_recoverable(
+                    MeterUsageInput {
+                        tenant_id: tenant_id.0,
+                        operation: "proxy_check".to_owned(),
+                        units: 1,
+                        request_id,
+                    },
+                    || async {
+                        metering
+                            .execute_recoverable(
+                                MeterUsageInput {
+                                    tenant_id: tenant_id.0,
+                                    operation: "network_egress".to_owned(),
+                                    // One billable MB is the minimum egress
+                                    // allowance for a proxy job because the
+                                    // current proxy checker does not expose
+                                    // transport-byte counters.
+                                    units: 1,
+                                    request_id: network_egress_request_id,
+                                },
+                                || async {
+                                    run_proxy_check_job(
+                                        &*repository,
+                                        running_job,
+                                        entries,
+                                        &worker_id,
+                                    )
+                                    .await
+                                },
+                            )
+                            .await
+                            .map(|_| ())
+                    },
+                )
+                .await;
+
+            if let Err(err) = result {
                 error!(job_id=%job_id, error=%err, "proxy check executor returned an unexpected error");
                 // The executor normally terminalizes the job itself. This
                 // fallback prevents an unexpected propagated error from

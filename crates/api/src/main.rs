@@ -29,15 +29,14 @@ use infra::{
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresOAuthIdentityRepository,
-    PostgresPAYGPricingRepository, PostgresPricingConfigRepository,
-    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
-    PostgresResetPasswordTokenRepository, PostgresRumAnalyticsRepository,
-    PostgresRumEventRepository, PostgresRumSiteRepository, PostgresStatusPageRepository,
-    PostgresSubscriptionPlanChangeRepository, PostgresSubscriptionRepository,
-    PostgresSubscriptionUsagePeriodRepository, PostgresSubscriptionUsageTransaction,
-    PostgresSupportTicketRepository, PostgresTenantInvitationRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUsageEventRepository,
-    PostgresUserRepository, PostgresWalletRepository, RedisPendingAuthCache, RedisRateLimiter,
+    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
+    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
+    PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionPlanChangeRepository,
+    PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
+    PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
     RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
     SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
 };
@@ -131,6 +130,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let secret_cipher_for_auth = secret_cipher.clone();
 
+    // PAYG dependencies are shared by RUM/storage metering and the
+    // notification dispatcher. Build the metering use case once so SMS
+    // retries, RUM beacons, and logo uploads all use the same tenant-scoped
+    // wallet/pricing/usage ledger.
+    let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
+    let payg_pricing_repository = infra::PostgresPAYGPricingRepository::new(pool.clone());
+    let usage_event_repository = infra::PostgresUsageEventRepository::new(pool.clone());
+    let financial_audit_repository = std::sync::Arc::new(
+        infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
+    );
+    let metering = std::sync::Arc::new(
+        application::MeterUsageUseCase::new(
+            std::sync::Arc::new(wallet_repository.clone()),
+            std::sync::Arc::new(payg_pricing_repository.clone()),
+            std::sync::Arc::new(usage_event_repository.clone()),
+        )
+        .with_audit_log_repository(financial_audit_repository.clone()),
+    );
+
     // Shared distributed rate limiter. Constructed once and cloned into
     // both `AppState` (RUM ingestion) and `AuthState` (auth endpoints)
     // below — `RedisRateLimiter` is `Clone` (cheap: it only wraps a
@@ -151,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         PostgresDiagnosticReportRepository::new(pool.clone()),
         PostgresIncidentRepository::new(pool.clone()),
         PostgresNotificationChannelRepository::new(pool.clone()),
-        NotificationDispatcher::from_env(secret_cipher.clone()),
+        NotificationDispatcher::from_env_with_metering(secret_cipher.clone(), metering.clone()),
         PostgresApiFlowRepository::new(pool.clone()),
         proxy_check_job_repository,
         PostgresMaintenanceWindowRepository::new(pool.clone()),
@@ -190,16 +208,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
     .with_rate_limiter(redis_rate_limiter.clone())
-    .with_wallet_repository(PostgresWalletRepository::new(pool.clone()))
-    .with_payg_pricing_repository(PostgresPAYGPricingRepository::new(pool.clone()))
-    .with_usage_event_repository(PostgresUsageEventRepository::new(pool.clone()))
+    .with_wallet_repository(wallet_repository)
+    .with_payg_pricing_repository(payg_pricing_repository)
+    .with_usage_event_repository(usage_event_repository)
     .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
         pool.clone(),
     ))
     .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()))
-    .with_financial_audit_log_repository(infra::PostgresFinancialAuditLogRepository::new(
-        pool.clone(),
-    ));
+    .with_financial_audit_log_repository(financial_audit_repository)
+    .with_payg_metering(metering.clone());
     app_state =
         app_state.with_payment_repository(infra::PostgresPaymentRepository::new(pool.clone()));
 

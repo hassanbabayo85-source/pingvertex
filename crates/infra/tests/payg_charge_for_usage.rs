@@ -248,3 +248,56 @@ async fn failed_operation_releases_reservation_and_does_not_debit() {
     assert_eq!(event.status, "FAILED");
     assert_eq!(event.units_billed, 0);
 }
+
+#[tokio::test]
+async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
+    let (wallet, pricing, usage, tenant) = setup(10, 11);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            100,
+            domain::WalletTransactionType::TopUp,
+            "topup-expired",
+            None,
+        )
+        .await
+        .unwrap();
+
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage);
+    let input = ChargeForUsageInput {
+        tenant_id: tenant,
+        operation: "proxy_check".into(),
+        units: 1,
+        request_id: "recoverable-request".into(),
+    };
+
+    // Simulate a worker crash after reservation creation by directly reserving
+    // an already-expired reservation with the same idempotency key.
+    wallet
+        .reserve(
+            tenant,
+            10,
+            "proxy_check",
+            &input.request_id,
+            Utc::now() - Duration::seconds(1),
+        )
+        .await
+        .unwrap();
+
+    let result = uc
+        .execute(input, || async { Ok::<_, &'static str>(()) })
+        .await
+        .unwrap();
+
+    assert_eq!(result.usage_event.status, "CAPTURED");
+    assert_eq!(result.usage_event.charge_units, 10);
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        90
+    );
+}

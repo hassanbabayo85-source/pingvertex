@@ -230,6 +230,25 @@ pub fn UsagePage() -> impl IntoView {
                 }
             }}
 
+            <section class="card">
+                <div class="section-heading">
+                    <div>
+                        <h2>"Runtime metering"</h2>
+                        <p class="muted">"PAYG charges now cover the live runtime paths below."</p>
+                    </div>
+                </div>
+                <div class="overview-cards">
+                    <div><span class="card-label">"Monitor checks"</span><span class="card-value">"monitor_check"</span></div>
+                    <div><span class="card-label">"Proxy checks"</span><span class="card-value">"proxy_check"</span></div>
+                    <div><span class="card-label">"SMS"</span><span class="card-value">"sms"</span></div>
+                    <div><span class="card-label">"RUM"</span><span class="card-value">"rum_event"</span></div>
+                    <div><span class="card-label">"Storage"</span><span class="card-value">"storage"</span></div>
+                    <div><span class="card-label">"Network egress"</span><span class="card-value">"network_egress"</span></div>
+                    <div><span class="card-label">"Heartbeat"</span><span class="card-value">"heartbeat_ping"</span></div>
+                </div>
+                <p class="muted">"Heartbeat billing applies to accepted pings; timeout evaluation is not billed. Network egress currently reserves one billable MB per active check because the checker contract does not expose wire-byte counters."</p>
+            </section>
+
             {move || {
                 if let Some(r) = report.get() {
                     if r.daily.is_empty() {

@@ -114,6 +114,9 @@ pub struct AppState {
     pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
     pub payment_repository: Arc<dyn PaymentRepository>,
     pub financial_audit_log_repository: Arc<dyn FinancialAuditLogRepository>,
+    /// Shared PAYG metering service. Optional so lightweight test/development
+    /// AppState constructors can remain usable without a wallet backend.
+    pub payg_metering: Option<Arc<application::MeterUsageUseCase>>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -163,11 +166,15 @@ impl SchedulingRepository for NoopSchedulingRepository {
         _lease_owner: uuid::Uuid,
         _lease_duration: std::time::Duration,
         _now: DateTime<Utc>,
-    ) -> RepoResult<Vec<domain::Monitor>> {
+    ) -> RepoResult<Vec<application::ports::ClaimedMonitor>> {
         Ok(Vec::new())
     }
 
-    async fn complete_claim(&self, _monitor_id: MonitorId) -> RepoResult<()> {
+    async fn complete_claim(
+        &self,
+        _monitor_id: MonitorId,
+        _lease_owner: uuid::Uuid,
+    ) -> RepoResult<()> {
         Ok(())
     }
 
@@ -1248,6 +1255,7 @@ impl AppState {
             invoice_repository: Arc::new(NoopInvoiceRepository),
             financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
             payment_repository: Arc::new(NoopPaymentRepository),
+            payg_metering: None,
         }
     }
 
@@ -1339,7 +1347,13 @@ impl AppState {
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
+            payg_metering: None,
         }
+    }
+
+    pub fn with_payg_metering(mut self, metering: Arc<application::MeterUsageUseCase>) -> Self {
+        self.payg_metering = Some(metering);
+        self
     }
 
     pub fn with_api_key_repository<R>(mut self, api_key_repository: R) -> Self

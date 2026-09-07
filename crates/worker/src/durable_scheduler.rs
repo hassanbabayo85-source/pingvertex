@@ -1,6 +1,7 @@
 use std::{error::Error, sync::Arc, time::Duration};
 
 use application::ports::SchedulingRepository;
+use application::{MeterUsageInput, MeterUsageUseCase};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::Monitor;
@@ -53,6 +54,7 @@ pub struct DurableScheduler<R, E> {
     lease_duration: Duration,
     max_concurrency: usize,
     lease_owner: Uuid,
+    metering: Option<Arc<MeterUsageUseCase>>,
 }
 
 impl<R, E> DurableScheduler<R, E>
@@ -72,7 +74,16 @@ where
             lease_duration,
             max_concurrency,
             lease_owner: Uuid::new_v4(),
+            metering: None,
         }
+    }
+
+    /// Enables PAYG billing at the scheduler's claim boundary. Billing is
+    /// intentionally performed here, after the atomic scheduler claim and
+    /// before the executor can touch the network.
+    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
+        self.metering = Some(metering);
+        self
     }
 
     pub async fn run(self) -> Result<()> {
@@ -98,12 +109,67 @@ where
 
                 info!(count = claimed.len(), "claimed due monitors");
 
-                for monitor in claimed {
+                for claim in claimed {
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
+                    let metering = self.metering.clone();
+                    let lease_owner = self.lease_owner;
 
                     tasks.spawn(async move {
-                        let result = executor.execute(&monitor).await;
+                        let monitor = claim.monitor;
+                        let request_id = format!(
+                            "monitor-check:{}:{}",
+                            monitor.id.0,
+                            claim
+                                .claimed_at
+                                .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                        );
+                        let result = if let Some(metering) = metering {
+                            let network_egress_request_id = format!(
+                                "network-egress:{}:{}",
+                                monitor.id.0,
+                                claim
+                                    .claimed_at
+                                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true,)
+                            );
+                            metering
+                                .execute_recoverable(
+                                    MeterUsageInput {
+                                        tenant_id: monitor.tenant_id.0,
+                                        operation: "monitor_check".to_owned(),
+                                        units: 1,
+                                        request_id,
+                                    },
+                                    || {
+                                        let metering = metering.clone();
+                                        let monitor = monitor.clone();
+                                        async move {
+                                            metering
+                                                .execute_recoverable(
+                                                    MeterUsageInput {
+                                                        tenant_id: monitor.tenant_id.0,
+                                                        operation: "network_egress".to_owned(),
+                                                        // The current checker contract does not expose wire-byte
+                                                        // counters. One billable MB is therefore reserved as the
+                                                        // minimum egress allowance for an active check. This keeps
+                                                        // billing fail-closed and avoids estimating usage from
+                                                        // attacker-controlled response metadata.
+                                                        units: 1,
+                                                        request_id: network_egress_request_id,
+                                                    },
+                                                    || executor.execute(&monitor),
+                                                )
+                                                .await
+                                                .map(|_| ())
+                                        }
+                                    },
+                                )
+                                .await
+                                .map(|_| ())
+                                .map_err(|err| -> Box<dyn Error + Send + Sync> { Box::new(err) })
+                        } else {
+                            executor.execute(&monitor).await
+                        };
                         if let Err(err) = &result {
                             warn!(
                                 monitor_id = %monitor.id.0,
@@ -116,7 +182,10 @@ where
                         // If the process crashes before this point, the lease
                         // will expire and `recover_expired_leases` will make
                         // the monitor claimable again.
-                        if let Err(err) = scheduling_repository.complete_claim(monitor.id).await {
+                        if let Err(err) = scheduling_repository
+                            .complete_claim(monitor.id, lease_owner)
+                            .await
+                        {
                             error!(
                                 monitor_id = %monitor.id.0,
                                 error = %err,

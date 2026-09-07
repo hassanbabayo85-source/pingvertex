@@ -66,4 +66,29 @@ impl MeterUsageUseCase {
             )
             .await
     }
+
+    /// Durable-worker variant: permits resuming a PENDING reservation after a
+    /// scheduler lease recovery while preserving wallet idempotency.
+    pub async fn execute_recoverable<F, Fut, E>(
+        &self,
+        input: MeterUsageInput,
+        operation: F,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(), E>>,
+        E: fmt::Display,
+    {
+        self.charge
+            .execute_recoverable(
+                ChargeForUsageInput {
+                    tenant_id: input.tenant_id,
+                    operation: input.operation,
+                    units: input.units,
+                    request_id: input.request_id,
+                },
+                operation,
+            )
+            .await
+    }
 }

@@ -99,6 +99,39 @@ impl ChargeForUsageUseCase {
         Fut: Future<Output = Result<(), E>>,
         E: fmt::Display,
     {
+        self.execute_internal(input, operation, false).await
+    }
+
+    /// Worker-safe variant for durable operations whose scheduler may retry
+    /// the same claimed execution after a lease expiry. A PENDING reservation
+    /// is allowed to be resumed with the same idempotency key, so the network
+    /// operation can be retried while the wallet can still be debited at most
+    /// once. The public `execute` API keeps its stricter "already in progress"
+    /// behavior for callers that expect duplicate requests to be suppressed.
+    pub async fn execute_recoverable<F, Fut, E>(
+        &self,
+        input: ChargeForUsageInput,
+        operation: F,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(), E>>,
+        E: fmt::Display,
+    {
+        self.execute_internal(input, operation, true).await
+    }
+
+    async fn execute_internal<F, Fut, E>(
+        &self,
+        input: ChargeForUsageInput,
+        operation: F,
+        retry_pending: bool,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<(), E>>,
+        E: fmt::Display,
+    {
         validate_input(&input)?;
 
         // Fast idempotency path: a completed request always returns its
@@ -132,6 +165,22 @@ impl ChargeForUsageUseCase {
             .checked_mul(pricing.unit_price)
             .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
 
+        // Workers can encounter a tenant that has never opened the wallet
+        // page. Provisioning the tenant-scoped wallet here keeps metering
+        // authoritative and avoids turning a valid first check into an
+        // infrastructure error. Currency remains server-controlled by the
+        // active PAYG price book.
+        let wallet = self
+            .wallet_repository
+            .get_or_create(input.tenant_id, &pricing.currency)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if wallet.currency != pricing.currency {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "PAYG pricing currency does not match the tenant wallet currency",
+            ));
+        }
+
         let expires_at = Utc::now() + Duration::seconds(60);
         let reservation_outcome = self
             .wallet_repository
@@ -153,7 +202,8 @@ impl ChargeForUsageUseCase {
 
         if !reservation_outcome.created {
             // Another request with the same idempotency key owns the
-            // operation. Never execute the billable operation twice.
+            // reservation. Strict API callers wait; durable workers may resume
+            // the same reservation with the recoverable variant below.
             if reservation_outcome.reservation.status == CreditReservation::CAPTURED {
                 let event = self
                     .recover_captured_event(
@@ -169,15 +219,20 @@ impl ChargeForUsageUseCase {
                     transaction: None,
                 });
             }
-            return self
-                .wait_for_previous_result(
-                    &input,
-                    charge_units,
-                    pricing.unit_price,
-                    pricing.version,
-                    &pricing.currency,
-                )
-                .await;
+            if !retry_pending {
+                return self
+                    .wait_for_previous_result(
+                        &input,
+                        charge_units,
+                        pricing.unit_price,
+                        pricing.version,
+                        &pricing.currency,
+                    )
+                    .await;
+            }
+            // For durable worker retries, resume the existing reservation below
+            // instead of suppressing the operation. Wallet capture remains
+            // idempotent, so concurrent recovery can never debit twice.
         }
 
         let reservation = reservation_outcome.reservation;

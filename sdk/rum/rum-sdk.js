@@ -48,6 +48,7 @@
   var state = {
     initialized: false,
     sessionKey: null,
+    requestId: null,
     jsErrors: [],
     resourceErrors: [],
     sent: false,
@@ -140,6 +141,10 @@
       window.sessionStorage.setItem(storageKey, fresh);
     });
     return fresh;
+  }
+
+  function newRequestId() {
+    return "rum_" + (randomHex(16) || String(Date.now()) + String(Math.random()));
   }
 
   // ---------------------------------------------------------------------
@@ -436,6 +441,7 @@
 
     return {
       site_key: config.siteKey,
+      request_id: state.requestId,
       session_key: state.sessionKey,
       browser_name: browser.name,
       browser_version: browser.version,
@@ -535,6 +541,7 @@
       }
 
       state.sessionKey = getOrCreateSessionKey();
+      state.requestId = newRequestId();
       state.initialized = true;
 
       startVitalsObservers();

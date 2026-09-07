@@ -128,7 +128,9 @@ impl NotificationOutboxSender for RealNotificationOutboxSender {
             NotificationOutboxEventKind::Test => NotificationEvent::Test(monitor),
         };
 
-        self.notification_service.notify(&channel, &event).await
+        self.notification_service
+            .notify_with_request_id(&channel, &event, &entry.idempotency_key)
+            .await
     }
 }
 

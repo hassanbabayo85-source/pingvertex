@@ -1,9 +1,11 @@
 use std::time::{Duration, Instant};
 
+use application::MeterUsageInput;
+use application::use_cases::ChargeForUsageError;
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use chrono::Utc;
 use domain::value_objects::HeartbeatToken;
@@ -26,6 +28,7 @@ use crate::state::{AppState, HeartbeatRateLimiter};
 /// source IP.
 const HEARTBEAT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
 const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
+const MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
 /// `GET /api/v1/public/heartbeat/{token}`
 ///
@@ -59,6 +62,7 @@ const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
 pub async fn record_heartbeat(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     let token = HeartbeatToken::new(&token).map_err(|_| StatusCode::NOT_FOUND)?;
 
@@ -80,21 +84,64 @@ pub async fn record_heartbeat(
         }
     };
 
+    // BILLING POLICY: a heartbeat is a user-triggered passive monitoring
+    // operation, so PAYG meters the accepted heartbeat receipt itself. The
+    // sweeper's later timeout evaluation is platform-side bookkeeping and
+    // is intentionally NOT billed.
     let now = Utc::now();
+    let request_id = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES
+                && value.is_ascii()
+                && value.bytes().all(|b| b.is_ascii_graphic())
+        })
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "heartbeat:{}:{}",
+                monitor.id.0,
+                now.timestamp_nanos_opt().unwrap_or_default()
+            )
+        });
 
-    if let Err(err) = state
+    if let Some(metering) = &state.payg_metering {
+        match metering
+            .execute(
+                MeterUsageInput {
+                    tenant_id: monitor.tenant_id.0,
+                    operation: "heartbeat_ping".to_owned(),
+                    units: 1,
+                    request_id: format!("heartbeat:{}", request_id),
+                },
+                || {
+                    state
+                        .monitor_repository
+                        .update_last_heartbeat_at(monitor.id, now)
+                },
+            )
+            .await
+        {
+            Ok(_) => {}
+            Err(ChargeForUsageError::InsufficientBalance) => {
+                warn!(monitor_id = %monitor.id.0, "heartbeat rejected: insufficient PAYG balance");
+                return Err(StatusCode::PAYMENT_REQUIRED);
+            }
+            Err(err) => {
+                warn!(monitor_id = %monitor.id.0, error = %err, "heartbeat metering/record failed");
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+    } else if let Err(err) = state
         .monitor_repository
         .update_last_heartbeat_at(monitor.id, now)
         .await
     {
-        warn!(
-            monitor_id = %monitor.id.0,
-            error = %err,
-            "failed to record heartbeat"
-        );
+        warn!(monitor_id = %monitor.id.0, error = %err, "failed to record heartbeat");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-
     info!(monitor_id = %monitor.id.0, "heartbeat recorded");
 
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
