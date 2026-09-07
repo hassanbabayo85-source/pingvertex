@@ -32311,6 +32311,7 @@ Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, 
       })();
     &lt;/script&gt;
     &lt;meta name=&quot;referrer&quot; content=&quot;strict-origin-when-cross-origin&quot;&gt;
+    &lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;self&#x27;; script-src &#x27;self&#x27; &#x27;unsafe-inline&#x27; &#x27;wasm-unsafe-eval&#x27; https://accounts.google.com https://appleid.cdn-apple.com; style-src &#x27;self&#x27; &#x27;unsafe-inline&#x27;; img-src &#x27;self&#x27; data:; font-src &#x27;self&#x27; data:; connect-src &#x27;self&#x27; https://accounts.google.com https://appleid.apple.com; frame-src https://accounts.google.com https://appleid.apple.com; object-src &#x27;none&#x27;; base-uri &#x27;self&#x27;; form-action &#x27;self&#x27;; frame-ancestors &#x27;self&#x27;&quot;&gt;
     &lt;title&gt;PingVertex&lt;/title&gt;
     &lt;link data-trunk rel=&quot;css&quot; href=&quot;style.css&quot;&gt;
     &lt;link data-trunk rel=&quot;rust&quot; /&gt;
@@ -38006,14 +38007,6 @@ fn delta_percent(first: Option&lt;f64&gt;, last: Option&lt;f64&gt;) -&gt; Option
     Some(((last - first) / first.abs()) * 100.0)
 }
 
-fn trend_value(trend: &amp;[DashboardTrendPoint], metric: &amp;str) -&gt; Option&lt;f64&gt; {
-    trend.iter().rev().find_map(|point| match metric {
-        &quot;uptime&quot; =&gt; point.uptime_percentage,
-        &quot;latency&quot; =&gt; point.avg_latency_ms,
-        _ =&gt; Some(point.incident_count as f64),
-    })
-}
-
 fn trend_delta(trend: &amp;[DashboardTrendPoint], metric: &amp;str) -&gt; Option&lt;f64&gt; {
     let values: Vec&lt;f64&gt; = trend
         .iter()
@@ -38261,6 +38254,9 @@ fn TrendChart(
                                     &lt;stop offset=&quot;100%&quot; stop-color=&quot;currentColor&quot; stop-opacity=&quot;0&quot;/&gt;
                                 &lt;/linearGradient&gt;
                             &lt;/defs&gt;
+                            &lt;line class=&quot;trend-grid&quot; x1=&quot;0&quot; y1=&quot;20&quot; x2=&quot;720&quot; y2=&quot;20&quot;/&gt;
+                            &lt;line class=&quot;trend-grid&quot; x1=&quot;0&quot; y1=&quot;60&quot; x2=&quot;720&quot; y2=&quot;60&quot;/&gt;
+                            &lt;line class=&quot;trend-grid&quot; x1=&quot;0&quot; y1=&quot;100&quot; x2=&quot;720&quot; y2=&quot;100&quot;/&gt;
                             {area_views}
                             {line_views}
                             {marker_views}
@@ -38429,7 +38425,7 @@ pub fn DashboardOverviewPage() -&gt; impl IntoView {
                 Err(e) =&gt; manual_check_notice.set(Some(user_facing_error(&amp;e.to_string()))),
             }
             manual_check_busy.set(false);
-            let _ = on_retry.run(());
+            on_retry.run(());
         });
     };
 
@@ -51728,6 +51724,55 @@ html[data-theme=&quot;dark&quot;] .dashboard-action-notice,
 html[data-theme=&quot;dark&quot;] .row-menu-popover { background: var(--pv-surface); border-color: var(--pv-border); }
 html[data-theme=&quot;dark&quot;] .metric-icon-monitors { background: var(--pv-primary-soft); }
 html[data-theme=&quot;dark&quot;] .topbar-notification-badge { border-color: var(--pv-surface); }
+
+/* =========================================================
+   Dashboard polish pass — appended, does not remove/override
+   any existing rule other than the two explicitly noted below.
+   ========================================================= */
+
+/* Subtle reference gridlines behind the 24h trend charts so an
+   empty/sparse chart (new accounts, freshly-added monitors) reads
+   as &quot;a chart with little data yet&quot; instead of &quot;broken/blank&quot;. */
+.trend-grid {
+  stroke: var(--border-subtle, var(--border));
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Overrides the earlier `.trend-point:focus { outline: none; }` rule.
+   Same selector + same specificity, so the rule that appears later in
+   the stylesheet wins — nothing above needs to be touched or deleted.
+   These points have tabindex=&quot;0&quot; (they&#x27;re the keyboard-reachable data
+   markers), so removing the outline entirely left keyboard users with
+   no visible focus indicator. */
+.trend-point:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A little more life on hover for primary surfaces, matching the
+   shadow tokens the design already defines. */
+.card,
+.dashboard-widget {
+  transition: transform var(--transition-standard, 180ms ease),
+              box-shadow var(--transition-standard, 180ms ease);
+}
+.card:hover,
+.dashboard-widget:hover {
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .dashboard-widget {
+    transition: none;
+  }
+  .card:hover,
+  .dashboard-widget:hover {
+    transform: none;
+  }
+}
 </code></pre>
 </div>
 <div class='file-block' id='file-196'>

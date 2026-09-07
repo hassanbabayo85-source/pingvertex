@@ -92,14 +92,6 @@ fn delta_percent(first: Option<f64>, last: Option<f64>) -> Option<f64> {
     Some(((last - first) / first.abs()) * 100.0)
 }
 
-fn trend_value(trend: &[DashboardTrendPoint], metric: &str) -> Option<f64> {
-    trend.iter().rev().find_map(|point| match metric {
-        "uptime" => point.uptime_percentage,
-        "latency" => point.avg_latency_ms,
-        _ => Some(point.incident_count as f64),
-    })
-}
-
 fn trend_delta(trend: &[DashboardTrendPoint], metric: &str) -> Option<f64> {
     let values: Vec<f64> = trend
         .iter()
@@ -347,6 +339,9 @@ fn TrendChart(
                                     <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
                                 </linearGradient>
                             </defs>
+                            <line class="trend-grid" x1="0" y1="20" x2="720" y2="20"/>
+                            <line class="trend-grid" x1="0" y1="60" x2="720" y2="60"/>
+                            <line class="trend-grid" x1="0" y1="100" x2="720" y2="100"/>
                             {area_views}
                             {line_views}
                             {marker_views}
@@ -515,7 +510,7 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                 Err(e) => manual_check_notice.set(Some(user_facing_error(&e.to_string()))),
             }
             manual_check_busy.set(false);
-            let _ = on_retry.run(());
+            on_retry.run(());
         });
     };
 
