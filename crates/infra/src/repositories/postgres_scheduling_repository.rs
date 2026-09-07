@@ -38,7 +38,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         let lease_seconds = lease_duration.as_secs() as i64;
         let limit_i64 = i64::from(limit);
 
-        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>)>(
+        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, Uuid)>(
             r#"
             WITH selected AS (
                 SELECT id
@@ -54,10 +54,11 @@ impl SchedulingRepository for PostgresSchedulingRepository {
             UPDATE monitors m
             SET lease_owner = $2,
                 lease_expires_at = $4 + ($3::bigint * interval '1 second'),
-                lease_claimed_at = COALESCE(m.lease_claimed_at, $4)
+                lease_claimed_at = COALESCE(m.lease_claimed_at, $4),
+                lease_execution_id = COALESCE(m.lease_execution_id, gen_random_uuid())
             FROM selected
             WHERE m.id = selected.id
-            RETURNING m.id, m.lease_claimed_at
+            RETURNING m.id, m.lease_claimed_at, m.lease_execution_id
             "#,
         )
         .bind(limit_i64)
@@ -68,11 +69,12 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .await?;
 
         let mut monitors = Vec::with_capacity(claimed_rows.len());
-        for (id, claimed_at) in claimed_rows {
+        for (id, claimed_at, execution_id) in claimed_rows {
             if let Some(monitor) = self.monitor_repository.find_by_id(MonitorId(id)).await? {
                 monitors.push(ClaimedMonitor {
                     monitor,
                     claimed_at,
+                    execution_id,
                 });
             }
         }
@@ -87,6 +89,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
             SET lease_owner = NULL,
                 lease_expires_at = NULL,
                 lease_claimed_at = NULL,
+                lease_execution_id = NULL,
                 next_due_at = now() + (interval_seconds * interval '1 second')
             WHERE id = $1
               AND lease_owner = $2

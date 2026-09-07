@@ -83,7 +83,9 @@ impl WalletRepository for InMemoryWalletRepository {
             .values_mut()
             .find(|r| r.request_id == request_id)
         {
-            if existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now() {
+            if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
+                || existing.status == CreditReservation::EXPIRED
+            {
                 existing.amount_units = amount_units;
                 existing.operation = operation.to_owned();
                 existing.expires_at = expires_at;
@@ -125,7 +127,12 @@ impl WalletRepository for InMemoryWalletRepository {
         })
     }
 
-    async fn capture(&self, reservation_id: Uuid) -> WalletRepoResult<WalletTransaction> {
+    async fn capture(
+        &self,
+        reservation_id: Uuid,
+        _usage_event: Option<&domain::UsageEvent>,
+        _audit_entries: &[domain::FinancialAuditLogEntry],
+    ) -> WalletRepoResult<WalletTransaction> {
         let mut g = self.inner.lock().unwrap();
         for (wallet, txs, reservations) in g.values_mut() {
             if let Some(r) = reservations.get_mut(&reservation_id) {
@@ -596,6 +603,23 @@ impl WalletRepository for InMemoryWalletRepository {
         }
 
         Ok(n)
+    }
+
+    async fn expire_pending_reservations(&self, limit: u32) -> WalletRepoResult<u64> {
+        let now = Utc::now();
+        let mut g = self.inner.lock().unwrap();
+        let mut changed = 0u64;
+        for (_, _, reservations) in g.values_mut() {
+            for reservation in reservations.values_mut() {
+                if changed >= u64::from(limit) { return Ok(changed); }
+                if reservation.status == CreditReservation::PENDING && reservation.expires_at <= now {
+                    reservation.status = CreditReservation::EXPIRED.to_owned();
+                    reservation.updated_at = now;
+                    changed += 1;
+                }
+            }
+        }
+        Ok(changed)
     }
 
     async fn auto_top_up_candidates(

@@ -2,8 +2,8 @@ use application::ports::{ReservationOutcome, WalletRepoResult, WalletRepository}
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
-    AutoTopUpAttempt, CreditReservation, Wallet, WalletSettings, WalletTopUpSession,
-    WalletTransaction, WalletTransactionType,
+    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletSettings,
+    WalletTopUpSession, WalletTransaction, WalletTransactionType,
 };
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
@@ -114,6 +114,29 @@ impl ReservationRow {
 
 const TX_COLUMNS: &str = "id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,reference_type,reference_id,description,created_at";
 
+fn validate_usage_for_reservation(
+    event: &domain::UsageEvent,
+    reservation: &ReservationRow,
+    tenant_id: Uuid,
+) -> WalletRepoResult<()> {
+    if event.tenant_id != tenant_id
+        || event.request_id != reservation.request_id
+        || event.operation != reservation.operation
+        || event.charge_units != reservation.amount_units
+        || event.charge_units <= 0
+        || event.units_requested <= 0
+        || event.units_billed <= 0
+        || event.units_billed > event.units_requested
+        || event.unit_price <= 0
+        || event.status != "CAPTURED"
+        || event.charge_units
+            != event.units_billed.checked_mul(event.unit_price).ok_or("usage charge overflow")?
+    {
+        return Err("usage event does not match PAYG reservation".into());
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl WalletRepository for PostgresWalletRepository {
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
@@ -184,11 +207,14 @@ impl WalletRepository for PostgresWalletRepository {
             "SELECT id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at
              FROM credit_reservations WHERE wallet_id=$1 AND request_id=$2",
         ).bind(wallet.id).bind(request_id).fetch_optional(&mut *tx).await? {
-            if existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now() {
+            if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
+                || existing.status == CreditReservation::EXPIRED
+            {
                 let refreshed = sqlx::query_as::<_, ReservationRow>(
                     "UPDATE credit_reservations
                      SET amount_units=$3, operation=$4, expires_at=$5, status='PENDING', updated_at=now()
-                     WHERE wallet_id=$1 AND request_id=$2 AND status='PENDING' AND expires_at<=now()
+                     WHERE wallet_id=$1 AND request_id=$2
+                       AND (status='EXPIRED' OR (status='PENDING' AND expires_at<=now()))
                      RETURNING id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at",
                 )
                 .bind(wallet.id)
@@ -238,7 +264,12 @@ impl WalletRepository for PostgresWalletRepository {
         })
     }
 
-    async fn capture(&self, reservation_id: Uuid) -> WalletRepoResult<WalletTransaction> {
+    async fn capture(
+        &self,
+        reservation_id: Uuid,
+        usage_event: Option<&domain::UsageEvent>,
+        audit_entries: &[domain::FinancialAuditLogEntry],
+    ) -> WalletRepoResult<WalletTransaction> {
         let mut tx = self.pool.begin().await?;
         let r = sqlx::query_as::<_, ReservationRow>(
             "SELECT id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at
@@ -248,12 +279,38 @@ impl WalletRepository for PostgresWalletRepository {
 
         let idem = format!("reservation:{reservation_id}");
         if r.status == CreditReservation::CAPTURED {
-            let q =
-                format!("SELECT {TX_COLUMNS} FROM wallet_transactions WHERE idempotency_key=$1");
+            let q = format!("SELECT {TX_COLUMNS} FROM wallet_transactions WHERE idempotency_key=$1");
             let row = sqlx::query_as::<_, TxRow>(&q)
                 .bind(&idem)
                 .fetch_one(&mut *tx)
                 .await?;
+            if let Some(event) = usage_event {
+                validate_usage_for_reservation(event, &r, row.tenant_id)?;
+                sqlx::query(
+                    "INSERT INTO api_usage_events
+                     (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,status)
+                     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                     ON CONFLICT (tenant_id,request_id) DO NOTHING",
+                )
+                .bind(event.id).bind(event.tenant_id).bind(&event.operation)
+                .bind(event.units_requested).bind(event.units_billed).bind(event.unit_price)
+                .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
+                .bind(&event.request_id).bind(&event.status)
+                .execute(&mut *tx).await?;
+            }
+            for audit in audit_entries {
+                sqlx::query(
+                    "INSERT INTO financial_audit_log(id,actor,tenant_id,action,resource,resource_id,created_at,metadata)
+                     SELECT $1,$2,$3,$4,$5,$6,$7,$8
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM financial_audit_log
+                         WHERE action=$4 AND resource=$5 AND resource_id=$6
+                     )",
+                )
+                .bind(audit.id).bind(&audit.actor).bind(audit.tenant_id).bind(&audit.action)
+                .bind(&audit.resource).bind(&audit.resource_id).bind(audit.created_at).bind(&audit.metadata)
+                .execute(&mut *tx).await?;
+            }
             tx.commit().await?;
             return Ok(row.into_domain());
         }
@@ -334,16 +391,45 @@ impl WalletRepository for PostgresWalletRepository {
             .bind(new_balance)
             .bind(&idem)
             .bind(r.id.to_string())
-            .bind(r.operation)
+            .bind(r.operation.clone())
             .fetch_one(&mut *tx)
             .await?;
+        if let Some(event) = usage_event {
+            validate_usage_for_reservation(event, &r, wallet.tenant_id)?;
+            sqlx::query(
+                "INSERT INTO api_usage_events
+                 (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,status)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 ON CONFLICT (tenant_id,request_id) DO NOTHING",
+            )
+            .bind(event.id).bind(event.tenant_id).bind(&event.operation)
+            .bind(event.units_requested).bind(event.units_billed).bind(event.unit_price)
+            .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
+            .bind(&event.request_id).bind(&event.status)
+            .execute(&mut *tx).await?;
+        }
+        for audit in audit_entries {
+            sqlx::query(
+                "INSERT INTO financial_audit_log(id,actor,tenant_id,action,resource,resource_id,created_at,metadata)
+                 SELECT $1,$2,$3,$4,$5,$6,$7,$8
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM financial_audit_log
+                     WHERE action=$4 AND resource=$5 AND resource_id=$6
+                 )",
+            )
+            .bind(audit.id).bind(&audit.actor).bind(audit.tenant_id).bind(&audit.action)
+            .bind(&audit.resource).bind(&audit.resource_id).bind(audit.created_at).bind(&audit.metadata)
+            .execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         let domain_row = row.into_domain();
 
         // Record threshold transitions close to the actual debit, not only when
         // a user opens the wallet page. This makes zero/critical/low alerts
         // durable even when usage is generated by background jobs.
-        let settings = self.get_settings(wallet.tenant_id).await?;
+        let Ok(settings) = self.get_settings(wallet.tenant_id).await else {
+            return Ok(domain_row);
+        };
         let level = if new_balance <= 0 {
             "BLOCKED"
         } else if new_balance <= settings.critical_balance_threshold_units {
@@ -672,10 +758,27 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(count)
     }
 
+    async fn expire_pending_reservations(&self, limit: u32) -> WalletRepoResult<u64> {
+        let result = sqlx::query(
+            "UPDATE credit_reservations
+             SET status='EXPIRED', updated_at=now()
+             WHERE id IN (
+                 SELECT id FROM credit_reservations
+                 WHERE status='PENDING' AND expires_at <= now()
+                 ORDER BY expires_at
+                 LIMIT $1
+                 FOR UPDATE SKIP LOCKED
+             )",
+        )
+        .bind(i64::from(limit.min(10_000)))
+        .execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     async fn auto_top_up_candidates(
         &self,
         limit: u32,
-    ) -> WalletRepoResult<Vec<domain::AutoTopUpCandidate>> {
+    ) -> WalletRepoResult<Vec<AutoTopUpCandidate>> {
         #[derive(sqlx::FromRow)]
         struct AutoTopUpRow {
             tenant_id: Uuid,

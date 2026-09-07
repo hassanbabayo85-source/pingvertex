@@ -301,3 +301,51 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
         90
     );
 }
+
+
+#[tokio::test]
+async fn monitoring_attempt_is_billed_when_operation_fails() {
+    let (wallet, pricing, usage, tenant) = setup(25, 12);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet.credit(tenant, 100, domain::WalletTransactionType::TopUp, "attempt-topup", None).await.unwrap();
+
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
+    let result = uc.execute_attempt(
+        ChargeForUsageInput {
+            tenant_id: tenant,
+            operation: "proxy_check".into(),
+            units: 1,
+            request_id: "attempt-failure".into(),
+        },
+        || async { Err::<(), _>("HTTP 500") },
+    ).await;
+
+    assert!(matches!(result, Err(ChargeForUsageError::OperationFailed(_))));
+    assert_eq!(wallet.get_or_create(tenant, "USD").await.unwrap().balance_units, 75);
+    let event = usage.find_by_request(tenant, "attempt-failure").await.unwrap().unwrap();
+    assert_eq!(event.status, "CAPTURED");
+    assert_eq!(event.charge_units, 25);
+}
+
+#[tokio::test]
+async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
+    let (wallet, pricing, usage, tenant) = setup(10, 13);
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet.credit(tenant, 100, domain::WalletTransactionType::TopUp, "expiry-topup", None).await.unwrap();
+    wallet.reserve(tenant, 10, "proxy_check", "expiry-retry", Utc::now() - Duration::seconds(1)).await.unwrap();
+
+    assert_eq!(wallet.expire_pending_reservations(50).await.unwrap(), 1);
+    let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage);
+    let result = uc.execute(
+        ChargeForUsageInput {
+            tenant_id: tenant,
+            operation: "proxy_check".into(),
+            units: 1,
+            request_id: "expiry-retry".into(),
+        },
+        || async { Ok::<_, &'static str>(()) },
+    ).await.unwrap();
+
+    assert_eq!(result.usage_event.charge_units, 10);
+    assert_eq!(wallet.get_or_create(tenant, "USD").await.unwrap().balance_units, 90);
+}

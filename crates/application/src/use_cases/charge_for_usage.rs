@@ -121,6 +121,41 @@ impl ChargeForUsageUseCase {
         self.execute_internal(input, operation, true).await
     }
 
+    /// Monitoring attempts are billable even when the target fails. The
+    /// external operation runs once, then financial capture records the debit,
+    /// usage event, and audits as one atomic repository transaction.
+    pub async fn execute_attempt<F, Fut, E>(
+        &self, input: ChargeForUsageInput, operation: F,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError>
+    where F: FnOnce() -> Fut, Fut: Future<Output = Result<(), E>>, E: fmt::Display,
+    {
+        validate_input(&input)?;
+        if let Some(event) = self.usage_event_repository.find_by_request(input.tenant_id, &input.request_id).await.map_err(ChargeForUsageError::Repository)? {
+            return Ok(ChargeForUsageResult { usage_event: event, transaction: None });
+        }
+        let pricing = self.pricing_repository.find_active(&input.operation).await.map_err(ChargeForUsageError::Repository)?.ok_or(ChargeForUsageError::NoPricing)?;
+        if pricing.unit_price <= 0 { return Err(ChargeForUsageError::InvalidPricing("active PAYG unit price must be positive")); }
+        let charge_units = input.units.checked_mul(pricing.unit_price).ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+        let wallet = self.wallet_repository.get_or_create(input.tenant_id, &pricing.currency).await.map_err(ChargeForUsageError::Repository)?;
+        if wallet.currency != pricing.currency { return Err(ChargeForUsageError::InvalidPricing("PAYG pricing currency does not match the tenant wallet currency")); }
+        let reservation = self.wallet_repository.reserve(input.tenant_id, charge_units, &input.operation, &input.request_id, Utc::now() + Duration::seconds(60)).await.map_err(|e| if e.to_string() == "insufficient wallet balance" { ChargeForUsageError::InsufficientBalance } else { ChargeForUsageError::Repository(e) })?;
+        if !reservation.created && reservation.reservation.status != CreditReservation::PENDING {
+            if reservation.reservation.status == CreditReservation::CAPTURED {
+                if let Some(event) = self.usage_event_repository.find_by_request(input.tenant_id, &input.request_id).await.map_err(ChargeForUsageError::Repository)? {
+                    return Ok(ChargeForUsageResult { usage_event: event, transaction: None });
+                }
+            }
+            return Err(ChargeForUsageError::ReservationInProgress);
+        }
+        let operation_result = operation().await;
+        let event = self.build_event(&input, input.units, pricing.unit_price, charge_units, pricing.version, &pricing.currency, "CAPTURED");
+        let audits = self.build_payg_audits(&input, &event);
+        let transaction = self.wallet_repository.capture(reservation.reservation.id, Some(&event), &audits).await.map_err(ChargeForUsageError::CaptureFailed)?;
+        let event = self.usage_event_repository.create(&event).await.map_err(ChargeForUsageError::Repository)?;
+        if let Err(err) = operation_result { return Err(ChargeForUsageError::OperationFailed(format!("{err}; usage_event={}", event.id))); }
+        Ok(ChargeForUsageResult { usage_event: event, transaction: Some(transaction) })
+    }
+
     async fn execute_internal<F, Fut, E>(
         &self,
         input: ChargeForUsageInput,
@@ -212,6 +247,7 @@ impl ChargeForUsageUseCase {
                         charge_units,
                         &pricing.currency,
                         &pricing.unit_price,
+                        reservation_outcome.reservation.id,
                     )
                     .await?;
                 return Ok(ChargeForUsageResult {
@@ -255,61 +291,68 @@ impl ChargeForUsageUseCase {
             )));
         }
 
-        let transaction = match self.wallet_repository.capture(reservation.id).await {
-            Ok(tx) => tx,
-            Err(err) => {
-                return Err(ChargeForUsageError::CaptureFailed(err));
-            }
-        };
-
+        let event = self.build_event(
+            &input,
+            input.units,
+            pricing.unit_price,
+            charge_units,
+            pricing.version,
+            &pricing.currency,
+            "CAPTURED",
+        );
+        let audits = self.build_payg_audits(&input, &event);
+        let transaction = self
+            .wallet_repository
+            .capture(reservation.id, Some(&event), &audits)
+            .await
+            .map_err(ChargeForUsageError::CaptureFailed)?;
+        // Postgres has already persisted these rows atomically with the debit.
+        // The extra idempotent calls keep the in-memory adapter's observable
+        // stores consistent for application/integration tests.
         let event = self
-            .record_event(
-                &input,
-                input.units,
-                pricing.unit_price,
-                charge_units,
-                pricing.version,
-                &pricing.currency,
-                "CAPTURED",
-            )
-            .await?;
-        if let Some(audit) = &self.audit_log_repository {
-            let metadata = serde_json::json!({
-                "operation": input.operation,
-                "units": input.units,
-                "charge_units": charge_units,
-                "currency": pricing.currency
-            });
-
-            audit
-                .create(&domain::FinancialAuditLogEntry::new(
-                    "system:payg",
-                    Some(input.tenant_id),
-                    "payg_charged",
-                    "wallet_transaction",
-                    Some(transaction.id.to_string()),
-                    metadata.clone(),
-                ))
-                .await
-                .map_err(ChargeForUsageError::Repository)?;
-
-            audit
-                .create(&domain::FinancialAuditLogEntry::new(
-                    "system:payg",
-                    Some(input.tenant_id),
-                    "wallet_debited",
-                    "wallet_transaction",
-                    Some(transaction.id.to_string()),
-                    metadata,
-                ))
-                .await
-                .map_err(ChargeForUsageError::Repository)?;
-        }
-
+            .usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
         Ok(ChargeForUsageResult {
             usage_event: event,
             transaction: Some(transaction),
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_event(
+        &self,
+        input: &ChargeForUsageInput,
+        units_billed: i64,
+        unit_price: i64,
+        charge_units: i64,
+        pricing_version: i64,
+        currency: &str,
+        status: &str,
+    ) -> UsageEvent {
+        UsageEvent {
+            id: Uuid::new_v4(), tenant_id: input.tenant_id,
+            operation: input.operation.clone(), units_requested: input.units,
+            units_billed, unit_price, charge_units, currency: currency.to_owned(),
+            pricing_version, request_id: input.request_id.clone(), status: status.to_owned(),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn build_payg_audits(&self, input: &ChargeForUsageInput, event: &UsageEvent) -> Vec<domain::FinancialAuditLogEntry> {
+        if self.audit_log_repository.is_none() { return Vec::new(); }
+        let metadata = serde_json::json!({
+            "operation": input.operation, "units": input.units,
+            "charge_units": event.charge_units, "currency": event.currency,
+            "pricing_version": event.pricing_version,
+        });
+        ["payg_charged", "wallet_debited"].into_iter().map(|action| {
+            domain::FinancialAuditLogEntry::new(
+                "system:payg", Some(input.tenant_id), action,
+                "payg_request", Some(input.request_id.clone()), metadata.clone(),
+            )
+        }).collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -323,23 +366,8 @@ impl ChargeForUsageUseCase {
         currency: &str,
         status: &str,
     ) -> Result<UsageEvent, ChargeForUsageError> {
-        self.usage_event_repository
-            .create(&UsageEvent {
-                id: Uuid::new_v4(),
-                tenant_id: input.tenant_id,
-                operation: input.operation.clone(),
-                units_requested: input.units,
-                units_billed,
-                unit_price,
-                charge_units,
-                currency: currency.to_owned(),
-                pricing_version,
-                request_id: input.request_id.clone(),
-                status: status.to_owned(),
-                created_at: Utc::now(),
-            })
-            .await
-            .map_err(ChargeForUsageError::Repository)
+        let event = self.build_event(input, units_billed, unit_price, charge_units, pricing_version, currency, status);
+        self.usage_event_repository.create(&event).await.map_err(ChargeForUsageError::Repository)
     }
 
     async fn recover_captured_event(
@@ -349,6 +377,7 @@ impl ChargeForUsageUseCase {
         charge_units: i64,
         currency: &str,
         unit_price: &i64,
+        reservation_id: Uuid,
     ) -> Result<UsageEvent, ChargeForUsageError> {
         if let Some(event) = self
             .usage_event_repository
@@ -358,7 +387,7 @@ impl ChargeForUsageUseCase {
         {
             return Ok(event);
         }
-        self.record_event(
+        let event = self.build_event(
             input,
             input.units,
             *unit_price,
@@ -366,8 +395,16 @@ impl ChargeForUsageUseCase {
             *pricing_version,
             currency,
             "CAPTURED",
-        )
-        .await
+        );
+        let audits = self.build_payg_audits(input, &event);
+        self.wallet_repository
+            .capture(reservation_id, Some(&event), &audits)
+            .await
+            .map_err(ChargeForUsageError::CaptureFailed)?;
+        self.usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)
     }
 
     async fn wait_for_previous_result(
