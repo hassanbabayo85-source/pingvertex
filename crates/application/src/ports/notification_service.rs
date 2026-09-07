@@ -29,6 +29,18 @@ pub trait NotificationService: Send + Sync {
         channel: &NotificationChannel,
         event: &NotificationEvent,
     ) -> NotifyResult;
+
+    /// Delivers a notification with a caller-supplied idempotency key.
+    /// Adapters that do not meter notifications may use the default behavior;
+    /// metered dispatchers override this to make retries charge-safe.
+    async fn notify_with_request_id(
+        &self,
+        channel: &NotificationChannel,
+        event: &NotificationEvent,
+        _request_id: &str,
+    ) -> NotifyResult {
+        self.notify(channel, event).await
+    }
     /// Sends an account-level billing email without pretending it is a monitor event.
     /// Default implementations reject it; the notification dispatcher routes it
     /// to the SMTP adapter when email is configured.
@@ -53,6 +65,17 @@ where
         event: &NotificationEvent,
     ) -> NotifyResult {
         (**self).notify(channel, event).await
+    }
+
+    async fn notify_with_request_id(
+        &self,
+        channel: &NotificationChannel,
+        event: &NotificationEvent,
+        request_id: &str,
+    ) -> NotifyResult {
+        (**self)
+            .notify_with_request_id(channel, event, request_id)
+            .await
     }
 
     async fn notify_wallet_email(

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use application::ports::{NotificationService, NotifyResult, SecretCipher};
+use application::{MeterUsageInput, MeterUsageUseCase};
 use async_trait::async_trait;
 use domain::{
     entities::NotificationChannel, enums::NotificationChannelKind, notification::NotificationEvent,
@@ -28,6 +29,7 @@ pub struct NotificationDispatcher {
     discord: Arc<dyn NotificationService>,
     telegram: Arc<dyn NotificationService>,
     sms: Arc<dyn NotificationService>,
+    metering: Option<Arc<MeterUsageUseCase>>,
 }
 
 impl NotificationDispatcher {
@@ -46,6 +48,7 @@ impl NotificationDispatcher {
             discord,
             telegram,
             sms,
+            metering: None,
         }
     }
 
@@ -60,6 +63,21 @@ impl NotificationDispatcher {
     /// error only if/when an email channel is actually triggered. A
     /// self-hosted deployment that only wants webhook notifications
     /// shouldn't be forced to configure an SMTP relay just to boot.
+    /// Enables PAYG billing for SMS delivery. Billing lives at this routing
+    /// boundary so every SMS path (incident, outbox retry, and test send) is
+    /// covered without putting wallet concerns into the Twilio adapter.
+    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
+        self.metering = Some(metering);
+        self
+    }
+
+    pub fn from_env_with_metering(
+        cipher: Arc<dyn SecretCipher>,
+        metering: Arc<MeterUsageUseCase>,
+    ) -> Self {
+        Self::from_env(cipher).with_metering(metering)
+    }
+
     pub fn from_env(cipher: Arc<dyn SecretCipher>) -> Self {
         let email: Arc<dyn NotificationService> = match SmtpConfig::try_from_env() {
             Ok(config) => match SmtpEmailNotificationService::new(config) {
@@ -94,6 +112,14 @@ impl NotificationDispatcher {
     }
 }
 
+fn event_kind(event: &NotificationEvent) -> &'static str {
+    match event {
+        NotificationEvent::MonitorDown(_) => "monitor_down",
+        NotificationEvent::MonitorRecovered(_) => "monitor_recovered",
+        NotificationEvent::Test(_) => "test",
+    }
+}
+
 #[async_trait]
 impl NotificationService for NotificationDispatcher {
     async fn notify(
@@ -101,6 +127,41 @@ impl NotificationService for NotificationDispatcher {
         channel: &NotificationChannel,
         event: &NotificationEvent,
     ) -> NotifyResult {
+        let request_id = format!(
+            "notification:{}:{}:{}",
+            channel.id.0,
+            event_kind(event),
+            uuid::Uuid::new_v4()
+        );
+        self.notify_with_request_id(channel, event, &request_id)
+            .await
+    }
+
+    async fn notify_with_request_id(
+        &self,
+        channel: &NotificationChannel,
+        event: &NotificationEvent,
+        request_id: &str,
+    ) -> NotifyResult {
+        if channel.kind == NotificationChannelKind::Sms
+            && let Some(metering) = &self.metering
+        {
+            let request_id = request_id.to_owned();
+            return metering
+                .execute(
+                    MeterUsageInput {
+                        tenant_id: channel.tenant_id.0,
+                        operation: "sms".to_owned(),
+                        units: 1,
+                        request_id,
+                    },
+                    || self.sms.notify(channel, event),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>);
+        }
+
         match channel.kind {
             NotificationChannelKind::Email => self.email.notify(channel, event).await,
             NotificationChannelKind::Webhook => self.webhook.notify(channel, event).await,

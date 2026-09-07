@@ -79,7 +79,21 @@ impl WalletRepository for InMemoryWalletRepository {
         }
         let mut g = self.inner.lock().unwrap();
         let (wallet, _, reservations) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
-        if let Some(existing) = reservations.values().find(|r| r.request_id == request_id) {
+        if let Some(existing) = reservations
+            .values_mut()
+            .find(|r| r.request_id == request_id)
+        {
+            if existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now() {
+                existing.amount_units = amount_units;
+                existing.operation = operation.to_owned();
+                existing.expires_at = expires_at;
+                existing.status = CreditReservation::PENDING.to_owned();
+                existing.updated_at = Utc::now();
+                return Ok(ReservationOutcome {
+                    reservation: existing.clone(),
+                    created: true,
+                });
+            }
             return Ok(ReservationOutcome {
                 reservation: existing.clone(),
                 created: false,

@@ -1,4 +1,4 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{error::Error, ops::Deref, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -6,6 +6,23 @@ use domain::{Monitor, shared::ids::MonitorId};
 use uuid::Uuid;
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// A monitor claim together with the durable claim timestamp. The timestamp
+/// is part of the billing idempotency identity: normal completion clears it,
+/// while lease recovery deliberately preserves it so a crash/retry reuses the
+/// same PAYG request id instead of creating a second charge.
+#[derive(Debug, Clone)]
+pub struct ClaimedMonitor {
+    pub monitor: Monitor,
+    pub claimed_at: DateTime<Utc>,
+}
+impl Deref for ClaimedMonitor {
+    type Target = Monitor;
+
+    fn deref(&self) -> &Self::Target {
+        &self.monitor
+    }
+}
 
 /// Database-backed scheduling state for the durable worker scheduler.
 ///
@@ -27,12 +44,12 @@ pub trait SchedulingRepository: Send + Sync {
         lease_owner: Uuid,
         lease_duration: Duration,
         now: DateTime<Utc>,
-    ) -> RepoResult<Vec<Monitor>>;
+    ) -> RepoResult<Vec<ClaimedMonitor>>;
 
     /// Clears the lease fields for `monitor_id` and advances
     /// `next_due_at` by `interval_seconds` from the database's `now()`.
     /// Called after an execution attempt finishes (success or error).
-    async fn complete_claim(&self, monitor_id: MonitorId) -> RepoResult<()>;
+    async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()>;
 
     /// Marks all eligible monitors in a tenant due immediately without
     /// disturbing an active lease. The worker scheduler will claim them on
@@ -59,14 +76,14 @@ where
         lease_owner: Uuid,
         lease_duration: Duration,
         now: DateTime<Utc>,
-    ) -> RepoResult<Vec<Monitor>> {
+    ) -> RepoResult<Vec<ClaimedMonitor>> {
         (**self)
             .claim_due_monitors(limit, lease_owner, lease_duration, now)
             .await
     }
 
-    async fn complete_claim(&self, monitor_id: MonitorId) -> RepoResult<()> {
-        (**self).complete_claim(monitor_id).await
+    async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()> {
+        (**self).complete_claim(monitor_id, lease_owner).await
     }
 
     async fn request_immediate_checks(

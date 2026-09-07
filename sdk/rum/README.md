@@ -57,6 +57,7 @@ Request body:
 
 {
   "site_key": "rum_...",
+  "request_id": "rum_...",
   "session_key": "sess_...",
   "browser_name": "Chrome",
   "browser_version": "128.0.0.0",

@@ -116,6 +116,7 @@ async fn expired_lease_makes_monitor_claimable_again() {
         .unwrap();
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].id.0, monitor_id);
+    let first_claimed_at = claimed[0].claimed_at;
 
     // Simulate crash: manually force lease expiry.
     sqlx::query("UPDATE monitors SET lease_expires_at = now() - interval '1 second' WHERE id = $1")
@@ -139,9 +140,12 @@ async fn expired_lease_makes_monitor_claimable_again() {
         .unwrap();
     assert_eq!(claimed_again.len(), 1);
     assert_eq!(claimed_again[0].id.0, monitor_id);
+    assert_eq!(claimed_again[0].claimed_at, first_claimed_at);
 
     // Complete claim clears lease and advances next_due_at.
-    repo.complete_claim(MonitorId(monitor_id)).await.unwrap();
+    repo.complete_claim(MonitorId(monitor_id), second_owner)
+        .await
+        .unwrap();
     let lease_owner: Option<Uuid> =
         sqlx::query_scalar("SELECT lease_owner FROM monitors WHERE id = $1")
             .bind(monitor_id)
@@ -174,13 +178,11 @@ async fn immediate_check_request_is_tenant_scoped_and_preserves_leases() {
 
     // Keep tenant B's monitor in the future so the test can verify
     // that request_immediate_checks() does not affect another tenant.
-    sqlx::query(
-        "UPDATE monitors SET next_due_at = now() + interval '10 minutes' WHERE id = $1"
-    )
-    .bind(b1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE monitors SET next_due_at = now() + interval '10 minutes' WHERE id = $1")
+        .bind(b1)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let lease_owner = Uuid::new_v4();
     sqlx::query("UPDATE monitors SET lease_owner = $1, lease_expires_at = now() + interval '60 seconds', lease_claimed_at = now(), next_due_at = now() + interval '10 minutes' WHERE id = $2")
@@ -223,4 +225,54 @@ async fn immediate_check_request_is_tenant_scoped_and_preserves_leases() {
             .await
             .unwrap();
     assert_eq!(preserved_owner, Some(lease_owner));
+}
+
+#[tokio::test]
+#[serial]
+async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+    let monitor_id = insert_due_monitor(&pool, "stale-owner", user_id, tenant_id.0).await;
+
+    let repo = PostgresSchedulingRepository::new(pool.clone());
+    let first_owner = Uuid::new_v4();
+    let second_owner = Uuid::new_v4();
+    let first = repo
+        .claim_due_monitors(1, first_owner, Duration::from_secs(60), chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(first.len(), 1);
+
+    sqlx::query("UPDATE monitors SET lease_expires_at = now() - interval '1 second' WHERE id = $1")
+        .bind(monitor_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    repo.recover_expired_leases(chrono::Utc::now())
+        .await
+        .unwrap();
+
+    let second = repo
+        .claim_due_monitors(1, second_owner, Duration::from_secs(60), chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(second.len(), 1);
+
+    let stale_result = repo
+        .complete_claim(MonitorId(monitor_id), first_owner)
+        .await;
+    assert!(stale_result.is_err());
+
+    let current_owner: Option<Uuid> =
+        sqlx::query_scalar("SELECT lease_owner FROM monitors WHERE id = $1")
+            .bind(monitor_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(current_owner, Some(second_owner));
+
+    repo.complete_claim(MonitorId(monitor_id), second_owner)
+        .await
+        .unwrap();
 }

@@ -11,9 +11,9 @@ use infra::{
     PostgresEscalationPolicyRepository, PostgresHistoryRetentionRepository,
     PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
-    PostgresProxyCheckJobRepository, PostgresSchedulingRepository, PostgresStatusPageRepository,
-    PostgresSubscriptionRepository, PostgresTenantRepository, RedisStatusPageCache,
-    UuidIdGenerator, create_pool,
+    PostgresPAYGPricingRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionRepository, PostgresTenantRepository,
+    PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -22,7 +22,7 @@ use worker::{
     IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
     TenantNotificationRateLimiter, WalletExpirationWorker, WalletNotificationEmailWorker,
-    init_rustls_crypto_provider, metrics, run_durable,
+    init_rustls_crypto_provider, metrics,
 };
 
 #[derive(Clone, Default)]
@@ -104,6 +104,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let financial_audit_repository = Arc::new(infra::PostgresFinancialAuditLogRepository::new(
         pool.clone(),
     ));
+    let payg_pricing_repository = Arc::new(PostgresPAYGPricingRepository::new(pool.clone()));
+    let usage_event_repository = Arc::new(PostgresUsageEventRepository::new(pool.clone()));
+    let metering = Arc::new(
+        application::MeterUsageUseCase::new(
+            wallet_repository.clone(),
+            payg_pricing_repository,
+            usage_event_repository,
+        )
+        .with_audit_log_repository(financial_audit_repository.clone()),
+    );
     let auto_top_up_worker = AutoTopUpWorker::new(
         wallet_repository.clone(),
         billing_provider,
@@ -127,7 +137,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     ));
 
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
-    let notification_service = Arc::new(NotificationDispatcher::from_env(secret_cipher));
+    let notification_service = Arc::new(NotificationDispatcher::from_env_with_metering(
+        secret_cipher,
+        metering.clone(),
+    ));
     let wallet_email_worker = WalletNotificationEmailWorker::new(
         wallet_repository.clone(),
         notification_channel_repository.clone(),
@@ -202,7 +215,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository);
+    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository, metering.clone());
     let proxy_check_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy_check_worker.run_forever(proxy_check_cancel).await {
@@ -304,12 +317,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     tracing::info!("worker started; press Ctrl+C or send SIGTERM to shut down");
 
     tokio::select! {
-        result = run_durable(
+        result = worker::DurableScheduler::new(
             scheduling_repository,
             executor,
             Duration::from_secs(worker_config.lease_seconds),
             worker_config.max_concurrent_checks,
-        ) => {
+        )
+        .with_metering(metering.clone())
+        .run() => {
             result?;
         }
         _ = shutdown_signal() => {

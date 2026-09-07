@@ -254,7 +254,17 @@ impl IncidentManager {
         };
 
         for channel in &channels {
-            if let Err(err) = self.notification_service.notify(channel, &event).await {
+            let event_kind = match &event {
+                NotificationEvent::MonitorDown(_) => "monitor_down",
+                NotificationEvent::MonitorRecovered(_) => "monitor_recovered",
+                NotificationEvent::Test(_) => "test",
+            };
+            let request_id = format!("incident:{}:{}:{}", incident_id.0, channel.id.0, event_kind);
+            if let Err(err) = self
+                .notification_service
+                .notify_with_request_id(channel, &event, &request_id)
+                .await
+            {
                 error!(
                     monitor_id = %monitor.id.0,
                     channel_id = %channel.id.0,

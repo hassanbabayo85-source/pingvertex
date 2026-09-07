@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, Multipart, Path, State},
+    http::HeaderMap,
 };
 use tracing::info;
 
@@ -18,6 +19,7 @@ use crate::{
 pub async fn upload_status_page_logo(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<Json<StatusPageResponse>, ApiError> {
@@ -40,25 +42,45 @@ pub async fn upload_status_page_logo(
         .await
         .map_err(|_| ApiError::bad_request("invalid or too large logo upload"))?;
 
-    let use_case = UploadStatusPageLogoUseCase::new(
+    let mut use_case = UploadStatusPageLogoUseCase::new(
         state.status_page_repository.clone(),
         state.logo_storage.clone(),
         state.audit_log_entry_repository.clone(),
     );
+    if let Some(metering) = &state.payg_metering {
+        use_case = use_case.with_metering(metering.clone());
+    }
+
+    let request_id = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value.is_ascii()
+                && value.bytes().all(|b| b.is_ascii_graphic())
+        })
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("status-page-logo:{}:{}", id.0, uuid::Uuid::new_v4()));
 
     let status_page = use_case
-        .execute(
+        .execute_with_request_id(
             UploadStatusPageLogo {
                 id,
                 data: data.to_vec(),
             },
             authenticated_user,
+            request_id,
         )
         .await
         .map_err(|err| match err {
             UploadStatusPageLogoError::Forbidden => {
                 ApiError::forbidden("you do not have permission to update status pages")
             }
+            UploadStatusPageLogoError::InsufficientBalance => ApiError::payment_required(
+                "PAYG balance is insufficient",
+                "PAYG_INSUFFICIENT_BALANCE",
+            ),
             UploadStatusPageLogoError::InvalidLogo(domain_err) => {
                 ApiError::bad_request(domain_err.to_string())
             }

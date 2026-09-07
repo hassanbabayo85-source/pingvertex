@@ -65,23 +65,23 @@ pub async fn verify_checkout(
         domain::CheckoutStatus::Failed => Some("payment_failed"),
         domain::CheckoutStatus::Pending => None,
     };
-    if checkout_before.status != domain::CheckoutStatus::Completed {
-        if let Some(action) = audit_action {
-            state
-                .financial_audit_log_repository
-                .create(&domain::FinancialAuditLogEntry::new(
-                    authenticated_user.user_id().0.to_string(),
-                    Some(tenant_id.0),
-                    action,
-                    "checkout_session",
-                    Some(checkout_session_id.0.to_string()),
-                    serde_json::json!({"status": outcome.checkout_status.as_str()}),
-                ))
-                .await
-                .map_err(|e| {
-                    ApiError::internal_with_source("failed to write financial audit log", e)
-                })?;
-        }
+    if checkout_before.status != domain::CheckoutStatus::Completed
+        && let Some(action) = audit_action
+    {
+        state
+            .financial_audit_log_repository
+            .create(&domain::FinancialAuditLogEntry::new(
+                authenticated_user.user_id().0.to_string(),
+                Some(tenant_id.0),
+                action,
+                "checkout_session",
+                Some(checkout_session_id.0.to_string()),
+                serde_json::json!({"status": outcome.checkout_status.as_str()}),
+            ))
+            .await
+            .map_err(|e| {
+                ApiError::internal_with_source("failed to write financial audit log", e)
+            })?;
     }
     if checkout_before.status != domain::CheckoutStatus::Completed
         && outcome.checkout_status == domain::CheckoutStatus::Completed
