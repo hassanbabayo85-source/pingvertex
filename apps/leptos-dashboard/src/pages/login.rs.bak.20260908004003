@@ -1,0 +1,354 @@
+use crate::auth::api::{self, LoginResult};
+use crate::auth::context::{use_auth, AuthState};
+use crate::auth::oauth::OAuthButtons;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use leptos_router::hooks::use_navigate;
+
+fn mail_icon() -> impl IntoView {
+    view! {
+        <svg class="input-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"></rect>
+            <path d="M3 6.5l9 6.5 9-6.5"></path>
+        </svg>
+    }
+}
+
+fn lock_icon() -> impl IntoView {
+    view! {
+        <svg class="input-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4.5" y="10.5" width="15" height="10" rx="2.5"></rect>
+            <path d="M7.5 10.5V7.5a4.5 4.5 0 0 1 9 0v3"></path>
+        </svg>
+    }
+}
+
+fn eye_icon() -> impl IntoView {
+    view! {
+        <svg class="input-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7-10-7-10-7z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+    }
+}
+
+fn eye_off_icon() -> impl IntoView {
+    view! {
+        <svg class="input-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3l18 18"></path>
+            <path d="M10.6 5.2A10.6 10.6 0 0 1 12 5c6.2 0 10 7 10 7a17.9 17.9 0 0 1-3.4 4.3M6.6 6.6C4 8.3 2 12 2 12s3.8 7 10 7c1.4 0 2.7-.3 3.9-.8"></path>
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
+        </svg>
+    }
+}
+
+fn bolt_icon() -> impl IntoView {
+    view! {
+        <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 2 3 14h6l-1 8 10-13h-6l1-7z"></path>
+        </svg>
+    }
+}
+
+fn bell_icon() -> impl IntoView {
+    view! {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 8a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6z"></path>
+            <path d="M10 20a2 2 0 0 0 4 0"></path>
+        </svg>
+    }
+}
+
+fn shield_icon() -> impl IntoView {
+    view! {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6l7-3z"></path>
+            <path d="M9 12l2 2 4-4"></path>
+        </svg>
+    }
+}
+
+fn arrow_right_icon() -> impl IntoView {
+    view! {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"></path>
+            <path d="M13 6l6 6-6 6"></path>
+        </svg>
+    }
+}
+
+fn check_circle_icon() -> impl IntoView {
+    view! {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M8.5 12.3l2.4 2.4 4.6-5"></path>
+        </svg>
+    }
+}
+
+/// Left-hand marketing panel: hero copy, feature highlights and a decorative
+/// dashboard preview. Fully shown on desktop; on narrow screens the preview
+/// graphic and footer tagline collapse away via CSS, leaving just the
+/// header, heading, subtitle and feature row above the sign-in card.
+#[component]
+fn AuthVisual() -> impl IntoView {
+    view! {
+        <div class="auth-visual">
+            <div class="auth-visual-top">
+                <div class="auth-brand">
+                    <span class="auth-brand-mark"><span class="pulse-dot"></span></span>
+                    <span class="auth-brand-name">"PingVertex"</span>
+                </div>
+                <span class="auth-visual-badge">
+                    <span class="badge-dot"></span>
+                    "Uptime Monitoring"
+                </span>
+            </div>
+
+            <h1 class="auth-visual-title">
+                "Keep Your Services"
+                <br/>
+                <span class="accent-text">"Online, Always"</span>
+            </h1>
+
+            <p class="auth-visual-subtitle">
+                "Monitor your websites, APIs and infrastructure in real time. "
+                "Get instant alerts, reduce downtime and keep your users happy."
+            </p>
+
+            <div class="auth-feature-grid">
+                <div class="auth-feature">
+                    <span class="auth-feature-icon">{bolt_icon()}</span>
+                    <h3>"Real-time Monitoring"</h3>
+                    <p>"Track your services 24/7, globally."</p>
+                </div>
+                <div class="auth-feature">
+                    <span class="auth-feature-icon">{bell_icon()}</span>
+                    <h3>"Instant Alerts"</h3>
+                    <p>"Get notified before your users do."</p>
+                </div>
+                <div class="auth-feature">
+                    <span class="auth-feature-icon">{shield_icon()}</span>
+                    <h3>"Reliable & Secure"</h3>
+                    <p>"Built for performance, with enterprise-grade security."</p>
+                </div>
+            </div>
+
+            <div class="auth-preview" aria-hidden="true">
+                <div class="auth-preview-card">
+                    <div class="auth-preview-sidebar">
+                        <span class="auth-preview-sidebar-brand">"PingVertex"</span>
+                        <span class="auth-preview-nav-item auth-preview-nav-active">"Overview"</span>
+                        <span class="auth-preview-nav-item">"Monitors"</span>
+                        <span class="auth-preview-nav-item">"Incidents"</span>
+                        <span class="auth-preview-nav-item">"Subscribers"</span>
+                        <span class="auth-preview-nav-item">"Settings"</span>
+                    </div>
+                    <div class="auth-preview-main">
+                        <div class="auth-preview-row">
+                            <span class="auth-preview-heading">"Service Uptime"</span>
+                            <span class="auth-preview-range">"Last 24 hours"</span>
+                        </div>
+                        <div class="auth-preview-status">
+                            <span class="auth-preview-status-dot"></span>
+                            <div class="auth-preview-status-copy">
+                                <strong>"All Systems Operational"</strong>
+                                <small>"100% uptime across all services"</small>
+                            </div>
+                            <span class="auth-preview-status-pct">"↑ 100%"</span>
+                        </div>
+                        <svg class="auth-preview-graph" viewBox="0 0 300 60" preserveAspectRatio="none">
+                            <polyline points="0,42 30,40 60,44 90,30 120,36 150,18 180,28 210,16 240,26 270,12 300,20"></polyline>
+                        </svg>
+                        <div class="auth-preview-services">
+                            <div class="auth-preview-service">
+                                <span>"Website"</span>
+                                <span class="auth-preview-pill">"100%"</span>
+                            </div>
+                            <div class="auth-preview-service">
+                                <span>"API"</span>
+                                <span class="auth-preview-pill">"100%"</span>
+                            </div>
+                            <div class="auth-preview-service">
+                                <span>"Database"</span>
+                                <span class="auth-preview-pill">"100%"</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="auth-preview-stat">
+                    <span class="auth-preview-stat-value">"99.99%"</span>
+                    <span class="auth-preview-stat-label">"Avg Uptime"</span>
+                </div>
+
+                <div class="auth-preview-toast">
+                    <span class="auth-preview-toast-icon">{check_circle_icon()}</span>
+                    <div class="auth-preview-toast-copy">
+                        <strong>"Service is up!"</strong>
+                        <small>"Your website is running normally."</small>
+                    </div>
+                </div>
+            </div>
+
+            <p class="auth-visual-footer">"MONITOR · ALERT · STAY ONLINE"</p>
+        </div>
+    }
+}
+
+#[component]
+pub fn LoginPage() -> impl IntoView {
+    let auth = use_auth();
+    let email = RwSignal::new(String::new());
+    let password = RwSignal::new(String::new());
+    let show_password = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
+    let two_factor_required = RwSignal::new(false);
+    let pending_token = RwSignal::new(String::new());
+    let two_factor_code = RwSignal::new(String::new());
+    let navigate = use_navigate();
+    let navigate_2fa = navigate.clone();
+
+    let on_submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let email_val = email.get();
+        let password_val = password.get();
+        let navigate = navigate.clone();
+        spawn_local(async move {
+            match api::login(&email_val, &password_val).await {
+                Ok(LoginResult::Success) => match api::fetch_current_user().await {
+                    Ok(user) => {
+                        auth.state.set(AuthState::Authenticated(user));
+                        navigate("/", Default::default());
+                    }
+                    Err(e) => error.set(Some(e)),
+                },
+                Ok(LoginResult::TwoFactorRequired {
+                    pending_token: token,
+                }) => {
+                    pending_token.set(token);
+                    two_factor_required.set(true);
+                    error.set(None);
+                }
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    };
+
+    let on_2fa_submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let code = two_factor_code.get();
+        let token = pending_token.get();
+        let navigate = navigate_2fa.clone();
+        spawn_local(async move {
+            match api::complete_2fa(&token, &code).await {
+                Ok(()) => match api::fetch_current_user().await {
+                    Ok(user) => {
+                        auth.state.set(AuthState::Authenticated(user));
+                        navigate("/", Default::default());
+                    }
+                    Err(e) => error.set(Some(e)),
+                },
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    };
+
+    view! {
+        <div class="auth-shell">
+            <AuthVisual/>
+
+            <div class="auth-card-wrap">
+                <div class="auth-card">
+                    <div class="auth-card-brand">
+                        <span class="auth-brand-mark"><span class="pulse-dot"></span></span>
+                        <span class="auth-brand-name">"PingVertex"</span>
+                    </div>
+
+                    <h1>"Sign in"</h1>
+                    <p class="auth-subtitle">"Monitor your infrastructure without the noise."</p>
+
+                    {move || {
+                        if two_factor_required.get() {
+                            view! {
+                                <form on:submit=on_2fa_submit.clone() class="auth-form">
+                                    <p class="auth-hint">"Enter the code from your authenticator app."</p>
+                                    <div class="field">
+                                        <label for="two-factor-code">"Two-factor code"</label>
+                                        <input
+                                            type="text"
+                                            id="two-factor-code"
+                                            autocomplete="one-time-code"
+                                            prop:value=two_factor_code
+                                            on:input=move |ev| two_factor_code.set(event_target_value(&ev))
+                                            required
+                                        />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-block">
+                                        <span>"Verify"</span>
+                                    </button>
+                                </form>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <form on:submit=on_submit.clone() class="auth-form">
+                                    <div class="field">
+                                        <label for="email">"Email"</label>
+                                        <div class="input-wrap">
+                                            <span class="input-icon">{mail_icon()}</span>
+                                            <input
+                                                type="email"
+                                                id="email"
+                                                autocomplete="username"
+                                                prop:value=email
+                                                on:input=move |ev| email.set(event_target_value(&ev))
+                                                required
+                                            />
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <label for="password">"Password"</label>
+                                        <div class="input-wrap has-toggle">
+                                            <span class="input-icon">{lock_icon()}</span>
+                                            <input
+                                                id="password"
+                                                autocomplete="current-password"
+                                                attr:type=move || if show_password.get() { "text" } else { "password" }
+                                                prop:value=password
+                                                on:input=move |ev| password.set(event_target_value(&ev))
+                                                required
+                                            />
+                                            <button
+                                                type="button"
+                                                class="input-toggle"
+                                                tabindex="-1"
+                                                attr:aria-label=move || if show_password.get() { "Hide password" } else { "Show password" }
+                                                on:click=move |_| show_password.update(|v| *v = !*v)
+                                            >
+                                                {move || if show_password.get() { eye_off_icon().into_any() } else { eye_icon().into_any() }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-block">
+                                        {arrow_right_icon()}
+                                        <span>"Sign in"</span>
+                                    </button>
+                                </form>
+                            }.into_any()
+                        }
+                    }}
+
+                    {move || error.get().map(|e| view! { <div class="form-error">{e}</div> })}
+
+                    <OAuthButtons/>
+
+                    <div class="auth-links">
+                        <a href="/forgot-password">"Forgot password?"</a>
+                        <span class="auth-links-sep">"·"</span>
+                        <a href="/register">"Create an account"</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
