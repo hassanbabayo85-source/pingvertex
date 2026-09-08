@@ -12,9 +12,18 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// while lease recovery deliberately preserves it so a crash/retry reuses the
 /// same PAYG request id instead of creating a second charge.
 #[derive(Debug, Clone)]
+pub struct ClaimedOneTimeCheck {
+    pub request: domain::OneTimeCheckRequest,
+    pub monitor: Monitor,
+}
+
+#[derive(Debug, Clone)]
 pub struct ClaimedMonitor {
     pub monitor: Monitor,
     pub claimed_at: DateTime<Utc>,
+    /// Free monitoring applies only while the tenant has <=10 monitors,
+    /// has never activated PAYG, and this monitor runs at the 5-minute minimum.
+    pub free_entitled: bool,
     pub execution_id: Uuid,
 }
 impl Deref for ClaimedMonitor {
@@ -64,6 +73,43 @@ pub trait SchedulingRepository: Send + Sync {
     /// making those monitors claimable again. Returns the number of
     /// recovered leases.
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64>;
+    async fn enqueue_one_time_check(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+        monitor_id: MonitorId,
+        created_by: domain::shared::ids::UserId,
+        request_id: &str,
+    ) -> RepoResult<domain::OneTimeCheckRequest>;
+    async fn claim_one_time_checks(
+        &self,
+        limit: u32,
+        lease_owner: Uuid,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<Vec<ClaimedOneTimeCheck>>;
+    async fn complete_one_time_check(
+        &self,
+        request_id: Uuid,
+        lease_owner: Uuid,
+        status: &str,
+        error: Option<&str>,
+    ) -> RepoResult<()>;
+    async fn get_one_time_check(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+        monitor_id: MonitorId,
+        request_id: Uuid,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>>;
+
+    /// Looks up a one-time request by its caller-supplied idempotency key.
+    /// The key is tenant-scoped and may be an opaque string; it is never
+    /// interpreted as a UUID.
+    async fn get_one_time_check_by_request_id(
+        &self,
+        tenant_id: domain::shared::ids::TenantId,
+        monitor_id: MonitorId,
+        request_id: &str,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>>;
 }
 
 #[async_trait]
@@ -96,5 +142,49 @@ where
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         (**self).recover_expired_leases(now).await
+    }
+    async fn enqueue_one_time_check(
+        &self,
+        t: domain::shared::ids::TenantId,
+        m: MonitorId,
+        u: domain::shared::ids::UserId,
+        r: &str,
+    ) -> RepoResult<domain::OneTimeCheckRequest> {
+        (**self).enqueue_one_time_check(t, m, u, r).await
+    }
+    async fn claim_one_time_checks(
+        &self,
+        l: u32,
+        o: Uuid,
+        d: Duration,
+        n: DateTime<Utc>,
+    ) -> RepoResult<Vec<ClaimedOneTimeCheck>> {
+        (**self).claim_one_time_checks(l, o, d, n).await
+    }
+    async fn complete_one_time_check(
+        &self,
+        r: Uuid,
+        o: Uuid,
+        s: &str,
+        e: Option<&str>,
+    ) -> RepoResult<()> {
+        (**self).complete_one_time_check(r, o, s, e).await
+    }
+    async fn get_one_time_check(
+        &self,
+        t: domain::shared::ids::TenantId,
+        m: MonitorId,
+        r: Uuid,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
+        (**self).get_one_time_check(t, m, r).await
+    }
+
+    async fn get_one_time_check_by_request_id(
+        &self,
+        t: domain::shared::ids::TenantId,
+        m: MonitorId,
+        r: &str,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
+        (**self).get_one_time_check_by_request_id(t, m, r).await
     }
 }

@@ -53,7 +53,7 @@ async fn updates_monitor_successfully() {
                 url: "https://www.google.com".into(),
                 method: HttpMethod::Head,
                 expected_status: 200,
-                interval_seconds: 120,
+                interval_seconds: 300,
                 timeout_seconds: 15,
                 assertions: vec![],
                 is_public: false,

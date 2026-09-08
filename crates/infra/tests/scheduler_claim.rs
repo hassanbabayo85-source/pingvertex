@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use application::ports::SchedulingRepository;
+use application::ports::{SchedulingRepository, WalletRepository};
 use domain::shared::ids::MonitorId;
 use infra::PostgresSchedulingRepository;
 use serial_test::serial;
@@ -277,4 +277,89 @@ async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
     repo.complete_claim(MonitorId(monitor_id), second_owner)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[serial]
+async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+
+    let monitor_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO monitors (
+            id, user_id, tenant_id, regions, name, url, method,
+            expected_status, interval_seconds, timeout_seconds,
+            enabled, ssl_check_enabled, ssl_expiry_warning_days, kind,
+            created_at, updated_at, next_due_at
+        ) VALUES (
+            $1, $2, $3, ARRAY['us-east'], 'free-eligible', 'http://example.com', 'GET',
+            200, 300, 10, true, true, 14, 'http', now(), now(), now()
+        )
+        "#,
+    )
+    .bind(monitor_id)
+    .bind(user_id)
+    .bind(tenant_id.0)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = PostgresSchedulingRepository::new(pool.clone());
+    let owner = Uuid::new_v4();
+    let free_claim = repo
+        .claim_due_monitors(1, owner, Duration::from_secs(60), chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(free_claim.len(), 1);
+    assert!(free_claim[0].free_entitled);
+    repo.complete_claim(MonitorId(monitor_id), owner)
+        .await
+        .unwrap();
+
+    let wallet = infra::PostgresWalletRepository::new(pool.clone());
+    wallet.get_or_create(tenant_id.0, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant_id.0,
+            2,
+            domain::WalletTransactionType::TopUp,
+            "scheduler-free-fallback-topup",
+            None,
+        )
+        .await
+        .unwrap();
+    let reservation = wallet
+        .reserve(
+            tenant_id.0,
+            2,
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
+            "scheduler-free-fallback-charge",
+            chrono::Utc::now() + chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    wallet
+        .capture(reservation.reservation.id, None, &[])
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE monitors SET next_due_at=now() WHERE id=$1")
+        .bind(monitor_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let owner2 = Uuid::new_v4();
+    let paid_claim = repo
+        .claim_due_monitors(1, owner2, Duration::from_secs(60), chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(paid_claim.len(), 1);
+    assert!(!paid_claim[0].free_entitled);
 }

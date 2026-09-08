@@ -48,7 +48,7 @@ pub async fn update_monitor(
         state.monitor_repository.clone(),
         state.audit_log_entry_repository.clone(),
     )
-    .with_entitlements(state.subscription_repository.clone());
+    .with_wallet_repository(state.wallet_repository.clone());
 
     let monitor = use_case
         .execute(command, authenticated_user)

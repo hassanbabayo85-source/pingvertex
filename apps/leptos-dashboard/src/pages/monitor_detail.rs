@@ -81,6 +81,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let notice = RwSignal::new(None::<String>);
     let action_busy = RwSignal::new(false);
+    let one_time_busy = RwSignal::new(false);
     let telemetry_in_flight = RwSignal::new(false);
     let show_delete_confirm = RwSignal::new(false);
     let channel_to_delete = RwSignal::new(None::<String>);
@@ -223,6 +224,27 @@ pub fn MonitorDetailPage() -> impl IntoView {
     let cancel_delete_cb = Callback::new(move |_: ()| {
         show_delete_confirm.set(false);
     });
+
+    let run_one_time = move |_| {
+        if action_busy.get() || one_time_busy.get() {
+            return;
+        }
+        let id = monitor_id();
+        if id.is_empty() {
+            return;
+        }
+        one_time_busy.set(true);
+        error.set(None);
+        spawn_local(async move {
+            match monitoring::run_one_time_check(&id).await {
+                Ok(_) => notice.set(Some(
+                    "One-time check queued; recurring schedule is unchanged.".into(),
+                )),
+                Err(e) => error.set(Some(e)),
+            }
+            one_time_busy.set(false);
+        });
+    };
 
     let toggle_enabled = move |_| {
         if action_busy.get() {
@@ -434,6 +456,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                 disabled=move || action_busy.get()
                                 on:click=toggle_enabled
                             >{if m.enabled { "Disable" } else { "Enable" }}</button>
+                            <button class="btn" disabled=move || action_busy.get() || one_time_busy.get() on:click=run_one_time>{move || if one_time_busy.get() { "Queuing…" } else { "Test now" }}</button>
                             <button
                                 class="btn btn-danger"
                                 disabled=move || action_busy.get()

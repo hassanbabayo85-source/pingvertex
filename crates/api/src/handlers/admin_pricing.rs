@@ -3,8 +3,10 @@ use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
 };
+use domain::PaygOperation;
 use domain::pricing::{FreeTierDefaults, PricingConfig};
 use domain::shared::types::{AuthenticatedUser, Permission};
+use std::str::FromStr;
 use tracing::info;
 
 use crate::{
@@ -15,7 +17,115 @@ use crate::{
     state::AppState,
 };
 
+#[derive(Debug, serde::Deserialize)]
+pub struct CreatePaygPriceRequest {
+    pub operation: String,
+    pub unit_name: String,
+    pub unit_price: i64,
+    pub currency: String,
+    pub effective_from: Option<chrono::DateTime<chrono::Utc>>,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PaygPriceResponse {
+    pub id: String,
+    pub version: i64,
+    pub operation: String,
+    pub unit_name: String,
+    pub unit_price: i64,
+    pub currency: String,
+    pub effective_from: String,
+}
+
+fn validate_payg_price_request(req: &CreatePaygPriceRequest) -> Result<PaygOperation, ApiError> {
+    let operation = PaygOperation::from_str(req.operation.trim())
+        .map_err(|_| ApiError::bad_request("unsupported PAYG operation"))?;
+    if req.unit_price <= 0 {
+        return Err(ApiError::bad_request(
+            "unit_price must be greater than zero",
+        ));
+    }
+    if req.unit_name.trim().is_empty() || req.unit_name.len() > 64 {
+        return Err(ApiError::bad_request(
+            "unit_name must be between 1 and 64 characters",
+        ));
+    }
+    if req.currency != "USD" {
+        return Err(ApiError::bad_request(
+            "PAYG currently supports USD wallet pricing only",
+        ));
+    }
+    if req.reason.trim().is_empty() || req.reason.len() > 500 {
+        return Err(ApiError::bad_request(
+            "reason must be between 1 and 500 characters",
+        ));
+    }
+    Ok(operation)
+}
+
+pub async fn create_payg_price(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(payload): Json<CreatePaygPriceRequest>,
+) -> Result<(StatusCode, Json<PaygPriceResponse>), ApiError> {
+    require_manage_billing(&user)?;
+    let operation = validate_payg_price_request(&payload)?;
+    let pricing = state
+        .payg_pricing_repository
+        .create_version(
+            operation.as_str(),
+            payload.unit_name.trim(),
+            payload.unit_price,
+            "USD",
+            payload.effective_from.unwrap_or_else(chrono::Utc::now),
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to create PAYG price version", e))?;
+
+    state
+        .financial_audit_log_repository
+        .create(&domain::FinancialAuditLogEntry::new(
+            user.user_id().0.to_string(),
+            Some(user.tenant_context().tenant_id().0),
+            "payg_price_created",
+            "payg_pricing",
+            Some(pricing.id.to_string()),
+            serde_json::json!({
+                "version": pricing.version,
+                "operation": pricing.operation,
+                "unit_name": pricing.unit_name,
+                "unit_price": pricing.unit_price,
+                "currency": pricing.currency,
+                "effective_from": pricing.effective_from,
+                "reason": payload.reason.trim(),
+            }),
+        ))
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to audit PAYG price change", e))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(PaygPriceResponse {
+            id: pricing.id.to_string(),
+            version: pricing.version,
+            operation: pricing.operation,
+            unit_name: pricing.unit_name,
+            unit_price: pricing.unit_price,
+            currency: pricing.currency,
+            effective_from: pricing.effective_from.to_rfc3339(),
+        }),
+    ))
+}
+
 fn validate_config_request(req: &CreatePricingConfigRequest) -> Result<(), ApiError> {
+    if req.free_tier.monitors != domain::FREE_MONITOR_LIMIT
+        || req.free_tier.interval_seconds != domain::FREE_MIN_INTERVAL_SECONDS
+    {
+        return Err(ApiError::bad_request(
+            "Free entitlement is fixed at 10 monitors with a 5-minute minimum interval",
+        ));
+    }
     if req.cost_per_check < rust_decimal::Decimal::ZERO {
         return Err(ApiError::bad_request("cost_per_check must be >= 0"));
     }

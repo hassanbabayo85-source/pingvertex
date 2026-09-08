@@ -6,7 +6,7 @@ use std::time::Duration;
 use application::{
     ports::{
         HistoryRetentionRepository, PricingConfigRepository, SubscriptionRepository,
-        TenantRepository,
+        TenantRepository, WalletRepository,
     },
     queries::ResolveEntitlements,
     use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
@@ -40,6 +40,7 @@ where
     batch_size: u32,
     interval: Duration,
     max_concurrent_tenants: usize,
+    wallet_repository: Option<Arc<dyn WalletRepository>>,
 }
 
 impl<T, S, H, P> RetentionWorker<T, S, H, P>
@@ -66,7 +67,16 @@ where
             batch_size,
             interval,
             max_concurrent_tenants,
+            wallet_repository: None,
         }
+    }
+
+    /// PAYG runtime retention source. When configured, subscription plans are
+    /// ignored and retention is derived from the wallet activation state plus
+    /// the active PAYG pricing configuration.
+    pub fn with_wallet_repository(mut self, repository: Arc<dyn WalletRepository>) -> Self {
+        self.wallet_repository = Some(repository);
+        self
     }
 
     /// Runs one full retention sweep over all tenants with bounded
@@ -84,31 +94,66 @@ where
             let subscription_repository = self.subscription_repository.clone();
             let history_repository = self.history_repository.clone();
             let pricing_repository = self.pricing_repository.clone();
+            let wallet_repository = self.wallet_repository.clone();
             let batch_size = self.batch_size;
             let checks_deleted = checks_deleted.clone();
 
             join_set.spawn(async move {
                 let _permit = permit;
 
-                let plan = match ResolveEntitlementsUseCase::new(subscription_repository)
-                    .with_pricing_config_repository(pricing_repository)
-                    .execute(ResolveEntitlements {
-                        tenant_id: tenant.id,
-                    })
-                    .await
-                {
-                    Ok(plan) => plan,
-                    Err(err) => {
-                        error!(
-                            tenant_id = ?tenant.id,
-                            error = %err,
-                            "failed to resolve entitlements for tenant; skipping retention"
-                        );
-                        return;
+                let retention_days = if let Some(wallet_repository) = wallet_repository {
+                    let wallet = match wallet_repository
+                        .get_or_create(tenant.id.0, "USD")
+                        .await
+                    {
+                        Ok(wallet) => wallet,
+                        Err(err) => {
+                            error!(
+                                tenant_id = ?tenant.id,
+                                error = %err,
+                                "failed to load PAYG wallet for retention; skipping tenant"
+                            );
+                            return;
+                        }
+                    };
+                    let config = match pricing_repository.find_active_config().await {
+                        Ok(Some(config)) => config,
+                        Ok(None) => {
+                            error!(tenant_id = ?tenant.id, "active PAYG pricing config missing; skipping retention");
+                            return;
+                        }
+                        Err(err) => {
+                            error!(tenant_id = ?tenant.id, error = %err, "failed to load PAYG pricing config; skipping retention");
+                            return;
+                        }
+                    };
+                    if wallet.payg_activated_at.is_some() {
+                        config.max_retention_days
+                    } else {
+                        config.free_tier.retention_days
                     }
+                } else {
+                    // Legacy/test compatibility only. Production wires the wallet
+                    // repository, so subscription tiers cannot affect runtime.
+                    let plan = match ResolveEntitlementsUseCase::new(subscription_repository)
+                        .with_pricing_config_repository(pricing_repository)
+                        .execute(ResolveEntitlements {
+                            tenant_id: tenant.id,
+                        })
+                        .await
+                    {
+                        Ok(plan) => plan,
+                        Err(err) => {
+                            error!(
+                                tenant_id = ?tenant.id,
+                                error = %err,
+                                "failed to resolve legacy retention entitlement; skipping retention"
+                            );
+                            return;
+                        }
+                    };
+                    plan.history_retention_days
                 };
-
-                let retention_days = plan.history_retention_days;
                 let cutoff = Utc::now() - ChronoDuration::days(retention_days as i64);
 
                 match history_repository

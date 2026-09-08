@@ -72,7 +72,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
-      RUST_LOG: info
+      RUST_LOG: info,axum::rejection=trace,tower_http=debug
     ports:
       - "127.0.0.1:3000:3000"
       - "3443:3443"
@@ -154,6 +154,7 @@ services:
       - .env
     environment:
       AGENT_API_BASE_URL: https://api:3443/internal/v1
+      AGENT_ID: agent-us-east-1
       RUST_LOG: info
 
   # Leptos frontend build job (one-shot)

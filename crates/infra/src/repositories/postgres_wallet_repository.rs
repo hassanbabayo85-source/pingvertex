@@ -36,6 +36,7 @@ struct WalletRow {
     tenant_id: Uuid,
     currency: String,
     balance_units: i64,
+    payg_activated_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -46,6 +47,7 @@ impl WalletRow {
             tenant_id: self.tenant_id,
             currency: self.currency,
             balance_units: self.balance_units,
+            payg_activated_at: self.payg_activated_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -91,6 +93,9 @@ struct ReservationRow {
     amount_units: i64,
     status: String,
     operation: String,
+    unit_price: Option<i64>,
+    pricing_version: Option<i64>,
+    currency: Option<String>,
     request_id: String,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
@@ -104,6 +109,9 @@ impl ReservationRow {
             amount_units: self.amount_units,
             status: self.status,
             operation: self.operation,
+            unit_price: self.unit_price,
+            pricing_version: self.pricing_version,
+            currency: self.currency,
             request_id: self.request_id,
             expires_at: self.expires_at,
             created_at: self.created_at,
@@ -134,6 +142,16 @@ fn validate_usage_for_reservation(
                 .units_billed
                 .checked_mul(event.unit_price)
                 .ok_or("usage charge overflow")?
+        || reservation
+            .unit_price
+            .is_some_and(|price| price != event.unit_price)
+        || reservation
+            .pricing_version
+            .is_some_and(|version| version != event.pricing_version)
+        || reservation
+            .currency
+            .as_deref()
+            .is_some_and(|currency| currency != event.currency)
     {
         return Err("usage event does not match PAYG reservation".into());
     }
@@ -157,13 +175,35 @@ impl WalletRepository for PostgresWalletRepository {
         .execute(&self.pool)
         .await?;
         let row = sqlx::query_as::<_, WalletRow>(
-            "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE tenant_id=$1",
         )
         .bind(tenant_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(row.into_domain())
+    }
+
+    async fn get_balance_summary(
+        &self,
+        tenant_id: Uuid,
+        currency: &str,
+    ) -> WalletRepoResult<domain::WalletBalanceSummary> {
+        let balance: i64 = sqlx::query_scalar(
+            "SELECT balance_units FROM user_wallets WHERE tenant_id=$1 AND currency=$2",
+        )
+        .bind(tenant_id)
+        .bind(currency)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or("wallet not found")?;
+        let reserved: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(amount_units),0) FROM credit_reservations WHERE wallet_id=(SELECT id FROM user_wallets WHERE tenant_id=$1 AND currency=$2) AND status='PENDING' AND expires_at>now()")
+            .bind(tenant_id).bind(currency).fetch_one(&self.pool).await?;
+        Ok(domain::WalletBalanceSummary {
+            balance_units: balance,
+            reserved_units: reserved,
+            available_units: balance.saturating_sub(reserved),
+        })
     }
 
     async fn list_transactions(
@@ -188,6 +228,9 @@ impl WalletRepository for PostgresWalletRepository {
         tenant_id: Uuid,
         amount_units: i64,
         operation: &str,
+        unit_price: i64,
+        pricing_version: i64,
+        currency: &str,
         request_id: &str,
         expires_at: DateTime<Utc>,
     ) -> WalletRepoResult<ReservationOutcome> {
@@ -199,7 +242,7 @@ impl WalletRepository for PostgresWalletRepository {
         }
         let mut tx = self.pool.begin().await?;
         let wallet = sqlx::query_as::<_, WalletRow>(
-            "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE tenant_id=$1 FOR UPDATE",
         )
         .bind(tenant_id)
@@ -207,7 +250,7 @@ impl WalletRepository for PostgresWalletRepository {
         .await?;
 
         if let Some(existing) = sqlx::query_as::<_, ReservationRow>(
-            "SELECT id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at
+            "SELECT id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at
              FROM credit_reservations WHERE wallet_id=$1 AND request_id=$2",
         ).bind(wallet.id).bind(request_id).fetch_optional(&mut *tx).await? {
             if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
@@ -215,15 +258,18 @@ impl WalletRepository for PostgresWalletRepository {
             {
                 let refreshed = sqlx::query_as::<_, ReservationRow>(
                     "UPDATE credit_reservations
-                     SET amount_units=$3, operation=$4, expires_at=$5, status='PENDING', updated_at=now()
+                     SET amount_units=$3, operation=$4, unit_price=$5, pricing_version=$6, currency=$7, expires_at=$8, status='PENDING', updated_at=now()
                      WHERE wallet_id=$1 AND request_id=$2
                        AND (status='EXPIRED' OR (status='PENDING' AND expires_at<=now()))
-                     RETURNING id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at",
+                     RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
                 )
                 .bind(wallet.id)
                 .bind(request_id)
                 .bind(amount_units)
                 .bind(operation)
+                .bind(unit_price)
+                .bind(pricing_version)
+                .bind(currency)
                 .bind(expires_at)
                 .fetch_optional(&mut *tx)
                 .await?;
@@ -253,14 +299,16 @@ impl WalletRepository for PostgresWalletRepository {
             // Persist the billing block in the same wallet transaction. This is
             // durable state, not merely a UI-derived balance label, so every
             // worker/region observes the same decision.
-            sqlx::query(
-                "UPDATE user_wallets
-                 SET billing_status='PAYG_BALANCE_EXHAUSTED', updated_at=now()
-                 WHERE id=$1",
-            )
-            .bind(wallet.id)
-            .execute(&mut *tx)
-            .await?;
+            if wallet.payg_activated_at.is_some() {
+                sqlx::query(
+                    "UPDATE user_wallets
+                     SET billing_status='PAYG_BALANCE_EXHAUSTED', updated_at=now()
+                     WHERE id=$1",
+                )
+                .bind(wallet.id)
+                .execute(&mut *tx)
+                .await?;
+            }
             tx.commit().await?;
             return Err("insufficient wallet balance".into());
         }
@@ -277,10 +325,11 @@ impl WalletRepository for PostgresWalletRepository {
 
         let row = sqlx::query_as::<_, ReservationRow>(
             "INSERT INTO credit_reservations
-             (id,wallet_id,amount_units,status,operation,request_id,expires_at)
-             VALUES($1,$2,$3,'PENDING',$4,$5,$6)
-             RETURNING id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at",
+             (id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at)
+             VALUES($1,$2,$3,'PENDING',$4,$5,$6,$7,$8,$9)
+             RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
         ).bind(Uuid::new_v4()).bind(wallet.id).bind(amount_units).bind(operation)
+         .bind(unit_price).bind(pricing_version).bind(currency)
          .bind(request_id).bind(expires_at).fetch_one(&mut *tx).await?;
         tx.commit().await?;
         Ok(ReservationOutcome {
@@ -297,7 +346,7 @@ impl WalletRepository for PostgresWalletRepository {
     ) -> WalletRepoResult<WalletTransaction> {
         let mut tx = self.pool.begin().await?;
         let r = sqlx::query_as::<_, ReservationRow>(
-            "SELECT id,wallet_id,amount_units,status,operation,request_id,expires_at,created_at,updated_at
+            "SELECT id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at
              FROM credit_reservations WHERE id=$1 FOR UPDATE",
         ).bind(reservation_id).fetch_optional(&mut *tx).await?
             .ok_or("reservation not found")?;
@@ -345,7 +394,7 @@ impl WalletRepository for PostgresWalletRepository {
         }
 
         let wallet = sqlx::query_as::<_, WalletRow>(
-            "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE id=$1 FOR UPDATE",
         )
         .bind(r.wallet_id)
@@ -515,7 +564,7 @@ impl WalletRepository for PostgresWalletRepository {
         }
         let mut tx = self.pool.begin().await?;
         let wallet = sqlx::query_as::<_, WalletRow>(
-            "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE tenant_id=$1 FOR UPDATE",
         )
         .bind(tenant_id)
@@ -537,15 +586,21 @@ impl WalletRepository for PostgresWalletRepository {
             .balance_units
             .checked_add(amount_units)
             .ok_or("wallet balance overflow")?;
+        let activate_payg = matches!(
+            transaction_type,
+            WalletTransactionType::TopUp | WalletTransactionType::PromotionalCredit
+        );
         sqlx::query(
             "UPDATE user_wallets
              SET balance_units=$2,
+                 payg_activated_at=CASE WHEN $3 THEN COALESCE(payg_activated_at, now()) ELSE payg_activated_at END,
                  billing_status='ACTIVE',
                  updated_at=now()
              WHERE id=$1",
         )
         .bind(wallet.id)
         .bind(new_balance)
+        .bind(activate_payg)
         .execute(&mut *tx)
         .await?;
         let q = format!(
@@ -624,7 +679,7 @@ impl WalletRepository for PostgresWalletRepository {
             return Ok(None);
         }
         let mut tx = self.pool.begin().await?;
-        let wallet=sqlx::query_as::<_,WalletRow>("SELECT id,tenant_id,currency,balance_units,created_at,updated_at FROM user_wallets WHERE tenant_id=$1 FOR UPDATE").bind(tenant_id).fetch_one(&mut *tx).await?;
+        let wallet=sqlx::query_as::<_,WalletRow>("SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at FROM user_wallets WHERE tenant_id=$1 FOR UPDATE").bind(tenant_id).fetch_one(&mut *tx).await?;
         let q = format!(
             "SELECT {TX_COLUMNS} FROM wallet_transactions WHERE tenant_id=$1 AND idempotency_key=$2"
         );
@@ -677,7 +732,7 @@ impl WalletRepository for PostgresWalletRepository {
             return Err("invalid promotional credit".into());
         }
         let mut tx = self.pool.begin().await?;
-        let wallet=sqlx::query_as::<_,WalletRow>("SELECT id,tenant_id,currency,balance_units,created_at,updated_at FROM user_wallets WHERE tenant_id=$1 FOR UPDATE").bind(tenant_id).fetch_one(&mut *tx).await?;
+        let wallet=sqlx::query_as::<_,WalletRow>("SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at FROM user_wallets WHERE tenant_id=$1 FOR UPDATE").bind(tenant_id).fetch_one(&mut *tx).await?;
         let q = format!(
             "SELECT {TX_COLUMNS} FROM wallet_transactions WHERE tenant_id=$1 AND idempotency_key=$2"
         );
@@ -734,7 +789,7 @@ impl WalletRepository for PostgresWalletRepository {
             // Lock order is wallet -> promo, matching capture(), to avoid
             // wallet/promo deadlocks under concurrent expiry and usage.
             let wallet = sqlx::query_as::<_, WalletRow>(
-                "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+                "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
                  FROM user_wallets WHERE tenant_id=$1 FOR UPDATE",
             )
             .bind(tenant_id)
@@ -1076,7 +1131,7 @@ impl WalletRepository for PostgresWalletRepository {
         }
 
         let wallet = sqlx::query_as::<_, WalletRow>(
-            "SELECT id,tenant_id,currency,balance_units,created_at,updated_at
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE tenant_id=$1 FOR UPDATE",
         )
         .bind(tenant_id)

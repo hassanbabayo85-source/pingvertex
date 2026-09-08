@@ -185,6 +185,50 @@ impl SchedulingRepository for NoopSchedulingRepository {
     async fn recover_expired_leases(&self, _now: DateTime<Utc>) -> RepoResult<u64> {
         Ok(0)
     }
+    async fn enqueue_one_time_check(
+        &self,
+        _: TenantId,
+        _: MonitorId,
+        _: domain::shared::ids::UserId,
+        _: &str,
+    ) -> RepoResult<domain::OneTimeCheckRequest> {
+        Err("scheduling repository is not configured".into())
+    }
+    async fn claim_one_time_checks(
+        &self,
+        _: u32,
+        _: uuid::Uuid,
+        _: std::time::Duration,
+        _: DateTime<Utc>,
+    ) -> RepoResult<Vec<application::ports::ClaimedOneTimeCheck>> {
+        Ok(vec![])
+    }
+    async fn complete_one_time_check(
+        &self,
+        _: uuid::Uuid,
+        _: uuid::Uuid,
+        _: &str,
+        _: Option<&str>,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn get_one_time_check(
+        &self,
+        _: TenantId,
+        _: MonitorId,
+        _: uuid::Uuid,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
+        Ok(None)
+    }
+
+    async fn get_one_time_check_by_request_id(
+        &self,
+        _: TenantId,
+        _: MonitorId,
+        _: &str,
+    ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
+        Ok(None)
+    }
 }
 
 /// Default `ApiKeyRepository` used until a real one is substituted in.
@@ -957,6 +1001,17 @@ struct NoopWalletRepository;
 
 #[async_trait]
 impl WalletRepository for NoopWalletRepository {
+    async fn get_balance_summary(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _currency: &str,
+    ) -> RepoResult<domain::WalletBalanceSummary> {
+        Ok(domain::WalletBalanceSummary {
+            balance_units: 0,
+            reserved_units: 0,
+            available_units: 0,
+        })
+    }
     async fn get_or_create(
         &self,
         tenant_id: uuid::Uuid,
@@ -980,6 +1035,9 @@ impl WalletRepository for NoopWalletRepository {
         _tenant_id: uuid::Uuid,
         _amount_units: i64,
         _operation: &str,
+        _unit_price: i64,
+        _pricing_version: i64,
+        _currency: &str,
         _request_id: &str,
         _expires_at: DateTime<Utc>,
     ) -> RepoResult<application::ports::ReservationOutcome> {
@@ -1147,6 +1205,16 @@ impl PAYGPricingRepository for NoopPAYGPricingRepository {
     }
     async fn list_active(&self) -> RepoResult<Vec<domain::PAYGPricing>> {
         Ok(Vec::new())
+    }
+    async fn create_version(
+        &self,
+        _operation: &str,
+        _unit_name: &str,
+        _unit_price: i64,
+        _currency: &str,
+        _effective_from: chrono::DateTime<chrono::Utc>,
+    ) -> RepoResult<domain::PAYGPricing> {
+        Err("PAYG pricing repository is not configured".into())
     }
 }
 

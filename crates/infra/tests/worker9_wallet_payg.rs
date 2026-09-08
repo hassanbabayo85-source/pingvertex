@@ -20,7 +20,7 @@ fn setup(
     let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
         id: Uuid::new_v4(),
         version: 1,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         unit_name: "check".into(),
         unit_price: price,
         currency: "USD".into(),
@@ -54,7 +54,7 @@ async fn same_request_id_is_idempotent_under_concurrency() {
     ));
     let input = ChargeForUsageInput {
         tenant_id: tenant,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "same-request".into(),
     };
@@ -107,7 +107,10 @@ async fn reservation_expiry_does_not_allow_overspending() {
         .reserve(
             tenant,
             7,
-            "proxy_check",
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
             "expired",
             Utc::now() - Duration::seconds(1),
         )
@@ -120,7 +123,10 @@ async fn reservation_expiry_does_not_allow_overspending() {
         .reserve(
             tenant,
             7,
-            "proxy_check",
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
             "fresh",
             Utc::now() + Duration::minutes(1),
         )
@@ -155,7 +161,7 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
             ("rum_event", 1),
             ("storage", 20),
             ("network_egress", 100),
-            ("heartbeat_ping", 2),
+            ("heartbeat_processing", 2),
         ]
         .into_iter()
         .map(|(operation, unit_price)| PAYGPricing {
@@ -183,7 +189,7 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
         ("rum_event", 1, 1),
         ("storage", 1, 20),
         ("network_egress", 1, 100),
-        ("heartbeat_ping", 1, 2),
+        ("heartbeat_processing", 1, 2),
     ];
 
     for (operation, units, expected_charge) in cases {
@@ -408,4 +414,47 @@ async fn durable_network_egress_retry_does_not_double_charge() {
             .charge_units,
         100
     );
+}
+
+#[tokio::test]
+async fn wallet_activation_is_sticky_and_does_not_fall_back_to_free() {
+    let tenant = Uuid::new_v4();
+    let wallet = InMemoryWalletRepository::default();
+    let initial = wallet.get_or_create(tenant, "USD").await.unwrap();
+    assert!(initial.payg_activated_at.is_none());
+
+    wallet
+        .credit(
+            tenant,
+            2_000_000,
+            domain::WalletTransactionType::TopUp,
+            "activation-sticky-topup",
+            None,
+        )
+        .await
+        .unwrap();
+    let funded = wallet.get_or_create(tenant, "USD").await.unwrap();
+    assert!(funded.payg_activated_at.is_some());
+
+    let reservation = wallet
+        .reserve(
+            tenant,
+            2_000_000,
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
+            "activation-sticky-charge",
+            chrono::Utc::now() + chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    wallet
+        .capture(reservation.reservation.id, None, &[])
+        .await
+        .unwrap();
+
+    let exhausted = wallet.get_or_create(tenant, "USD").await.unwrap();
+    assert!(exhausted.payg_activated_at.is_some());
+    assert_eq!(exhausted.balance_units, 0);
 }

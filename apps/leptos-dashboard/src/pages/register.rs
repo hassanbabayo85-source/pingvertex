@@ -250,7 +250,7 @@ pub fn RegisterPage() -> impl IntoView {
                                 "without the noise. It only takes a minute."
                             </p>
 
-                            <form on:submit=on_submit.clone() class="pv2-form">
+                            <form on:submit=on_submit class="pv2-form">
                                 <div class="pv2-field">
                                     <label class="pv2-label" for="name">{pv2_user_icon()} "Full Name"</label>
                                     <div class="pv2-input-wrap">

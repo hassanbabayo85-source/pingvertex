@@ -19,6 +19,11 @@ pub struct ReservationOutcome {
 #[async_trait]
 pub trait WalletRepository: Send + Sync {
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet>;
+    async fn get_balance_summary(
+        &self,
+        tenant_id: Uuid,
+        currency: &str,
+    ) -> WalletRepoResult<domain::WalletBalanceSummary>;
     async fn list_transactions(
         &self,
         tenant_id: Uuid,
@@ -28,11 +33,15 @@ pub trait WalletRepository: Send + Sync {
     /// Atomically checks available credits and creates (or returns) the
     /// idempotent reservation. Implementations MUST lock the wallet row and
     /// perform the uniqueness check and insert in the same transaction.
+    #[allow(clippy::too_many_arguments)] // PAYG price snapshot (unit_price, pricing_version, currency) must be pinned per Section 7
     async fn reserve(
         &self,
         tenant_id: Uuid,
         amount_units: i64,
         operation: &str,
+        unit_price: i64,
+        pricing_version: i64,
+        currency: &str,
         request_id: &str,
         expires_at: DateTime<Utc>,
     ) -> WalletRepoResult<ReservationOutcome>;
@@ -159,6 +168,14 @@ where
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
         (**self).get_or_create(tenant_id, currency).await
     }
+    async fn get_balance_summary(
+        &self,
+        tenant_id: Uuid,
+        currency: &str,
+    ) -> WalletRepoResult<domain::WalletBalanceSummary> {
+        (**self).get_balance_summary(tenant_id, currency).await
+    }
+
     async fn list_transactions(
         &self,
         tenant_id: Uuid,
@@ -166,16 +183,29 @@ where
     ) -> WalletRepoResult<Vec<WalletTransaction>> {
         (**self).list_transactions(tenant_id, limit).await
     }
+    #[allow(clippy::too_many_arguments)]
     async fn reserve(
         &self,
         tenant_id: Uuid,
         amount_units: i64,
         operation: &str,
+        unit_price: i64,
+        pricing_version: i64,
+        currency: &str,
         request_id: &str,
         expires_at: DateTime<Utc>,
     ) -> WalletRepoResult<ReservationOutcome> {
         (**self)
-            .reserve(tenant_id, amount_units, operation, request_id, expires_at)
+            .reserve(
+                tenant_id,
+                amount_units,
+                operation,
+                unit_price,
+                pricing_version,
+                currency,
+                request_id,
+                expires_at,
+            )
             .await
     }
     async fn capture(

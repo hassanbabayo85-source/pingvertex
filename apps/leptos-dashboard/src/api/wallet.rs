@@ -7,6 +7,8 @@ pub struct Wallet {
     pub wallet_id: String,
     pub currency: String,
     pub balance_units: i64,
+    pub reserved_units: i64,
+    pub available_units: i64,
     pub status: String,
     pub low_balance_threshold_units: i64,
     pub critical_balance_threshold_units: i64,

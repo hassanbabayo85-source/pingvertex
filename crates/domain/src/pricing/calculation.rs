@@ -209,7 +209,7 @@ mod tests {
     fn free_tier_returns_zero() {
         let config = test_config();
         let input = PricingInput {
-            monitors: 20,
+            monitors: 10,
             interval_seconds: 300,
             retention_days: 2,
         };
@@ -222,7 +222,7 @@ mod tests {
     fn above_free_tier_applies_minimum_price() {
         let config = test_config();
         let input = PricingInput {
-            monitors: 21,
+            monitors: 11,
             interval_seconds: 300,
             retention_days: 2,
         };

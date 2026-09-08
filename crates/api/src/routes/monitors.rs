@@ -9,9 +9,9 @@ use crate::{
         advanced_monitoring::{
             list_escalation_policies, list_maintenance_windows, update_escalation_policy,
         },
-        create_escalation_policy, create_maintenance_window, create_monitor, delete_monitor,
-        disable_monitor, enable_monitor, get_incident, get_monitor, list_incidents,
-        list_monitor_checks, list_monitors, update_monitor,
+        create_escalation_policy, create_maintenance_window, create_monitor, create_one_time_check,
+        delete_monitor, disable_monitor, enable_monitor, get_incident, get_monitor,
+        get_one_time_check, list_incidents, list_monitor_checks, list_monitors, update_monitor,
     },
     state::AppState,
 };
@@ -40,5 +40,17 @@ pub fn router() -> Router<AppState> {
         .route(
             "/incidents/{incident_id}/acknowledge",
             post(acknowledge_incident),
+        )
+}
+
+pub fn one_time_check_router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/monitors/{id}/checks/one-time",
+            post(create_one_time_check),
+        )
+        .route(
+            "/monitors/{id}/checks/one-time/{request_id}",
+            get(get_one_time_check),
         )
 }

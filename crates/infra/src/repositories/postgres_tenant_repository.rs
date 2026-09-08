@@ -4,7 +4,7 @@ use application::ports::TenantRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
-    Tenant,
+    AccountType, Tenant,
     shared::ids::{TenantId, UserId},
 };
 use sqlx::{FromRow, PgPool};
@@ -28,6 +28,7 @@ struct TenantRow {
     id: Uuid,
     name: String,
     owner_user_id: Uuid,
+    account_type: String,
     created_at: DateTime<Utc>,
 }
 
@@ -37,6 +38,7 @@ impl TenantRow {
             id: tenant.id.0,
             name: tenant.name.clone(),
             owner_user_id: tenant.owner_user_id.0,
+            account_type: tenant.account_type.as_str().to_owned(),
             created_at: tenant.created_at,
         }
     }
@@ -46,6 +48,7 @@ impl TenantRow {
             id: TenantId(self.id),
             name: self.name,
             owner_user_id: UserId(self.owner_user_id),
+            account_type: self.account_type.parse().unwrap_or(AccountType::Individual),
             created_at: self.created_at,
         }
     }
@@ -56,12 +59,13 @@ impl TenantRepository for PostgresTenantRepository {
     async fn create(&self, tenant: &Tenant) -> RepoResult<()> {
         let row = TenantRow::from_domain(tenant);
         sqlx::query(
-            "INSERT INTO tenants (id, name, owner_user_id, created_at) \
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO tenants (id, name, owner_user_id, account_type, created_at) \
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(row.id)
         .bind(row.name)
         .bind(row.owner_user_id)
+        .bind(row.account_type)
         .bind(row.created_at)
         .execute(&self.pool)
         .await?;
@@ -70,7 +74,7 @@ impl TenantRepository for PostgresTenantRepository {
 
     async fn find_by_id(&self, id: TenantId) -> RepoResult<Option<Tenant>> {
         let row = sqlx::query_as::<_, TenantRow>(
-            "SELECT id, name, owner_user_id, created_at FROM tenants WHERE id = $1",
+            "SELECT id, name, owner_user_id, account_type, created_at FROM tenants WHERE id = $1",
         )
         .bind(id.0)
         .fetch_optional(&self.pool)
@@ -80,7 +84,7 @@ impl TenantRepository for PostgresTenantRepository {
 
     async fn find_by_owner_user_id(&self, owner_user_id: UserId) -> RepoResult<Option<Tenant>> {
         let row = sqlx::query_as::<_, TenantRow>(
-            "SELECT id, name, owner_user_id, created_at FROM tenants WHERE owner_user_id = $1",
+            "SELECT id, name, owner_user_id, account_type, created_at FROM tenants WHERE owner_user_id = $1",
         )
         .bind(owner_user_id.0)
         .fetch_optional(&self.pool)
@@ -90,7 +94,7 @@ impl TenantRepository for PostgresTenantRepository {
 
     async fn list_all(&self) -> RepoResult<Vec<Tenant>> {
         let rows = sqlx::query_as::<_, TenantRow>(
-            "SELECT id, name, owner_user_id, created_at FROM tenants ORDER BY created_at",
+            "SELECT id, name, owner_user_id, account_type, created_at FROM tenants ORDER BY created_at",
         )
         .fetch_all(&self.pool)
         .await?;

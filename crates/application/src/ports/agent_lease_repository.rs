@@ -16,6 +16,7 @@ pub struct AgentLease {
     pub monitor_id: MonitorId,
     pub region: RegionCode,
     pub lease_expires_at: DateTime<Utc>,
+    pub billing_reserved: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,10 @@ pub trait AgentLeaseRepository: Send + Sync {
     ) -> RepoResult<SubmitAgentResultOutcome>;
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64>;
+
+    async fn mark_billing_reserved(&self, check_id: CheckId) -> RepoResult<()>;
+
+    async fn billing_reserved(&self, check_id: CheckId) -> RepoResult<bool>;
 }
 
 #[async_trait]
@@ -83,5 +88,13 @@ where
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         (**self).recover_expired_leases(now).await
+    }
+
+    async fn mark_billing_reserved(&self, check_id: CheckId) -> RepoResult<()> {
+        (**self).mark_billing_reserved(check_id).await
+    }
+
+    async fn billing_reserved(&self, check_id: CheckId) -> RepoResult<bool> {
+        (**self).billing_reserved(check_id).await
     }
 }

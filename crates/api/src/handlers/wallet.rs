@@ -16,6 +16,8 @@ pub struct WalletResponse {
     pub wallet_id: String,
     pub currency: String,
     pub balance_units: i64,
+    pub reserved_units: i64,
+    pub available_units: i64,
     pub status: String,
     pub low_balance_threshold_units: i64,
     pub critical_balance_threshold_units: i64,
@@ -107,7 +109,10 @@ pub struct UsageQuery {
     pub limit: Option<u32>,
 }
 
-fn status(balance: i64, low: i64, critical: i64) -> String {
+fn status(payg_activated: bool, balance: i64, low: i64, critical: i64) -> String {
+    if !payg_activated {
+        return "FREE".to_owned();
+    }
     (if balance <= 0 {
         "BLOCKED"
     } else if balance <= critical {
@@ -138,11 +143,17 @@ pub async fn get_wallet(
         .await
         .map_err(|_| ApiError::internal("wallet settings unavailable"))?;
     let level = status(
+        wallet.payg_activated_at.is_some(),
         wallet.balance_units,
         settings.low_balance_threshold_units,
         settings.critical_balance_threshold_units,
     );
-    if level != "OK" {
+    let balance = state
+        .wallet_repository
+        .get_balance_summary(tenant_id, "USD")
+        .await
+        .map_err(|_| ApiError::internal("wallet unavailable"))?;
+    if level != "OK" && level != "FREE" {
         let msg = match level.as_str() {
             "BLOCKED" => "PAYG is blocked because your wallet balance is zero.",
             "CRITICAL" => "Your PAYG wallet balance is critically low.",
@@ -158,7 +169,9 @@ pub async fn get_wallet(
         wallet_id: wallet.id.to_string(),
         currency: wallet.currency,
         status: level,
-        balance_units: wallet.balance_units,
+        balance_units: balance.balance_units,
+        reserved_units: balance.reserved_units,
+        available_units: balance.available_units,
         low_balance_threshold_units: settings.low_balance_threshold_units,
         critical_balance_threshold_units: settings.critical_balance_threshold_units,
     }))
@@ -224,10 +237,8 @@ pub async fn top_up(
 ) -> Result<Json<TopUpResponse>, ApiError> {
     user.require(Permission::ManageBilling)
         .map_err(|e| ApiError::forbidden(e.to_string()))?;
-    if !(1_000_000..=1_000_000_000).contains(&req.amount_units) {
-        return Err(ApiError::bad_request(
-            "top-up must be between $1 and $1,000",
-        ));
+    if req.amount_units < domain::MIN_PAYG_TOP_UP_UNITS {
+        return Err(ApiError::bad_request("minimum PAYG top-up is $5"));
     }
     if req.payment_method.as_deref().is_some_and(|v| v.len() > 200) {
         return Err(ApiError::bad_request("payment method id is too long"));
@@ -307,8 +318,7 @@ pub async fn update_settings(
     if s.critical_balance_threshold_units > s.low_balance_threshold_units
         || s.low_balance_threshold_units < 0
         || s.auto_top_up_threshold_units < 0
-        || s.auto_top_up_amount_units < 1_000_000
-        || s.auto_top_up_amount_units > 1_000_000_000
+        || s.auto_top_up_amount_units < domain::MIN_PAYG_TOP_UP_UNITS
         || s.daily_top_up_limit_units < s.auto_top_up_amount_units
         || s.monthly_top_up_limit_units < s.auto_top_up_amount_units
         || s.monthly_top_up_limit_units < s.daily_top_up_limit_units

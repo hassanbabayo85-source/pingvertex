@@ -70,7 +70,7 @@ pub fn WalletPage() -> impl IntoView {
         let low = low_threshold.get().max(0);
         let critical = critical_threshold.get().max(0);
         let auto_trigger = threshold.get().max(0);
-        let auto_top_up_amount = auto_amount.get().clamp(1, 1000);
+        let auto_top_up_amount = auto_amount.get().max(5);
         let daily = daily_limit.get().max(1);
         let monthly = monthly_limit.get().max(1);
         let retries = retry_limit.get().clamp(0, 10);
@@ -229,13 +229,13 @@ pub fn WalletPage() -> impl IntoView {
                         "Custom amount ($)"
                         <input
                             type="number"
-                            min="1"
-                            max="1000"
+                            min="5"
+
                             step="1"
                             prop:value=move || amount.get().to_string()
                             on:input=move |e| {
                                 if let Ok(v) = event_target_value(&e).parse::<i64>() {
-                                    amount.set(v.clamp(1, 1000));
+                                    amount.set(v.max(5));
                                 }
                             }
                             disabled=move || loading.get()
@@ -244,7 +244,7 @@ pub fn WalletPage() -> impl IntoView {
 
                     <div class="inline-form">
                         <span class="muted">
-                            {move || format!("Selected: ${}.00", amount.get().clamp(1, 1000))}
+                            {move || format!("Selected: ${}.00", amount.get().max(5))}
                         </span>
 
                         <button
@@ -255,7 +255,7 @@ pub fn WalletPage() -> impl IntoView {
                                 loading.set(true);
                                 error.set(None);
 
-                                let a = amount.get().clamp(1, 1000) * 1_000_000;
+                                let a = amount.get().max(5) * 1_000_000;
 
                                 spawn_local(async move {
                                     match wallet::top_up(&wallet::TopUpRequest {
@@ -292,7 +292,7 @@ pub fn WalletPage() -> impl IntoView {
                     </div>
 
                     <p class="muted">
-                        "Minimum $1.00 · Maximum $1,000.00. Your wallet is credited only after the provider webhook is verified."
+                        "Minimum $5.00. There is no product-defined maximum; provider and risk controls may apply. Your wallet is credited only after the provider webhook is verified."
                     </p>
                 </div>
             </section>
@@ -354,15 +354,15 @@ pub fn WalletPage() -> impl IntoView {
                             "Top-up amount ($)"
                             <input
                                 type="number"
-                                min="1"
-                                max="1000"
+                                min="5"
+
                                 prop:value=move || auto_amount.get().to_string()
                                 disabled=move || loading.get()
                                 on:input=move |event| {
                                     if let Ok(v) =
                                         event_target_value(&event).parse::<i64>()
                                     {
-                                        auto_amount.set(v.clamp(1, 1000));
+                                        auto_amount.set(v.max(5));
                                     }
                                 }
                             />

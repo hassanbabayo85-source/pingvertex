@@ -240,7 +240,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     });
 
     let wallet_expiration_worker =
-        WalletExpirationWorker::new(wallet_repository, Duration::from_secs(300), 200);
+        WalletExpirationWorker::new(wallet_repository.clone(), Duration::from_secs(300), 200);
     let wallet_expiration_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = wallet_expiration_worker
@@ -259,7 +259,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,
-    );
+    )
+    .with_wallet_repository(wallet_repository.clone());
     let retention_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = retention_worker.run_forever(retention_cancel).await {

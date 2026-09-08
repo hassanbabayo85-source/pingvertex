@@ -138,7 +138,7 @@ pub use billing_webhook_idempotency_repository::BillingWebhookIdempotencyReposit
 
 // B17 — Durable Scheduler:
 pub mod scheduling_repository;
-pub use scheduling_repository::{ClaimedMonitor, SchedulingRepository};
+pub use scheduling_repository::{ClaimedMonitor, ClaimedOneTimeCheck, SchedulingRepository};
 
 // B20 — Agent Execution & mTLS:
 pub mod agent_lease_repository;

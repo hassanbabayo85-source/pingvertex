@@ -543,7 +543,7 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                     <A href="/status-pages" attr:class="btn">"Create status page"</A>
                     <button class="btn" type="button" on:click=run_check disabled=move || manual_check_busy.get()>
                         <span aria-hidden="true">"⚡"</span>
-                        {move || if manual_check_busy.get() { "Running…" } else { "Run a check" }}
+                        {move || if manual_check_busy.get() { "Queueing…" } else { "Run scheduled checks" }}
                     </button>
                     <button class="btn btn-ghost" type="button" on:click=refresh_click disabled=move || refreshing.get()>
                         {move || if refreshing.get() { "Refreshing…" } else { "Refresh" }}

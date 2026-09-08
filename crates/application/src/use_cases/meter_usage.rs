@@ -147,6 +147,26 @@ impl MeterUsageUseCase {
             .await
     }
 
+    /// Finalizes a reservation created before a remote agent started its
+    /// outbound operation. No external operation is executed here.
+    pub async fn finalize_reserved_attempt(
+        &self,
+        input: MeterUsageInput,
+        attempted: bool,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError> {
+        self.charge
+            .finalize_reserved_attempt(
+                ChargeForUsageInput {
+                    tenant_id: input.tenant_id,
+                    operation: input.operation,
+                    units: input.units,
+                    request_id: input.request_id,
+                },
+                attempted,
+            )
+            .await
+    }
+
     /// Durable-worker variant: permits resuming a PENDING reservation after a
     /// scheduler lease recovery while preserving wallet idempotency.
     pub async fn execute_recoverable<F, Fut, E>(

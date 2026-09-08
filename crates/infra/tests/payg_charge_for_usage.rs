@@ -26,7 +26,7 @@ fn setup(
     let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
         id: Uuid::new_v4(),
         version,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         unit_name: "check".into(),
         unit_price,
         currency: "USD".into(),
@@ -63,7 +63,7 @@ async fn duplicate_request_returns_previous_result_without_running_operation_twi
 
     let input = ChargeForUsageInput {
         tenant_id: tenant,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         units: 2,
         request_id: "req-1".into(),
     };
@@ -124,7 +124,7 @@ async fn concurrent_different_requests_never_overspend() {
         tasks.push(tokio::spawn(async move {
             let input = ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: format!("concurrent-{i}"),
             };
@@ -171,7 +171,7 @@ async fn insufficient_balance_is_rejected_and_wallet_never_goes_negative() {
         .execute(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "insufficient".into(),
             },
@@ -217,7 +217,7 @@ async fn failed_operation_releases_reservation_and_does_not_debit() {
         .execute(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 2,
                 request_id: "failed-op".into(),
             },
@@ -267,7 +267,7 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
     let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage);
     let input = ChargeForUsageInput {
         tenant_id: tenant,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "recoverable-request".into(),
     };
@@ -278,7 +278,10 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
         .reserve(
             tenant,
             10,
-            "proxy_check",
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
             &input.request_id,
             Utc::now() - Duration::seconds(1),
         )
@@ -322,7 +325,7 @@ async fn monitoring_attempt_is_billed_when_operation_fails() {
         .execute_attempt(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "attempt-failure".into(),
             },
@@ -369,7 +372,10 @@ async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
         .reserve(
             tenant,
             10,
-            "proxy_check",
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
             "expiry-retry",
             Utc::now() - Duration::seconds(1),
         )
@@ -382,7 +388,7 @@ async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
         .execute(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "expiry-retry".into(),
             },
@@ -422,7 +428,7 @@ async fn classified_pre_attempt_failure_releases_reservation_without_debit() {
         .execute_classified_attempt(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "classified-preflight".into(),
             },
@@ -474,7 +480,7 @@ async fn classified_attempt_failure_is_captured_and_billed_once() {
     let uc = ChargeForUsageUseCase::new(wallet.clone(), pricing, usage.clone());
     let input = ChargeForUsageInput {
         tenant_id: tenant,
-        operation: "proxy_check".into(),
+        operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "classified-attempt".into(),
     };
@@ -538,7 +544,10 @@ async fn crash_after_attempt_before_capture_is_recoverable_without_double_debit(
         .reserve(
             tenant,
             10,
-            "proxy_check",
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
             "crash-after-attempt",
             Utc::now() - Duration::seconds(1),
         )
@@ -555,7 +564,7 @@ async fn crash_after_attempt_before_capture_is_recoverable_without_double_debit(
         .execute_classified_attempt(
             ChargeForUsageInput {
                 tenant_id: tenant,
-                operation: "proxy_check".into(),
+                operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "crash-after-attempt".into(),
             },
@@ -607,7 +616,7 @@ async fn concurrent_same_execution_id_can_debit_at_most_once() {
             uc.execute_classified_attempt(
                 ChargeForUsageInput {
                     tenant_id: tenant,
-                    operation: "proxy_check".into(),
+                    operation: "http_check.monitoring".into(),
                     units: 1,
                     request_id: "same-execution".into(),
                 },
@@ -638,4 +647,83 @@ async fn concurrent_same_execution_id_can_debit_at_most_once() {
         .await
         .unwrap();
     assert!(event.is_some());
+}
+
+#[tokio::test]
+async fn reserved_price_snapshot_survives_price_book_change() {
+    let tenant = Uuid::new_v4();
+    let wallet = Arc::new(InMemoryWalletRepository::default());
+    wallet.get_or_create(tenant, "USD").await.unwrap();
+    wallet
+        .credit(
+            tenant,
+            1_000,
+            domain::WalletTransactionType::TopUp,
+            "price-snapshot-topup",
+            None,
+        )
+        .await
+        .unwrap();
+
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
+        id: Uuid::new_v4(),
+        version: 1,
+        operation: "http_check.monitoring".into(),
+        unit_name: "check".into(),
+        unit_price: 100,
+        currency: "USD".into(),
+        effective_from: Utc::now() - Duration::minutes(1),
+        effective_until: None,
+        active: true,
+    }]));
+    let usage = Arc::new(InMemoryUsageEventRepository::default());
+    let meter = Arc::new(application::MeterUsageUseCase::new(
+        wallet.clone(),
+        pricing.clone(),
+        usage.clone(),
+    ));
+
+    wallet
+        .reserve(
+            tenant,
+            100,
+            "http_check.monitoring",
+            100,
+            1,
+            "USD",
+            "price-snapshot-request",
+            Utc::now() + Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+
+    pricing
+        .create_version("http_check.monitoring", "check", 200, "USD", Utc::now())
+        .await
+        .unwrap();
+
+    let result = meter
+        .execute_recoverable::<_, _, &'static str>(
+            application::MeterUsageInput {
+                tenant_id: tenant,
+                operation: "http_check.monitoring".into(),
+                units: 1,
+                request_id: "price-snapshot-request".into(),
+            },
+            || async { Ok::<_, &'static str>(()) },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.usage_event.unit_price, 100);
+    assert_eq!(result.usage_event.pricing_version, 1);
+    assert_eq!(result.usage_event.charge_units, 100);
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
+        900
+    );
 }
