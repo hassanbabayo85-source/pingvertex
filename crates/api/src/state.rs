@@ -9,13 +9,14 @@ use application::ports::{
     CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
     EscalationPolicyRepository, FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort,
     HealthCheckResult, HelpArticleRepository, HelpCategoryRepository, IncidentRepository,
-    LogoStorage, MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    MonitorIntervalPolicyRepository, NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider, PaymentRepository,
-    PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository, RateLimiter,
-    RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository,
-    SchedulingRepository, SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
-    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
-    SupportTicketRepository, UsageEventRepository, WalletRepository,
+    LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
+    NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
+    PaymentProvider, PaymentRepository, PaymentVerification, PricingConfigRepository,
+    ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
+    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, SmsProviderPricing,
+    StatusPageCache, StatusPageRepository, SubscriptionRepository,
+    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
+    UsageEventRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -1725,4 +1726,3 @@ impl AppState {
         self
     }
 }
-

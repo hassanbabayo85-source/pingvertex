@@ -35,7 +35,9 @@ pub async fn get_monitor(
         .monitor_repository
         .billing_blocks_for_tenant(authenticated_user.tenant_context().tenant_id())
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to load monitor billing state", err))?;
+        .map_err(|err| {
+            ApiError::internal_with_source("failed to load monitor billing state", err)
+        })?;
     if let Some(reason) = billing_blocks.get(&monitor.id) {
         response.billing_blocked = true;
         response.billing_block_reason = Some(reason.clone());
@@ -43,4 +45,3 @@ pub async fn get_monitor(
 
     Ok(Json(response))
 }
-

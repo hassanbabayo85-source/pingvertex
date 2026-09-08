@@ -1,8 +1,11 @@
 use application::ports::MonitorIntervalPolicyRepository;
 use async_trait::async_trait;
 use domain::MonitorKind;
-use std::{collections::HashMap, sync::{Arc, RwLock}};
 use std::error::Error;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -19,8 +22,12 @@ impl Default for InMemoryMonitorIntervalPolicyRepository {
             ("dns".to_owned(), 30),
             ("heartbeat".to_owned(), 30),
             ("flow".to_owned(), 60),
-        ].into_iter().collect();
-        Self { policies: Arc::new(RwLock::new(policies)) }
+        ]
+        .into_iter()
+        .collect();
+        Self {
+            policies: Arc::new(RwLock::new(policies)),
+        }
     }
 }
 
@@ -42,4 +49,3 @@ impl MonitorIntervalPolicyRepository for InMemoryMonitorIntervalPolicyRepository
             .ok_or_else(|| "missing interval policy".into())
     }
 }
-

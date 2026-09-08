@@ -37,6 +37,11 @@ pub struct InMemoryWalletRepository {
 
 #[async_trait]
 impl WalletRepository for InMemoryWalletRepository {
+    async fn find(&self, tenant_id: Uuid) -> WalletRepoResult<Option<Wallet>> {
+        let g = self.inner.lock().unwrap();
+        Ok(g.get(&tenant_id).map(|(wallet, _, _)| wallet.clone()))
+    }
+
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
         let mut g = self.inner.lock().unwrap();
         let (wallet, _, _) = g.entry(tenant_id).or_insert_with(|| {

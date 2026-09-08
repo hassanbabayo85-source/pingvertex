@@ -260,7 +260,6 @@ async fn submit_result(
                         Err(err) => return Err(ApiError::from_payg_error(err)),
                     }
                 }
-
             }
             SubmitAgentResultOutcome::Duplicate => return Ok(StatusCode::ACCEPTED),
             SubmitAgentResultOutcome::Stale => {

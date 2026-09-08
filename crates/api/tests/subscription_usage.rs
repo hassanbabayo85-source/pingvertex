@@ -296,6 +296,7 @@ fn build_test_app(
     build_test_router(app_state, auth_state)
 }
 
+#[allow(dead_code)]
 async fn read_json(response: axum::response::Response) -> Value {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()

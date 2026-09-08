@@ -210,9 +210,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rate_limiter(redis_rate_limiter.clone())
     .with_wallet_repository(wallet_repository)
     .with_payg_pricing_repository(payg_pricing_repository)
-    .with_monitor_interval_policy_repository(
-        infra::PostgresMonitorIntervalPolicyRepository::new(pool.clone()),
-    )
+    .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
+        pool.clone(),
+    ))
     .with_usage_event_repository(usage_event_repository)
     .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
         pool.clone(),
@@ -442,4 +442,3 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 }
-

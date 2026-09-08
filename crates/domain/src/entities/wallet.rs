@@ -109,6 +109,9 @@ pub struct WalletSettings {
     pub payment_method: Option<String>,
     pub daily_top_up_limit_units: i64,
     pub monthly_top_up_limit_units: i64,
+    /// Optional PAYG debit protection. NULL/unlimited is represented as None.
+    pub daily_spend_limit_units: Option<i64>,
+    pub monthly_spend_limit_units: Option<i64>,
     pub retry_limit: i32,
 }
 
@@ -124,6 +127,8 @@ impl Default for WalletSettings {
             payment_method: None,
             daily_top_up_limit_units: 100_000_000,
             monthly_top_up_limit_units: 500_000_000,
+            daily_spend_limit_units: None,
+            monthly_spend_limit_units: None,
             retry_limit: 3,
         }
     }

@@ -1,5 +1,7 @@
 use std::{error::Error, sync::Arc, time::Duration};
 
+use rand::{Rng, rng};
+
 use application::ports::SchedulingRepository;
 use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
@@ -76,6 +78,8 @@ pub struct DurableScheduler<R, E> {
     max_concurrency: usize,
     lease_owner: Uuid,
     metering: Option<Arc<MeterUsageUseCase>>,
+    batch_pause: Duration,
+    jitter: Duration,
 }
 
 impl<R, E> DurableScheduler<R, E>
@@ -93,9 +97,21 @@ where
             scheduling_repository,
             executor,
             lease_duration,
-            max_concurrency,
+            max_concurrency: max_concurrency.max(1),
             lease_owner: Uuid::new_v4(),
             metering: None,
+            batch_pause: Duration::from_millis(
+                std::env::var("SCHEDULER_BATCH_PAUSE_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(100),
+            ),
+            jitter: Duration::from_millis(
+                std::env::var("SCHEDULER_JITTER_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(250),
+            ),
         }
     }
 
@@ -112,6 +128,16 @@ where
         let mut tasks: JoinSet<Result<()>> = JoinSet::new();
 
         loop {
+            // Anti-thundering-herd guard: every claim cycle is separated by a
+            // bounded pause plus randomized jitter. Concurrency remains hard
+            // bounded by max_concurrency and DB claiming remains lease based.
+            let jitter_ms = if self.jitter.is_zero() {
+                0
+            } else {
+                rng().random_range(0..=self.jitter.as_millis() as u64)
+            };
+            tokio::time::sleep(self.batch_pause + Duration::from_millis(jitter_ms)).await;
+
             self.scheduling_repository
                 .recover_expired_leases(Utc::now())
                 .await?;
@@ -300,4 +326,3 @@ where
     .run()
     .await
 }
-

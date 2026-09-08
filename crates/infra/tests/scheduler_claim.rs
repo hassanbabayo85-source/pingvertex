@@ -138,7 +138,8 @@ async fn expired_lease_makes_monitor_claimable_again() {
     let pool = common::setup_pool().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
-    let monitor_id = insert_due_monitor_with_interval(&pool, "crash-recovery", user_id, tenant_id.0, 300).await;
+    let monitor_id =
+        insert_due_monitor_with_interval(&pool, "crash-recovery", user_id, tenant_id.0, 300).await;
 
     let repo = PostgresSchedulingRepository::new(pool.clone());
     let lease_duration = Duration::from_secs(60);
@@ -270,7 +271,8 @@ async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
     let pool = common::setup_pool().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
-    let monitor_id = insert_due_monitor_with_interval(&pool, "stale-owner", user_id, tenant_id.0, 300).await;
+    let monitor_id =
+        insert_due_monitor_with_interval(&pool, "stale-owner", user_id, tenant_id.0, 300).await;
 
     let repo = PostgresSchedulingRepository::new(pool.clone());
     let first_owner = Uuid::new_v4();

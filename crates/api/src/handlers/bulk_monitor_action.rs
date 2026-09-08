@@ -110,4 +110,3 @@ pub async fn bulk_monitor_action(
         action: request.action,
     }))
 }
-

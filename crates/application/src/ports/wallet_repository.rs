@@ -18,6 +18,13 @@ pub struct ReservationOutcome {
 
 #[async_trait]
 pub trait WalletRepository: Send + Sync {
+    /// Read-only lookup. Unlike `get_or_create`, this MUST NOT insert a wallet
+    /// row and is therefore safe for repeatable previews.
+    async fn find(&self, tenant_id: Uuid) -> WalletRepoResult<Option<Wallet>> {
+        let _ = tenant_id;
+        Ok(None)
+    }
+
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet>;
     async fn get_balance_summary(
         &self,
@@ -165,6 +172,10 @@ impl<T> WalletRepository for Arc<T>
 where
     T: WalletRepository + Send + Sync + ?Sized,
 {
+    async fn find(&self, tenant_id: Uuid) -> WalletRepoResult<Option<Wallet>> {
+        (**self).find(tenant_id).await
+    }
+
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
         (**self).get_or_create(tenant_id, currency).await
     }

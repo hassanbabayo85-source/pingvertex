@@ -5,7 +5,10 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    ports::{AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository, WalletRepository},
+    ports::{
+        AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository,
+        WalletRepository,
+    },
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Host, Monitor,
@@ -173,4 +176,3 @@ where
         Ok(Some(monitor))
     }
 }
-

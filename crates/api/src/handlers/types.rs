@@ -535,4 +535,3 @@ pub struct PublicStatusPageResponse {
     pub primary_color: Option<String>,
     pub monitors: Vec<PublicMonitorResponse>,
 }
-

@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+rand = "0.9"
 application = { path = "../application" }
 domain = { path = "../domain" }
 infra = { path = "../infra" }

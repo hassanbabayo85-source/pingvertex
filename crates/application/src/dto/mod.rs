@@ -80,3 +80,9 @@ pub use verify_email_otp_request::VerifyEmailOtpRequest;
 
 pub mod payg;
 pub use payg::MeterUsageRequest;
+
+pub mod bulk_monitor_import;
+pub use bulk_monitor_import::{
+    BulkMonitorImportError, BulkMonitorImportPreview, BulkMonitorImportPricingVersion,
+    BulkMonitorImportRow,
+};

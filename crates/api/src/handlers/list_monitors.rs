@@ -27,7 +27,9 @@ pub async fn list_monitors(
         .monitor_repository
         .billing_blocks_for_tenant(authenticated_user.tenant_context().tenant_id())
         .await
-        .map_err(|err| ApiError::internal_with_source("failed to load monitor billing state", err))?;
+        .map_err(|err| {
+            ApiError::internal_with_source("failed to load monitor billing state", err)
+        })?;
 
     // List responses do not need monitor assertions. Clear them explicitly so
     // authenticated list callers cannot receive assertion payloads they did not
@@ -47,4 +49,3 @@ pub async fn list_monitors(
             .collect(),
     ))
 }
-

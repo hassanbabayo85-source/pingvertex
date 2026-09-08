@@ -1,4 +1,7 @@
-use crate::api::{billing, monitoring::{self, MonitorPayload}};
+use crate::api::{
+    billing,
+    monitoring::{self, MonitorPayload},
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -126,7 +129,8 @@ pub fn MonitorFormPage() -> impl IntoView {
         if interval_value < min_interval
             || interval_value > 86_400
             || forecast_value == 0
-            || regions_value == 0 {
+            || regions_value == 0
+        {
             payg_preview.set(None);
             return;
         }
@@ -138,7 +142,9 @@ pub fn MonitorFormPage() -> impl IntoView {
                 regions: regions_value,
                 forecast_days: forecast_value,
                 kind: kind_for_request,
-            }).await {
+            })
+            .await
+            {
                 Ok(preview) => {
                     payg_preview_error.set(None);
                     payg_preview.set(Some(preview));

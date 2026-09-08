@@ -172,7 +172,7 @@ pub fn MonitorsPage() -> impl IntoView {
                                         ids.clone(),
                                         all_now,
                                     ).await {
-                                        Ok(result) => {
+                                        Ok(_result) => {
                                             monitors.update(|list| {
                                                 if all_now {
                                                     for monitor in list.iter_mut() {

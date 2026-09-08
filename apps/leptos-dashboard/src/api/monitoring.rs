@@ -461,4 +461,3 @@ pub async fn get_one_time_check(
     .await
     .map_err(|e| e.to_string())
 }
-

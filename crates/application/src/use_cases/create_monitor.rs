@@ -6,8 +6,8 @@ use serde_json::json;
 use crate::{
     dto::CreateMonitorRequest,
     ports::{
-        AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository,
-        MonitorRepository, QuotaCheckOutcome, WalletRepository,
+        AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository, MonitorRepository,
+        QuotaCheckOutcome, WalletRepository,
     },
 };
 use domain::{
@@ -301,4 +301,3 @@ where
         Ok(())
     }
 }
-
