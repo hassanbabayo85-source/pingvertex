@@ -35,4 +35,3 @@ pub fn router() -> Router<AppState> {
 pub fn webhook_router() -> Router<AppState> {
     Router::new().route("/billing/webhook", post(billing_webhook))
 }
-

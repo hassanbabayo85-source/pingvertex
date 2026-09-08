@@ -367,4 +367,3 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         Ok(row.map(OneTimeRow::into_domain))
     }
 }
-

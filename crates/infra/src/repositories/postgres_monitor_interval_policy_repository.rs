@@ -38,4 +38,3 @@ impl MonitorIntervalPolicyRepository for PostgresMonitorIntervalPolicyRepository
             .and_then(|v| u32::try_from(v).map_err(|_| "invalid monitor interval policy".into()))
     }
 }
-

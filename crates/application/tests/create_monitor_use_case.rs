@@ -147,7 +147,6 @@ async fn funded_payg_wallet_has_no_product_monitor_ceiling_and_allows_fast_inter
         .unwrap();
 }
 
-
 #[tokio::test]
 async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
     use application::ports::WalletRepository;
@@ -181,14 +180,13 @@ async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
         )
         .await
         .unwrap();
-    wallet.capture(reservation.reservation.id, None, &[]).await.unwrap();
+    wallet
+        .capture(reservation.reservation.id, None, &[])
+        .await
+        .unwrap();
 
-    let use_case = CreateMonitorUseCase::new(
-        repository,
-        UuidIdGenerator::new(),
-        new_audit_repo(),
-    )
-    .with_wallet_repository(wallet);
+    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
+        .with_wallet_repository(wallet);
 
     let request = CreateMonitorRequest {
         name: "exhausted-payg".into(),
@@ -214,5 +212,3 @@ async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
         .await
         .expect("an exhausted PAYG wallet remains PAYG; it must not fall back to Free");
 }
-
-

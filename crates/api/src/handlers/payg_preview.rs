@@ -2,8 +2,8 @@ use axum::{
     Json,
     extract::{Extension, State},
 };
-use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::MonitorKind;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use serde::{Deserialize, Serialize};
 
 use application::use_cases::calculate_payg_preview::{
@@ -87,4 +87,3 @@ pub async fn payg_preview(
         estimate_label: "Estimated cost",
     }))
 }
-

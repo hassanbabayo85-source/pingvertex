@@ -159,7 +159,9 @@ where
         tenant_id: domain::shared::ids::TenantId,
         reason: &str,
     ) -> RepoResult<bool> {
-        (**self).set_billing_block(monitor_id, tenant_id, reason).await
+        (**self)
+            .set_billing_block(monitor_id, tenant_id, reason)
+            .await
     }
     async fn enqueue_one_time_check(
         &self,
@@ -206,4 +208,3 @@ where
         (**self).get_one_time_check_by_request_id(t, m, r).await
     }
 }
-

@@ -459,13 +459,12 @@ async fn wallet_activation_is_sticky_and_does_not_fall_back_to_free() {
     assert_eq!(exhausted.balance_units, 0);
 }
 
-
 #[tokio::test]
 async fn billing_blocks_are_tenant_scoped_and_bulk_enable_is_tenant_scoped() {
     use application::ports::MonitorRepository;
     use domain::{
-        CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout, Url,
-        MonitorId, UserId, TenantId,
+        CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorId, MonitorName,
+        TenantId, Timeout, Url, UserId,
     };
     use infra::InMemoryMonitorRepository;
 
@@ -507,7 +506,13 @@ async fn billing_blocks_are_tenant_scoped_and_bulk_enable_is_tenant_scoped() {
     assert!(!repo.find_by_id(a2.id).await.unwrap().unwrap().enabled);
     assert!(repo.find_by_id(b1.id).await.unwrap().unwrap().enabled);
 
-    repo.clear_billing_blocks_for_tenant(tenant_a).await.unwrap();
-    assert!(repo.billing_blocks_for_tenant(tenant_a).await.unwrap().is_empty());
+    repo.clear_billing_blocks_for_tenant(tenant_a)
+        .await
+        .unwrap();
+    assert!(
+        repo.billing_blocks_for_tenant(tenant_a)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
-

@@ -85,4 +85,3 @@ pub async fn update_monitor(
 
     Ok(Json(MonitorResponse::from(monitor)))
 }
-

@@ -74,12 +74,11 @@ impl CalculatePaygPreviewUseCase {
         self
     }
 
-    pub async fn execute(
-        &self,
-        input: PaygPreviewInput,
-    ) -> Result<PaygPreview, PaygPreviewError> {
+    pub async fn execute(&self, input: PaygPreviewInput) -> Result<PaygPreview, PaygPreviewError> {
         if input.monitors == 0 {
-            return Err(PaygPreviewError::Invalid("monitors must be greater than zero"));
+            return Err(PaygPreviewError::Invalid(
+                "monitors must be greater than zero",
+            ));
         }
         if input.regions == 0 || input.regions > 32 {
             return Err(PaygPreviewError::Invalid(
@@ -159,13 +158,12 @@ impl CalculatePaygPreviewUseCase {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Duration, Utc};
-    use async_trait::async_trait;
     use crate::ports::PaygPricingRepoResult;
+    use async_trait::async_trait;
+    use chrono::{Duration, Utc};
     use domain::PAYGPricing;
     use uuid::Uuid;
 
@@ -181,10 +179,7 @@ mod tests {
 
     #[async_trait]
     impl PAYGPricingRepository for TestPricingRepository {
-        async fn find_active(
-            &self,
-            operation: &str,
-        ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
+        async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
             Ok(self
                 .pricing
                 .iter()
@@ -271,4 +266,3 @@ mod tests {
         assert!(matches!(result, Err(PaygPreviewError::Invalid(_))));
     }
 }
-

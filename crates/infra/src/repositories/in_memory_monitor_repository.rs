@@ -227,7 +227,9 @@ impl MonitorRepository for InMemoryMonitorRepository {
         let mut monitors = self.monitors.write().unwrap();
         let mut changed = 0u64;
         for monitor in monitors.values_mut() {
-            if monitor.tenant_id != tenant_id || ids.as_ref().is_some_and(|set| !set.contains(&monitor.id)) {
+            if monitor.tenant_id != tenant_id
+                || ids.as_ref().is_some_and(|set| !set.contains(&monitor.id))
+            {
                 continue;
             }
             if monitor.enabled != enabled {
@@ -255,10 +257,10 @@ impl MonitorRepository for InMemoryMonitorRepository {
         if !belongs || reason.trim().is_empty() {
             return Ok(false);
         }
-        self.billing_blocks.write().unwrap().insert(
-            monitor_id,
-            (tenant_id, reason.trim().to_owned()),
-        );
+        self.billing_blocks
+            .write()
+            .unwrap()
+            .insert(monitor_id, (tenant_id, reason.trim().to_owned()));
         Ok(true)
     }
 
@@ -286,4 +288,3 @@ impl MonitorRepository for InMemoryMonitorRepository {
             .collect())
     }
 }
-

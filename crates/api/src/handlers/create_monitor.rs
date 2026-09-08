@@ -94,4 +94,3 @@ pub async fn create_monitor(
         Json(MonitorCreateResponse::from_created(monitor)),
     ))
 }
-

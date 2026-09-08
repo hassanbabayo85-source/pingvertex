@@ -78,6 +78,7 @@ struct MockCheckRepository {
 }
 
 impl MockCheckRepository {
+    #[allow(dead_code)]
     fn save_count(&self) -> usize {
         self.saved_checks.lock().unwrap().len()
     }
@@ -534,7 +535,8 @@ async fn submit_result_with_valid_payload_returns_accepted() {
 async fn claim_checks_only_returns_monitors_for_agent_region() {
     let us_monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
     let eu_monitor = build_monitor_with_regions(vec![RegionCode::new("eu-west").unwrap()]);
-    let (app, _check_repo, _lease_repo) = build_test_app(vec![us_monitor.clone(), eu_monitor]).await;
+    let (app, _check_repo, _lease_repo) =
+        build_test_app(vec![us_monitor.clone(), eu_monitor]).await;
 
     let response = app
         .clone()

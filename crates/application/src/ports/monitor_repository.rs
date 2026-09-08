@@ -2,11 +2,34 @@ use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
 use domain::{
+    HttpMethod, MonitorKind,
     entities::Monitor,
     shared::ids::{MonitorId, TenantId},
 };
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BulkImportExistingMonitor {
+    pub name: String,
+    pub url: String,
+    pub kind: MonitorKind,
+    pub method: HttpMethod,
+    pub expected_status: u16,
+    pub interval_seconds: u32,
+    pub timeout_seconds: u32,
+    pub tcp_port: Option<u16>,
+    pub dns_record_type: Option<String>,
+    pub dns_expected_value: Option<String>,
+    pub heartbeat_interval_seconds: Option<u32>,
+    pub heartbeat_grace_period_seconds: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BulkImportMonitorSnapshot {
+    pub total_count: usize,
+    pub monitors: Vec<BulkImportExistingMonitor>,
+}
 
 /// Result of an atomic, quota-checked resource creation via
 /// [`MonitorRepository::save_if_within_quota`].
@@ -72,6 +95,38 @@ pub trait MonitorRepository: Send + Sync {
     /// monitors instead of only the ones they personally created.
     async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         unimplemented!()
+    }
+
+    /// Read-only, tenant-scoped snapshot used by bulk-import preview.
+    /// Implementations may override this to avoid loading assertions or
+    /// reconstructing full monitor aggregates.
+    async fn bulk_import_snapshot_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<BulkImportMonitorSnapshot> {
+        let monitors = self.find_all_for_tenant(tenant_id).await?;
+        let total_count = monitors.len();
+        let monitors = monitors
+            .into_iter()
+            .map(|monitor| BulkImportExistingMonitor {
+                name: monitor.name.as_str().to_owned(),
+                url: monitor.url,
+                kind: monitor.kind,
+                method: monitor.method,
+                expected_status: monitor.expected_status,
+                interval_seconds: monitor.interval_seconds,
+                timeout_seconds: monitor.timeout_seconds,
+                tcp_port: monitor.tcp_port,
+                dns_record_type: monitor.dns_record_type,
+                dns_expected_value: monitor.dns_expected_value,
+                heartbeat_interval_seconds: monitor.heartbeat_interval_seconds,
+                heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds,
+            })
+            .collect();
+        Ok(BulkImportMonitorSnapshot {
+            total_count,
+            monitors,
+        })
     }
     async fn delete_for_user(
         &self,
@@ -223,6 +278,13 @@ where
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_tenant(tenant_id).await
     }
+
+    async fn bulk_import_snapshot_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<BulkImportMonitorSnapshot> {
+        (**self).bulk_import_snapshot_for_tenant(tenant_id).await
+    }
     async fn delete_for_user(
         &self,
         id: MonitorId,
@@ -268,7 +330,9 @@ where
         monitor_ids: Option<&[MonitorId]>,
         enabled: bool,
     ) -> RepoResult<u64> {
-        (**self).set_enabled_for_tenant(tenant_id, monitor_ids, enabled).await
+        (**self)
+            .set_enabled_for_tenant(tenant_id, monitor_ids, enabled)
+            .await
     }
 
     async fn set_billing_block(
@@ -277,7 +341,9 @@ where
         tenant_id: TenantId,
         reason: &str,
     ) -> RepoResult<bool> {
-        (**self).set_billing_block(monitor_id, tenant_id, reason).await
+        (**self)
+            .set_billing_block(monitor_id, tenant_id, reason)
+            .await
     }
 
     async fn clear_billing_blocks_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
@@ -291,4 +357,3 @@ where
         (**self).billing_blocks_for_tenant(tenant_id).await
     }
 }
-

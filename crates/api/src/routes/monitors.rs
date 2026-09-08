@@ -1,7 +1,9 @@
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post, put},
 };
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 
 use crate::{
     handlers::{
@@ -9,15 +11,29 @@ use crate::{
         advanced_monitoring::{
             list_escalation_policies, list_maintenance_windows, update_escalation_policy,
         },
-        create_escalation_policy, create_maintenance_window, create_monitor, create_one_time_check,
-        bulk_monitor_action, delete_monitor, disable_monitor, enable_monitor, get_incident,
+        bulk_monitor_action, create_escalation_policy, create_maintenance_window, create_monitor,
+        create_one_time_check, delete_monitor, disable_monitor, enable_monitor, get_incident,
         get_monitor, get_one_time_check, list_incidents, list_monitor_checks, list_monitors,
-        update_monitor,
+        preview_bulk_monitor_import, update_monitor,
     },
     state::AppState,
 };
 
 pub fn router() -> Router<AppState> {
+    let bulk_import_preview = Router::new()
+        .route(
+            "/monitors/bulk-import/preview",
+            post(preview_bulk_monitor_import),
+        )
+        .layer(DefaultBodyLimit::max(1_100_000))
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(2)
+                .burst_size(4)
+                .finish()
+                .expect("valid bulk import preview rate-limit configuration"),
+        ));
+
     Router::new()
         .route("/monitors", post(create_monitor).get(list_monitors))
         .route("/monitors/bulk", post(bulk_monitor_action))
@@ -43,6 +59,7 @@ pub fn router() -> Router<AppState> {
             "/incidents/{incident_id}/acknowledge",
             post(acknowledge_incident),
         )
+        .merge(bulk_import_preview)
 }
 
 pub fn one_time_check_router() -> Router<AppState> {
@@ -56,4 +73,3 @@ pub fn one_time_check_router() -> Router<AppState> {
             get(get_one_time_check),
         )
 }
-

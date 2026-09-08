@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use application::ports::MonitorRepository;
-use application::ports::monitor_repository::QuotaCheckOutcome;
+use application::ports::monitor_repository::{
+    BulkImportExistingMonitor, BulkImportMonitorSnapshot, QuotaCheckOutcome,
+};
 use async_trait::async_trait;
 use domain::shared::ids::{AssertionId, MonitorId, TenantId, UserId};
 use domain::{
@@ -61,6 +63,22 @@ struct MonitorRow {
     last_heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct BulkImportSnapshotRow {
+    name: String,
+    url: String,
+    method: String,
+    kind: String,
+    expected_status: i16,
+    interval_seconds: i32,
+    timeout_seconds: i32,
+    tcp_port: Option<i16>,
+    dns_record_type: Option<String>,
+    dns_expected_value: Option<String>,
+    heartbeat_interval_seconds: Option<i32>,
+    heartbeat_grace_period_seconds: Option<i32>,
 }
 
 //
@@ -599,6 +617,66 @@ impl MonitorRepository for PostgresMonitorRepository {
         Ok(monitors)
     }
 
+    async fn bulk_import_snapshot_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<BulkImportMonitorSnapshot> {
+        // Preview only needs duplicate fingerprints and the tenant count.
+        // Do not load assertions or reconstruct full Monitor aggregates.
+        let rows = sqlx::query_as::<_, BulkImportSnapshotRow>(
+            r#"
+            SELECT
+                name,
+                url,
+                method,
+                kind,
+                expected_status,
+                interval_seconds,
+                timeout_seconds,
+                tcp_port,
+                dns_record_type,
+                dns_expected_value,
+                heartbeat_interval_seconds,
+                heartbeat_grace_period_seconds
+            FROM monitors
+            WHERE tenant_id = $1
+            "#,
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let total_count = rows.len();
+        let monitors = rows
+            .into_iter()
+            .map(|row| {
+                Ok(BulkImportExistingMonitor {
+                    name: row.name,
+                    url: row.url,
+                    kind: kind_from_db(&row.kind)?,
+                    method: method_from_db(&row.method)?,
+                    expected_status: row.expected_status.try_into()?,
+                    interval_seconds: row.interval_seconds.try_into()?,
+                    timeout_seconds: row.timeout_seconds.try_into()?,
+                    tcp_port: row.tcp_port.map(|value| value as u16),
+                    dns_record_type: row.dns_record_type,
+                    dns_expected_value: row.dns_expected_value,
+                    heartbeat_interval_seconds: row
+                        .heartbeat_interval_seconds
+                        .map(|value| value as u32),
+                    heartbeat_grace_period_seconds: row
+                        .heartbeat_grace_period_seconds
+                        .map(|value| value as u32),
+                })
+            })
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(BulkImportMonitorSnapshot {
+            total_count,
+            monitors,
+        })
+    }
+
     async fn find_by_id_for_user(
         &self,
         id: MonitorId,
@@ -982,12 +1060,10 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn clear_billing_blocks_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
-        let result = sqlx::query(
-            "DELETE FROM monitor_billing_blocks WHERE tenant_id = $1",
-        )
-        .bind(tenant_id.0)
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("DELETE FROM monitor_billing_blocks WHERE tenant_id = $1")
+            .bind(tenant_id.0)
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 
@@ -1007,4 +1083,3 @@ impl MonitorRepository for PostgresMonitorRepository {
             .collect())
     }
 }
-

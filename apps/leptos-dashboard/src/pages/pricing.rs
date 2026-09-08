@@ -35,7 +35,8 @@ pub fn PricingPage() -> impl IntoView {
             regions.get().parse::<u32>().ok(),
             forecast_days.get().parse::<u32>().ok(),
         );
-        let (Some(monitors), Some(interval_seconds), Some(regions), Some(forecast_days)) = parsed else {
+        let (Some(monitors), Some(interval_seconds), Some(regions), Some(forecast_days)) = parsed
+        else {
             preview.set(None);
             return;
         };
@@ -52,7 +53,9 @@ pub fn PricingPage() -> impl IntoView {
                 regions,
                 forecast_days,
                 kind: kind_value,
-            }).await {
+            })
+            .await
+            {
                 Ok(value) => {
                     preview_error.set(None);
                     preview.set(Some(value));
@@ -151,4 +154,3 @@ pub fn PricingPage() -> impl IntoView {
         </div>
     }
 }
-

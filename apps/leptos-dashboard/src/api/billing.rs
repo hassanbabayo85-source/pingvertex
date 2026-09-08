@@ -234,4 +234,3 @@ pub struct Invoice {
 pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
     client::get_json("/billing/invoices").await
 }
-

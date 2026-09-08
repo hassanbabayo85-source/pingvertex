@@ -160,6 +160,17 @@ fn validate_usage_for_reservation(
 
 #[async_trait]
 impl WalletRepository for PostgresWalletRepository {
+    async fn find(&self, tenant_id: Uuid) -> WalletRepoResult<Option<Wallet>> {
+        let row = sqlx::query_as::<_, WalletRow>(
+            "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
+             FROM user_wallets WHERE tenant_id=$1",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(WalletRow::into_domain))
+    }
+
     async fn get_or_create(&self, tenant_id: Uuid, currency: &str) -> WalletRepoResult<Wallet> {
         // This endpoint is read-heavy. `FOR UPDATE` here needlessly serialized
         // concurrent dashboard reads against the wallet row. The unique
@@ -688,9 +699,11 @@ impl WalletRepository for PostgresWalletRepository {
             payment_method: Option<String>,
             daily_top_up_limit_units: i64,
             monthly_top_up_limit_units: i64,
+            daily_spend_limit_units: Option<i64>,
+            monthly_spend_limit_units: Option<i64>,
             retry_limit: i32,
         }
-        let r = sqlx::query_as::<_, SettingsRow>("SELECT low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,retry_limit FROM wallet_settings WHERE tenant_id=$1").bind(tenant_id).fetch_optional(&self.pool).await?;
+        let r = sqlx::query_as::<_, SettingsRow>("SELECT low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,retry_limit FROM wallet_settings WHERE tenant_id=$1").bind(tenant_id).fetch_optional(&self.pool).await?;
         Ok(r.map(|x| WalletSettings {
             tenant_id,
             low_balance_threshold_units: x.low_balance_threshold_units,
@@ -701,6 +714,8 @@ impl WalletRepository for PostgresWalletRepository {
             payment_method: x.payment_method,
             daily_top_up_limit_units: x.daily_top_up_limit_units,
             monthly_top_up_limit_units: x.monthly_top_up_limit_units,
+            daily_spend_limit_units: x.daily_spend_limit_units,
+            monthly_spend_limit_units: x.monthly_spend_limit_units,
             retry_limit: x.retry_limit,
         })
         .unwrap_or_else(|| WalletSettings {
@@ -720,7 +735,10 @@ impl WalletRepository for PostgresWalletRepository {
         {
             return Err("invalid wallet settings".into());
         }
-        sqlx::query("INSERT INTO wallet_settings (tenant_id,low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,retry_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(tenant_id) DO UPDATE SET low_balance_threshold_units=EXCLUDED.low_balance_threshold_units,critical_balance_threshold_units=EXCLUDED.critical_balance_threshold_units,auto_top_up_enabled=EXCLUDED.auto_top_up_enabled,auto_top_up_threshold_units=EXCLUDED.auto_top_up_threshold_units,auto_top_up_amount_units=EXCLUDED.auto_top_up_amount_units,payment_method=EXCLUDED.payment_method,daily_top_up_limit_units=EXCLUDED.daily_top_up_limit_units,monthly_top_up_limit_units=EXCLUDED.monthly_top_up_limit_units,retry_limit=EXCLUDED.retry_limit,updated_at=now()").bind(settings.tenant_id).bind(settings.low_balance_threshold_units).bind(settings.critical_balance_threshold_units).bind(settings.auto_top_up_enabled).bind(settings.auto_top_up_threshold_units).bind(settings.auto_top_up_amount_units).bind(&settings.payment_method).bind(settings.daily_top_up_limit_units).bind(settings.monthly_top_up_limit_units).bind(settings.retry_limit).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO wallet_settings (tenant_id,low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,retry_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(tenant_id) DO UPDATE SET low_balance_threshold_units=EXCLUDED.low_balance_threshold_units,critical_balance_threshold_units=EXCLUDED.critical_balance_threshold_units,auto_top_up_enabled=EXCLUDED.auto_top_up_enabled,auto_top_up_threshold_units=EXCLUDED.auto_top_up_threshold_units,auto_top_up_amount_units=EXCLUDED.auto_top_up_amount_units,payment_method=EXCLUDED.payment_method,daily_top_up_limit_units=EXCLUDED.daily_top_up_limit_units,monthly_top_up_limit_units=EXCLUDED.monthly_top_up_limit_units,daily_spend_limit_units=EXCLUDED.daily_spend_limit_units,monthly_spend_limit_units=EXCLUDED.monthly_spend_limit_units,retry_limit=EXCLUDED.retry_limit,updated_at=now()").bind(settings.tenant_id).bind(settings.low_balance_threshold_units).bind(settings.critical_balance_threshold_units).bind(settings.auto_top_up_enabled).bind(settings.auto_top_up_threshold_units).bind(settings.auto_top_up_amount_units).bind(&settings.payment_method).bind(settings.daily_top_up_limit_units).bind(settings.monthly_top_up_limit_units)
+            .bind(settings.daily_spend_limit_units)
+            .bind(settings.monthly_spend_limit_units)
+            .bind(settings.retry_limit).execute(&self.pool).await?;
         Ok(settings.clone())
     }
     async fn expire_credit(
@@ -940,6 +958,8 @@ impl WalletRepository for PostgresWalletRepository {
             payment_method: Option<String>,
             daily_limit: i64,
             monthly_limit: i64,
+            daily_spend_limit: Option<i64>,
+            monthly_spend_limit: Option<i64>,
             retry_limit: i32,
             daily: i64,
             monthly: i64,
@@ -955,6 +975,8 @@ impl WalletRepository for PostgresWalletRepository {
                     s.payment_method,
                     s.daily_top_up_limit_units daily_limit,
                     s.monthly_top_up_limit_units monthly_limit,
+                    s.daily_spend_limit_units daily_spend_limit,
+                    s.monthly_spend_limit_units monthly_spend_limit,
                     s.retry_limit,
                     COALESCE((SELECT SUM(amount_units) FROM wallet_auto_top_up_attempts a
                               WHERE a.tenant_id=w.tenant_id AND a.status='SUCCEEDED'
@@ -989,6 +1011,8 @@ impl WalletRepository for PostgresWalletRepository {
                     payment_method: r.payment_method,
                     daily_top_up_limit_units: r.daily_limit,
                     monthly_top_up_limit_units: r.monthly_limit,
+                    daily_spend_limit_units: r.daily_spend_limit,
+                    monthly_spend_limit_units: r.monthly_spend_limit,
                     retry_limit: r.retry_limit,
                 },
                 daily_spend_units: r.daily,
@@ -1459,4 +1483,3 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(r.rows_affected() == 1)
     }
 }
-

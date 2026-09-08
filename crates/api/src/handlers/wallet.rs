@@ -66,6 +66,8 @@ pub struct SettingsRequest {
     pub payment_method: Option<String>,
     pub daily_top_up_limit_units: i64,
     pub monthly_top_up_limit_units: i64,
+    pub daily_spend_limit_units: Option<i64>,
+    pub monthly_spend_limit_units: Option<i64>,
     pub retry_limit: i32,
 }
 #[derive(Debug, Deserialize)]
@@ -313,6 +315,8 @@ pub async fn update_settings(
         payment_method: req.payment_method,
         daily_top_up_limit_units: req.daily_top_up_limit_units,
         monthly_top_up_limit_units: req.monthly_top_up_limit_units,
+        daily_spend_limit_units: req.daily_spend_limit_units,
+        monthly_spend_limit_units: req.monthly_spend_limit_units,
         retry_limit: req.retry_limit,
     };
     if s.critical_balance_threshold_units > s.low_balance_threshold_units
@@ -322,6 +326,11 @@ pub async fn update_settings(
         || s.daily_top_up_limit_units < s.auto_top_up_amount_units
         || s.monthly_top_up_limit_units < s.auto_top_up_amount_units
         || s.monthly_top_up_limit_units < s.daily_top_up_limit_units
+        || s.daily_spend_limit_units.is_some_and(|v| v <= 0)
+        || s.monthly_spend_limit_units.is_some_and(|v| v <= 0)
+        || s.monthly_spend_limit_units
+            .zip(s.daily_spend_limit_units)
+            .is_some_and(|(m, d)| m < d)
         || !(0..=10).contains(&s.retry_limit)
     {
         return Err(ApiError::bad_request("invalid wallet settings"));

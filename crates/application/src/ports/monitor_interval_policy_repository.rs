@@ -19,4 +19,3 @@ where
         (**self).minimum_interval_seconds(kind).await
     }
 }
-
