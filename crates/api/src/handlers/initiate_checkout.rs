@@ -17,11 +17,16 @@ use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{Plan, PlanTier};
 use rust_decimal::prelude::ToPrimitive;
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn initiate_checkout(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(payload): Json<InitiateCheckoutRequest>,
 ) -> Result<(StatusCode, Json<InitiateCheckoutResponse>), ApiError> {
+    return Err(ApiError::gone(
+        "subscription checkout is retired; use PAYG wallet top-up",
+    ));
+
     authenticated_user
         .require(Permission::ManageBilling)
         .map_err(|_| ApiError::forbidden("billing management is not permitted"))?;

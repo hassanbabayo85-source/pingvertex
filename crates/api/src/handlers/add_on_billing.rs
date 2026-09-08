@@ -81,11 +81,16 @@ fn sms_unit_price(
     ))
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn create_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<CreateAddOnRequest>,
 ) -> Result<Json<AddOnResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription add-ons are retired; use PAYG billing",
+    ));
+
     require_manage_billing(&user)?;
     let addon_type = parse_type(&req.addon_type)?;
     if req.quantity == 0 {
@@ -201,10 +206,15 @@ pub async fn create_add_on(
     }))
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn billing_summary(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<BillingSummaryResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription billing summary is retired; use wallet and usage reporting",
+    ));
+
     user.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant_id = user.tenant_context().tenant_id();
@@ -329,11 +339,16 @@ pub struct VerifyAddOnRequest {
 pub struct CancelAddOnRequest {
     pub addon_subscription_id: uuid::Uuid,
 }
+#[allow(unreachable_code, unused_variables)]
 pub async fn verify_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<VerifyAddOnRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription add-ons are retired; use PAYG billing",
+    ));
+
     require_manage_billing(&user)?;
     let uc = application::use_cases::VerifyAddOnCheckoutUseCase::new(
         state.checkout_session_repository.clone(),
@@ -369,11 +384,16 @@ pub async fn verify_add_on(
         serde_json::json!({"addon_subscription_id":id,"status":status.as_str()}),
     ))
 }
+#[allow(unreachable_code, unused_variables)]
 pub async fn cancel_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<CancelAddOnRequest>,
 ) -> Result<Json<AddOnResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription add-ons are retired; use PAYG billing",
+    ));
+
     require_manage_billing(&user)?;
     let uc = CreateAddOnSubscriptionUseCase::new(state.add_on_subscription_repository.clone());
     let a = uc

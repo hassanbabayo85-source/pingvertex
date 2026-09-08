@@ -46,10 +46,15 @@ impl From<Subscription> for SubscriptionResponse {
     }
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn get_subscription(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
 ) -> Result<Json<Option<SubscriptionResponse>>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription billing is retired; use PAYG wallet billing",
+    ));
+
     u.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let tenant = u.tenant_context().tenant_id();
@@ -71,11 +76,16 @@ pub struct CancelSubscriptionRequest {
     pub current_period_ends_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn cancel_subscription(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
     Json(req): Json<CancelSubscriptionRequest>,
 ) -> Result<Json<SubscriptionResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription cancellation is retired; use PAYG wallet top-up",
+    ));
+
     u.require(Permission::ManageBilling)
         .map_err(|_| ApiError::forbidden("billing management is not permitted"))?;
     let tenant = u.tenant_context().tenant_id();
@@ -121,10 +131,15 @@ pub struct PlanResponse {
     pub currency: String,
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn list_plans(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<PlanResponse>>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription plans are retired; use PAYG pricing",
+    ));
+
     u.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
     let cfg = s
