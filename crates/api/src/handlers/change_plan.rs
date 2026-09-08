@@ -47,11 +47,16 @@ fn err(e: ChangePlanError) -> ApiError {
         }
     }
 }
+#[allow(unreachable_code, unused_variables)]
 pub async fn change_plan(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
     Json(r): Json<ChangePlanRequest>,
 ) -> Result<(StatusCode, Json<ChangePlanResponse>), ApiError> {
+    return Err(ApiError::gone(
+        "subscription plan changes are retired; use PAYG wallet top-up",
+    ));
+
     auth(&u)?;
     let tier = r
         .plan_tier
@@ -108,11 +113,16 @@ pub async fn change_plan(
         }),
     ))
 }
+#[allow(unreachable_code, unused_variables)]
 pub async fn verify_plan_change(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
     Json(r): Json<VerifyPlanChangeRequest>,
 ) -> Result<Json<ChangePlanResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription plan changes are retired; use PAYG wallet top-up",
+    ));
+
     auth(&u)?;
     let ids: Arc<dyn application::ports::IdGenerator> = Arc::new(s.id_generator.clone());
     let uc = ChangeSubscriptionPlanUseCase::new(

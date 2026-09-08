@@ -16,11 +16,16 @@ use crate::handlers::billing_types::{VerifyCheckoutRequest, VerifyCheckoutRespon
 use crate::handlers::initiate_checkout::billing_error_to_api_error;
 use crate::state::AppState;
 
+#[allow(unreachable_code, unused_variables)]
 pub async fn verify_checkout(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(payload): Json<VerifyCheckoutRequest>,
 ) -> Result<(StatusCode, Json<VerifyCheckoutResponse>), ApiError> {
+    return Err(ApiError::gone(
+        "subscription checkout is retired; use PAYG wallet top-up",
+    ));
+
     authenticated_user
         .require(Permission::ManageBilling)
         .map_err(|_| ApiError::forbidden("billing management is not permitted"))?;

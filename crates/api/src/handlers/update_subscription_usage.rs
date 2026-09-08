@@ -50,11 +50,16 @@ fn usage_error_to_api_error(err: UpdateSubscriptionUsageError) -> ApiError {
 /// handler does not accept, parse, or forward a client-supplied plan
 /// tier or usage numbers — only the caller's tenant id and the
 /// currently active pricing config version are passed through.
+#[allow(unreachable_code, unused_variables)]
 pub async fn update_subscription_usage(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(_payload): Json<UpdateSubscriptionUsageRequest>,
 ) -> Result<Json<UpdateSubscriptionUsageResponse>, ApiError> {
+    return Err(ApiError::gone(
+        "subscription usage is retired; use PAYG wallet billing",
+    ));
+
     info!("API: update_subscription_usage");
     require_manage_billing(&authenticated_user)?;
 
