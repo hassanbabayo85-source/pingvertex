@@ -30,9 +30,20 @@ pub struct Wallet {
     pub tenant_id: Uuid,
     pub currency: String,
     pub balance_units: i64,
+    /// Set once the tenant has ever entered PAYG through a trusted credit.
+    /// `None` means the wallet is still the free entitlement wallet; once set,
+    /// zero balance means PAYG is exhausted rather than silently becoming free.
+    pub payg_activated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletBalanceSummary {
+    pub balance_units: i64,
+    pub reserved_units: i64,
+    pub available_units: i64,
+}
+
 impl Wallet {
     pub fn new(id: Uuid, tenant_id: Uuid, currency: impl Into<String>) -> Self {
         let now = Utc::now();
@@ -41,6 +52,7 @@ impl Wallet {
             tenant_id,
             currency: currency.into(),
             balance_units: 0,
+            payg_activated_at: None,
             created_at: now,
             updated_at: now,
         }
@@ -69,6 +81,11 @@ pub struct CreditReservation {
     pub amount_units: i64,
     pub status: String,
     pub operation: String,
+    /// Price snapshot captured when the reservation is created. Optional for
+    /// legacy reservations created before Worker 1 migration 0093.
+    pub unit_price: Option<i64>,
+    pub pricing_version: Option<i64>,
+    pub currency: Option<String>,
     pub request_id: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,

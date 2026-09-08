@@ -71,6 +71,18 @@ pub async fn billing_webhook(
         .parse()
         .map_err(|_| ApiError::bad_request("unknown billing webhook event type"))?;
 
+    let is_wallet_top_up = payload
+        .data
+        .get("wallet_top_up")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !is_wallet_top_up {
+        return Err(ApiError::gone(
+            "subscription billing webhooks are retired; wallet top-up webhooks are supported",
+        ));
+    }
+
     let plan_tier = payload
         .plan_tier
         .map(|s| s.parse::<PlanTier>())

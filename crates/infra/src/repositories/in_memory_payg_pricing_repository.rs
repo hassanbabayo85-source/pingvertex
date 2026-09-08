@@ -1,6 +1,7 @@
 use application::ports::{PAYGPricingRepository, PaygPricingRepoResult};
 use async_trait::async_trait;
-use domain::PAYGPricing;
+use chrono::{DateTime, Utc};
+use domain::{PAYGPricing, PaygOperation};
 use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Default)]
@@ -34,17 +35,53 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
     }
     async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
         let now = chrono::Utc::now();
-        Ok(self
-            .rows
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|p| {
-                p.active
-                    && p.effective_from <= now
-                    && p.effective_until.map(|v| v > now).unwrap_or(true)
-            })
-            .cloned()
-            .collect())
+        let rows = self.rows.read().unwrap();
+        let mut latest = std::collections::BTreeMap::<String, PAYGPricing>::new();
+        for price in rows.iter().filter(|p| {
+            p.active
+                && PaygOperation::is_canonical(&p.operation)
+                && p.effective_from <= now
+                && p.effective_until.map(|v| v > now).unwrap_or(true)
+        }) {
+            latest
+                .entry(price.operation.clone())
+                .and_modify(|current| {
+                    if price.version > current.version {
+                        *current = price.clone();
+                    }
+                })
+                .or_insert_with(|| price.clone());
+        }
+        Ok(latest.into_values().collect())
+    }
+    async fn create_version(
+        &self,
+        operation: &str,
+        unit_name: &str,
+        unit_price: i64,
+        currency: &str,
+        effective_from: DateTime<Utc>,
+    ) -> PaygPricingRepoResult<PAYGPricing> {
+        if !PaygOperation::is_canonical(operation) {
+            return Err("unsupported PAYG operation".into());
+        }
+        if unit_price <= 0 || currency != "USD" {
+            return Err("invalid PAYG price".into());
+        }
+        let mut rows = self.rows.write().unwrap();
+        let version = rows.iter().map(|p| p.version).max().unwrap_or(0) + 1;
+        let row = PAYGPricing {
+            id: uuid::Uuid::new_v4(),
+            version,
+            operation: operation.to_owned(),
+            unit_name: unit_name.to_owned(),
+            unit_price,
+            currency: currency.to_owned(),
+            effective_from,
+            effective_until: None,
+            active: true,
+        };
+        rows.push(row.clone());
+        Ok(row)
     }
 }

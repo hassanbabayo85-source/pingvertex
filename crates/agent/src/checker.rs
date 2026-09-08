@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize)]
 pub struct CheckOutcome {
+    /// True only after the outbound request is actually attempted. Preflight
+    /// failures (disabled/SSRF/client construction) are not billable.
+    pub attempted: bool,
     pub success: bool,
     pub status_code: Option<u16>,
     pub latency_ms: u128,
@@ -42,6 +45,7 @@ pub async fn check_monitor(
 ) -> CheckOutcome {
     if !monitor.enabled {
         return CheckOutcome {
+            attempted: false,
             success: false,
             status_code: None,
             latency_ms: 0,
@@ -63,6 +67,7 @@ pub async fn check_monitor(
         Err(err) => {
             let latency = overall_started.elapsed().as_millis();
             return CheckOutcome {
+                attempted: false,
                 success: false,
                 status_code: None,
                 latency_ms: latency,
@@ -88,6 +93,7 @@ pub async fn check_monitor(
         Err(err) => {
             let latency = overall_started.elapsed().as_millis();
             return CheckOutcome {
+                attempted: false,
                 success: false,
                 status_code: None,
                 latency_ms: latency,
@@ -112,6 +118,7 @@ pub async fn check_monitor(
             let status = resp.status().as_u16();
             let success = status == monitor.expected_status;
             CheckOutcome {
+                attempted: true,
                 success,
                 status_code: Some(status),
                 latency_ms: latency,
@@ -128,6 +135,7 @@ pub async fn check_monitor(
             }
         }
         Err(err) => CheckOutcome {
+            attempted: true,
             success: false,
             status_code: None,
             latency_ms: latency,

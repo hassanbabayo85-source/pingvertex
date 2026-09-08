@@ -6,11 +6,9 @@ use serde_json::json;
 use crate::{
     dto::CreateMonitorRequest,
     ports::{
-        AuditLogEntryRepository, IdGenerator, MonitorRepository, PricingConfigRepository,
-        QuotaCheckOutcome, SubscriptionRepository,
+        AuditLogEntryRepository, IdGenerator, MonitorRepository, QuotaCheckOutcome,
+        WalletRepository,
     },
-    queries::ResolveEntitlements,
-    use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, HeartbeatToken,
@@ -22,17 +20,14 @@ use domain::{
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Backwards-compatible fallback cap used only when this use case is constructed
-/// without `.with_entitlements(...)`. The production API always enables the
-/// atomic, tenant-scoped entitlement path. Keep this value aligned with the
-/// product Free-tier monitor limit so direct/unit-test construction cannot
-/// accidentally reintroduce the old 10-monitor contract.
-pub const MAX_MONITORS_PER_USER: usize = 20;
+/// Free-tier monitor cap. Funded PAYG wallets have no product-defined monitor count ceiling.
+pub const MAX_FREE_MONITORS: usize = domain::FREE_MONITOR_LIMIT as usize;
+pub const MAX_MONITORS_PER_USER: usize = MAX_FREE_MONITORS;
 
 /// Backwards-compatible fallback minimum interval for direct/unit-test
-/// construction without an entitlement repository. This mirrors the current
-/// Free-tier contract; production requests resolve the value from the plan.
-const DEFAULT_FREE_MIN_INTERVAL_SECONDS: u32 = 300;
+/// construction without a wallet repository. This mirrors the canonical
+/// Free-tier contract; funded PAYG wallets use the domain minimum interval.
+const DEFAULT_FREE_MIN_INTERVAL_SECONDS: u32 = domain::FREE_MIN_INTERVAL_SECONDS;
 
 /// Hard cap on the number of assertions a single monitor may be created with.
 pub const MAX_ASSERTIONS_PER_MONITOR: usize = 20;
@@ -56,7 +51,7 @@ impl fmt::Display for CreateMonitorError {
             Self::QuotaExceeded { limit } => {
                 write!(
                     f,
-                    "monitor limit reached: your plan allows at most {limit} monitors"
+                    "Free entitlement allows at most {limit} monitors; fund the PAYG wallet to add more."
                 )
             }
             Self::TooManyAssertions { limit } => {
@@ -68,7 +63,7 @@ impl fmt::Display for CreateMonitorError {
             Self::IntervalBelowPlanMinimum { min } => {
                 write!(
                     f,
-                    "interval must be at least {min} seconds on your current plan"
+                    "interval must be at least {min} seconds for the current billing eligibility state"
                 )
             }
             Self::Other(err) => write!(f, "{err}"),
@@ -92,8 +87,7 @@ pub struct CreateMonitorUseCase<R, G> {
     repository: R,
     id_generator: G,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
-    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
+    wallet_repository: Option<Arc<dyn WalletRepository>>,
 }
 
 impl<R, G> CreateMonitorUseCase<R, G>
@@ -110,30 +104,12 @@ where
             repository,
             id_generator,
             audit_log_entry_repository,
-            subscription_repository: None,
-            pricing_config_repository: None,
+            wallet_repository: None,
         }
     }
 
-    /// Enables B13's atomic, tenant-scoped, plan-entitlement-based quota
-    /// enforcement and plan-minimum interval validation.
-    ///
-    /// When this is NOT called, `execute` retains the legacy non-atomic
-    /// fallback used by older direct/unit-test callers. Its limits are kept
-    /// aligned with the current Free-tier contract.
-    pub fn with_entitlements(
-        mut self,
-        subscription_repository: Arc<dyn SubscriptionRepository>,
-    ) -> Self {
-        self.subscription_repository = Some(subscription_repository);
-        self
-    }
-
-    pub fn with_pricing_config_repository(
-        mut self,
-        repository: Arc<dyn PricingConfigRepository>,
-    ) -> Self {
-        self.pricing_config_repository = Some(repository);
+    pub fn with_wallet_repository(mut self, repository: Arc<dyn WalletRepository>) -> Self {
+        self.wallet_repository = Some(repository);
         self
     }
 
@@ -155,29 +131,24 @@ where
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
-        let (monitor_limit, min_interval) = match &self.subscription_repository {
-            Some(repo) => {
-                let plan = {
-                    let mut resolver = ResolveEntitlementsUseCase::new(repo.clone());
-
-                    if let Some(pricing) = &self.pricing_config_repository {
-                        resolver = resolver.with_pricing_config_repository(pricing.clone());
-                    }
-
-                    resolver
-                        .execute(ResolveEntitlements { tenant_id })
-                        .await
-                        .map_err(CreateMonitorError::Other)?
-                };
-
-                (plan.max_monitors, plan.min_check_interval_seconds)
-            }
-            None => (
-                MAX_MONITORS_PER_USER as u32,
-                DEFAULT_FREE_MIN_INTERVAL_SECONDS,
-            ),
+        let funded = if let Some(wallets) = &self.wallet_repository {
+            let wallet = wallets
+                .get_or_create(tenant_id.0, "USD")
+                .await
+                .map_err(CreateMonitorError::Other)?;
+            let balance = wallets
+                .get_balance_summary(tenant_id.0, "USD")
+                .await
+                .map_err(CreateMonitorError::Other)?;
+            wallet.payg_activated_at.is_some() && balance.available_units > 0
+        } else {
+            false
         };
-
+        let min_interval = if funded {
+            CheckInterval::MIN
+        } else {
+            DEFAULT_FREE_MIN_INTERVAL_SECONDS
+        };
         if request.interval_seconds < min_interval {
             return Err(CreateMonitorError::IntervalBelowPlanMinimum { min: min_interval });
         }
@@ -187,39 +158,24 @@ where
             .await
             .map_err(CreateMonitorError::Other)?;
 
-        match &self.subscription_repository {
-            Some(_subscription_repository) => {
-                match self
-                    .repository
-                    .save_if_within_quota(&monitor, tenant_id, monitor_limit)
-                    .await
-                    .map_err(CreateMonitorError::Other)?
-                {
-                    QuotaCheckOutcome::Saved => {}
-                    QuotaCheckOutcome::QuotaExceeded => {
-                        return Err(CreateMonitorError::QuotaExceeded {
-                            limit: monitor_limit as usize,
-                        });
-                    }
-                }
-            }
-            None => {
-                let existing_for_user = self
-                    .repository
-                    .find_all_for_user(user_id)
-                    .await
-                    .map_err(CreateMonitorError::Other)?;
-
-                if existing_for_user.len() >= monitor_limit as usize {
+        if funded {
+            self.repository
+                .save(&monitor)
+                .await
+                .map_err(CreateMonitorError::Other)?;
+        } else {
+            match self
+                .repository
+                .save_if_within_quota(&monitor, tenant_id, MAX_FREE_MONITORS as u32)
+                .await
+                .map_err(CreateMonitorError::Other)?
+            {
+                QuotaCheckOutcome::Saved => {}
+                QuotaCheckOutcome::QuotaExceeded => {
                     return Err(CreateMonitorError::QuotaExceeded {
-                        limit: monitor_limit as usize,
+                        limit: MAX_FREE_MONITORS,
                     });
                 }
-
-                self.repository
-                    .save(&monitor)
-                    .await
-                    .map_err(CreateMonitorError::Other)?;
             }
         }
 

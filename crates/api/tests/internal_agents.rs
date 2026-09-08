@@ -19,8 +19,10 @@ use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
 use infra::{
-    InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
+    InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
+    InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
+    InMemoryProxyCheckJobRepository, InMemoryUsageEventRepository, InMemoryWalletRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::Arc;
@@ -279,7 +281,7 @@ fn build_monitor_with_regions(regions: Vec<RegionCode>) -> Monitor {
         .url(Url::new("http://example.com").unwrap())
         .method(HttpMethod::Get)
         .expected_status(ExpectedStatus::new(200).unwrap())
-        .interval(CheckInterval::new(60).unwrap())
+        .interval(CheckInterval::new(300).unwrap())
         .timeout(Timeout::new(5).unwrap())
         .build();
     monitor.regions = regions;
@@ -296,6 +298,31 @@ async fn build_test_app(
         monitor_repo.save(monitor).await.unwrap();
     }
 
+    let agent_lease_repository = InMemoryAgentLeaseRepository::new();
+    for monitor in &monitors {
+        agent_lease_repository.seed_due_monitor(monitor.clone());
+    }
+    let wallet_repository = Arc::new(InMemoryWalletRepository::default());
+    let payg_pricing_repository = Arc::new(InMemoryPAYGPricingRepository::new(vec![
+        domain::PAYGPricing {
+            id: uuid::Uuid::new_v4(),
+            version: 1,
+            operation: "http_check.monitoring".into(),
+            unit_name: "check".into(),
+            unit_price: 2,
+            currency: "USD".into(),
+            effective_from: chrono::Utc::now() - chrono::Duration::minutes(1),
+            effective_until: None,
+            active: true,
+        },
+    ]));
+    let usage_event_repository = Arc::new(InMemoryUsageEventRepository::default());
+    let metering = Arc::new(application::MeterUsageUseCase::new(
+        wallet_repository.clone(),
+        payg_pricing_repository.clone(),
+        usage_event_repository,
+    ));
+
     let state = AppState::new(
         monitor_repo.clone(),
         check_repo.clone(),
@@ -308,7 +335,11 @@ async fn build_test_app(
         UuidIdGenerator::new(),
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
-    );
+    )
+    .with_agent_lease_repository(agent_lease_repository)
+    .with_wallet_repository(wallet_repository.clone())
+    .with_payg_pricing_repository(payg_pricing_repository.clone())
+    .with_payg_metering(metering);
 
     let auth_state = AuthState::new(
         NoopUserRepository,
@@ -469,6 +500,7 @@ async fn submit_result_with_valid_payload_returns_accepted() {
         "check_id": check_id,
         "monitor_id": monitor_id,
         "region": "us-east",
+        "attempted": true,
         "success": true,
         "status_code": 200,
         "latency_ms": 12,

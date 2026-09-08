@@ -118,6 +118,51 @@ where
 
             let free_capacity = self.max_concurrency.saturating_sub(tasks.len());
             if free_capacity > 0 {
+                let one_time = self
+                    .scheduling_repository
+                    .claim_one_time_checks(
+                        free_capacity as u32,
+                        self.lease_owner,
+                        self.lease_duration,
+                        Utc::now(),
+                    )
+                    .await?;
+                for claim in one_time {
+                    let scheduling_repository = self.scheduling_repository.clone();
+                    let executor = self.executor.clone();
+                    let metering = self.metering.clone();
+                    let lease_owner = self.lease_owner;
+                    tasks.spawn(async move {
+                        let monitor = claim.monitor;
+                        let operation = domain::monitor_operation(monitor.kind, true).as_str().to_owned();
+                        let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
+                        let result = if let Some(metering) = metering {
+                            match metering.execute_classified_attempt(
+                                MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id },
+                                || {
+                                    let executor = executor.clone();
+                                    let monitor = monitor.clone();
+                                    async move { executor.execute(&monitor).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error }) }
+                                },
+                            ).await {
+                                Ok((_, attempt)) => if attempt.attempted { attempt.error } else { Some("operation was not attempted".to_owned()) },
+                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => Some(reason),
+                                Err(err) => Some(err.to_string()),
+                            }
+                        } else {
+                            Some("PAYG metering is not configured".to_owned())
+                        };
+                        let status = if result.is_some() { domain::OneTimeCheckRequest::FAILED } else { domain::OneTimeCheckRequest::SUCCEEDED };
+                        if let Err(err) = scheduling_repository.complete_one_time_check(claim.request.id, lease_owner, status, result.as_deref()).await {
+                            error!(request_id=%claim.request.id, error=%err, "failed to finalize one-time check");
+                        }
+                        Ok::<(), Box<dyn Error + Send + Sync>>(())
+                    });
+                }
+                let free_capacity = self.max_concurrency.saturating_sub(tasks.len());
+                if free_capacity == 0 {
+                    continue;
+                }
                 let claimed = self
                     .scheduling_repository
                     .claim_due_monitors(
@@ -140,11 +185,13 @@ where
                         let monitor = claim.monitor;
                         let request_id =
                             format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
-                        let result = if let Some(metering) = metering {
+                        let result = if claim.free_entitled {
+                            executor.execute(&monitor).await.map(|_| ())
+                        } else if let Some(metering) = metering {
                             match metering.execute_classified_attempt(
                                 MeterUsageInput {
                                     tenant_id: monitor.tenant_id.0,
-                                    operation: "monitor_check".to_owned(),
+                                    operation: domain::monitor_operation(monitor.kind, false).as_str().to_owned(),
                                     units: 1,
                                     request_id,
                                 },
@@ -169,7 +216,7 @@ where
                                 Err(err) => Err(Box::new(err) as Box<dyn Error + Send + Sync>),
                             }
                         } else {
-                            executor.execute(&monitor).await.map(|_| ()).map_err(|err| err)
+                            Err("PAYG metering is not configured".into())
                         };
                         if let Err(err) = &result {
                             warn!(

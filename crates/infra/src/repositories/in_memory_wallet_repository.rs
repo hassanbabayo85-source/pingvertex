@@ -49,6 +49,25 @@ impl WalletRepository for InMemoryWalletRepository {
         Ok(wallet.clone())
     }
 
+    async fn get_balance_summary(
+        &self,
+        tenant_id: Uuid,
+        _currency: &str,
+    ) -> WalletRepoResult<domain::WalletBalanceSummary> {
+        let g = self.inner.lock().unwrap();
+        let (wallet, _, reservations) = g.get(&tenant_id).ok_or("wallet not found")?;
+        let reserved = reservations
+            .values()
+            .filter(|r| r.status == CreditReservation::PENDING && r.expires_at > Utc::now())
+            .map(|r| r.amount_units)
+            .sum::<i64>();
+        Ok(domain::WalletBalanceSummary {
+            balance_units: wallet.balance_units,
+            reserved_units: reserved,
+            available_units: wallet.balance_units.saturating_sub(reserved),
+        })
+    }
+
     async fn list_transactions(
         &self,
         tenant_id: Uuid,
@@ -71,6 +90,9 @@ impl WalletRepository for InMemoryWalletRepository {
         tenant_id: Uuid,
         amount_units: i64,
         operation: &str,
+        unit_price: i64,
+        pricing_version: i64,
+        currency: &str,
         request_id: &str,
         expires_at: DateTime<Utc>,
     ) -> WalletRepoResult<ReservationOutcome> {
@@ -88,6 +110,9 @@ impl WalletRepository for InMemoryWalletRepository {
             {
                 existing.amount_units = amount_units;
                 existing.operation = operation.to_owned();
+                existing.unit_price = Some(unit_price);
+                existing.pricing_version = Some(pricing_version);
+                existing.currency = Some(currency.to_owned());
                 existing.expires_at = expires_at;
                 existing.status = CreditReservation::PENDING.to_owned();
                 existing.updated_at = Utc::now();
@@ -115,6 +140,9 @@ impl WalletRepository for InMemoryWalletRepository {
             amount_units,
             status: CreditReservation::PENDING.to_owned(),
             operation: operation.to_owned(),
+            unit_price: Some(unit_price),
+            pricing_version: Some(pricing_version),
+            currency: Some(currency.to_owned()),
             request_id: request_id.to_owned(),
             expires_at,
             created_at: Utc::now(),
@@ -230,6 +258,12 @@ impl WalletRepository for InMemoryWalletRepository {
             .balance_units
             .checked_add(amount_units)
             .ok_or("wallet balance overflow")?;
+        if matches!(
+            transaction_type,
+            WalletTransactionType::TopUp | WalletTransactionType::PromotionalCredit
+        ) {
+            wallet.payg_activated_at.get_or_insert_with(Utc::now);
+        }
         wallet.updated_at = Utc::now();
         let tx = WalletTransaction {
             id: Uuid::new_v4(),

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::api::client::{self, ApiError};
 use js_sys::encode_uri_component;
 use serde::{Deserialize, Serialize};
@@ -121,6 +122,19 @@ pub struct AddOnRequest {
     pub quantity: u64,
     pub country_code: Option<String>,
     pub tier: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PaygPricing {
+    pub operation: String,
+    pub unit_name: String,
+    pub unit_price: i64,
+    pub currency: String,
+    pub version: i64,
+    pub effective_from: String,
+}
+pub async fn payg_pricing() -> Result<Vec<PaygPricing>, ApiError> {
+    client::get_json("/payg/pricing").await
 }
 
 pub async fn subscription() -> Result<Option<Subscription>, ApiError> {

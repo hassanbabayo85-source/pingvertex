@@ -24,7 +24,9 @@ mod status_page;
 pub use status_page::*;
 
 mod tenant;
-pub use tenant::Tenant;
+pub use tenant::{AccountType, Tenant};
+pub mod one_time_check;
+pub use one_time_check::OneTimeCheckRequest;
 
 mod tenant_membership;
 pub use tenant_membership::TenantMembership;
@@ -130,8 +132,8 @@ pub use rum_resource_error::{RumResourceError, RumResourceType};
 
 pub mod wallet;
 pub use wallet::{
-    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletNotification,
-    WalletRefundRequest, WalletSettings, WalletTopUpSession, WalletTransaction,
+    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletBalanceSummary,
+    WalletNotification, WalletRefundRequest, WalletSettings, WalletTopUpSession, WalletTransaction,
     WalletTransactionType,
 };
 

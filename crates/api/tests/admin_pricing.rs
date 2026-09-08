@@ -202,8 +202,8 @@ fn valid_pricing_payload(version: u32) -> Value {
         "max_retention_days": 3650,
         "min_paid_monthly_price": "3.00",
         "free_tier": {
-            "monitors": 30,
-            "interval_seconds": 180,
+            "monitors": 10,
+            "interval_seconds": 300,
             "retention_days": 3
         },
         "currency": "USD",

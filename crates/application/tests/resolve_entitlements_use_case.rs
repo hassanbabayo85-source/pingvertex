@@ -17,7 +17,7 @@ async fn defaults_to_free_plan_when_no_subscription_exists() {
         .unwrap();
 
     assert_eq!(plan.tier, PlanTier::Free);
-    assert_eq!(plan.max_monitors, 20);
+    assert_eq!(plan.max_monitors, 10);
     assert_eq!(plan.min_check_interval_seconds, 300);
     assert_eq!(plan.history_retention_days, 2);
 }

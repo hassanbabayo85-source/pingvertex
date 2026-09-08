@@ -732,7 +732,7 @@ where
                 match metering.execute_classified_attempt_with_output(
                     MeterUsageInput {
                         tenant_id: job_for_task.tenant_id().0,
-                        operation: "proxy_check".to_owned(),
+                        operation: domain::PaygOperation::ProxyOneTime.as_str().to_owned(),
                         units: 1,
                         request_id,
                     },

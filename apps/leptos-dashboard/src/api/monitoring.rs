@@ -400,3 +400,28 @@ pub async fn acknowledge_incident(incident_id: &str) -> Result<(), String> {
         .await
         .map_err(to_string_err)
 }
+
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub struct OneTimeCheckResponse {
+    pub id: String,
+    pub request_id: String,
+    pub status: String,
+}
+pub async fn run_one_time_check(id: &str) -> Result<OneTimeCheckResponse, String> {
+    client::post_json(
+        &format!("/monitors/{id}/checks/one-time"),
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+pub async fn get_one_time_check(
+    monitor_id: &str,
+    request_id: &str,
+) -> Result<OneTimeCheckResponse, String> {
+    client::get_json(&format!(
+        "/monitors/{monitor_id}/checks/one-time/{request_id}"
+    ))
+    .await
+    .map_err(|e| e.to_string())
+}

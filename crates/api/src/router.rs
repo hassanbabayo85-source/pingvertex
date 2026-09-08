@@ -66,6 +66,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let one_time_check_routes = monitors::one_time_check_router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(2)
+                .finish()
+                .expect("valid one-time check rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let check_routes = checks::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -199,13 +210,15 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    // Compatibility shell: the subscription handler is permanently retired
+    // from the product model and returns HTTP 410.
     let subscription_routes = subscription::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
                 .per_millisecond(17)
                 .burst_size(10)
                 .finish()
-                .expect("valid subscription rate-limit configuration"),
+                .expect("valid retired subscription rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -392,6 +405,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
         .nest("/api/v1", monitor_routes)
+        .nest("/api/v1", one_time_check_routes)
         .nest("/api/v1", check_routes)
         .nest("/api/v1", dashboard_routes)
         .nest("/api/v1", dashboard_manual_check_routes)
@@ -514,6 +528,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    // Compatibility shell: returns HTTP 410; no subscription mutation is possible.
     let subscription_routes = subscription::router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -569,6 +584,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let one_time_check_routes = monitors::one_time_check_router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     // Admin pricing routes for test router: JWT only, permission check in handlers.
     let admin_pricing_routes = pricing::admin_router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
@@ -578,6 +597,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route("/metrics", get(metrics_handler))
         .merge(health_routes)
         .nest("/api/v1", monitor_routes)
+        .nest("/api/v1", one_time_check_routes)
         .nest("/api/v1", check_routes)
         .nest("/api/v1", dashboard_routes)
         .nest("/api/v1", dashboard_manual_check_routes)

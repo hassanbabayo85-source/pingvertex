@@ -19,6 +19,7 @@ pub enum ApiError {
     BadRequest(String),
     Conflict(String),
     NotFound(String),
+    Gone(String),
     Forbidden(String),
     Unauthorized(String),
     TooManyRequests(String),
@@ -56,6 +57,12 @@ impl ApiError {
 
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::NotFound(message.into())
+    }
+
+    /// 410 Gone — the endpoint is intentionally retired from the active
+    /// product surface but may remain in the binary for migration compatibility.
+    pub fn gone(message: impl Into<String>) -> Self {
+        Self::Gone(message.into())
     }
 
     /// 429 Too Many Requests — used when a caller-specific quota (not the
@@ -151,6 +158,7 @@ impl ApiError {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Gone(_) => StatusCode::GONE,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
@@ -164,6 +172,7 @@ impl ApiError {
             Self::BadRequest(message)
             | Self::Conflict(message)
             | Self::NotFound(message)
+            | Self::Gone(message)
             | Self::Forbidden(message)
             | Self::Unauthorized(message)
             | Self::TooManyRequests(message)

@@ -136,8 +136,8 @@ pub const NAV_GROUPS: &[NavGroup] = &[
         label: "BILLING",
         items: &[
             NavItem {
-                label: "Subscription",
-                href: "/billing/plan",
+                label: "PAYG billing",
+                href: "/billing",
                 status: NavStatus::Available,
             },
             NavItem {

@@ -32,4 +32,8 @@ pub fn admin_router() -> Router<AppState> {
             "/pricing/audit-logs",
             get(crate::handlers::admin_pricing::list_pricing_audit_logs),
         )
+        .route(
+            "/pricing/payg-configs",
+            post(crate::handlers::admin_pricing::create_payg_price),
+        )
 }

@@ -57,19 +57,6 @@ impl HttpCheckOutcome {
         }
     }
 
-    fn failure_attempted(
-        region: RegionCode,
-        latency_ms: u128,
-        error_kind: CheckErrorKind,
-        error: impl Into<String>,
-    ) -> Self {
-        Self {
-            result: CheckResult::failure(region, latency_ms, error),
-            error_kind,
-            attempted: true,
-        }
-    }
-
     fn failure_with_status(
         region: RegionCode,
         status: u16,

@@ -24,6 +24,7 @@ struct StoredLease {
     agent_id: String,
     lease_expires_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
+    billing_reserved: bool,
 }
 
 #[derive(Clone, Default)]
@@ -57,6 +58,7 @@ impl InMemoryAgentLeaseRepository {
                 agent_id: agent_id.to_string(),
                 lease_expires_at,
                 completed_at,
+                billing_reserved: false,
             },
         );
     }
@@ -92,7 +94,9 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
                 continue;
             }
 
-            if !monitor.regions.iter().any(|r| r == region) {
+            if monitor.kind != domain::MonitorKind::Http
+                || !monitor.regions.iter().any(|r| r == region)
+            {
                 remaining.push(monitor);
                 continue;
             }
@@ -108,6 +112,7 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
                     agent_id: agent_id.to_string(),
                     lease_expires_at,
                     completed_at: None,
+                    billing_reserved: false,
                 },
             );
 
@@ -116,6 +121,7 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
                 monitor_id: monitor.id,
                 region: region.clone(),
                 lease_expires_at,
+                billing_reserved: false,
             });
         }
 
@@ -162,6 +168,27 @@ impl AgentLeaseRepository for InMemoryAgentLeaseRepository {
             .leases
             .retain(|_, lease| lease.completed_at.is_some() || lease.lease_expires_at > now);
         Ok((before - state.leases.len()) as u64)
+    }
+    async fn mark_billing_reserved(&self, check_id: CheckId) -> RepoResult<()> {
+        let mut state = self.state.lock().unwrap();
+        let lease = state
+            .leases
+            .get_mut(&check_id.0)
+            .ok_or("agent check lease not found")?;
+        if lease.completed_at.is_some() {
+            return Err("agent check lease is already completed".into());
+        }
+        lease.billing_reserved = true;
+        Ok(())
+    }
+
+    async fn billing_reserved(&self, check_id: CheckId) -> RepoResult<bool> {
+        let state = self.state.lock().unwrap();
+        Ok(state
+            .leases
+            .get(&check_id.0)
+            .map(|lease| lease.billing_reserved)
+            .unwrap_or(false))
     }
 }
 

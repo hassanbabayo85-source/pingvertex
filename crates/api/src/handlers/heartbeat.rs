@@ -112,7 +112,9 @@ pub async fn record_heartbeat(
             .execute(
                 MeterUsageInput {
                     tenant_id: monitor.tenant_id.0,
-                    operation: "heartbeat_ping".to_owned(),
+                    operation: domain::PaygOperation::HeartbeatProcessing
+                        .as_str()
+                        .to_owned(),
                     units: 1,
                     request_id: format!("heartbeat:{}", request_id),
                 },

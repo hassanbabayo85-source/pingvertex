@@ -1,7 +1,6 @@
 use crate::auth::context::provide_auth_context;
 use crate::components::require_auth::RequireAuth;
 use crate::pages::account::AccountPage;
-use crate::pages::add_ons::AddOnsPage;
 use crate::pages::api_flows::ApiFlowsPage;
 use crate::pages::api_keys::ApiKeysPage;
 use crate::pages::billing::BillingPage;
@@ -21,7 +20,6 @@ use crate::pages::monitor_form::MonitorFormPage;
 use crate::pages::monitors::MonitorsPage;
 use crate::pages::not_found::NotFoundPage;
 use crate::pages::notifications::NotificationsPage;
-use crate::pages::pricing::PricingPage;
 use crate::pages::proxy_checks::ProxyChecksPage;
 use crate::pages::register::RegisterPage;
 use crate::pages::reset_password::ResetPasswordPage;
@@ -77,8 +75,6 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("billing/usage") view=UsagePage/>
                     <Route path=path!("billing/invoices") view=InvoicesPage/>
                     <Route path=path!("billing/transactions") view=TransactionsPage/>
-                    <Route path=path!("billing/plan") view=PricingPage/>
-                    <Route path=path!("billing/add-ons") view=AddOnsPage/>
                     <Route path=path!("help") view=HelpCenterPage/>
                     <Route path=path!("support") view=SupportPage/>
                     <Route path=path!("maintenance") view=MaintenancePage/>

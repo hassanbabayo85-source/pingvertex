@@ -24,5 +24,8 @@ pub use pricing::*;
 pub mod proration;
 pub use proration::*;
 
+pub mod payg;
+pub use payg::*;
+
 // Worker 6 billing invoice exports
 pub use entities::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};

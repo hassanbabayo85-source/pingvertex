@@ -331,7 +331,7 @@ async fn member_without_manage_billing_gets_forbidden() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.status(), StatusCode::GONE);
 }
 
 #[tokio::test]
@@ -360,7 +360,7 @@ async fn owner_without_existing_subscription_gets_not_found() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::GONE);
 }
 
 #[tokio::test]
@@ -397,13 +397,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = read_json(response).await;
-    assert_eq!(body["plan_tier"], "pro");
-    assert_eq!(body["monitors"], 100);
-    assert_eq!(body["interval_seconds"], 30);
-    assert_eq!(body["retention_days"], 90);
-    assert_eq!(body["pricing_version"], 1);
+    assert_eq!(response.status(), StatusCode::GONE);
 }
 
 #[tokio::test]
@@ -442,7 +436,5 @@ async fn client_supplied_plan_tier_in_body_is_ignored() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = read_json(response).await;
-    assert_eq!(body["plan_tier"], "free");
+    assert_eq!(response.status(), StatusCode::GONE);
 }

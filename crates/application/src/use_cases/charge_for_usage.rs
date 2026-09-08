@@ -143,6 +143,127 @@ impl ChargeForUsageUseCase {
     /// Monitoring attempts are billable even when the target fails. The
     /// external operation runs once, then financial capture records the debit,
     /// usage event, and audits as one atomic repository transaction.
+    /// Finalizes an execution that was reserved before it ran (used by
+    /// remote agents). The operation has already happened, so this method
+    /// never invokes external I/O; it only captures/releases the durable
+    /// reservation and records the immutable usage event.
+    pub async fn finalize_reserved_attempt(
+        &self,
+        input: ChargeForUsageInput,
+        attempted: bool,
+    ) -> Result<ChargeForUsageResult, ChargeForUsageError> {
+        validate_input(&input)?;
+
+        if let Some(event) = self
+            .usage_event_repository
+            .find_by_request(input.tenant_id, &input.request_id)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+        {
+            return Ok(ChargeForUsageResult {
+                usage_event: event,
+                transaction: None,
+            });
+        }
+
+        let pricing = self
+            .pricing_repository
+            .find_active(&input.operation)
+            .await
+            .map_err(ChargeForUsageError::Repository)?
+            .ok_or(ChargeForUsageError::NoPricing)?;
+        if pricing.unit_price <= 0 {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "active PAYG unit price must be positive",
+            ));
+        }
+        let charge_units = input
+            .units
+            .checked_mul(pricing.unit_price)
+            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+
+        let wallet = self
+            .wallet_repository
+            .get_or_create(input.tenant_id, &pricing.currency)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+        if wallet.currency != pricing.currency {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "PAYG pricing currency does not match the tenant wallet currency",
+            ));
+        }
+
+        let reservation = self
+            .wallet_repository
+            .reserve(
+                input.tenant_id,
+                charge_units,
+                &input.operation,
+                pricing.unit_price,
+                pricing.version,
+                &pricing.currency,
+                &input.request_id,
+                Utc::now() + Duration::seconds(120),
+            )
+            .await
+            .map_err(|e| {
+                if e.to_string() == "insufficient wallet balance" {
+                    ChargeForUsageError::InsufficientBalance
+                } else {
+                    ChargeForUsageError::Repository(e)
+                }
+            })?;
+
+        if !attempted {
+            self.wallet_repository
+                .release(reservation.reservation.id)
+                .await
+                .map_err(ChargeForUsageError::Repository)?;
+            return Err(ChargeForUsageError::OperationNotAttempted(
+                "pre-attempt failure".to_owned(),
+            ));
+        }
+
+        let reserved_unit_price = reservation
+            .reservation
+            .unit_price
+            .unwrap_or(pricing.unit_price);
+        let reserved_pricing_version = reservation
+            .reservation
+            .pricing_version
+            .unwrap_or(pricing.version);
+        let reserved_currency = reservation
+            .reservation
+            .currency
+            .as_deref()
+            .unwrap_or(&pricing.currency);
+        let event = self.build_event(
+            &input,
+            input.units,
+            reserved_unit_price,
+            reservation.reservation.amount_units,
+            reserved_pricing_version,
+            reserved_currency,
+            "CAPTURED",
+        );
+        let audits = self.build_payg_audits(&input, &event);
+        let transaction = self
+            .wallet_repository
+            .capture(reservation.reservation.id, Some(&event), &audits)
+            .await
+            .map_err(ChargeForUsageError::CaptureFailed)?;
+        let event = self
+            .usage_event_repository
+            .create(&event)
+            .await
+            .map_err(ChargeForUsageError::Repository)?;
+
+        Ok(ChargeForUsageResult {
+            usage_event: event,
+            transaction: Some(transaction),
+        })
+    }
+
     pub async fn execute_attempt<F, Fut, E>(
         &self,
         input: ChargeForUsageInput,
@@ -196,6 +317,9 @@ impl ChargeForUsageUseCase {
                 input.tenant_id,
                 charge_units,
                 &input.operation,
+                pricing.unit_price,
+                pricing.version,
+                &pricing.currency,
                 &input.request_id,
                 Utc::now() + Duration::seconds(60),
             )
@@ -223,13 +347,26 @@ impl ChargeForUsageUseCase {
             return Err(ChargeForUsageError::ReservationInProgress);
         }
         let operation_result = operation().await;
+        let reserved_unit_price = reservation
+            .reservation
+            .unit_price
+            .unwrap_or(pricing.unit_price);
+        let reserved_pricing_version = reservation
+            .reservation
+            .pricing_version
+            .unwrap_or(pricing.version);
+        let reserved_currency = reservation
+            .reservation
+            .currency
+            .as_deref()
+            .unwrap_or(&pricing.currency);
         let event = self.build_event(
             &input,
             input.units,
-            pricing.unit_price,
-            charge_units,
-            pricing.version,
-            &pricing.currency,
+            reserved_unit_price,
+            reservation.reservation.amount_units,
+            reserved_pricing_version,
+            reserved_currency,
             "CAPTURED",
         );
         let audits = self.build_payg_audits(&input, &event);
@@ -341,6 +478,9 @@ impl ChargeForUsageUseCase {
                 input.tenant_id,
                 charge_units,
                 &input.operation,
+                pricing.unit_price,
+                pricing.version,
+                &pricing.currency,
                 &input.request_id,
                 Utc::now() + Duration::seconds(60),
             )
@@ -353,21 +493,20 @@ impl ChargeForUsageUseCase {
                 }
             })?;
         if !reservation.created {
-            if reservation.reservation.status == CreditReservation::CAPTURED {
-                if let Some(event) = self
+            if reservation.reservation.status == CreditReservation::CAPTURED
+                && let Some(event) = self
                     .usage_event_repository
                     .find_by_request(input.tenant_id, &input.request_id)
                     .await
                     .map_err(ChargeForUsageError::Repository)?
-                {
-                    return Ok((
-                        ChargeForUsageResult {
-                            usage_event: event,
-                            transaction: None,
-                        },
-                        None,
-                    ));
-                }
+            {
+                return Ok((
+                    ChargeForUsageResult {
+                        usage_event: event,
+                        transaction: None,
+                    },
+                    None,
+                ));
             }
             // Another live worker owns the reservation. Never run the external
             // operation twice for the same durable execution identity. If the
@@ -396,13 +535,26 @@ impl ChargeForUsageUseCase {
                     .unwrap_or_else(|| "pre-attempt failure".to_owned()),
             ));
         }
+        let reserved_unit_price = reservation
+            .reservation
+            .unit_price
+            .unwrap_or(pricing.unit_price);
+        let reserved_pricing_version = reservation
+            .reservation
+            .pricing_version
+            .unwrap_or(pricing.version);
+        let reserved_currency = reservation
+            .reservation
+            .currency
+            .as_deref()
+            .unwrap_or(&pricing.currency);
         let event = self.build_event(
             &input,
             input.units,
-            pricing.unit_price,
-            charge_units,
-            pricing.version,
-            &pricing.currency,
+            reserved_unit_price,
+            reservation.reservation.amount_units,
+            reserved_pricing_version,
+            reserved_currency,
             "CAPTURED",
         );
         let audits = self.build_payg_audits(&input, &event);
@@ -498,6 +650,9 @@ impl ChargeForUsageUseCase {
                 input.tenant_id,
                 charge_units,
                 &input.operation,
+                pricing.unit_price,
+                pricing.version,
+                &pricing.currency,
                 &input.request_id,
                 expires_at,
             )
@@ -566,13 +721,16 @@ impl ChargeForUsageUseCase {
             )));
         }
 
+        let reserved_unit_price = reservation.unit_price.unwrap_or(pricing.unit_price);
+        let reserved_pricing_version = reservation.pricing_version.unwrap_or(pricing.version);
+        let reserved_currency = reservation.currency.as_deref().unwrap_or(&pricing.currency);
         let event = self.build_event(
             &input,
             input.units,
-            pricing.unit_price,
-            charge_units,
-            pricing.version,
-            &pricing.currency,
+            reserved_unit_price,
+            reservation.amount_units,
+            reserved_pricing_version,
+            reserved_currency,
             "CAPTURED",
         );
         let audits = self.build_payg_audits(&input, &event);
@@ -746,6 +904,11 @@ fn validate_input(input: &ChargeForUsageInput) -> Result<(), ChargeForUsageError
     }
     if input.operation.trim().is_empty() {
         return Err(ChargeForUsageError::InvalidInput("operation is required"));
+    }
+    if !domain::PaygOperation::is_canonical(input.operation.trim()) {
+        return Err(ChargeForUsageError::InvalidInput(
+            "unsupported PAYG operation",
+        ));
     }
     if input.request_id.trim().is_empty() {
         return Err(ChargeForUsageError::InvalidInput("request_id is required"));

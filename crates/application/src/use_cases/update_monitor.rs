@@ -5,11 +5,7 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    ports::{
-        AuditLogEntryRepository, MonitorRepository, PricingConfigRepository, SubscriptionRepository,
-    },
-    queries::ResolveEntitlements,
-    use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
+    ports::{AuditLogEntryRepository, MonitorRepository, WalletRepository},
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Host, Monitor,
@@ -24,8 +20,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct UpdateMonitorUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
-    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
+    wallet_repository: Option<Arc<dyn WalletRepository>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -39,26 +34,12 @@ where
         Self {
             repository,
             audit_log_entry_repository,
-            subscription_repository: None,
-            pricing_config_repository: None,
+            wallet_repository: None,
         }
     }
 
-    /// Enables plan-minimum interval validation during updates.
-    /// When not called, falls back to global `CheckInterval::MIN`.
-    pub fn with_entitlements(
-        mut self,
-        subscription_repository: Arc<dyn SubscriptionRepository>,
-    ) -> Self {
-        self.subscription_repository = Some(subscription_repository);
-        self
-    }
-
-    pub fn with_pricing_config_repository(
-        mut self,
-        repository: Arc<dyn PricingConfigRepository>,
-    ) -> Self {
-        self.pricing_config_repository = Some(repository);
+    pub fn with_wallet_repository(mut self, repository: Arc<dyn WalletRepository>) -> Self {
+        self.wallet_repository = Some(repository);
         self
     }
 
@@ -84,27 +65,22 @@ where
             return Ok(None);
         }
 
-        // Resolve min interval (plan or fallback)
-        let min_interval = match &self.subscription_repository {
-            Some(repo) => {
-                let plan = {
-                    let mut resolver = ResolveEntitlementsUseCase::new(repo.clone());
-
-                    if let Some(pricing) = &self.pricing_config_repository {
-                        resolver = resolver.with_pricing_config_repository(pricing.clone());
-                    }
-
-                    resolver.execute(ResolveEntitlements { tenant_id }).await?
-                };
-
-                plan.min_check_interval_seconds
-            }
-            None => CheckInterval::MIN,
+        let funded = if let Some(wallets) = &self.wallet_repository {
+            let wallet = wallets.get_or_create(tenant_id.0, "USD").await?;
+            let balance = wallets.get_balance_summary(tenant_id.0, "USD").await?;
+            wallet.payg_activated_at.is_some() && balance.available_units > 0
+        } else {
+            false
+        };
+        let min_interval = if funded {
+            CheckInterval::MIN
+        } else {
+            domain::FREE_MIN_INTERVAL_SECONDS
         };
 
         if command.interval_seconds < min_interval {
             return Err(format!(
-                "interval must be at least {min_interval} seconds on your current plan"
+                "interval must be at least {min_interval} seconds for the current billing eligibility state"
             )
             .into());
         }

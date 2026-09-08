@@ -225,7 +225,7 @@ pub fn ForgotPasswordPage() -> impl IntoView {
                                 "send you a link to reset it."
                             </p>
 
-                            <form on:submit=on_submit.clone() class="pv2-form">
+                            <form on:submit=on_submit class="pv2-form">
                                 <div class="pv2-field">
                                     <label class="pv2-label" for="email">{pv2_mail_icon()} "Email Address"</label>
                                     <div class="pv2-input-wrap">

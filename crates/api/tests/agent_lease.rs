@@ -312,7 +312,9 @@ fn submit_request(check_id: uuid::Uuid, monitor_id: uuid::Uuid) -> Request<Body>
         "success": true,
         "status_code": 200,
         "latency_ms": 12,
-        "error": null
+        "error": null,
+        "attempted": true,
+        "country_code": null
     });
 
     Request::builder()

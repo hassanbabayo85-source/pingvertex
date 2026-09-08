@@ -48,7 +48,7 @@ pub async fn create_monitor(
         state.id_generator,
         state.audit_log_entry_repository.clone(),
     )
-    .with_entitlements(state.subscription_repository.clone());
+    .with_wallet_repository(state.wallet_repository.clone());
 
     let monitor = use_case
         .execute(request, authenticated_user)
@@ -58,13 +58,13 @@ pub async fn create_monitor(
                 ApiError::forbidden("you do not have permission to create monitors")
             }
             CreateMonitorError::QuotaExceeded { limit } => ApiError::too_many_requests(format!(
-                "monitor limit reached: your plan allows at most {limit} monitors"
+                "monitor limit reached: your Free entitlement allows at most {limit} monitors; fund the PAYG wallet to add more"
             )),
             CreateMonitorError::TooManyAssertions { limit } => ApiError::bad_request(format!(
                 "too many assertions: a monitor allows at most {limit} assertions"
             )),
             CreateMonitorError::IntervalBelowPlanMinimum { min } => ApiError::bad_request(format!(
-                "interval must be at least {min} seconds on your current plan"
+                "interval must be at least {min} seconds under the current billing eligibility"
             )),
             CreateMonitorError::Other(err) => {
                 let msg = err.to_string();

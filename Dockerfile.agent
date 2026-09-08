@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+    COPY apps/leptos-dashboard/Cargo.toml apps/leptos-dashboard/Cargo.toml
+    RUN mkdir -p apps/leptos-dashboard/src && touch apps/leptos-dashboard/src/lib.rs
 
 RUN cargo build --release -p agent
 

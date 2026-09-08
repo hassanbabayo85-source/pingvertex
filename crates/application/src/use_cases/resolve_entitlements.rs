@@ -51,14 +51,13 @@ where
             .await?
         {
             let mut plan = Plan::for_tier(test_tier);
-            if test_tier == PlanTier::Free {
-                if let Some(pricing_repository) = &self.pricing_repository {
-                    if let Some(config) = pricing_repository.find_active_config().await? {
-                        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
-                        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
-                        plan.history_retention_days = config.free_tier.retention_days;
-                    }
-                }
+            if test_tier == PlanTier::Free
+                && let Some(pricing_repository) = &self.pricing_repository
+                && let Some(config) = pricing_repository.find_active_config().await?
+            {
+                plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                plan.history_retention_days = config.free_tier.retention_days;
             }
             return Ok(plan);
         }
@@ -76,14 +75,13 @@ where
             .unwrap_or(PlanTier::Free);
 
         let mut plan = Plan::for_tier(plan_tier);
-        if plan_tier == PlanTier::Free {
-            if let Some(pricing_repository) = &self.pricing_repository {
-                if let Some(config) = pricing_repository.find_active_config().await? {
-                    plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
-                    plan.min_check_interval_seconds = config.free_tier.interval_seconds;
-                    plan.history_retention_days = config.free_tier.retention_days;
-                }
-            }
+        if plan_tier == PlanTier::Free
+            && let Some(pricing_repository) = &self.pricing_repository
+            && let Some(config) = pricing_repository.find_active_config().await?
+        {
+            plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+            plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+            plan.history_retention_days = config.free_tier.retention_days;
         }
         Ok(plan)
     }
