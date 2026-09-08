@@ -1,4 +1,5 @@
 pub mod acknowledge_incident;
+pub mod bulk_monitor_action;
 pub mod api_key_types;
 pub mod change_password;
 pub mod common;
@@ -84,6 +85,7 @@ pub mod revoke_invitation;
 // H11 — Admin Pricing:
 pub mod admin_pricing;
 pub mod payg_pricing;
+pub mod payg_preview;
 pub mod pricing_quote;
 pub mod pricing_types;
 
@@ -94,6 +96,7 @@ pub mod support;
 pub mod support_types;
 
 pub use acknowledge_incident::*;
+pub use bulk_monitor_action::*;
 pub use api_key_types::*;
 pub use change_password::*;
 pub use create_api_flow::*;
@@ -213,3 +216,4 @@ pub mod cancel_proxy_check_job;
 pub mod list_proxy_check_results;
 pub use cancel_proxy_check_job::*;
 pub use list_proxy_check_results::*;
+

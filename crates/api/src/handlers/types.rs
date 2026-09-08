@@ -21,6 +21,12 @@ pub struct MonitorResponse {
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
     pub enabled: bool,
+    /// Durable PAYG billing block. Kept separate from `enabled` so a
+    /// billing pause can never be confused with a user-requested disable.
+    #[serde(default)]
+    pub billing_blocked: bool,
+    #[serde(default)]
+    pub billing_block_reason: Option<String>,
     pub is_public: bool,
     pub ssl_check_enabled: bool,
     pub ssl_expiry_warning_days: u32,
@@ -51,6 +57,8 @@ impl From<Monitor> for MonitorResponse {
             interval_seconds: monitor.interval_seconds,
             timeout_seconds: monitor.timeout_seconds,
             enabled: monitor.enabled,
+            billing_blocked: false,
+            billing_block_reason: None,
             is_public: monitor.is_public,
             ssl_check_enabled: monitor.ssl_check_enabled,
             ssl_expiry_warning_days: monitor.ssl_expiry_warning_days,
@@ -527,3 +535,4 @@ pub struct PublicStatusPageResponse {
     pub primary_color: Option<String>,
     pub monitors: Vec<PublicMonitorResponse>,
 }
+

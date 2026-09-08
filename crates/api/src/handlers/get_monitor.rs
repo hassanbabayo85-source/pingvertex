@@ -30,5 +30,17 @@ pub async fn get_monitor(
         .map_err(|err| ApiError::internal_with_source("failed to fetch monitor", err))?
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
-    Ok(Json(MonitorResponse::from(monitor)))
+    let mut response = MonitorResponse::from(monitor.clone());
+    let billing_blocks = state
+        .monitor_repository
+        .billing_blocks_for_tenant(authenticated_user.tenant_context().tenant_id())
+        .await
+        .map_err(|err| ApiError::internal_with_source("failed to load monitor billing state", err))?;
+    if let Some(reason) = billing_blocks.get(&monitor.id) {
+        response.billing_blocked = true;
+        response.billing_block_reason = Some(reason.clone());
+    }
+
+    Ok(Json(response))
 }
+

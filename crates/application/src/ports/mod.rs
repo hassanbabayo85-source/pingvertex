@@ -5,6 +5,7 @@ pub mod http_client;
 pub mod id_generator;
 pub mod incident_repository;
 pub mod monitor_repository;
+pub mod monitor_interval_policy_repository;
 pub mod notification_channel_repository;
 pub mod notification_outbox_repository;
 pub mod notification_outbox_sender;
@@ -63,6 +64,7 @@ pub use incident_repository::IncidentRepository;
 // B13 — Atomic Quota Enforcement: re-export QuotaCheckOutcome alongside
 // MonitorRepository so callers can `use application::ports::{MonitorRepository, QuotaCheckOutcome};`
 pub use monitor_repository::{MonitorRepository, QuotaCheckOutcome};
+pub use monitor_interval_policy_repository::MonitorIntervalPolicyRepository;
 pub use notification_channel_repository::NotificationChannelRepository;
 pub use notification_outbox_repository::NotificationOutboxRepository;
 pub use notification_outbox_sender::NotificationOutboxSender;
@@ -204,3 +206,4 @@ pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
 
 pub mod payment_repository;
 pub use payment_repository::{PaymentRepoResult, PaymentRepository};
+

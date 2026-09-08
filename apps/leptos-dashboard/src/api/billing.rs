@@ -137,6 +137,34 @@ pub async fn payg_pricing() -> Result<Vec<PaygPricing>, ApiError> {
     client::get_json("/payg/pricing").await
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PaygPreviewRequest {
+    pub monitors: u64,
+    pub interval_seconds: u32,
+    pub regions: u32,
+    pub forecast_days: u32,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PaygPreview {
+    pub monitors: u64,
+    pub interval_seconds: u32,
+    pub regions: u32,
+    pub forecast_days: u32,
+    pub checks_per_day: u64,
+    pub checks_total: u64,
+    pub price_per_check_units: i64,
+    pub currency: String,
+    pub pricing_version: i64,
+    pub estimated_cost_units: i64,
+    pub estimate_label: String,
+}
+
+pub async fn payg_preview(req: &PaygPreviewRequest) -> Result<PaygPreview, ApiError> {
+    client::post_json("/payg/preview", req).await
+}
+
 pub async fn subscription() -> Result<Option<Subscription>, ApiError> {
     client::get_json("/billing/subscription").await
 }
@@ -206,3 +234,4 @@ pub struct Invoice {
 pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
     client::get_json("/billing/invoices").await
 }
+

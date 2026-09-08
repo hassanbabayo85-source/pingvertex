@@ -7668,3 +7668,44 @@ html[data-theme="dark"] .topbar-notification-badge { border-color: var(--pv-surf
   color: #3c3f52;
   line-height: 1.3;
 }
+
+
+/* PAYG monitor controls: compact, readable, and intentionally low-contrast. */
+.pricing-preview {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color, #d7dce2);
+    border-radius: 0.5rem;
+}
+.pricing-preview h3 { margin: 0 0 .75rem; }
+.pricing-preview dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem 1rem;
+    margin: 0;
+}
+.pricing-preview dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+}
+.pricing-preview dt { font-weight: 500; }
+.pricing-preview dd { margin: 0; font-variant-numeric: tabular-nums; }
+.bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+.bulk-selection-count { font-size: .875rem; opacity: .75; }
+.monitor-summary {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: .75rem 0;
+}
+.monitor-summary strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+    .pricing-preview dl { grid-template-columns: 1fr; }
+}
+

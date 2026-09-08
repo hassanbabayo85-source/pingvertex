@@ -38,6 +38,41 @@ async fn insert_due_monitor(pool: &PgPool, name: &str, user_id: Uuid, tenant_id:
     id
 }
 
+async fn insert_due_monitor_with_interval(
+    pool: &PgPool,
+    name: &str,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    interval_seconds: i32,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO monitors (
+            id, user_id, tenant_id, regions, name, url, method,
+            expected_status, interval_seconds, timeout_seconds,
+            enabled, ssl_check_enabled, ssl_expiry_warning_days, kind,
+            created_at, updated_at, next_due_at
+        )
+        VALUES (
+            $1, $2, $3, ARRAY['us-east'], $4, 'http://example.com', 'GET',
+            200, $5, 10,
+            true, true, 14, 'http',
+            now(), now(), now() - interval '1 minute'
+        )
+        "#,
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(tenant_id)
+    .bind(name)
+    .bind(interval_seconds)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
 #[tokio::test]
 #[serial]
 async fn concurrent_claim_attempts_do_not_double_claim() {
@@ -103,7 +138,7 @@ async fn expired_lease_makes_monitor_claimable_again() {
     let pool = common::setup_pool().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
-    let monitor_id = insert_due_monitor(&pool, "crash-recovery", user_id, tenant_id.0).await;
+    let monitor_id = insert_due_monitor_with_interval(&pool, "crash-recovery", user_id, tenant_id.0, 300).await;
 
     let repo = PostgresSchedulingRepository::new(pool.clone());
     let lease_duration = Duration::from_secs(60);
@@ -235,7 +270,7 @@ async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
     let pool = common::setup_pool().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
-    let monitor_id = insert_due_monitor(&pool, "stale-owner", user_id, tenant_id.0).await;
+    let monitor_id = insert_due_monitor_with_interval(&pool, "stale-owner", user_id, tenant_id.0, 300).await;
 
     let repo = PostgresSchedulingRepository::new(pool.clone());
     let first_owner = Uuid::new_v4();

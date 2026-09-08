@@ -590,6 +590,7 @@ impl WalletRepository for PostgresWalletRepository {
             transaction_type,
             WalletTransactionType::TopUp | WalletTransactionType::PromotionalCredit
         );
+        let should_resume_blocked_monitors = wallet.payg_activated_at.is_some() || activate_payg;
         sqlx::query(
             "UPDATE user_wallets
              SET balance_units=$2,
@@ -603,6 +604,60 @@ impl WalletRepository for PostgresWalletRepository {
         .bind(activate_payg)
         .execute(&mut *tx)
         .await?;
+
+        // Funding is the durable resume transition. Only monitors that were
+        // explicitly blocked by PAYG billing are resumed; user-disabled
+        // monitors remain disabled. Scheduler staggering prevents a large
+        // tenant from producing a thundering herd after top-up.
+        if should_resume_blocked_monitors && new_balance > 0 {
+            sqlx::query(
+                r#"
+                UPDATE monitors m
+                SET next_due_at = now()
+                    + ((abs(hashtextextended(m.id::text, 0)) % 60) * interval '1 second'),
+                    updated_at = now()
+                WHERE m.tenant_id = $1
+                  AND EXISTS (
+                      SELECT 1 FROM monitor_billing_blocks b
+                      WHERE b.monitor_id = m.id
+                  )
+                "#,
+            )
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM monitor_billing_blocks WHERE tenant_id = $1")
+                .bind(tenant_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Funding is the durable resume transition. Only monitors that were
+        // explicitly blocked by PAYG billing are resumed; user-disabled
+        // monitors remain disabled. Scheduler staggering prevents a large
+        // tenant from producing a thundering herd after top-up.
+        if should_resume_blocked_monitors && new_balance > 0 {
+            sqlx::query(
+                r#"
+                UPDATE monitors m
+                SET next_due_at = now()
+                    + ((abs(hashtextextended(m.id::text, 0)) % 60) * interval '1 second'),
+                    updated_at = now()
+                WHERE m.tenant_id = $1
+                  AND EXISTS (
+                      SELECT 1 FROM monitor_billing_blocks b
+                      WHERE b.monitor_id = m.id
+                  )
+                "#,
+            )
+            .bind(tenant_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM monitor_billing_blocks WHERE tenant_id = $1")
+                .bind(tenant_id)
+                .execute(&mut *tx)
+                .await?;
+        }
         let q = format!(
             "INSERT INTO wallet_transactions
              (id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,description)
@@ -1404,3 +1459,4 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(r.rows_affected() == 1)
     }
 }
+

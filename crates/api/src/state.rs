@@ -10,7 +10,7 @@ use application::ports::{
     EscalationPolicyRepository, FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort,
     HealthCheckResult, HelpArticleRepository, HelpCategoryRepository, IncidentRepository,
     LogoStorage, MaintenanceWindowRepository, MonitorRepository, NotificationChannelRepository,
-    NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider, PaymentRepository,
+    MonitorIntervalPolicyRepository, NotificationService, PAYGPricingRepository, PasswordHasher, PaymentProvider, PaymentRepository,
     PaymentVerification, PricingConfigRepository, ProxyCheckJobRepository, RateLimiter,
     RateLimiterResult, RumAnalyticsRepository, RumEventRepository, RumSiteRepository,
     SchedulingRepository, SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
@@ -108,6 +108,7 @@ pub struct AppState {
     pub rate_limiter: Arc<dyn RateLimiter>,
     pub wallet_repository: Arc<dyn WalletRepository>,
     pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
+    pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
     pub subscription_plan_change_repository:
         Arc<dyn application::ports::SubscriptionPlanChangeRepository>,
@@ -184,6 +185,15 @@ impl SchedulingRepository for NoopSchedulingRepository {
 
     async fn recover_expired_leases(&self, _now: DateTime<Utc>) -> RepoResult<u64> {
         Ok(0)
+    }
+
+    async fn set_billing_block(
+        &self,
+        _monitor_id: MonitorId,
+        _tenant_id: TenantId,
+        _reason: &str,
+    ) -> RepoResult<bool> {
+        Ok(false)
     }
     async fn enqueue_one_time_check(
         &self,
@@ -1197,6 +1207,17 @@ impl WalletRepository for NoopWalletRepository {
 }
 
 #[derive(Clone, Default)]
+struct NoopMonitorIntervalPolicyRepository;
+#[async_trait]
+impl MonitorIntervalPolicyRepository for NoopMonitorIntervalPolicyRepository {
+    async fn minimum_interval_seconds(&self, kind: domain::MonitorKind) -> RepoResult<u32> {
+        Ok(match kind {
+            domain::MonitorKind::Flow => 60,
+            _ => 30,
+        })
+    }
+}
+
 struct NoopPAYGPricingRepository;
 #[async_trait]
 impl PAYGPricingRepository for NoopPAYGPricingRepository {
@@ -1326,6 +1347,7 @@ impl AppState {
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             invoice_repository: Arc::new(NoopInvoiceRepository),
@@ -1422,6 +1444,7 @@ impl AppState {
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             payg_metering: None,
         }
@@ -1640,6 +1663,14 @@ impl AppState {
         self
     }
 
+    pub fn with_monitor_interval_policy_repository<R>(mut self, repository: R) -> Self
+    where
+        R: MonitorIntervalPolicyRepository + 'static,
+    {
+        self.monitor_interval_policy_repository = Arc::new(repository);
+        self
+    }
+
     pub fn with_usage_event_repository<R>(mut self, repository: R) -> Self
     where
         R: UsageEventRepository + 'static,
@@ -1694,3 +1725,4 @@ impl AppState {
         self
     }
 }
+

@@ -11,12 +11,14 @@ use domain::shared::ids::{MonitorId, TenantId, UserId};
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryMonitorRepository {
     monitors: Arc<RwLock<HashMap<MonitorId, Monitor>>>,
+    billing_blocks: Arc<RwLock<HashMap<MonitorId, (TenantId, String)>>>,
 }
 
 impl InMemoryMonitorRepository {
     pub fn new() -> Self {
         Self {
             monitors: Arc::new(RwLock::new(HashMap::new())),
+            billing_blocks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -101,7 +103,12 @@ impl MonitorRepository for InMemoryMonitorRepository {
             .unwrap_or(false);
 
         if belongs_to_user {
-            Ok(monitors.remove(&id).is_some())
+            let removed = monitors.remove(&id).is_some();
+            drop(monitors);
+            if removed {
+                self.billing_blocks.write().unwrap().remove(&id);
+            }
+            Ok(removed)
         } else {
             Ok(false)
         }
@@ -123,7 +130,11 @@ impl MonitorRepository for InMemoryMonitorRepository {
         &self,
         id: MonitorId,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.monitors.write().unwrap().remove(&id).is_some())
+        let removed = self.monitors.write().unwrap().remove(&id).is_some();
+        if removed {
+            self.billing_blocks.write().unwrap().remove(&id);
+        }
+        Ok(removed)
     }
 
     async fn delete_for_tenant(
@@ -139,7 +150,12 @@ impl MonitorRepository for InMemoryMonitorRepository {
             .unwrap_or(false);
 
         if belongs_to_tenant {
-            Ok(monitors.remove(&id).is_some())
+            let removed = monitors.remove(&id).is_some();
+            drop(monitors);
+            if removed {
+                self.billing_blocks.write().unwrap().remove(&id);
+            }
+            Ok(removed)
         } else {
             Ok(false)
         }
@@ -200,4 +216,74 @@ impl MonitorRepository for InMemoryMonitorRepository {
         monitors.insert(monitor.id, monitor.clone());
         Ok(QuotaCheckOutcome::Saved)
     }
+
+    async fn set_enabled_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        monitor_ids: Option<&[MonitorId]>,
+        enabled: bool,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let ids = monitor_ids.map(|v| v.iter().copied().collect::<std::collections::HashSet<_>>());
+        let mut monitors = self.monitors.write().unwrap();
+        let mut changed = 0u64;
+        for monitor in monitors.values_mut() {
+            if monitor.tenant_id != tenant_id || ids.as_ref().is_some_and(|set| !set.contains(&monitor.id)) {
+                continue;
+            }
+            if monitor.enabled != enabled {
+                monitor.enabled = enabled;
+                monitor.updated_at = chrono::Utc::now();
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
+    async fn set_billing_block(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: TenantId,
+        reason: &str,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let belongs = self
+            .monitors
+            .read()
+            .unwrap()
+            .get(&monitor_id)
+            .map(|m| m.tenant_id == tenant_id)
+            .unwrap_or(false);
+        if !belongs || reason.trim().is_empty() {
+            return Ok(false);
+        }
+        self.billing_blocks.write().unwrap().insert(
+            monitor_id,
+            (tenant_id, reason.trim().to_owned()),
+        );
+        Ok(true)
+    }
+
+    async fn clear_billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let mut blocks = self.billing_blocks.write().unwrap();
+        let before = blocks.len();
+        blocks.retain(|_, (tid, _)| *tid != tenant_id);
+        Ok((before - blocks.len()) as u64)
+    }
+
+    async fn billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<HashMap<MonitorId, String>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .billing_blocks
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, (tid, _))| *tid == tenant_id)
+            .map(|(id, (_, reason))| (*id, reason.clone()))
+            .collect())
+    }
 }
+

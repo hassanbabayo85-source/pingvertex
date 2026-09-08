@@ -18,6 +18,8 @@ pub fn MonitorsPage() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let action_error = RwSignal::new(None::<String>);
     let pending_delete = RwSignal::new(None::<(String, String)>);
+    let pending_bulk = RwSignal::new(None::<(bool, bool)>); // (all, enabled)
+    let selected_ids = RwSignal::new(Vec::<String>::new());
     let search = RwSignal::new(String::new());
     let status_filter = RwSignal::new("all".to_string());
     let kind_filter = RwSignal::new("all".to_string());
@@ -70,6 +72,20 @@ pub fn MonitorsPage() -> impl IntoView {
         }
     };
 
+    let open_bulk_selected = move |enabled: bool| {
+        if selected_ids.get_untracked().is_empty() {
+            action_error.set(Some("Select at least one monitor.".into()));
+            return;
+        }
+        pending_bulk.set(Some((false, enabled)));
+    };
+    let open_bulk_all = move |enabled: bool| {
+        if monitors.get_untracked().is_empty() {
+            return;
+        }
+        pending_bulk.set(Some((true, enabled)));
+    };
+
     view! {
         <div class="monitors-page">
             <header class="page-header">
@@ -78,6 +94,19 @@ pub fn MonitorsPage() -> impl IntoView {
                     "New Monitor"
                 </button>
             </header>
+
+            {move || {
+                let list = monitors.get();
+                let active = list.iter().filter(|m| m.enabled && !m.billing_blocked).count();
+                let paused = list.len().saturating_sub(active);
+                view! {
+                    <div class="monitor-summary">
+                        <span><strong>{list.len()}</strong>" total"</span>
+                        <span><strong>{active}</strong>" active"</span>
+                        <span><strong>{paused}</strong>" paused"</span>
+                    </div>
+                }
+            }}
 
             {move || match action_error.get() {
                 Some(e) => view! { <div class="error action-error">{e}</div> }.into_any(),
@@ -107,6 +136,68 @@ pub fn MonitorsPage() -> impl IntoView {
                                 });
                             })
                             on_cancel=Callback::new(move |_| pending_delete.set(None))
+                        />
+                    }.into_any()
+                }
+                None => ().into_any(),
+            }}
+
+            {move || match pending_bulk.get() {
+                Some((all, enabled)) => {
+                    let count = if all {
+                        monitors.get_untracked().len()
+                    } else {
+                        selected_ids.get_untracked().len()
+                    };
+                    let title = if enabled { "Enable monitors" } else { "Disable monitors" };
+                    let body = if all {
+                        format!(
+                            "{} {} monitors? Monitoring will resume using each monitor's configured schedule.",
+                            title, count
+                        )
+                    } else {
+                        format!("{} {} selected monitors?", title, count)
+                    };
+                    view! {
+                        <ConfirmDialog
+                            title=title
+                            body=body
+                            on_confirm=Callback::new(move |_| {
+                                let all_now = all;
+                                let enabled_now = enabled;
+                                let ids = selected_ids.get_untracked();
+                                spawn_local(async move {
+                                    match monitoring::bulk_monitor_action(
+                                        if enabled_now { "enable" } else { "disable" },
+                                        ids.clone(),
+                                        all_now,
+                                    ).await {
+                                        Ok(result) => {
+                                            monitors.update(|list| {
+                                                if all_now {
+                                                    for monitor in list.iter_mut() {
+                                                        monitor.enabled = enabled_now;
+                                                    }
+                                                } else {
+                                                    for monitor in list.iter_mut() {
+                                                        if ids.iter().any(|id| id == &monitor.id) {
+                                                            monitor.enabled = enabled_now;
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                            selected_ids.set(Vec::new());
+                                            pending_bulk.set(None);
+                                            action_error.set(None);
+                                        }
+                                        Err(e) => {
+                                            pending_bulk.set(None);
+                                            action_error.set(Some(e));
+                                        }
+                                    }
+                                });
+                            })
+                            on_cancel=Callback::new(move |_| pending_bulk.set(None))
                         />
                     }.into_any()
                 }
@@ -176,6 +267,7 @@ pub fn MonitorsPage() -> impl IntoView {
                             filtered.clone()
                         };
                         let shown = page_slice.len();
+                        let visible_ids: Vec<String> = page_slice.iter().map(|m| m.id.clone()).collect();
 
                         let sort_indicator = move |k: &str| {
                             if sort_key.get() == k {
@@ -235,6 +327,17 @@ pub fn MonitorsPage() -> impl IntoView {
                                     </FilterBar>
                                 </div>
 
+                                <div class="bulk-actions" aria-label="Bulk monitor actions">
+                                    <span class="bulk-selection-count">
+                                        {move || format!("{} selected", selected_ids.get().len())}
+                                    </span>
+                                    <button on:click=move |_| open_bulk_selected(true)>"Enable selected"</button>
+                                    <button on:click=move |_| open_bulk_selected(false)>"Disable selected"</button>
+                                    <span aria-hidden="true">"·"</span>
+                                    <button on:click=move |_| open_bulk_all(true)>"Enable all"</button>
+                                    <button on:click=move |_| open_bulk_all(false)>"Disable all"</button>
+                                </div>
+
                                 {if shown == 0 {
                                     view! { <p>"No monitors match your search/filters."</p> }.into_any()
                                 } else {
@@ -242,6 +345,25 @@ pub fn MonitorsPage() -> impl IntoView {
                                         <table class="monitors-table data-table">
                                             <thead>
                                                 <tr>
+                                                    <th>
+                                                        <input
+                                                            type="checkbox"
+                                                            aria-label="Select all visible monitors"
+                                                            on:change=move |ev| {
+                                                                let checked = event_target_checked(&ev);
+                                                                let ids = visible_ids.clone();
+                                                                selected_ids.update(|selected| {
+                                                                    if checked {
+                                                                        for id in ids {
+                                                                            if !selected.contains(&id) { selected.push(id); }
+                                                                        }
+                                                                    } else {
+                                                                        selected.retain(|id| !ids.contains(id));
+                                                                    }
+                                                                });
+                                                            }
+                                                        />
+                                                    </th>
                                                     <th>
                                                         <button class="sort-header" on:click=move |_| set_sort("name")>
                                                             "Name" {move || sort_indicator("name")}
@@ -277,20 +399,54 @@ pub fn MonitorsPage() -> impl IntoView {
                                                     let name = m.name.clone();
                                                     let enabled_now = m.enabled;
                                                     let status_display = effective_status(&m);
+                                                    let status_label = if m.billing_blocked {
+                                                        m.billing_block_reason
+                                                            .clone()
+                                                            .map(|reason| format!("Paused — {reason}"))
+                                                    } else {
+                                                        None
+                                                    };
+                                                    let status_badge_label = status_label.unwrap_or_else(|| match status_display.as_str() {
+                                                        "up" | "operational" => "Operational".to_string(),
+                                                        "down" | "outage" => "Down".to_string(),
+                                                        "degraded" | "warning" | "degraded_performance" => "Warning".to_string(),
+                                                        "paused" | "disabled" => "Disabled".to_string(),
+                                                        _ => "Unknown".to_string(),
+                                                    });
                                                     let navigate_detail = navigate.clone();
                                                     let navigate_edit = navigate.clone();
                                                     let id_detail = id.clone();
                                                     let id_edit = id.clone();
                                                     let id_toggle = id.clone();
+                                                    let id_checkbox = id.clone();
+                                                    let id_checkbox_change = id.clone();
                                                     let id_delete = id.clone();
                                                     let name_delete = name.clone();
                                                     view! {
                                                         <tr>
                                                             <td>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    aria-label=format!("Select {}", name)
+                                                                    prop:checked=move || selected_ids.get().contains(&id_checkbox)
+                                                                    on:change=move |ev| {
+                                                                        let checked = event_target_checked(&ev);
+                                                                        let id_owned = id_checkbox_change.clone();
+                                                                        selected_ids.update(|selected| {
+                                                                            if checked {
+                                                                                if !selected.contains(&id_owned) { selected.push(id_owned); }
+                                                                            } else {
+                                                                                selected.retain(|v| v != &id_owned);
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                />
+                                                            </td>
+                                                            <td>
                                                                 <A href=format!("/monitors/{id}") attr:class="monitor-link">{m.name.clone()}</A>
                                                             </td>
                                                             <td>{m.kind.clone()}</td>
-                                                            <td><StatusBadge status=status_display/></td>
+                                                            <td><StatusBadge status=status_display label=status_badge_label/></td>
                                                             <td>{m.uptime_percentage.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into())}</td>
                                                             <td>{m.avg_response_time_ms.map(|v| format!("{v:.0}")).unwrap_or_else(|| "-".into())}</td>
                                                             <td>
@@ -383,6 +539,9 @@ pub fn MonitorsPage() -> impl IntoView {
 }
 
 fn effective_status(m: &Monitor) -> String {
+    if m.billing_blocked {
+        return "paused".to_string();
+    }
     if !m.enabled {
         return "paused".to_string();
     }
