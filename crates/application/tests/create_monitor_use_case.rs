@@ -146,3 +146,73 @@ async fn funded_payg_wallet_has_no_product_monitor_ceiling_and_allows_fast_inter
         .await
         .unwrap();
 }
+
+
+#[tokio::test]
+async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
+    use application::ports::WalletRepository;
+    use domain::WalletTransactionType;
+    use infra::InMemoryWalletRepository;
+
+    let repository = InMemoryMonitorRepository::new();
+    let wallet = std::sync::Arc::new(InMemoryWalletRepository::default());
+    let tid = tenant_id();
+    wallet.get_or_create(tid.0, "USD").await.unwrap();
+    wallet
+        .credit(
+            tid.0,
+            2,
+            WalletTransactionType::TopUp,
+            "sticky-payg-fund",
+            None,
+        )
+        .await
+        .unwrap();
+    let reservation = wallet
+        .reserve(
+            tid.0,
+            2,
+            "http_check.monitoring",
+            2,
+            1,
+            "USD",
+            "sticky-payg-charge",
+            chrono::Utc::now() + chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap();
+    wallet.capture(reservation.reservation.id, None, &[]).await.unwrap();
+
+    let use_case = CreateMonitorUseCase::new(
+        repository,
+        UuidIdGenerator::new(),
+        new_audit_repo(),
+    )
+    .with_wallet_repository(wallet);
+
+    let request = CreateMonitorRequest {
+        name: "exhausted-payg".into(),
+        url: "https://example.com".into(),
+        method: HttpMethod::Get,
+        expected_status: 200,
+        interval_seconds: 30,
+        timeout_seconds: 10,
+        assertions: vec![],
+        is_public: false,
+        ssl_check_enabled: true,
+        ssl_expiry_warning_days: 14,
+        kind: domain::MonitorKind::Http,
+        tcp_port: None,
+        dns_record_type: None,
+        dns_expected_value: None,
+        heartbeat_interval_seconds: None,
+        heartbeat_grace_period_seconds: None,
+    };
+
+    use_case
+        .execute(request, auth_user(UserId(Uuid::new_v4()), tid))
+        .await
+        .expect("an exhausted PAYG wallet remains PAYG; it must not fall back to Free");
+}
+
+

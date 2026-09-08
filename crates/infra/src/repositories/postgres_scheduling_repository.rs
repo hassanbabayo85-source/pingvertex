@@ -82,6 +82,33 @@ impl SchedulingRepository for PostgresSchedulingRepository {
                   AND kind != 'heartbeat'
                   AND lease_expires_at IS NULL
                   AND next_due_at <= $4
+                  AND interval_seconds >= (
+                      CASE
+                          WHEN NOT EXISTS (
+                              SELECT 1 FROM user_wallets w
+                              WHERE w.tenant_id = monitors.tenant_id
+                                AND w.payg_activated_at IS NOT NULL
+                          )
+                          AND (
+                              SELECT COUNT(*) FROM monitors m2
+                              WHERE m2.tenant_id = monitors.tenant_id
+                          ) <= 10
+                          THEN 300
+                          ELSE COALESCE(
+                              (
+                                  SELECT p.min_interval_seconds
+                                  FROM monitor_interval_policies p
+                                  WHERE p.kind = monitors.kind
+                              ),
+                              30
+                          )
+                      END
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM monitor_billing_blocks b
+                      WHERE b.monitor_id = monitors.id
+                  )
                 ORDER BY next_due_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
@@ -177,6 +204,34 @@ impl SchedulingRepository for PostgresSchedulingRepository {
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         let result=sqlx::query(r#"UPDATE monitors SET lease_owner=NULL,lease_expires_at=NULL WHERE lease_expires_at IS NOT NULL AND lease_expires_at < $1"#).bind(now).execute(&self.pool).await?;
         Ok(result.rows_affected())
+    }
+
+    async fn set_billing_block(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: domain::shared::ids::TenantId,
+        reason: &str,
+    ) -> RepoResult<bool> {
+        let reason = reason.trim();
+        if reason.is_empty() || reason.len() > 500 {
+            return Err("invalid billing block reason".into());
+        }
+        let result = sqlx::query(
+            r#"
+            INSERT INTO monitor_billing_blocks(monitor_id, tenant_id, reason)
+            SELECT id, tenant_id, $3
+            FROM monitors
+            WHERE id = $1 AND tenant_id = $2
+            ON CONFLICT (monitor_id) DO UPDATE
+            SET reason = EXCLUDED.reason, updated_at = now()
+            "#,
+        )
+        .bind(monitor_id.0)
+        .bind(tenant_id.0)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
     async fn enqueue_one_time_check(
         &self,
@@ -312,3 +367,4 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         Ok(row.map(OneTimeRow::into_domain))
     }
 }
+

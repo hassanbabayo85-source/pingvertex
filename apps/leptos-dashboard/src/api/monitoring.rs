@@ -20,6 +20,10 @@ pub struct Monitor {
     pub interval_seconds: u64,
     pub timeout_seconds: u64,
     pub enabled: bool,
+    #[serde(default)]
+    pub billing_blocked: bool,
+    #[serde(default)]
+    pub billing_block_reason: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub status: Option<String>,
@@ -293,6 +297,38 @@ pub async fn set_monitor_enabled(id: &str, enabled: bool) -> Result<(), String> 
         .map_err(to_string_err)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BulkMonitorActionRequest {
+    pub action: String,
+    #[serde(default)]
+    pub monitor_ids: Vec<String>,
+    #[serde(default)]
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkMonitorActionResponse {
+    pub affected: u64,
+    pub action: String,
+}
+
+pub async fn bulk_monitor_action(
+    action: &str,
+    monitor_ids: Vec<String>,
+    all: bool,
+) -> Result<BulkMonitorActionResponse, String> {
+    client::post_json(
+        "/monitors/bulk",
+        &BulkMonitorActionRequest {
+            action: action.to_owned(),
+            monitor_ids,
+            all,
+        },
+    )
+    .await
+    .map_err(to_string_err)
+}
+
 pub async fn fetch_overview() -> Result<DashboardOverview, String> {
     client::get_json::<DashboardOverview>("/dashboard/overview")
         .await
@@ -425,3 +461,4 @@ pub async fn get_one_time_check(
     .await
     .map_err(|e| e.to_string())
 }
+

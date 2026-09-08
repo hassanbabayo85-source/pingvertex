@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    ports::{AuditLogEntryRepository, MonitorRepository, WalletRepository},
+    ports::{AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository, WalletRepository},
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, Host, Monitor,
@@ -21,6 +21,7 @@ pub struct UpdateMonitorUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     wallet_repository: Option<Arc<dyn WalletRepository>>,
+    interval_policy_repository: Option<Arc<dyn MonitorIntervalPolicyRepository>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -35,11 +36,20 @@ where
             repository,
             audit_log_entry_repository,
             wallet_repository: None,
+            interval_policy_repository: None,
         }
     }
 
     pub fn with_wallet_repository(mut self, repository: Arc<dyn WalletRepository>) -> Self {
         self.wallet_repository = Some(repository);
+        self
+    }
+
+    pub fn with_interval_policy_repository(
+        mut self,
+        repository: Arc<dyn MonitorIntervalPolicyRepository>,
+    ) -> Self {
+        self.interval_policy_repository = Some(repository);
         self
     }
 
@@ -67,13 +77,22 @@ where
 
         let funded = if let Some(wallets) = &self.wallet_repository {
             let wallet = wallets.get_or_create(tenant_id.0, "USD").await?;
-            let balance = wallets.get_balance_summary(tenant_id.0, "USD").await?;
-            wallet.payg_activated_at.is_some() && balance.available_units > 0
+            // PAYG activation remains in force even when the current wallet
+            // balance is zero. Balance is an execution authorization check,
+            // not a tier downgrade signal.
+            wallet.payg_activated_at.is_some()
         } else {
             false
         };
         let min_interval = if funded {
-            CheckInterval::MIN
+            if let Some(policies) = &self.interval_policy_repository {
+                policies.minimum_interval_seconds(command.kind).await?
+            } else {
+                match command.kind {
+                    MonitorKind::Flow => 60,
+                    _ => CheckInterval::MIN,
+                }
+            }
         } else {
             domain::FREE_MIN_INTERVAL_SECONDS
         };
@@ -154,3 +173,4 @@ where
         Ok(Some(monitor))
     }
 }
+

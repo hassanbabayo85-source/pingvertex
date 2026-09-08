@@ -10,8 +10,9 @@ use crate::{
             list_escalation_policies, list_maintenance_windows, update_escalation_policy,
         },
         create_escalation_policy, create_maintenance_window, create_monitor, create_one_time_check,
-        delete_monitor, disable_monitor, enable_monitor, get_incident, get_monitor,
-        get_one_time_check, list_incidents, list_monitor_checks, list_monitors, update_monitor,
+        bulk_monitor_action, delete_monitor, disable_monitor, enable_monitor, get_incident,
+        get_monitor, get_one_time_check, list_incidents, list_monitor_checks, list_monitors,
+        update_monitor,
     },
     state::AppState,
 };
@@ -19,6 +20,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/monitors", post(create_monitor).get(list_monitors))
+        .route("/monitors/bulk", post(bulk_monitor_action))
         .route(
             "/monitors/{id}",
             get(get_monitor).put(update_monitor).delete(delete_monitor),
@@ -54,3 +56,4 @@ pub fn one_time_check_router() -> Router<AppState> {
             get(get_one_time_check),
         )
 }
+

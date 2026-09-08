@@ -147,6 +147,19 @@ where
                             ).await {
                                 Ok((_, attempt)) => if attempt.attempted { attempt.error } else { Some("operation was not attempted".to_owned()) },
                                 Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => Some(reason),
+                                Err(application::ChargeForUsageError::InsufficientBalance) => {
+                                    if let Err(block_err) = scheduling_repository
+                                        .set_billing_block(
+                                            monitor.id,
+                                            monitor.tenant_id,
+                                            "Insufficient wallet balance",
+                                        )
+                                        .await
+                                    {
+                                        error!(monitor_id=%monitor.id.0, error=%block_err, "failed to persist PAYG billing block");
+                                    }
+                                    Some("PAYG balance is insufficient".to_owned())
+                                }
                                 Err(err) => Some(err.to_string()),
                             }
                         } else {
@@ -287,3 +300,4 @@ where
     .run()
     .await
 }
+

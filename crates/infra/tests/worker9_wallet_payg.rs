@@ -458,3 +458,56 @@ async fn wallet_activation_is_sticky_and_does_not_fall_back_to_free() {
     assert!(exhausted.payg_activated_at.is_some());
     assert_eq!(exhausted.balance_units, 0);
 }
+
+
+#[tokio::test]
+async fn billing_blocks_are_tenant_scoped_and_bulk_enable_is_tenant_scoped() {
+    use application::ports::MonitorRepository;
+    use domain::{
+        CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout, Url,
+        MonitorId, UserId, TenantId,
+    };
+    use infra::InMemoryMonitorRepository;
+
+    let repo = InMemoryMonitorRepository::new();
+    let tenant_a = TenantId(Uuid::new_v4());
+    let tenant_b = TenantId(Uuid::new_v4());
+
+    let make_monitor = |tenant: TenantId, name: &str| {
+        MonitorBuilder::new(MonitorId(Uuid::new_v4()), UserId(Uuid::new_v4()), tenant)
+            .name(MonitorName::new(name).unwrap())
+            .url(Url::new("https://example.com").unwrap())
+            .method(HttpMethod::Get)
+            .expected_status(ExpectedStatus::new(200).unwrap())
+            .interval(CheckInterval::new(300).unwrap())
+            .timeout(Timeout::new(5).unwrap())
+            .build()
+    };
+
+    let a1 = make_monitor(tenant_a, "a1");
+    let a2 = make_monitor(tenant_a, "a2");
+    let b1 = make_monitor(tenant_b, "b1");
+    repo.save(&a1).await.unwrap();
+    repo.save(&a2).await.unwrap();
+    repo.save(&b1).await.unwrap();
+
+    repo.set_billing_block(a1.id, tenant_a, "Insufficient wallet balance")
+        .await
+        .unwrap();
+    let blocks = repo.billing_blocks_for_tenant(tenant_a).await.unwrap();
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks.get(&a1.id).unwrap(), "Insufficient wallet balance");
+
+    let affected = repo
+        .set_enabled_for_tenant(tenant_a, None, false)
+        .await
+        .unwrap();
+    assert_eq!(affected, 2);
+    assert!(!repo.find_by_id(a1.id).await.unwrap().unwrap().enabled);
+    assert!(!repo.find_by_id(a2.id).await.unwrap().unwrap().enabled);
+    assert!(repo.find_by_id(b1.id).await.unwrap().unwrap().enabled);
+
+    repo.clear_billing_blocks_for_tenant(tenant_a).await.unwrap();
+    assert!(repo.billing_blocks_for_tenant(tenant_a).await.unwrap().is_empty());
+}
+

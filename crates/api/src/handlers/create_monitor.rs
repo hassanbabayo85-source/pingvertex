@@ -48,7 +48,8 @@ pub async fn create_monitor(
         state.id_generator,
         state.audit_log_entry_repository.clone(),
     )
-    .with_wallet_repository(state.wallet_repository.clone());
+    .with_wallet_repository(state.wallet_repository.clone())
+    .with_interval_policy_repository(state.monitor_interval_policy_repository.clone());
 
     let monitor = use_case
         .execute(request, authenticated_user)
@@ -93,3 +94,4 @@ pub async fn create_monitor(
         Json(MonitorCreateResponse::from_created(monitor)),
     ))
 }
+

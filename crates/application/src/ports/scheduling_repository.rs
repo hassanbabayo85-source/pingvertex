@@ -73,6 +73,15 @@ pub trait SchedulingRepository: Send + Sync {
     /// making those monitors claimable again. Returns the number of
     /// recovered leases.
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64>;
+
+    /// Persists a PAYG billing block for a claimed monitor so repeated
+    /// scheduler loops do not keep attempting a check that cannot be funded.
+    async fn set_billing_block(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: domain::shared::ids::TenantId,
+        reason: &str,
+    ) -> RepoResult<bool>;
     async fn enqueue_one_time_check(
         &self,
         tenant_id: domain::shared::ids::TenantId,
@@ -143,6 +152,15 @@ where
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         (**self).recover_expired_leases(now).await
     }
+
+    async fn set_billing_block(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: domain::shared::ids::TenantId,
+        reason: &str,
+    ) -> RepoResult<bool> {
+        (**self).set_billing_block(monitor_id, tenant_id, reason).await
+    }
     async fn enqueue_one_time_check(
         &self,
         t: domain::shared::ids::TenantId,
@@ -188,3 +206,4 @@ where
         (**self).get_one_time_check_by_request_id(t, m, r).await
     }
 }
+

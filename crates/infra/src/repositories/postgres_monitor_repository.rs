@@ -891,4 +891,120 @@ impl MonitorRepository for PostgresMonitorRepository {
 
         Ok(QuotaCheckOutcome::Saved)
     }
+
+    async fn set_enabled_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        monitor_ids: Option<&[MonitorId]>,
+        enabled: bool,
+    ) -> RepoResult<u64> {
+        let mut tx = self.pool.begin().await?;
+        let count = if let Some(ids) = monitor_ids {
+            if ids.is_empty() {
+                return Ok(0);
+            }
+            let ids: Vec<Uuid> = ids.iter().map(|id| id.0).collect();
+            sqlx::query_scalar::<_, i64>(
+                r#"
+                WITH changed AS (
+                    UPDATE monitors
+                    SET enabled = $3,
+                        updated_at = now(),
+                        next_due_at = CASE
+                            WHEN $3 AND NOT enabled
+                            THEN now() + ((abs(hashtextextended(id::text, 0)) % 60) * interval '1 second')
+                            ELSE next_due_at
+                        END
+                    WHERE tenant_id = $1 AND id = ANY($2)
+                    RETURNING id
+                )
+                SELECT COUNT(*) FROM changed
+                "#,
+            )
+            .bind(tenant_id.0)
+            .bind(&ids)
+            .bind(enabled)
+            .fetch_one(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_scalar::<_, i64>(
+                r#"
+                WITH changed AS (
+                    UPDATE monitors
+                    SET enabled = $2,
+                        updated_at = now(),
+                        next_due_at = CASE
+                            WHEN $2 AND NOT enabled
+                            THEN now() + ((abs(hashtextext(id::text, 0)) % 60) * interval '1 second')
+                            ELSE next_due_at
+                        END
+                    WHERE tenant_id = $1
+                    RETURNING id
+                )
+                SELECT COUNT(*) FROM changed
+                "#,
+            )
+            .bind(tenant_id.0)
+            .bind(enabled)
+            .fetch_one(&mut *tx)
+            .await?
+        };
+        tx.commit().await?;
+        Ok(count as u64)
+    }
+
+    async fn set_billing_block(
+        &self,
+        monitor_id: MonitorId,
+        tenant_id: TenantId,
+        reason: &str,
+    ) -> RepoResult<bool> {
+        let reason = reason.trim();
+        if reason.is_empty() || reason.len() > 500 {
+            return Err("invalid billing block reason".into());
+        }
+        let result = sqlx::query(
+            r#"
+            INSERT INTO monitor_billing_blocks(monitor_id, tenant_id, reason)
+            SELECT id, tenant_id, $3
+            FROM monitors
+            WHERE id = $1 AND tenant_id = $2
+            ON CONFLICT (monitor_id) DO UPDATE
+            SET reason = EXCLUDED.reason, updated_at = now()
+            "#,
+        )
+        .bind(monitor_id.0)
+        .bind(tenant_id.0)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn clear_billing_blocks_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM monitor_billing_blocks WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<std::collections::HashMap<MonitorId, String>> {
+        let rows = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT monitor_id, reason FROM monitor_billing_blocks WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, reason)| (MonitorId(id), reason))
+            .collect())
+    }
 }
+

@@ -290,7 +290,11 @@ fn build_monitor_with_regions(regions: Vec<RegionCode>) -> Monitor {
 
 async fn build_test_app(
     monitors: Vec<Monitor>,
-) -> (axum::Router, std::sync::Arc<MockCheckRepository>) {
+) -> (
+    axum::Router,
+    std::sync::Arc<MockCheckRepository>,
+    InMemoryAgentLeaseRepository,
+) {
     let monitor_repo = InMemoryMonitorRepository::new();
     let check_repo = std::sync::Arc::new(MockCheckRepository::default());
 
@@ -336,7 +340,7 @@ async fn build_test_app(
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_agent_lease_repository(agent_lease_repository)
+    .with_agent_lease_repository(agent_lease_repository.clone())
     .with_wallet_repository(wallet_repository.clone())
     .with_payg_pricing_repository(payg_pricing_repository.clone())
     .with_payg_metering(metering);
@@ -351,7 +355,11 @@ async fn build_test_app(
         InMemoryRegistrationTransaction::new(),
     );
 
-    (build_test_router(state, auth_state), check_repo)
+    (
+        build_test_router(state, auth_state),
+        check_repo,
+        agent_lease_repository,
+    )
 }
 
 fn internal_agent_request(
@@ -374,7 +382,7 @@ fn internal_agent_request(
 #[tokio::test]
 async fn claim_checks_with_valid_mtls_cert_and_region_returns_ok() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
-    let (app, _check_repo) = build_test_app(vec![monitor.clone()]).await;
+    let (app, _check_repo, _lease_repo) = build_test_app(vec![monitor.clone()]).await;
 
     let response = app
         .clone()
@@ -403,7 +411,7 @@ async fn claim_checks_with_valid_mtls_cert_and_region_returns_ok() {
 #[tokio::test]
 async fn claim_checks_without_peer_certificate_returns_unauthorized() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
-    let (app, _check_repo) = build_test_app(vec![monitor]).await;
+    let (app, _check_repo, _lease_repo) = build_test_app(vec![monitor]).await;
 
     // No PeerCertificates extension attached at all — this is the
     // "connection didn't go through mTLS" case. Must be UNAUTHORIZED with
@@ -434,7 +442,7 @@ async fn claim_checks_with_cn_not_matching_path_agent_id_returns_forbidden() {
     // valid certificate from acting on another agent's behalf — this path
     // was never covered by a test before this change.
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
-    let (app, _check_repo) = build_test_app(vec![monitor]).await;
+    let (app, _check_repo, _lease_repo) = build_test_app(vec![monitor]).await;
 
     let response = app
         .clone()
@@ -454,7 +462,7 @@ async fn claim_checks_with_cn_not_matching_path_agent_id_returns_forbidden() {
 #[tokio::test]
 async fn claim_checks_with_invalid_region_header_returns_bad_request() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
-    let (app, _check_repo) = build_test_app(vec![monitor]).await;
+    let (app, _check_repo, _lease_repo) = build_test_app(vec![monitor]).await;
 
     let response = app
         .clone()
@@ -474,7 +482,7 @@ async fn claim_checks_with_invalid_region_header_returns_bad_request() {
 #[tokio::test]
 async fn submit_result_with_valid_payload_returns_accepted() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
-    let (app, check_repo) = build_test_app(vec![monitor.clone()]).await;
+    let (app, _check_repo, lease_repo) = build_test_app(vec![monitor.clone()]).await;
 
     let claim_response = app
         .clone()
@@ -519,14 +527,14 @@ async fn submit_result_with_valid_payload_returns_accepted() {
     let submit_response = app.clone().oneshot(submit_request).await.unwrap();
 
     assert_eq!(submit_response.status(), StatusCode::ACCEPTED);
-    assert_eq!(check_repo.save_count(), 1);
+    assert_eq!(lease_repo.saved_check_count(), 1);
 }
 
 #[tokio::test]
 async fn claim_checks_only_returns_monitors_for_agent_region() {
     let us_monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
     let eu_monitor = build_monitor_with_regions(vec![RegionCode::new("eu-west").unwrap()]);
-    let (app, _check_repo) = build_test_app(vec![us_monitor.clone(), eu_monitor]).await;
+    let (app, _check_repo, _lease_repo) = build_test_app(vec![us_monitor.clone(), eu_monitor]).await;
 
     let response = app
         .clone()

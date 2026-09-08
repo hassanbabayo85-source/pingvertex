@@ -15,6 +15,10 @@ pub fn router() -> Router<AppState> {
             "/payg/pricing",
             get(crate::handlers::payg_pricing::payg_pricing),
         )
+        .route(
+            "/payg/preview",
+            axum::routing::post(crate::handlers::payg_preview::payg_preview),
+        )
         .route("/billing/invoices", get(crate::handlers::list_invoices))
         .route("/billing/invoices/{id}", get(crate::handlers::get_invoice))
         .route("/billing/usage", get(crate::handlers::wallet::usage_report))
@@ -31,3 +35,4 @@ pub fn router() -> Router<AppState> {
 pub fn webhook_router() -> Router<AppState> {
     Router::new().route("/billing/webhook", post(billing_webhook))
 }
+
