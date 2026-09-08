@@ -84,6 +84,7 @@ impl PostgresCheckRepository {
             ));
         }
         query.push_str(&params.join(","));
+        query.push_str(" ON CONFLICT (id, checked_at) DO NOTHING");
 
         let mut q = sqlx::query(&query);
         for check in checks {

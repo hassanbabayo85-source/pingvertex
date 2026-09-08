@@ -261,9 +261,6 @@ async fn submit_result(
                     }
                 }
 
-                state.check_repository.save(&check).await.map_err(|err| {
-                    ApiError::internal_with_source("failed to persist agent check result", err)
-                })?;
             }
             SubmitAgentResultOutcome::Duplicate => return Ok(StatusCode::ACCEPTED),
             SubmitAgentResultOutcome::Stale => {
