@@ -104,41 +104,131 @@ impl WalletRepository for InMemoryWalletRepository {
         if amount_units <= 0 || request_id.trim().is_empty() {
             return Err("invalid reservation".into());
         }
+        // Spend limits are read up front (a separate std::sync::Mutex) so we
+        // never need to hold `inner`'s guard across an await point.
+        let (daily_spend_limit_units, monthly_spend_limit_units) = {
+            let s = self.settings.lock().unwrap();
+            match s.get(&tenant_id) {
+                Some(settings) => (
+                    settings.daily_spend_limit_units,
+                    settings.monthly_spend_limit_units,
+                ),
+                None => (None, None),
+            }
+        };
+
         let mut g = self.inner.lock().unwrap();
-        let (wallet, _, reservations) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
+        let (wallet, txs, reservations) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
+
+        let mut expired_reservation_id = None;
         if let Some(existing) = reservations
-            .values_mut()
+            .values()
             .find(|r| r.request_id == request_id)
         {
             if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
                 || existing.status == CreditReservation::EXPIRED
             {
-                existing.amount_units = amount_units;
-                existing.operation = operation.to_owned();
-                existing.unit_price = Some(unit_price);
-                existing.pricing_version = Some(pricing_version);
-                existing.currency = Some(currency.to_owned());
-                existing.expires_at = expires_at;
-                existing.status = CreditReservation::PENDING.to_owned();
-                existing.updated_at = Utc::now();
+                // Do not reopen an expired reservation before spend-limit checks.
+                // The request must pass the same enforcement as a new reservation,
+                // mirroring PostgresWalletRepository::reserve().
+                expired_reservation_id = Some(existing.id);
+            } else {
                 return Ok(ReservationOutcome {
                     reservation: existing.clone(),
-                    created: true,
+                    created: false,
                 });
             }
-            return Ok(ReservationOutcome {
-                reservation: existing.clone(),
-                created: false,
-            });
         }
+
         let reserved = reservations
             .values()
             .filter(|r| r.status == CreditReservation::PENDING && r.expires_at > Utc::now())
             .map(|r| r.amount_units)
             .sum::<i64>();
+
+        if daily_spend_limit_units.is_some() || monthly_spend_limit_units.is_some() {
+            let now = Utc::now();
+            let today = now.date_naive();
+            let (month, year) = (now.month(), now.year());
+
+            let captured_today: i64 = txs
+                .iter()
+                .filter(|t| {
+                    t.transaction_type == WalletTransactionType::Debit
+                        && t.created_at.date_naive() == today
+                })
+                .map(|t| -t.amount_units)
+                .sum();
+            let captured_month: i64 = txs
+                .iter()
+                .filter(|t| {
+                    t.transaction_type == WalletTransactionType::Debit
+                        && t.created_at.month() == month
+                        && t.created_at.year() == year
+                })
+                .map(|t| -t.amount_units)
+                .sum();
+            let pending_today: i64 = reservations
+                .values()
+                .filter(|r| {
+                    r.status == CreditReservation::PENDING
+                        && r.expires_at > now
+                        && r.created_at.date_naive() == today
+                })
+                .map(|r| r.amount_units)
+                .sum();
+            let pending_month: i64 = reservations
+                .values()
+                .filter(|r| {
+                    r.status == CreditReservation::PENDING
+                        && r.expires_at > now
+                        && r.created_at.month() == month
+                        && r.created_at.year() == year
+                })
+                .map(|r| r.amount_units)
+                .sum();
+
+            let today_after = captured_today
+                .checked_add(pending_today)
+                .and_then(|v| v.checked_add(amount_units))
+                .ok_or("wallet daily spend accounting overflow")?;
+            let month_after = captured_month
+                .checked_add(pending_month)
+                .and_then(|v| v.checked_add(amount_units))
+                .ok_or("wallet monthly spend accounting overflow")?;
+
+            if let Some(limit) = daily_spend_limit_units
+                && today_after > limit
+            {
+                return Err("wallet daily spend limit exceeded".into());
+            }
+            if let Some(limit) = monthly_spend_limit_units
+                && month_after > limit
+            {
+                return Err("wallet monthly spend limit exceeded".into());
+            }
+        }
+
         if wallet.balance_units - reserved < amount_units {
             return Err("insufficient wallet balance".into());
         }
+
+        if let Some(reservation_id) = expired_reservation_id {
+            let existing = reservations.get_mut(&reservation_id).unwrap();
+            existing.amount_units = amount_units;
+            existing.operation = operation.to_owned();
+            existing.unit_price = Some(unit_price);
+            existing.pricing_version = Some(pricing_version);
+            existing.currency = Some(currency.to_owned());
+            existing.expires_at = expires_at;
+            existing.status = CreditReservation::PENDING.to_owned();
+            existing.updated_at = Utc::now();
+            return Ok(ReservationOutcome {
+                reservation: existing.clone(),
+                created: true,
+            });
+        }
+
         let r = CreditReservation {
             id: Uuid::new_v4(),
             wallet_id: wallet.id,
