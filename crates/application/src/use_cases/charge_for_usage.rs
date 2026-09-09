@@ -12,6 +12,10 @@ pub struct ChargeForUsageInput {
     pub operation: String,
     pub units: i64,
     pub request_id: String,
+    /// Server-side monitor identity; public clients must not control this.
+    pub monitor_id: Option<Uuid>,
+    /// Server-side durable execution identity.
+    pub execution_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +36,7 @@ pub enum ChargeForUsageError {
     NoPricing,
     InvalidPricing(&'static str),
     InsufficientBalance,
+    SpendLimitExceeded,
     OperationFailed(String),
     OperationNotAttempted(String),
     Repository(Box<dyn Error + Send + Sync>),
@@ -45,6 +50,7 @@ impl fmt::Display for ChargeForUsageError {
             Self::NoPricing => write!(f, "no active PAYG pricing found"),
             Self::InvalidPricing(m) => write!(f, "{m}"),
             Self::InsufficientBalance => write!(f, "PAYG balance is insufficient"),
+            Self::SpendLimitExceeded => write!(f, "PAYG spend limit has been reached"),
             Self::OperationFailed(m) => write!(f, "metered operation failed: {m}"),
             Self::OperationNotAttempted(m) => write!(f, "metered operation was not attempted: {m}"),
             Self::Repository(_) | Self::CaptureFailed(_) => {
@@ -58,6 +64,7 @@ impl ChargeForUsageError {
     pub fn app_code(&self) -> Option<&'static str> {
         match self {
             Self::InsufficientBalance => Some("PAYG_INSUFFICIENT_BALANCE"),
+            Self::SpendLimitExceeded => Some("PAYG_SPEND_LIMIT_EXCEEDED"),
             _ => None,
         }
     }
@@ -206,12 +213,12 @@ impl ChargeForUsageUseCase {
                 Utc::now() + Duration::seconds(120),
             )
             .await
-            .map_err(|e| {
-                if e.to_string() == "insufficient wallet balance" {
-                    ChargeForUsageError::InsufficientBalance
-                } else {
-                    ChargeForUsageError::Repository(e)
+            .map_err(|e| match e.to_string().as_str() {
+                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
+                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
+                    ChargeForUsageError::SpendLimitExceeded
                 }
+                _ => ChargeForUsageError::Repository(e),
             })?;
 
         if !attempted {
@@ -324,12 +331,12 @@ impl ChargeForUsageUseCase {
                 Utc::now() + Duration::seconds(60),
             )
             .await
-            .map_err(|e| {
-                if e.to_string() == "insufficient wallet balance" {
-                    ChargeForUsageError::InsufficientBalance
-                } else {
-                    ChargeForUsageError::Repository(e)
+            .map_err(|e| match e.to_string().as_str() {
+                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
+                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
+                    ChargeForUsageError::SpendLimitExceeded
                 }
+                _ => ChargeForUsageError::Repository(e),
             })?;
         if !reservation.created && reservation.reservation.status != CreditReservation::PENDING {
             if reservation.reservation.status == CreditReservation::CAPTURED
@@ -485,12 +492,12 @@ impl ChargeForUsageUseCase {
                 Utc::now() + Duration::seconds(60),
             )
             .await
-            .map_err(|e| {
-                if e.to_string() == "insufficient wallet balance" {
-                    ChargeForUsageError::InsufficientBalance
-                } else {
-                    ChargeForUsageError::Repository(e)
+            .map_err(|e| match e.to_string().as_str() {
+                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
+                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
+                    ChargeForUsageError::SpendLimitExceeded
                 }
+                _ => ChargeForUsageError::Repository(e),
             })?;
         if !reservation.created {
             if reservation.reservation.status == CreditReservation::CAPTURED
@@ -657,12 +664,12 @@ impl ChargeForUsageUseCase {
                 expires_at,
             )
             .await
-            .map_err(|e| {
-                if e.to_string() == "insufficient wallet balance" {
-                    ChargeForUsageError::InsufficientBalance
-                } else {
-                    ChargeForUsageError::Repository(e)
+            .map_err(|e| match e.to_string().as_str() {
+                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
+                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
+                    ChargeForUsageError::SpendLimitExceeded
                 }
+                _ => ChargeForUsageError::Repository(e),
             })?;
 
         if !reservation_outcome.created {
@@ -775,6 +782,8 @@ impl ChargeForUsageUseCase {
             currency: currency.to_owned(),
             pricing_version,
             request_id: input.request_id.clone(),
+            monitor_id: input.monitor_id,
+            execution_id: input.execution_id,
             status: status.to_owned(),
             created_at: Utc::now(),
         }

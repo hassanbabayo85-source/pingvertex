@@ -139,6 +139,9 @@ where
                         operation: "storage".to_owned(),
                         units: storage_units.max(1),
                         request_id: format!("storage:{}", request_id),
+
+                        monitor_id: None,
+                        execution_id: None,
                     },
                     move || async move {
                         let mut page = status_page_for_upload.take().ok_or_else(|| {

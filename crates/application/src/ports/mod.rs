@@ -208,3 +208,9 @@ pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
 
 pub mod payment_repository;
 pub use payment_repository::{PaymentRepoResult, PaymentRepository};
+
+// PAYG Part 3 — durable CSV bulk import.
+pub mod bulk_monitor_import_repository;
+pub use bulk_monitor_import_repository::{
+    BulkMonitorImportRepoResult, BulkMonitorImportRepository,
+};

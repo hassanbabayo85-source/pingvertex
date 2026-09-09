@@ -29,6 +29,8 @@ struct Row {
     currency: String,
     pricing_version: i64,
     request_id: String,
+    monitor_id: Option<Uuid>,
+    execution_id: Option<Uuid>,
     status: String,
     created_at: DateTime<Utc>,
 }
@@ -45,6 +47,8 @@ impl Row {
             currency: self.currency,
             pricing_version: self.pricing_version,
             request_id: self.request_id,
+            monitor_id: self.monitor_id,
+            execution_id: self.execution_id,
             status: self.status,
             created_at: self.created_at,
         }
@@ -59,7 +63,7 @@ impl UsageEventRepository for PostgresUsageEventRepository {
     ) -> UsageEventRepoResult<Option<UsageEvent>> {
         let row = sqlx::query_as::<_, Row>(
             "SELECT id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,
-                    pricing_version,request_id,status,created_at
+                    pricing_version,request_id,monitor_id,execution_id,status,created_at
              FROM api_usage_events WHERE tenant_id=$1 AND request_id=$2",
         ).bind(tenant_id).bind(request_id).fetch_optional(&self.pool).await?;
         Ok(row.map(Row::into_domain))
@@ -68,16 +72,16 @@ impl UsageEventRepository for PostgresUsageEventRepository {
         let row = sqlx::query_as::<_, Row>(
             "INSERT INTO api_usage_events
              (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,
-              pricing_version,request_id,status)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              pricing_version,request_id,monitor_id,execution_id,status)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
              ON CONFLICT(tenant_id,request_id) DO UPDATE
              SET request_id=EXCLUDED.request_id
              RETURNING id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,
-                       pricing_version,request_id,status,created_at",
+                       pricing_version,request_id,monitor_id,execution_id,status,created_at",
         ).bind(event.id).bind(event.tenant_id).bind(&event.operation)
          .bind(event.units_requested).bind(event.units_billed).bind(event.unit_price)
          .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
-         .bind(&event.request_id).bind(&event.status).fetch_one(&self.pool).await?;
+         .bind(&event.request_id).bind(event.monitor_id).bind(event.execution_id).bind(&event.status).fetch_one(&self.pool).await?;
         Ok(row.into_domain())
     }
     async fn report(
@@ -90,7 +94,7 @@ impl UsageEventRepository for PostgresUsageEventRepository {
         limit: u32,
     ) -> UsageEventRepoResult<UsageReport> {
         let rows = sqlx::query_as::<_, Row>(
-            "SELECT id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,status,created_at
+            "SELECT id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,monitor_id,execution_id,status,created_at
              FROM api_usage_events WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3
              AND ($4::text IS NULL OR operation=$4) AND ($5::text IS NULL OR status=$5)
              ORDER BY created_at DESC LIMIT $6"

@@ -5,7 +5,7 @@ use axum::{
 };
 use domain::PaygOperation;
 use domain::pricing::{FreeTierDefaults, PricingConfig};
-use domain::shared::types::{AuthenticatedUser, Permission};
+use domain::shared::types::AuthenticatedUser;
 use std::str::FromStr;
 use tracing::info;
 
@@ -69,7 +69,7 @@ pub async fn create_payg_price(
     Extension(user): Extension<AuthenticatedUser>,
     Json(payload): Json<CreatePaygPriceRequest>,
 ) -> Result<(StatusCode, Json<PaygPriceResponse>), ApiError> {
-    require_manage_billing(&user)?;
+    require_platform_admin(&user)?;
     let operation = validate_payg_price_request(&payload)?;
     let pricing = state
         .payg_pricing_repository
@@ -180,12 +180,12 @@ fn validate_config_request(req: &CreatePricingConfigRequest) -> Result<(), ApiEr
     Ok(())
 }
 
-fn require_manage_billing(user: &AuthenticatedUser) -> Result<(), ApiError> {
-    if user.can(Permission::ManageBilling) {
+fn require_platform_admin(user: &AuthenticatedUser) -> Result<(), ApiError> {
+    if user.is_platform_admin() {
         Ok(())
     } else {
         Err(ApiError::forbidden(
-            "you do not have permission to manage pricing configs",
+            "platform administrator authorization is required",
         ))
     }
 }
@@ -195,7 +195,7 @@ pub async fn list_pricing_configs(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<PricingConfigResponse>>, ApiError> {
     info!("API: list_pricing_configs");
-    require_manage_billing(&user)?;
+    require_platform_admin(&user)?;
 
     let configs = state
         .pricing_config_repository
@@ -217,7 +217,7 @@ pub async fn get_pricing_config_by_version(
     Path(version): Path<u32>,
 ) -> Result<Json<PricingConfigResponse>, ApiError> {
     info!("API: get_pricing_config_by_version (version={})", version);
-    require_manage_billing(&user)?;
+    require_platform_admin(&user)?;
 
     let config = state
         .pricing_config_repository
@@ -234,7 +234,7 @@ pub async fn get_active_pricing_config(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<PricingConfigResponse>, ApiError> {
     info!("API: get_active_pricing_config");
-    require_manage_billing(&user)?;
+    require_platform_admin(&user)?;
 
     let config = state
         .pricing_config_repository
@@ -252,7 +252,7 @@ pub async fn create_pricing_config(
     Json(payload): Json<CreatePricingConfigRequest>,
 ) -> Result<(StatusCode, Json<PricingConfigResponse>), ApiError> {
     info!("API: create_pricing_config");
-    require_manage_billing(&authenticated_user)?;
+    require_platform_admin(&authenticated_user)?;
     validate_config_request(&payload)?;
 
     // Compute next version
@@ -316,7 +316,7 @@ pub async fn list_pricing_audit_logs(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<Vec<PricingAuditLogResponse>>, ApiError> {
     info!("API: list_pricing_audit_logs");
-    require_manage_billing(&user)?;
+    require_platform_admin(&user)?;
 
     let logs = state
         .pricing_config_repository

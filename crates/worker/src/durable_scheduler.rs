@@ -164,7 +164,9 @@ where
                         let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
                         let result = if let Some(metering) = metering {
                             match metering.execute_classified_attempt(
-                                MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id },
+                                MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id,
+            monitor_id: Some(monitor.id.0), execution_id: Some(claim.request.execution_id),
+        },
                                 || {
                                     let executor = executor.clone();
                                     let monitor = monitor.clone();
@@ -233,7 +235,9 @@ where
                                     operation: domain::monitor_operation(monitor.kind, false).as_str().to_owned(),
                                     units: 1,
                                     request_id,
-                                },
+
+            monitor_id: Some(monitor.id.0), execution_id: Some(claim.execution_id),
+        },
                                 || {
                                     let executor = executor.clone();
                                     let monitor = monitor.clone();

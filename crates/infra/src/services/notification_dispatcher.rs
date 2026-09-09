@@ -154,6 +154,9 @@ impl NotificationService for NotificationDispatcher {
                         operation: "sms".to_owned(),
                         units: 1,
                         request_id,
+
+                        monitor_id: None,
+                        execution_id: None,
                     },
                     || self.sms.notify(channel, event),
                 )

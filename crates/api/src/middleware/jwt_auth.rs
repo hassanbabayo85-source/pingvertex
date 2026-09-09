@@ -7,8 +7,8 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 
-use domain::UserStatus;
 use domain::shared::types::{AuthenticatedUser, TenantContext};
+use domain::{UserRole, UserStatus};
 use uuid::Uuid;
 
 use crate::auth_state::AuthState;
@@ -109,7 +109,8 @@ pub async fn jwt_auth(
     };
 
     let tenant_context = TenantContext::with_actor(membership.tenant_id, user_id);
-    let authenticated_user = AuthenticatedUser::new(user_id, membership.role, tenant_context);
+    let authenticated_user = AuthenticatedUser::new(user_id, membership.role, tenant_context)
+        .with_platform_admin(matches!(user.role(), UserRole::Admin));
 
     request.extensions_mut().insert(user_id);
     request.extensions_mut().insert(authenticated_user);

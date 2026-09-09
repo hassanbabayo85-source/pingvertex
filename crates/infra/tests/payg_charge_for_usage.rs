@@ -66,6 +66,9 @@ async fn duplicate_request_returns_previous_result_without_running_operation_twi
         operation: "http_check.monitoring".into(),
         units: 2,
         request_id: "req-1".into(),
+
+        monitor_id: None,
+        execution_id: None,
     };
 
     let c = calls.clone();
@@ -127,6 +130,9 @@ async fn concurrent_different_requests_never_overspend() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: format!("concurrent-{i}"),
+
+                monitor_id: None,
+                execution_id: None,
             };
 
             uc.execute(input, || async { Ok::<_, &'static str>(()) })
@@ -174,6 +180,9 @@ async fn insufficient_balance_is_rejected_and_wallet_never_goes_negative() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "insufficient".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )
@@ -220,6 +229,9 @@ async fn failed_operation_releases_reservation_and_does_not_debit() {
                 operation: "http_check.monitoring".into(),
                 units: 2,
                 request_id: "failed-op".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Err::<(), _>("downstream failed") },
         )
@@ -270,6 +282,9 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
         operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "recoverable-request".into(),
+
+        monitor_id: None,
+        execution_id: None,
     };
 
     // Simulate a worker crash after reservation creation by directly reserving
@@ -328,6 +343,9 @@ async fn monitoring_attempt_is_billed_when_operation_fails() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "attempt-failure".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Err::<(), _>("HTTP 500") },
         )
@@ -391,6 +409,9 @@ async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "expiry-retry".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )
@@ -431,6 +452,9 @@ async fn classified_pre_attempt_failure_releases_reservation_without_debit() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "classified-preflight".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async {
                 Ok::<_, &'static str>(application::MeteredAttempt {
@@ -483,6 +507,9 @@ async fn classified_attempt_failure_is_captured_and_billed_once() {
         operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "classified-attempt".into(),
+
+        monitor_id: None,
+        execution_id: None,
     };
     let result = uc
         .execute_classified_attempt(input.clone(), || async {
@@ -567,6 +594,9 @@ async fn crash_after_attempt_before_capture_is_recoverable_without_double_debit(
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "crash-after-attempt".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async {
                 Ok::<_, &'static str>(application::MeteredAttempt {
@@ -619,6 +649,9 @@ async fn concurrent_same_execution_id_can_debit_at_most_once() {
                     operation: "http_check.monitoring".into(),
                     units: 1,
                     request_id: "same-execution".into(),
+
+                    monitor_id: None,
+                    execution_id: None,
                 },
                 || async {
                     Ok::<_, &'static str>(application::MeteredAttempt {
@@ -709,6 +742,9 @@ async fn reserved_price_snapshot_survives_price_book_change() {
                 operation: "http_check.monitoring".into(),
                 units: 1,
                 request_id: "price-snapshot-request".into(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )

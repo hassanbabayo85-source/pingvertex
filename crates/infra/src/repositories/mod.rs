@@ -202,3 +202,7 @@ pub use in_memory_payg_pricing_repository::InMemoryPAYGPricingRepository;
 pub use in_memory_usage_event_repository::InMemoryUsageEventRepository;
 pub use postgres_payg_pricing_repository::PostgresPAYGPricingRepository;
 pub use postgres_usage_event_repository::PostgresUsageEventRepository;
+
+// PAYG Part 3 — durable CSV bulk import.
+pub mod postgres_bulk_monitor_import_repository;
+pub use postgres_bulk_monitor_import_repository::PostgresBulkMonitorImportRepository;
