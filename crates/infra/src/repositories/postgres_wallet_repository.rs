@@ -260,6 +260,8 @@ impl WalletRepository for PostgresWalletRepository {
         .fetch_one(&mut *tx)
         .await?;
 
+        let mut expired_reservation_id = None;
+
         if let Some(existing) = sqlx::query_as::<_, ReservationRow>(
             "SELECT id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at
              FROM credit_reservations WHERE wallet_id=$1 AND request_id=$2",
@@ -267,31 +269,13 @@ impl WalletRepository for PostgresWalletRepository {
             if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
                 || existing.status == CreditReservation::EXPIRED
             {
-                let refreshed = sqlx::query_as::<_, ReservationRow>(
-                    "UPDATE credit_reservations
-                     SET amount_units=$3, operation=$4, unit_price=$5, pricing_version=$6, currency=$7, expires_at=$8, status='PENDING', updated_at=now()
-                     WHERE wallet_id=$1 AND request_id=$2
-                       AND (status='EXPIRED' OR (status='PENDING' AND expires_at<=now()))
-                     RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
-                )
-                .bind(wallet.id)
-                .bind(request_id)
-                .bind(amount_units)
-                .bind(operation)
-                .bind(unit_price)
-                .bind(pricing_version)
-                .bind(currency)
-                .bind(expires_at)
-                .fetch_optional(&mut *tx)
-                .await?;
-                if let Some(refreshed) = refreshed {
-                    tx.commit().await?;
-                    return Ok(ReservationOutcome { reservation: refreshed.into_domain(), created: true });
-                }
+                // Do not reopen an expired reservation before spend-limit checks.
+                // The request must pass the same enforcement as a new reservation.
+                expired_reservation_id = Some(existing.id);
+            } else {
+                tx.commit().await?;
+                return Ok(ReservationOutcome { reservation: existing.into_domain(), created: false });
             }
-
-            tx.commit().await?;
-            return Ok(ReservationOutcome { reservation: existing.into_domain(), created: false });
         }
 
         let reserved_units: i64 = sqlx::query_scalar(
@@ -306,6 +290,93 @@ impl WalletRepository for PostgresWalletRepository {
             .balance_units
             .checked_sub(reserved_units)
             .ok_or("wallet reservation accounting overflow")?;
+
+        // Spend limits are enforced while the wallet row is locked. Pending,
+        // unexpired reservations count toward the limit so concurrent workers
+        // cannot all authorize the same remaining daily/monthly budget before
+        // capture. The current reservation is not yet inserted at this point.
+        #[derive(sqlx::FromRow)]
+        struct SpendLimits {
+            daily_spend_limit_units: Option<i64>,
+            monthly_spend_limit_units: Option<i64>,
+        }
+        let limits = sqlx::query_as::<_, SpendLimits>(
+            "SELECT daily_spend_limit_units, monthly_spend_limit_units
+             FROM wallet_settings WHERE tenant_id=$1",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or(SpendLimits {
+            daily_spend_limit_units: None,
+            monthly_spend_limit_units: None,
+        });
+
+        if limits.daily_spend_limit_units.is_some() || limits.monthly_spend_limit_units.is_some() {
+            let captured_today: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(charge_units),0)::BIGINT
+                 FROM api_usage_events
+                 WHERE tenant_id=$1 AND status='CAPTURED'
+                   AND created_at >= date_trunc('day', now())
+                   AND created_at < date_trunc('day', now()) + interval '1 day'",
+            )
+            .bind(tenant_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let captured_month: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(charge_units),0)::BIGINT
+                 FROM api_usage_events
+                 WHERE tenant_id=$1 AND status='CAPTURED'
+                   AND created_at >= date_trunc('month', now())
+                   AND created_at < date_trunc('month', now()) + interval '1 month'",
+            )
+            .bind(tenant_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let pending_today: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(amount_units),0)::BIGINT
+                 FROM credit_reservations
+                 WHERE wallet_id=$1 AND status='PENDING' AND expires_at>now()
+                   AND created_at >= date_trunc('day', now())
+                   AND created_at < date_trunc('day', now()) + interval '1 day'",
+            )
+            .bind(wallet.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let pending_month: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(amount_units),0)::BIGINT
+                 FROM credit_reservations
+                 WHERE wallet_id=$1 AND status='PENDING' AND expires_at>now()
+                   AND created_at >= date_trunc('month', now())
+                   AND created_at < date_trunc('month', now()) + interval '1 month'",
+            )
+            .bind(wallet.id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let today_after = captured_today
+                .checked_add(pending_today)
+                .and_then(|v| v.checked_add(amount_units))
+                .ok_or("wallet daily spend accounting overflow")?;
+            let month_after = captured_month
+                .checked_add(pending_month)
+                .and_then(|v| v.checked_add(amount_units))
+                .ok_or("wallet monthly spend accounting overflow")?;
+
+            if let Some(limit) = limits.daily_spend_limit_units
+                && today_after > limit
+            {
+                tx.commit().await?;
+                return Err("wallet daily spend limit exceeded".into());
+            }
+            if let Some(limit) = limits.monthly_spend_limit_units
+                && month_after > limit
+            {
+                tx.commit().await?;
+                return Err("wallet monthly spend limit exceeded".into());
+            }
+        }
+
         if available < amount_units {
             // Persist the billing block in the same wallet transaction. This is
             // durable state, not merely a UI-derived balance label, so every
@@ -334,14 +405,44 @@ impl WalletRepository for PostgresWalletRepository {
         .execute(&mut *tx)
         .await?;
 
-        let row = sqlx::query_as::<_, ReservationRow>(
-            "INSERT INTO credit_reservations
-             (id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at)
-             VALUES($1,$2,$3,'PENDING',$4,$5,$6,$7,$8,$9)
-             RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
-        ).bind(Uuid::new_v4()).bind(wallet.id).bind(amount_units).bind(operation)
-         .bind(unit_price).bind(pricing_version).bind(currency)
-         .bind(request_id).bind(expires_at).fetch_one(&mut *tx).await?;
+        let row = if let Some(reservation_id) = expired_reservation_id {
+            sqlx::query_as::<_, ReservationRow>(
+                "UPDATE credit_reservations
+                 SET amount_units=$2, operation=$3, unit_price=$4, pricing_version=$5,
+                     currency=$6, request_id=$7, expires_at=$8, status='PENDING', updated_at=now()
+                 WHERE id=$1
+                 RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
+            )
+            .bind(reservation_id)
+            .bind(amount_units)
+            .bind(operation)
+            .bind(unit_price)
+            .bind(pricing_version)
+            .bind(currency)
+            .bind(request_id)
+            .bind(expires_at)
+            .fetch_one(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_as::<_, ReservationRow>(
+                "INSERT INTO credit_reservations
+                 (id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at)
+                 VALUES ($1,$2,$3,'PENDING',$4,$5,$6,$7,$8,$9)
+                 RETURNING id,wallet_id,amount_units,status,operation,unit_price,pricing_version,currency,request_id,expires_at,created_at,updated_at",
+            )
+            .bind(Uuid::new_v4())
+            .bind(wallet.id)
+            .bind(amount_units)
+            .bind(operation)
+            .bind(unit_price)
+            .bind(pricing_version)
+            .bind(currency)
+            .bind(request_id)
+            .bind(expires_at)
+            .fetch_one(&mut *tx)
+            .await?
+        };
+
         tx.commit().await?;
         Ok(ReservationOutcome {
             reservation: row.into_domain(),
@@ -374,14 +475,14 @@ impl WalletRepository for PostgresWalletRepository {
                 validate_usage_for_reservation(event, &r, row.tenant_id)?;
                 sqlx::query(
                     "INSERT INTO api_usage_events
-                     (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,status)
-                     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                     (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,monitor_id,execution_id,status)
+                     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                      ON CONFLICT (tenant_id,request_id) DO NOTHING",
                 )
                 .bind(event.id).bind(event.tenant_id).bind(&event.operation)
                 .bind(event.units_requested).bind(event.units_billed).bind(event.unit_price)
                 .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
-                .bind(&event.request_id).bind(&event.status)
+                .bind(&event.request_id).bind(event.monitor_id).bind(event.execution_id).bind(&event.status)
                 .execute(&mut *tx).await?;
             }
             for audit in audit_entries {
@@ -490,14 +591,14 @@ impl WalletRepository for PostgresWalletRepository {
             validate_usage_for_reservation(event, &r, wallet.tenant_id)?;
             sqlx::query(
                 "INSERT INTO api_usage_events
-                 (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,status)
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,monitor_id,execution_id,status)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                  ON CONFLICT (tenant_id,request_id) DO NOTHING",
             )
             .bind(event.id).bind(event.tenant_id).bind(&event.operation)
             .bind(event.units_requested).bind(event.units_billed).bind(event.unit_price)
             .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
-            .bind(&event.request_id).bind(&event.status)
+            .bind(&event.request_id).bind(event.monitor_id).bind(event.execution_id).bind(&event.status)
             .execute(&mut *tx).await?;
         }
         for audit in audit_entries {
