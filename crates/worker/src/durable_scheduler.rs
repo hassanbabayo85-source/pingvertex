@@ -1,4 +1,8 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use rand::{Rng, rng};
 
@@ -7,11 +11,51 @@ use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::Monitor;
-use tokio::task::JoinSet;
+use tokio::{sync::Mutex, task::JoinSet};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+
+async fn execute_with_controls<E: CheckExecutor>(
+    executor: E,
+    monitor: Monitor,
+    limiter: Arc<Mutex<Instant>>,
+    min_interval: Duration,
+    retry_limit: u32,
+    retry_base: Duration,
+    jitter: Duration,
+) -> Result<CheckExecution> {
+    let mut attempt = 0u32;
+    loop {
+        let wait_for = {
+            let mut next_allowed = limiter.lock().await;
+            let now = Instant::now();
+            let scheduled = std::cmp::max(*next_allowed, now);
+            *next_allowed = scheduled + min_interval;
+            scheduled.saturating_duration_since(now)
+        };
+        if !wait_for.is_zero() {
+            tokio::time::sleep(wait_for).await;
+        }
+
+        match executor.execute(&monitor).await {
+            Ok(result) => return Ok(result),
+            Err(error) if attempt < retry_limit => {
+                let exponential = retry_base.saturating_mul(1u32 << attempt.min(5));
+                let jitter_ms = if jitter.is_zero() {
+                    0
+                } else {
+                    rand::rng().random_range(0..=jitter.as_millis() as u64)
+                };
+                warn!(monitor_id=%monitor.id.0, attempt=attempt + 1, delay_ms=exponential.as_millis().saturating_add(u128::from(jitter_ms)), error=%error, "monitor executor failed; retrying with backoff");
+                tokio::time::sleep(exponential + Duration::from_millis(jitter_ms)).await;
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CheckExecution {
@@ -80,6 +124,10 @@ pub struct DurableScheduler<R, E> {
     metering: Option<Arc<MeterUsageUseCase>>,
     batch_pause: Duration,
     jitter: Duration,
+    execution_min_interval: Duration,
+    execution_limiter: Arc<Mutex<Instant>>,
+    execution_retry_limit: u32,
+    execution_retry_base: Duration,
 }
 
 impl<R, E> DurableScheduler<R, E>
@@ -111,6 +159,25 @@ where
                     .ok()
                     .and_then(|v| v.parse::<u64>().ok())
                     .unwrap_or(250),
+            ),
+            execution_min_interval: Duration::from_millis(
+                std::env::var("SCHEDULER_EXECUTION_MIN_INTERVAL_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(20),
+            ),
+            execution_limiter: Arc::new(Mutex::new(Instant::now())),
+            execution_retry_limit: std::env::var("SCHEDULER_EXECUTION_RETRY_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(2)
+                .min(5),
+            execution_retry_base: Duration::from_millis(
+                std::env::var("SCHEDULER_EXECUTION_RETRY_BASE_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(250)
+                    .min(10_000),
             ),
         }
     }
@@ -157,20 +224,34 @@ where
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
                     let metering = self.metering.clone();
+                    let execution_limiter = self.execution_limiter.clone();
+                    let execution_min_interval = self.execution_min_interval;
+                    let execution_retry_limit = self.execution_retry_limit;
+                    let execution_retry_base = self.execution_retry_base;
+                    let jitter = self.jitter;
                     let lease_owner = self.lease_owner;
                     tasks.spawn(async move {
                         let monitor = claim.monitor;
+                        let monitor_id = monitor.id;
+                        let monitor_tenant_id = monitor.tenant_id;
                         let operation = domain::monitor_operation(monitor.kind, true).as_str().to_owned();
                         let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
                         let result = if let Some(metering) = metering {
                             match metering.execute_classified_attempt(
                                 MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id,
-            monitor_id: Some(monitor.id.0), execution_id: Some(claim.request.execution_id),
+                                    monitor_id: Some(monitor.id.0),
+                                    execution_id: Some(claim.request.execution_id),
+                                    pricing_context: Some(application::ports::PricingContext {
+                                        monitor_kind: Some(monitor.kind),
+                                        region: monitor.regions.first().cloned(),
+                                        quantity: 1,
+                                        account_type: None,
+                                    }),
         },
-                                || {
+                                move || {
                                     let executor = executor.clone();
                                     let monitor = monitor.clone();
-                                    async move { executor.execute(&monitor).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error }) }
+                                    async move { execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error }) }
                                 },
                             ).await {
                                 Ok((_, attempt)) => if attempt.attempted { attempt.error } else { Some("operation was not attempted".to_owned()) },
@@ -178,13 +259,13 @@ where
                                 Err(application::ChargeForUsageError::InsufficientBalance) => {
                                     if let Err(block_err) = scheduling_repository
                                         .set_billing_block(
-                                            monitor.id,
-                                            monitor.tenant_id,
+                                            monitor_id,
+                                            monitor_tenant_id,
                                             "Insufficient wallet balance",
                                         )
                                         .await
                                     {
-                                        error!(monitor_id=%monitor.id.0, error=%block_err, "failed to persist PAYG billing block");
+                                        error!(monitor_id=%monitor_id.0, error=%block_err, "failed to persist PAYG billing block");
                                     }
                                     Some("PAYG balance is insufficient".to_owned())
                                 }
@@ -220,6 +301,11 @@ where
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
                     let metering = self.metering.clone();
+                    let execution_limiter = self.execution_limiter.clone();
+                    let execution_min_interval = self.execution_min_interval;
+                    let execution_retry_limit = self.execution_retry_limit;
+                    let execution_retry_base = self.execution_retry_base;
+                    let jitter = self.jitter;
                     let lease_owner = self.lease_owner;
 
                     tasks.spawn(async move {
@@ -227,7 +313,7 @@ where
                         let request_id =
                             format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
                         let result = if claim.free_entitled {
-                            executor.execute(&monitor).await.map(|_| ())
+                            execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|_| ())
                         } else if let Some(metering) = metering {
                             match metering.execute_classified_attempt(
                                 MeterUsageInput {
@@ -236,18 +322,22 @@ where
                                     units: 1,
                                     request_id,
 
-            monitor_id: Some(monitor.id.0), execution_id: Some(claim.execution_id),
+                                    monitor_id: Some(monitor.id.0),
+                                    execution_id: Some(claim.execution_id),
+                                    pricing_context: Some(application::ports::PricingContext {
+                                        monitor_kind: Some(monitor.kind),
+                                        region: monitor.regions.first().cloned(),
+                                        quantity: 1,
+                                        account_type: None,
+                                    }),
         },
                                 || {
                                     let executor = executor.clone();
                                     let monitor = monitor.clone();
                                     async move {
-                                        executor.execute(&monitor).await.map(|outcome| {
-                                            MeteredAttempt {
-                                                attempted: outcome.attempted,
-                                                error: outcome.error,
-                                            }
-                                        })
+                                        execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter)
+                                            .await
+                                            .map(|outcome| MeteredAttempt { attempted: outcome.attempted, error: outcome.error })
                                     }
                                 },
                             ).await {

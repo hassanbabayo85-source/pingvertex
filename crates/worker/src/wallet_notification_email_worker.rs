@@ -33,6 +33,9 @@ impl WalletNotificationEmailWorker {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = ticker.tick() => {
+                    if let Err(error) = self.wallet.record_usage_threshold_notifications(50).await {
+                        tracing::warn!(%error, "failed to record PAYG usage threshold notifications");
+                    }
                     for n in self.wallet.claim_pending_email_notifications(50).await? {
                         let channels=self.channels.list_enabled_email_by_tenant(domain::shared::ids::TenantId(n.tenant_id)).await?;
                         let subject=format!("PingVertex PAYG: {}", n.event_type.replace('_'," "));

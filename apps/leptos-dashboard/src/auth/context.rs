@@ -21,6 +21,8 @@ pub struct User {
     pub tenant_id: String,
     pub role: Role,
     pub totp_enabled: bool,
+    #[serde(default)]
+    pub platform_admin: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

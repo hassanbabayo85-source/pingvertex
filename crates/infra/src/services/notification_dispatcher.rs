@@ -157,6 +157,7 @@ impl NotificationService for NotificationDispatcher {
 
                         monitor_id: None,
                         execution_id: None,
+                        pricing_context: None,
                     },
                     || self.sms.notify(channel, event),
                 )

@@ -1,13 +1,15 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
-use application::ports::{PasswordHasher, TokenService, UserRepository};
+use application::ports::{
+    PasswordHasher, TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
+};
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::User;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
-use domain::{Check, DiagnosticReport, Incident};
+use domain::{Check, DiagnosticReport, Incident, Tenant, TenantMembership};
 use infra::InMemoryAuditLogEntryRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
@@ -245,7 +247,7 @@ impl TokenService for NoopTokenService {
 // Test helper
 // ---------------------------------------------------------------------------
 
-fn build_test_app() -> axum::Router {
+async fn build_test_app() -> axum::Router {
     // InMemoryMonitorRepository yana da cikakkiyar aiki na MonitorRepository,
     // gami da find_by_id_for_user() da ownership checks.
     let monitor_repo = InMemoryMonitorRepository::new();
@@ -264,13 +266,36 @@ fn build_test_app() -> axum::Router {
         InMemoryAuditLogEntryRepository::new(),
     );
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    // NoopTokenService authenticates every request as the nil UUID.
+    let test_user_id = domain::UserId::from_uuid(uuid::Uuid::nil());
+    let test_tenant_id = TenantId(uuid::Uuid::from_u128(0x22222222222222222222222222222222));
+    let now = chrono::Utc::now();
+
+    let tenant = Tenant::new(test_tenant_id, "Checks Test Tenant", test_user_id).unwrap();
+    tenant_repository.create(&tenant).await.unwrap();
+
+    let membership = TenantMembership {
+        tenant_id: test_tenant_id,
+        user_id: test_user_id,
+        role: domain::shared::types::Role::Owner,
+        invited_at: now,
+        joined_at: Some(now),
+    };
+    tenant_membership_repository
+        .create(&membership)
+        .await
+        .unwrap();
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
@@ -283,7 +308,7 @@ fn build_test_app() -> axum::Router {
 
 #[tokio::test]
 async fn list_checks_returns_ok() {
-    let app = build_test_app();
+    let app = build_test_app().await;
 
     let response = app
         .oneshot(
@@ -301,7 +326,7 @@ async fn list_checks_returns_ok() {
 
 #[tokio::test]
 async fn list_monitor_checks_returns_ok() {
-    let app = build_test_app();
+    let app = build_test_app().await;
 
     // Fara ƙirƙirar monitor ta hanyar amfani da router ɗin da muka gina.
     let create_response = app

@@ -71,6 +71,7 @@ pub struct WalletTransaction {
     pub reference_type: Option<String>,
     pub reference_id: Option<String>,
     pub description: Option<String>,
+    pub usage_event_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -112,6 +113,9 @@ pub struct WalletSettings {
     /// Optional PAYG debit protection. NULL/unlimited is represented as None.
     pub daily_spend_limit_units: Option<i64>,
     pub monthly_spend_limit_units: Option<i64>,
+    /// Optional usage thresholds that trigger one notification per period.
+    pub daily_usage_alert_threshold_units: Option<i64>,
+    pub monthly_usage_alert_threshold_units: Option<i64>,
     pub retry_limit: i32,
 }
 
@@ -129,6 +133,8 @@ impl Default for WalletSettings {
             monthly_top_up_limit_units: 500_000_000,
             daily_spend_limit_units: None,
             monthly_spend_limit_units: None,
+            daily_usage_alert_threshold_units: None,
+            monthly_usage_alert_threshold_units: None,
             retry_limit: 3,
         }
     }

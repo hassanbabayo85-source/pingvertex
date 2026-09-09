@@ -31,6 +31,7 @@ pub async fn create_monitor(
         expected_status: payload.expected_status,
         interval_seconds: payload.interval_seconds,
         timeout_seconds: payload.timeout_seconds,
+        regions: payload.regions,
         assertions: payload.assertions,
         is_public: payload.is_public,
         ssl_check_enabled: payload.ssl_check_enabled,

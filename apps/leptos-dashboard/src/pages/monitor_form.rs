@@ -326,6 +326,7 @@ pub fn MonitorFormPage() -> impl IntoView {
             dns_expected_value,
             heartbeat_interval_seconds,
             heartbeat_grace_period_seconds,
+            regions: vec!["us-east".to_owned()],
         };
 
         let monitor_id = id();

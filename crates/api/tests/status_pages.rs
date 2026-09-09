@@ -246,7 +246,10 @@ impl TokenService for NoopTokenService {
     }
 }
 
-fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepository) -> axum::Router {
+fn build_test_app_with_status_repo(
+    status_page_repo: InMemoryStatusPageRepository,
+    user_ids: &[Uuid],
+) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
     let mut state = AppState::new(
@@ -269,21 +272,29 @@ fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepositor
     state.status_page_repository = Arc::new(status_page_repo);
     state.logo_storage = Arc::new(InMemoryLogoStorage::new());
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    for user_id in user_ids {
+        let tenant_id = tenant_repository.seed_for_user(UserId(*user_id));
+        tenant_membership_repository.seed_owner(tenant_id, UserId(*user_id));
+    }
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)
 }
 
-fn build_test_app() -> axum::Router {
-    build_test_app_with_status_repo(InMemoryStatusPageRepository::new())
+fn build_test_app(user_ids: &[Uuid]) -> axum::Router {
+    build_test_app_with_status_repo(InMemoryStatusPageRepository::new(), user_ids)
 }
 
 fn status_page_payload(name: &str, subdomain: &str, monitor_ids: Vec<String>) -> Value {
@@ -305,8 +316,8 @@ async fn read_json(response: axum::response::Response) -> Value {
 
 #[tokio::test]
 async fn create_and_list_status_pages_endpoint_lists_created_pages() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(&[user_id]);
 
     for (name, subdomain) in [("Acme", "acme"), ("Beta", "beta")] {
         let response = app
@@ -359,9 +370,9 @@ async fn create_and_list_status_pages_endpoint_lists_created_pages() {
 
 #[tokio::test]
 async fn status_page_ownership_isolation_prevents_update_and_delete() {
-    let app = build_test_app();
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
+    let app = build_test_app(&[user_a, user_b]);
 
     let create_response = app
         .clone()
@@ -439,8 +450,8 @@ async fn status_page_ownership_isolation_prevents_update_and_delete() {
 
 #[tokio::test]
 async fn public_status_page_endpoint_serves_page_without_owner_fields() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(&[user_id]);
 
     let create_response = app
         .clone()
@@ -482,9 +493,9 @@ async fn public_status_page_endpoint_serves_page_without_owner_fields() {
 
 #[tokio::test]
 async fn subdomain_uniqueness_is_enforced_at_http_layer() {
-    let app = build_test_app();
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
+    let app = build_test_app(&[user_a, user_b]);
 
     let first_response = app
         .clone()
@@ -542,8 +553,9 @@ async fn custom_domain_routing_serves_verified_domain_without_auth() {
     page.mark_custom_domain_verified().unwrap();
 
     seed_repo.save(&page).await.unwrap();
+    let user_id = Uuid::new_v4();
 
-    let app = build_test_app_with_status_repo(status_page_repo);
+    let app = build_test_app_with_status_repo(status_page_repo, &[user_id]);
 
     let response = app
         .clone()
@@ -583,9 +595,10 @@ async fn custom_domain_routing_does_not_serve_pending_domain() {
     page.request_custom_domain(CustomDomain::new("pending.example.com").unwrap());
     // Deliberately NOT calling mark_custom_domain_verified().
 
+    let user_id = Uuid::new_v4();
     seed_repo.save(&page).await.unwrap();
 
-    let app = build_test_app_with_status_repo(status_page_repo);
+    let app = build_test_app_with_status_repo(status_page_repo, &[user_id]);
 
     let response = app
         .clone()
@@ -618,8 +631,8 @@ fn multipart_logo_body(boundary: &str, data: &[u8]) -> Vec<u8> {
 
 #[tokio::test]
 async fn upload_status_page_logo_endpoint_stores_logo_and_updates_page() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(&[user_id]);
 
     let create_response = app
         .clone()

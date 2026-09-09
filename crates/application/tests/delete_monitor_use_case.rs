@@ -21,6 +21,7 @@ async fn deletes_monitor_successfully() {
     let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "Google".into(),
         url: "https://google.com".into(),
         method: HttpMethod::Get,

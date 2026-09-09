@@ -270,6 +270,11 @@ impl UserRepository for PostgresUserRepository {
         Ok(exists)
     }
 
+    async fn list_all(&self) -> RepoResult<Vec<User>> {
+        let rows=sqlx::query_as::<_,UserRow>(r#"SELECT id,username,email,password_hash,role,status,email_verified_at,totp_secret,totp_enabled,created_at,updated_at FROM users ORDER BY created_at LIMIT 5000"#).fetch_all(&self.pool).await?;
+        rows.into_iter().map(UserRow::into_domain).collect()
+    }
+
     async fn username_exists(&self, username: &Username) -> RepoResult<bool> {
         let exists: bool = sqlx::query_scalar(
             r#"

@@ -27,6 +27,7 @@ pub async fn change_member_role(
     let use_case = ChangeMemberRoleUseCase::new(auth_state.tenant_membership_repository.clone());
 
     use_case
+        .with_audit_log_repository(auth_state.audit_log_entry_repository.clone())
         .execute(
             ChangeMemberRoleCommand {
                 user_id: UserId(user_id),

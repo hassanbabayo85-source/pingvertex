@@ -1,10 +1,10 @@
 use crate::dto::{BulkMonitorImportError, BulkMonitorImportRow};
-use domain::{HttpMethod, MonitorKind};
+use domain::{HttpMethod, MonitorKind, RegionCode};
 
-const MAX_ROWS: usize = 5_000;
+const MAX_ROWS: usize = 10_000;
 const MAX_FIELD_LEN: usize = 2_048;
 
-const HEADER: [&str; 15] = [
+const LEGACY_HEADER: [&str; 15] = [
     "name",
     "url",
     "kind",
@@ -22,6 +22,26 @@ const HEADER: [&str; 15] = [
     "ssl_expiry_warning_days",
 ];
 
+const HEADER: [&str; 17] = [
+    "name",
+    "url",
+    "kind",
+    "interval_seconds",
+    "timeout_seconds",
+    "method",
+    "expected_status",
+    "tcp_port",
+    "dns_record_type",
+    "dns_expected_value",
+    "heartbeat_interval_seconds",
+    "heartbeat_grace_period_seconds",
+    "is_public",
+    "ssl_check_enabled",
+    "ssl_expiry_warning_days",
+    "regions",
+    "auth_type",
+];
+
 pub fn parse_csv(
     input: &str,
 ) -> Result<(Vec<BulkMonitorImportRow>, Vec<BulkMonitorImportError>), String> {
@@ -29,8 +49,12 @@ pub fn parse_csv(
     let header_line = lines.next().ok_or_else(|| "CSV is empty".to_owned())?;
     let header = split_csv_line(header_line)?;
 
-    if header.len() != HEADER.len() || header.iter().map(String::as_str).ne(HEADER.iter().copied())
-    {
+    let legacy = header
+        .iter()
+        .map(String::as_str)
+        .eq(LEGACY_HEADER.iter().copied());
+    let modern = header.iter().map(String::as_str).eq(HEADER.iter().copied());
+    if !legacy && !modern {
         return Err(format!(
             "invalid CSV header; expected: {}",
             HEADER.join(",")
@@ -52,7 +76,7 @@ pub fn parse_csv(
             return Err(format!("CSV contains more than {MAX_ROWS} data rows"));
         }
 
-        let fields = match split_csv_line(line) {
+        let mut fields = match split_csv_line(line) {
             Ok(fields) => fields,
             Err(error) => {
                 errors.push(BulkMonitorImportError {
@@ -62,6 +86,11 @@ pub fn parse_csv(
                 continue;
             }
         };
+
+        if legacy {
+            fields.push(String::new());
+            fields.push("none".to_owned());
+        }
 
         if fields.len() != HEADER.len() {
             errors.push(BulkMonitorImportError {
@@ -126,6 +155,18 @@ fn parse_row(fields: &[String]) -> Result<BulkMonitorImportRow, Vec<String>> {
     let is_public = parse_bool(&fields[12], "is_public", false, &mut errors);
     let ssl_check_enabled = parse_bool(&fields[13], "ssl_check_enabled", true, &mut errors);
     let ssl_expiry_warning_days = parse_or(&fields[14], 14, "ssl_expiry_warning_days", &mut errors);
+    let regions = parse_regions(&fields[15], &mut errors);
+    let auth_type = if fields[16].trim().is_empty() {
+        "none".to_owned()
+    } else {
+        fields[16].trim().to_ascii_lowercase()
+    };
+    if auth_type != "none" {
+        errors.push(
+            "authentication configuration is unsupported in bulk import; use auth_type=none"
+                .to_owned(),
+        );
+    }
 
     if interval_seconds == 0 {
         errors.push("interval_seconds must be greater than zero".to_owned());
@@ -177,10 +218,30 @@ fn parse_row(fields: &[String]) -> Result<BulkMonitorImportRow, Vec<String>> {
             is_public,
             ssl_check_enabled,
             ssl_expiry_warning_days,
+            regions,
+            auth_type,
         })
     } else {
         Err(errors)
     }
+}
+
+fn parse_regions(value: &str, errors: &mut Vec<String>) -> Vec<RegionCode> {
+    if value.trim().is_empty() {
+        return vec![RegionCode::default_region()];
+    }
+    let mut regions = Vec::new();
+    for raw in value.split(';').map(str::trim).filter(|v| !v.is_empty()) {
+        match RegionCode::new(raw) {
+            Ok(region) if !regions.contains(&region) => regions.push(region),
+            Ok(_) => {}
+            Err(_) => errors.push(format!("unsupported region: {raw}")),
+        }
+    }
+    if regions.is_empty() {
+        errors.push("at least one region is required".to_owned());
+    }
+    regions
 }
 
 fn parse_kind(value: &str, errors: &mut Vec<String>) -> Option<MonitorKind> {
@@ -367,5 +428,25 @@ mod tests {
     #[test]
     fn rejects_invalid_header() {
         assert!(parse_csv("name,url").is_err());
+    }
+    #[test]
+    fn modern_csv_supports_regions_and_rejects_auth() {
+        let header = "name,url,kind,interval_seconds,timeout_seconds,method,expected_status,tcp_port,dns_record_type,dns_expected_value,heartbeat_interval_seconds,heartbeat_grace_period_seconds,is_public,ssl_check_enabled,ssl_expiry_warning_days,regions,auth_type";
+        let csv = format!(
+            "{header}\nsite,https://example.com,http,60,10,GET,200,,,,,,,true,14,us-east;eu-west,none"
+        );
+        let (rows, errors) = parse_csv(&csv).unwrap();
+        assert!(errors.is_empty());
+        assert_eq!(rows[0].regions.len(), 2);
+
+        let bad = format!(
+            "{header}\nsite,https://example.com,http,60,10,GET,200,,,,,,,true,14,us-east,basic"
+        );
+        let (_, errors) = parse_csv(&bad).unwrap();
+        assert!(errors.iter().any(|e| {
+            e.errors
+                .iter()
+                .any(|x| x.contains("authentication configuration"))
+        }));
     }
 }

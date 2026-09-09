@@ -41,6 +41,8 @@ pub struct Monitor {
     /// Authenticated monitor response field used to preserve assertions during edits.
     #[serde(default)]
     pub assertions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -226,6 +228,8 @@ pub struct MonitorPayload {
     pub dns_expected_value: Option<String>,
     pub heartbeat_interval_seconds: Option<u32>,
     pub heartbeat_grace_period_seconds: Option<u32>,
+    #[serde(default)]
+    pub regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -460,4 +464,87 @@ pub async fn get_one_time_check(
     ))
     .await
     .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkImportError {
+    pub row: usize,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkImportPreview {
+    pub total_rows: usize,
+    pub valid_rows: usize,
+    pub invalid_rows: usize,
+    pub estimated_execution_quantity: u64,
+    pub estimated_payg_cost_units: i64,
+    pub currency: String,
+    pub errors: Vec<BulkImportError>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkImportJob {
+    pub id: String,
+    pub status: String,
+    pub total_rows: i32,
+    pub valid_rows: i32,
+    pub invalid_rows: i32,
+    pub processed_rows: i32,
+    pub created_rows: i32,
+    pub failed_rows: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkImportConfirmResponse {
+    pub job: BulkImportJob,
+    pub replayed: bool,
+}
+
+pub async fn bulk_import_preview(
+    bytes: Vec<u8>,
+    file_name: String,
+    forecast_days: u32,
+) -> Result<BulkImportPreview, String> {
+    let path = format!("/monitors/bulk-import/preview?forecast_days={forecast_days}");
+    client::post_multipart_file(&path, "file", &file_name, "text/csv", bytes)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+pub async fn bulk_import_confirm(
+    bytes: Vec<u8>,
+    file_name: String,
+    forecast_days: u32,
+    idempotency_key: String,
+) -> Result<BulkImportConfirmResponse, String> {
+    let form = web_sys::FormData::new().map_err(|_| "Could not create upload form.".to_owned())?;
+    let array = js_sys::Uint8Array::from(bytes.as_slice());
+    let parts = js_sys::Array::new();
+    parts.push(&array);
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type("text/csv");
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)
+        .map_err(|_| "Could not create upload payload.".to_owned())?;
+    form.append_with_blob_and_filename("file", &blob, &file_name)
+        .map_err(|_| "Could not attach upload payload.".to_owned())?;
+    let url = format!("/api/v1/monitors/bulk-import/confirm?forecast_days={forecast_days}");
+    let response = gloo_net::http::Request::post(&url)
+        .header("Idempotency-Key", &idempotency_key)
+        .credentials(web_sys::RequestCredentials::Include)
+        .body(form)
+        .map_err(|error| error.to_string())?
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !(200..300).contains(&response.status()) {
+        return Err(format!("Import failed ({})", response.status()));
+    }
+    response.json().await.map_err(|error| error.to_string())
+}
+
+pub async fn bulk_import_job(id: &str) -> Result<BulkImportJob, String> {
+    client::get_json(&format!("/monitors/bulk-import/jobs/{id}"))
+        .await
+        .map_err(|error| error.to_string())
 }

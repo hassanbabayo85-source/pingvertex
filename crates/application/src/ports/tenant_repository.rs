@@ -22,6 +22,9 @@ pub trait TenantRepository: Send + Sync {
     async fn find_by_owner_user_id(&self, owner_user_id: UserId) -> RepoResult<Option<Tenant>>;
 
     async fn list_all(&self) -> RepoResult<Vec<Tenant>>;
+    async fn set_status(&self, _id: TenantId, _status: domain::TenantStatus) -> RepoResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -43,5 +46,8 @@ where
 
     async fn list_all(&self) -> RepoResult<Vec<Tenant>> {
         (**self).list_all().await
+    }
+    async fn set_status(&self, id: TenantId, status: domain::TenantStatus) -> RepoResult<bool> {
+        (**self).set_status(id, status).await
     }
 }

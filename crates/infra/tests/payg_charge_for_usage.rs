@@ -69,6 +69,7 @@ async fn duplicate_request_returns_previous_result_without_running_operation_twi
 
         monitor_id: None,
         execution_id: None,
+        pricing_context: None,
     };
 
     let c = calls.clone();
@@ -133,6 +134,7 @@ async fn concurrent_different_requests_never_overspend() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             };
 
             uc.execute(input, || async { Ok::<_, &'static str>(()) })
@@ -183,6 +185,7 @@ async fn insufficient_balance_is_rejected_and_wallet_never_goes_negative() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )
@@ -232,6 +235,7 @@ async fn failed_operation_releases_reservation_and_does_not_debit() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async { Err::<(), _>("downstream failed") },
         )
@@ -285,6 +289,7 @@ async fn expired_pending_reservation_can_be_reused_after_worker_recovery() {
 
         monitor_id: None,
         execution_id: None,
+        pricing_context: None,
     };
 
     // Simulate a worker crash after reservation creation by directly reserving
@@ -346,6 +351,7 @@ async fn monitoring_attempt_is_billed_when_operation_fails() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async { Err::<(), _>("HTTP 500") },
         )
@@ -412,6 +418,7 @@ async fn expired_reservation_is_terminally_marked_then_reopened_safely() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )
@@ -455,6 +462,7 @@ async fn classified_pre_attempt_failure_releases_reservation_without_debit() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async {
                 Ok::<_, &'static str>(application::MeteredAttempt {
@@ -510,6 +518,7 @@ async fn classified_attempt_failure_is_captured_and_billed_once() {
 
         monitor_id: None,
         execution_id: None,
+        pricing_context: None,
     };
     let result = uc
         .execute_classified_attempt(input.clone(), || async {
@@ -597,6 +606,7 @@ async fn crash_after_attempt_before_capture_is_recoverable_without_double_debit(
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async {
                 Ok::<_, &'static str>(application::MeteredAttempt {
@@ -652,6 +662,7 @@ async fn concurrent_same_execution_id_can_debit_at_most_once() {
 
                     monitor_id: None,
                     execution_id: None,
+                    pricing_context: None,
                 },
                 || async {
                     Ok::<_, &'static str>(application::MeteredAttempt {
@@ -745,6 +756,7 @@ async fn reserved_price_snapshot_survives_price_book_change() {
 
                 monitor_id: None,
                 execution_id: None,
+                pricing_context: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )

@@ -120,6 +120,7 @@ pub async fn record_heartbeat(
 
                     monitor_id: None,
                     execution_id: None,
+                    pricing_context: None,
                 },
                 || {
                     state

@@ -41,6 +41,7 @@ pub struct MonitorResponse {
     /// round-trip the monitor without silently deleting them.
     #[serde(default)]
     pub assertions: Vec<serde_json::Value>,
+    pub regions: Vec<domain::RegionCode>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -69,6 +70,7 @@ impl From<Monitor> for MonitorResponse {
             heartbeat_interval_seconds: monitor.heartbeat_interval_seconds,
             heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds,
             last_heartbeat_at: monitor.last_heartbeat_at,
+            regions: monitor.regions.clone(),
             assertions: monitor
                 .assertions
                 .iter()
@@ -163,6 +165,8 @@ pub struct MonitorWriteRequest {
     /// Required (and only meaningful) when `kind` is `Heartbeat`.
     #[serde(default)]
     pub heartbeat_grace_period_seconds: Option<u32>,
+    #[serde(default)]
+    pub regions: Vec<domain::RegionCode>,
 }
 
 fn default_ssl_check_enabled() -> bool {

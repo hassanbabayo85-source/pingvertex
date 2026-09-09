@@ -20,6 +20,7 @@ async fn updates_monitor_successfully() {
     let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "Google".into(),
         url: "https://google.com".into(),
         method: HttpMethod::Get,
@@ -86,6 +87,7 @@ async fn cannot_update_monitor_owned_by_another_user() {
     let attacker_id = UserId(Uuid::new_v4());
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "Private Monitor".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,

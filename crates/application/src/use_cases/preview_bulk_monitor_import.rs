@@ -8,7 +8,7 @@ use crate::{
     },
     ports::{
         BulkImportExistingMonitor, BulkImportMonitorSnapshot, MonitorIntervalPolicyRepository,
-        PAYGPricingRepository,
+        PAYGPricingRepository, PricingContext, resolve_price,
     },
 };
 use domain::{
@@ -98,14 +98,16 @@ impl PreviewBulkMonitorImportUseCase {
             .list_active()
             .await
             .map_err(BulkMonitorImportPreviewError::Repository)?;
-
-        let mut pricing_by_operation = HashMap::new();
+        let mut generic_pricing_by_operation = HashMap::new();
         for pricing in active_pricing {
-            if pricing.unit_price <= 0 {
-                continue;
+            if pricing.unit_price > 0 {
+                generic_pricing_by_operation.insert(pricing.operation.clone(), pricing);
             }
-            pricing_by_operation.insert(pricing.operation.clone(), pricing);
         }
+        let mut contextual_pricing_cache: HashMap<
+            (String, MonitorKind, Option<String>),
+            Option<PAYGPricing>,
+        > = HashMap::new();
 
         let existing_signatures = snapshot
             .monitors
@@ -175,7 +177,30 @@ impl PreviewBulkMonitorImportUseCase {
             let operation = domain::monitor_operation(row.kind, false)
                 .as_str()
                 .to_owned();
-            let pricing = pricing_by_operation.get(&operation);
+            let region_key = row.regions.first().map(ToString::to_string);
+            let cache_key = (operation.clone(), row.kind, region_key.clone());
+            let pricing = if let Some(cached) = contextual_pricing_cache.get(&cache_key) {
+                cached.as_ref()
+            } else {
+                let resolved = resolve_price(
+                    self.pricing_repository.as_ref(),
+                    &operation,
+                    &PricingContext {
+                        account_type: None,
+                        region: row.regions.first().cloned(),
+                        monitor_kind: Some(row.kind),
+                        quantity: 1,
+                    },
+                )
+                .await
+                .map_err(BulkMonitorImportPreviewError::Repository)?;
+                let resolved = resolved.filter(|p| p.unit_price > 0);
+                contextual_pricing_cache.insert(cache_key, resolved);
+                contextual_pricing_cache
+                    .get(&(operation.clone(), row.kind, region_key.clone()))
+                    .and_then(|p| p.as_ref())
+            };
+            let pricing = pricing.or_else(|| generic_pricing_by_operation.get(&operation));
             if pricing.is_none() {
                 row_errors.push(format!(
                     "PAYG pricing unavailable for operation {operation}"
@@ -364,7 +389,7 @@ fn normalized_target(kind: MonitorKind, target: &str) -> String {
 
 fn candidate_signature(row: &BulkMonitorImportRow) -> String {
     format!(
-        "{}|{:?}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{:?}|{:?}",
+        "{}|{:?}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{:?}|{:?}|{}|{}",
         row.name.trim().to_ascii_lowercase(),
         row.kind,
         normalized_target(row.kind, &row.url),
@@ -385,12 +410,18 @@ fn candidate_signature(row: &BulkMonitorImportRow) -> String {
             .to_ascii_lowercase(),
         row.heartbeat_interval_seconds,
         row.heartbeat_grace_period_seconds,
+        row.regions
+            .iter()
+            .map(|r| r.as_str())
+            .collect::<Vec<_>>()
+            .join(";"),
+        row.auth_type.trim().to_ascii_lowercase(),
     )
 }
 
 fn existing_signature(monitor: &BulkImportExistingMonitor) -> String {
     format!(
-        "{}|{:?}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{:?}|{:?}",
+        "{}|{:?}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{:?}|{:?}|{}|{}",
         monitor.name.trim().to_ascii_lowercase(),
         monitor.kind,
         normalized_target(monitor.kind, &monitor.url),
@@ -413,11 +444,20 @@ fn existing_signature(monitor: &BulkImportExistingMonitor) -> String {
             .to_ascii_lowercase(),
         monitor.heartbeat_interval_seconds,
         monitor.heartbeat_grace_period_seconds,
+        monitor
+            .regions
+            .iter()
+            .map(|r| r.as_str())
+            .collect::<Vec<_>>()
+            .join(";"),
+        "none",
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use domain::RegionCode;
+
     use super::*;
     use crate::ports::PaygPricingRepoResult;
     use async_trait::async_trait;
@@ -510,6 +550,8 @@ mod tests {
             is_public: false,
             ssl_check_enabled: true,
             ssl_expiry_warning_days: 14,
+            regions: vec![RegionCode::default_region()],
+            auth_type: "none".to_owned(),
         }
     }
 

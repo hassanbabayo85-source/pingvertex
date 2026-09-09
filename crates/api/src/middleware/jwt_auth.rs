@@ -8,7 +8,7 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 
 use domain::shared::types::{AuthenticatedUser, TenantContext};
-use domain::{UserRole, UserStatus};
+use domain::{TenantStatus, UserRole, UserStatus};
 use uuid::Uuid;
 
 use crate::auth_state::AuthState;
@@ -108,6 +108,15 @@ pub async fn jwt_auth(
             .ok_or(StatusCode::UNAUTHORIZED)?
     };
 
+    let tenant = auth
+        .tenant_repository
+        .find_by_id(membership.tenant_id)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if tenant.status != TenantStatus::Active && user.role() != UserRole::Admin {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     let tenant_context = TenantContext::with_actor(membership.tenant_id, user_id);
     let authenticated_user = AuthenticatedUser::new(user_id, membership.role, tenant_context)
         .with_platform_admin(matches!(user.role(), UserRole::Admin));

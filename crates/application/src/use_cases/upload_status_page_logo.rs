@@ -142,6 +142,7 @@ where
 
                         monitor_id: None,
                         execution_id: None,
+                        pricing_context: None,
                     },
                     move || async move {
                         let mut page = status_page_for_upload.take().ok_or_else(|| {

@@ -4,7 +4,9 @@ use domain::{
     shared::types::{AuthenticatedUser, Permission, Role},
 };
 
-use crate::ports::{IdGenerator, PasswordHasher, TenantInvitationRepository};
+use crate::ports::{
+    AuditLogEntryRepository, IdGenerator, PasswordHasher, TenantInvitationRepository,
+};
 use crate::use_cases::{
     invitation_common::InvitationError,
     invitation_support::{INVITATION_TOKEN_TTL_HOURS, invitation_token_prefix},
@@ -37,6 +39,7 @@ pub struct CreateInvitationUseCase<G, H, R> {
     id_generator: G,
     password_hasher: H,
     invitation_repository: R,
+    audit_log_repository: Option<std::sync::Arc<dyn AuditLogEntryRepository>>,
 }
 
 impl<G, H, R> CreateInvitationUseCase<G, H, R>
@@ -50,7 +53,16 @@ where
             id_generator,
             password_hasher,
             invitation_repository,
+            audit_log_repository: None,
         }
+    }
+
+    pub fn with_audit_log_repository(
+        mut self,
+        repository: std::sync::Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
+        self.audit_log_repository = Some(repository);
+        self
     }
 
     pub async fn execute(
@@ -106,6 +118,24 @@ where
             .create(&invitation)
             .await
             .map_err(InvitationError::Internal)?;
+
+        if let Some(audit) = &self.audit_log_repository {
+            let entry = domain::AuditLogEntry {
+                id: domain::AuditLogEntryId::new(),
+                actor_user_id: actor.user_id(),
+                tenant_id: Some(invitation.tenant_id),
+                action: domain::AuditAction::MemberInvited,
+                target_id: invitation.id.into_uuid().to_string(),
+                metadata: serde_json::json!({
+                    "role": invitation.role,
+                }),
+                created_at: now,
+            };
+            audit
+                .create(&entry)
+                .await
+                .map_err(InvitationError::Internal)?;
+        }
 
         Ok(CreatedTenantInvitation {
             invitation,

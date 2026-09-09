@@ -56,6 +56,7 @@ async fn lists_incidents_for_monitor() {
     let tenant_id = tenant_id();
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "Test Monitor".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,

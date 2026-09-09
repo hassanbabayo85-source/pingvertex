@@ -1,5 +1,6 @@
 use crate::ports::{
-    FinancialAuditLogRepository, PAYGPricingRepository, UsageEventRepository, WalletRepository,
+    FinancialAuditLogRepository, PAYGPricingRepository, PricingContext, UsageEventRepository,
+    WalletRepository, resolve_price,
 };
 use chrono::{Duration, Utc};
 use domain::{CreditReservation, UsageEvent, WalletTransaction};
@@ -16,6 +17,8 @@ pub struct ChargeForUsageInput {
     pub monitor_id: Option<Uuid>,
     /// Server-side durable execution identity.
     pub execution_id: Option<Uuid>,
+    /// Trusted server-side pricing dimensions. Public callers must not provide prices.
+    pub pricing_context: Option<PricingContext>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,12 +176,17 @@ impl ChargeForUsageUseCase {
             });
         }
 
-        let pricing = self
-            .pricing_repository
-            .find_active(&input.operation)
-            .await
-            .map_err(ChargeForUsageError::Repository)?
-            .ok_or(ChargeForUsageError::NoPricing)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            &input.operation,
+            &PricingContext {
+                quantity: input.units.max(0) as u64,
+                ..input.pricing_context.clone().unwrap_or_default()
+            },
+        )
+        .await
+        .map_err(ChargeForUsageError::Repository)?
+        .ok_or(ChargeForUsageError::NoPricing)?;
         if pricing.unit_price <= 0 {
             return Err(ChargeForUsageError::InvalidPricing(
                 "active PAYG unit price must be positive",
@@ -293,12 +301,17 @@ impl ChargeForUsageUseCase {
                 transaction: None,
             });
         }
-        let pricing = self
-            .pricing_repository
-            .find_active(&input.operation)
-            .await
-            .map_err(ChargeForUsageError::Repository)?
-            .ok_or(ChargeForUsageError::NoPricing)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            &input.operation,
+            &PricingContext {
+                quantity: input.units.max(0) as u64,
+                ..input.pricing_context.clone().unwrap_or_default()
+            },
+        )
+        .await
+        .map_err(ChargeForUsageError::Repository)?
+        .ok_or(ChargeForUsageError::NoPricing)?;
         if pricing.unit_price <= 0 {
             return Err(ChargeForUsageError::InvalidPricing(
                 "active PAYG unit price must be positive",
@@ -454,12 +467,17 @@ impl ChargeForUsageUseCase {
                 None,
             ));
         }
-        let pricing = self
-            .pricing_repository
-            .find_active(&input.operation)
-            .await
-            .map_err(ChargeForUsageError::Repository)?
-            .ok_or(ChargeForUsageError::NoPricing)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            &input.operation,
+            &PricingContext {
+                quantity: input.units.max(0) as u64,
+                ..input.pricing_context.clone().unwrap_or_default()
+            },
+        )
+        .await
+        .map_err(ChargeForUsageError::Repository)?
+        .ok_or(ChargeForUsageError::NoPricing)?;
         if pricing.unit_price <= 0 {
             return Err(ChargeForUsageError::InvalidPricing(
                 "active PAYG unit price must be positive",
@@ -617,12 +635,17 @@ impl ChargeForUsageUseCase {
             });
         }
 
-        let pricing = self
-            .pricing_repository
-            .find_active(&input.operation)
-            .await
-            .map_err(ChargeForUsageError::Repository)?
-            .ok_or(ChargeForUsageError::NoPricing)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            &input.operation,
+            &PricingContext {
+                quantity: input.units.max(0) as u64,
+                ..input.pricing_context.clone().unwrap_or_default()
+            },
+        )
+        .await
+        .map_err(ChargeForUsageError::Repository)?
+        .ok_or(ChargeForUsageError::NoPricing)?;
         if pricing.unit_price <= 0 {
             return Err(ChargeForUsageError::InvalidPricing(
                 "active PAYG unit price must be positive",

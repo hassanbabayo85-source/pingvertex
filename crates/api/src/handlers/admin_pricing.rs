@@ -3,9 +3,10 @@ use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
 };
-use domain::PaygOperation;
 use domain::pricing::{FreeTierDefaults, PricingConfig};
 use domain::shared::types::AuthenticatedUser;
+use domain::value_objects::RegionCode;
+use domain::{AccountType, MonitorKind, PaygOperation};
 use std::str::FromStr;
 use tracing::info;
 
@@ -24,6 +25,11 @@ pub struct CreatePaygPriceRequest {
     pub unit_price: i64,
     pub currency: String,
     pub effective_from: Option<chrono::DateTime<chrono::Utc>>,
+    pub account_type: Option<String>,
+    pub region: Option<String>,
+    pub monitor_kind: Option<String>,
+    pub min_quantity: Option<u64>,
+    pub max_quantity: Option<u64>,
     pub reason: String,
 }
 
@@ -71,14 +77,61 @@ pub async fn create_payg_price(
 ) -> Result<(StatusCode, Json<PaygPriceResponse>), ApiError> {
     require_platform_admin(&user)?;
     let operation = validate_payg_price_request(&payload)?;
+    let account_type = payload
+        .account_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(AccountType::from_str)
+        .transpose()
+        .map_err(|_| ApiError::bad_request("account_type must be individual or company"))?;
+    let region = payload
+        .region
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(RegionCode::new)
+        .transpose()
+        .map_err(|_| ApiError::bad_request("unsupported pricing region"))?;
+    let monitor_kind = payload
+        .monitor_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| match v.to_ascii_lowercase().as_str() {
+            "http" => Ok(MonitorKind::Http),
+            "tcp" => Ok(MonitorKind::Tcp),
+            "dns" => Ok(MonitorKind::Dns),
+            "heartbeat" => Ok(MonitorKind::Heartbeat),
+            "flow" => Ok(MonitorKind::Flow),
+            _ => Err(ApiError::bad_request("unsupported pricing monitor kind")),
+        })
+        .transpose()?;
+    if payload
+        .min_quantity
+        .zip(payload.max_quantity)
+        .is_some_and(|(min, max)| min > max)
+    {
+        return Err(ApiError::bad_request(
+            "min_quantity must be less than or equal to max_quantity",
+        ));
+    }
+
     let pricing = state
         .payg_pricing_repository
-        .create_version(
+        .create_version_with_context(
             operation.as_str(),
             payload.unit_name.trim(),
             payload.unit_price,
             "USD",
             payload.effective_from.unwrap_or_else(chrono::Utc::now),
+            &application::ports::PricingRuleContext {
+                account_type,
+                region,
+                monitor_kind,
+                min_quantity: payload.min_quantity,
+                max_quantity: payload.max_quantity,
+            },
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to create PAYG price version", e))?;

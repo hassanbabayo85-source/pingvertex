@@ -7,9 +7,8 @@ use crate::shared::ids::{AuditLogEntryId, TenantId, UserId};
 /// Rikodin audit log, append-only ta hanyar design.
 ///
 /// Wannan struct BABU `mut` setters ko `update`/`delete` method
-/// KO'INA — babu DB-level REVOKE don haka domain/application layer
-/// SHI NE layin farko na kariya akan gyara/goge rikodin audit bayan
-/// an kirkiresu.
+/// KO'INA. Application persistence ma ba ta da mutation port, kuma
+/// PostgreSQL migration ta hana UPDATE/DELETE a database level.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditLogEntry {
     pub id: AuditLogEntryId,

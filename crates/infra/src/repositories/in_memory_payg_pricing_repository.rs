@@ -1,4 +1,6 @@
-use application::ports::{PAYGPricingRepository, PaygPricingRepoResult};
+use application::ports::{
+    PAYGPricingRepository, PaygPricingRepoResult, PricingContext, PricingRuleContext,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{PAYGPricing, PaygOperation};
@@ -32,6 +34,27 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
             .max_by_key(|p| p.version)
             .cloned();
         Ok(row)
+    }
+    async fn find_active_for_context(
+        &self,
+        operation: &str,
+        _context: &PricingContext,
+    ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
+        // The in-memory adapter has no contextual columns; preserve the same
+        // safe generic fallback used by production when no override exists.
+        self.find_active(operation).await
+    }
+    async fn create_version_with_context(
+        &self,
+        operation: &str,
+        unit_name: &str,
+        unit_price: i64,
+        currency: &str,
+        effective_from: DateTime<Utc>,
+        _context: &PricingRuleContext,
+    ) -> PaygPricingRepoResult<PAYGPricing> {
+        self.create_version(operation, unit_name, unit_price, currency, effective_from)
+            .await
     }
     async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
         let now = chrono::Utc::now();

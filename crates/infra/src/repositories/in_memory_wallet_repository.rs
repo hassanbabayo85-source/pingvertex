@@ -121,10 +121,7 @@ impl WalletRepository for InMemoryWalletRepository {
         let (wallet, txs, reservations) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
 
         let mut expired_reservation_id = None;
-        if let Some(existing) = reservations
-            .values()
-            .find(|r| r.request_id == request_id)
-        {
+        if let Some(existing) = reservations.values().find(|r| r.request_id == request_id) {
             if (existing.status == CreditReservation::PENDING && existing.expires_at <= Utc::now())
                 || existing.status == CreditReservation::EXPIRED
             {
@@ -253,7 +250,7 @@ impl WalletRepository for InMemoryWalletRepository {
     async fn capture(
         &self,
         reservation_id: Uuid,
-        _usage_event: Option<&domain::UsageEvent>,
+        usage_event: Option<&domain::UsageEvent>,
         _audit_entries: &[domain::FinancialAuditLogEntry],
     ) -> WalletRepoResult<WalletTransaction> {
         let mut g = self.inner.lock().unwrap();
@@ -310,6 +307,7 @@ impl WalletRepository for InMemoryWalletRepository {
                     reference_type: Some("credit_reservation".to_owned()),
                     reference_id: Some(reservation_id.to_string()),
                     description: Some(operation),
+                    usage_event_id: usage_event.map(|event| event.id),
                     created_at: Utc::now(),
                 };
                 txs.push(tx.clone());
@@ -371,10 +369,58 @@ impl WalletRepository for InMemoryWalletRepository {
             reference_type: None,
             reference_id: None,
             description: description.map(str::to_owned),
+            usage_event_id: None,
             created_at: Utc::now(),
         };
         txs.push(tx.clone());
         Ok(tx)
+    }
+
+    async fn adjust_balance(
+        &self,
+        tenant_id: Uuid,
+        delta_units: i64,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction> {
+        if delta_units == 0 || idempotency_key.trim().is_empty() {
+            return Err("invalid adjustment".into());
+        }
+        let mut g = self.inner.lock().unwrap();
+        let (w, txs, res) = g.get_mut(&tenant_id).ok_or("wallet not found")?;
+        if let Some(t) = txs.iter().find(|t| t.idempotency_key == idempotency_key) {
+            return Ok(t.clone());
+        }
+        let reserved = res
+            .values()
+            .filter(|r| r.status == CreditReservation::PENDING && r.expires_at > Utc::now())
+            .map(|r| r.amount_units)
+            .sum::<i64>();
+        let nb = w
+            .balance_units
+            .checked_add(delta_units)
+            .ok_or("wallet balance overflow")?;
+        if nb < 0 || nb < reserved {
+            return Err("adjustment would reduce balance below available funds".into());
+        }
+        w.balance_units = nb;
+        w.updated_at = Utc::now();
+        let t = WalletTransaction {
+            id: Uuid::new_v4(),
+            tenant_id,
+            wallet_id: w.id,
+            transaction_type: WalletTransactionType::Adjustment,
+            amount_units: delta_units,
+            balance_after_units: nb,
+            idempotency_key: idempotency_key.to_owned(),
+            reference_type: Some("platform_admin".into()),
+            reference_id: None,
+            description: description.map(str::to_owned),
+            usage_event_id: None,
+            created_at: Utc::now(),
+        };
+        txs.push(t.clone());
+        Ok(t)
     }
 
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {
@@ -652,6 +698,7 @@ impl WalletRepository for InMemoryWalletRepository {
             reference_type: Some("promotional_credit".to_owned()),
             reference_id: None,
             description: description.map(str::to_owned),
+            usage_event_id: None,
             created_at: Utc::now(),
         };
         txs.push(tx.clone());

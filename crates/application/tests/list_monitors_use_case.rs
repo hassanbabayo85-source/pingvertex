@@ -21,6 +21,7 @@ async fn lists_all_monitors_successfully() {
 
     for i in 1..=3 {
         let request = CreateMonitorRequest {
+            regions: Vec::new(),
             name: format!("Monitor {}", i),
             url: format!("https://example{}.com", i),
             method: HttpMethod::Get,

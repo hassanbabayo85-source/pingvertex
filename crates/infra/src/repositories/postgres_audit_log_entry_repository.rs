@@ -104,6 +104,13 @@ impl AuditLogEntryRepository for PostgresAuditLogEntryRepository {
             .collect()
     }
 
+    async fn list_all(&self, limit: u32) -> RepoResult<Vec<AuditLogEntry>> {
+        let rows=sqlx::query_as::<_,AuditLogEntryRow>("SELECT id, actor_user_id, tenant_id, action, target_id, metadata, created_at FROM audit_log ORDER BY created_at DESC LIMIT $1").bind(limit.clamp(1,1000) as i64).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(AuditLogEntryRow::into_domain)
+            .collect()
+    }
+
     async fn list_by_actor(&self, actor_user_id: UserId) -> RepoResult<Vec<AuditLogEntry>> {
         let rows = sqlx::query_as::<_, AuditLogEntryRow>(
             "SELECT id, actor_user_id, tenant_id, action, target_id, metadata, created_at \

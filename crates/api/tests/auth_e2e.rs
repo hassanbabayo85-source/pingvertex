@@ -24,7 +24,7 @@ use std::{
 use application::ports::{
     BackupCodeRepository, CheckRepository, DiagnosticReportRepository, IncidentRepository,
     PasswordHasher, PendingAuthCache, PendingAuthCacheResult, RegistrationTransaction,
-    SecretCipher, SecretCipherError, UserRepository,
+    SecretCipher, SecretCipherError, TenantMembershipRepository, TenantRepository, UserRepository,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -207,6 +207,8 @@ impl BackupCodeRepository for NoopBackupCodeRepository {
 #[derive(Clone)]
 struct PersistingRegistrationTransaction {
     users: InMemoryUserRepository,
+    tenants: InMemoryTenantRepository,
+    memberships: InMemoryTenantMembershipRepository,
 }
 
 #[async_trait]
@@ -214,10 +216,13 @@ impl RegistrationTransaction for PersistingRegistrationTransaction {
     async fn register_user_with_tenant(
         &self,
         user: &User,
-        _tenant: &Tenant,
-        _membership: &TenantMembership,
+        tenant: &Tenant,
+        membership: &TenantMembership,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.users.create(user).await
+        self.users.create(user).await?;
+        self.tenants.create(tenant).await?;
+        self.memberships.create(membership).await?;
+        Ok(())
     }
 }
 
@@ -254,10 +259,12 @@ async fn spawn_test_server() -> (SocketAddr, TestContext) {
         Argon2PasswordHasher,
         JsonWebTokenService::new(TEST_JWT_SECRET),
         UuidIdGenerator::new(),
-        tenant_repo,
-        tenant_membership_repo,
+        tenant_repo.clone(),
+        tenant_membership_repo.clone(),
         PersistingRegistrationTransaction {
             users: user_repo.clone(),
+            tenants: tenant_repo.clone(),
+            memberships: tenant_membership_repo.clone(),
         },
     )
     .with_totp_support(

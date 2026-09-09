@@ -2,7 +2,10 @@ use super::charge_for_usage::{
     ChargeForUsageError, ChargeForUsageInput, ChargeForUsageResult, ChargeForUsageUseCase,
     MeteredAttempt,
 };
-use crate::ports::{PAYGPricingRepository, UsageEventRepository, WalletRepository};
+use crate::ports::{
+    PAYGPricingRepository, PricingContext, TenantRepository, UsageEventRepository, WalletRepository,
+};
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -18,10 +21,14 @@ pub struct MeterUsageInput {
     pub monitor_id: Option<Uuid>,
     /// Trusted durable execution context.
     pub execution_id: Option<Uuid>,
+    /// Trusted runtime pricing dimensions; public API inputs must leave this None.
+    pub pricing_context: Option<crate::ports::PricingContext>,
 }
 
 pub struct MeterUsageUseCase {
     charge: ChargeForUsageUseCase,
+    tenant_repository: Option<Arc<dyn TenantRepository>>,
+    account_type_cache: Arc<std::sync::RwLock<HashMap<Uuid, domain::AccountType>>>,
 }
 impl MeterUsageUseCase {
     pub fn new(
@@ -35,7 +42,42 @@ impl MeterUsageUseCase {
                 pricing_repository,
                 usage_event_repository,
             ),
+            tenant_repository: None,
+            account_type_cache: Arc::new(std::sync::RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn with_tenant_repository(mut self, repository: Arc<dyn TenantRepository>) -> Self {
+        self.tenant_repository = Some(repository);
+        self
+    }
+
+    async fn enrich_pricing_context(
+        &self,
+        tenant_id: Uuid,
+        context: Option<PricingContext>,
+        quantity: u64,
+    ) -> Option<PricingContext> {
+        let mut context = context.unwrap_or_default();
+        context.quantity = quantity;
+        if context.account_type.is_none() {
+            if let Some(account_type) = self
+                .account_type_cache
+                .read()
+                .ok()
+                .and_then(|cache| cache.get(&tenant_id).copied())
+            {
+                context.account_type = Some(account_type);
+            } else if let Some(repository) = &self.tenant_repository {
+                if let Ok(Some(tenant)) = repository.find_by_id(domain::TenantId(tenant_id)).await {
+                    context.account_type = Some(tenant.account_type);
+                    if let Ok(mut cache) = self.account_type_cache.write() {
+                        cache.insert(tenant_id, tenant.account_type);
+                    }
+                }
+            }
+        }
+        Some(context)
     }
 
     pub fn with_audit_log_repository(
@@ -59,6 +101,13 @@ impl MeterUsageUseCase {
         Fut: Future<Output = Result<(), E>>,
         E: fmt::Display,
     {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .execute(
                 ChargeForUsageInput {
@@ -68,6 +117,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 operation,
             )
@@ -93,6 +143,13 @@ impl MeterUsageUseCase {
         Fut: Future<Output = Result<(), E>>,
         E: fmt::Display,
     {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .execute_attempt(
                 ChargeForUsageInput {
@@ -102,6 +159,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 operation,
             )
@@ -119,6 +177,13 @@ impl MeterUsageUseCase {
         Fut: Future<Output = Result<MeteredAttempt, E>>,
         E: fmt::Display,
     {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .execute_classified_attempt(
                 ChargeForUsageInput {
@@ -128,6 +193,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 operation,
             )
@@ -144,6 +210,13 @@ impl MeterUsageUseCase {
         Fut: Future<Output = Result<(MeteredAttempt, T), E>>,
         E: fmt::Display,
     {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .execute_classified_attempt_with_output(
                 ChargeForUsageInput {
@@ -153,6 +226,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 operation,
             )
@@ -166,6 +240,13 @@ impl MeterUsageUseCase {
         input: MeterUsageInput,
         attempted: bool,
     ) -> Result<ChargeForUsageResult, ChargeForUsageError> {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .finalize_reserved_attempt(
                 ChargeForUsageInput {
@@ -175,6 +256,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 attempted,
             )
@@ -193,6 +275,13 @@ impl MeterUsageUseCase {
         Fut: Future<Output = Result<(), E>>,
         E: fmt::Display,
     {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
         self.charge
             .execute_recoverable(
                 ChargeForUsageInput {
@@ -202,6 +291,7 @@ impl MeterUsageUseCase {
                     request_id: input.request_id,
                     monitor_id: input.monitor_id,
                     execution_id: input.execution_id,
+                    pricing_context: pricing_context.clone(),
                 },
                 operation,
             )

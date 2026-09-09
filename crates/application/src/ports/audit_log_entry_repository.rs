@@ -29,6 +29,9 @@ pub trait AuditLogEntryRepository: Send + Sync {
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<AuditLogEntry>>;
 
     async fn list_by_actor(&self, actor_user_id: UserId) -> RepoResult<Vec<AuditLogEntry>>;
+    async fn list_all(&self, _limit: u32) -> RepoResult<Vec<AuditLogEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -46,5 +49,8 @@ where
 
     async fn list_by_actor(&self, actor_user_id: UserId) -> RepoResult<Vec<AuditLogEntry>> {
         (**self).list_by_actor(actor_user_id).await
+    }
+    async fn list_all(&self, limit: u32) -> RepoResult<Vec<AuditLogEntry>> {
+        (**self).list_all(limit).await
     }
 }

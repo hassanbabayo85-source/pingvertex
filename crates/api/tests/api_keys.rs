@@ -1,7 +1,7 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
     ApiKeyRepository, CheckRepository, DiagnosticReportRepository, IncidentRepository,
-    PasswordHasher, TokenService, UserRepository,
+    PasswordHasher, TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
 };
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ use chrono::{Duration, Utc};
 use domain::entities::{ApiKey, CreateApiKey as CreateApiKeyEntity};
 use domain::enums::ApiKeyScope;
 use domain::shared::ids::{ApiKeyId, CheckId, IncidentId, MonitorId, TenantId, UserId};
-use domain::{Check, DiagnosticReport, Incident, User};
+use domain::{Check, DiagnosticReport, Incident, Tenant, TenantMembership, User};
 use infra::InMemoryAuditLogEntryRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
@@ -237,7 +237,38 @@ impl TokenService for NoopTokenService {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-fn build_test_app_with_repo() -> (axum::Router, InMemoryApiKeyRepository) {
+fn test_user_id() -> Uuid {
+    Uuid::from_u128(0x11111111111111111111111111111111)
+}
+
+fn test_tenant_id() -> TenantId {
+    TenantId(Uuid::from_u128(0x22222222222222222222222222222222))
+}
+
+async fn provision_test_membership(
+    tenant_repository: &InMemoryTenantRepository,
+    membership_repository: &InMemoryTenantMembershipRepository,
+) {
+    let user_id = UserId(test_user_id());
+    let tenant_id = test_tenant_id();
+    let now = Utc::now();
+
+    let tenant = Tenant::new(tenant_id, "API Key Test Tenant", user_id).unwrap();
+
+    tenant_repository.create(&tenant).await.unwrap();
+
+    let membership = TenantMembership {
+        tenant_id,
+        user_id,
+        role: domain::shared::types::Role::Owner,
+        invited_at: now,
+        joined_at: Some(now),
+    };
+
+    membership_repository.create(&membership).await.unwrap();
+}
+
+async fn build_test_app_with_repo() -> (axum::Router, InMemoryApiKeyRepository) {
     let monitor_repository = InMemoryMonitorRepository::new();
     let api_key_repo = InMemoryApiKeyRepository::new();
 
@@ -256,21 +287,26 @@ fn build_test_app_with_repo() -> (axum::Router, InMemoryApiKeyRepository) {
     )
     .with_api_key_repository(api_key_repo.clone());
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let membership_repository = InMemoryTenantMembershipRepository::new();
+
+    provision_test_membership(&tenant_repository, &membership_repository).await;
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
     (build_test_router(state, auth_state), api_key_repo)
 }
 
-fn build_test_app() -> axum::Router {
-    build_test_app_with_repo().0
+async fn build_test_app() -> axum::Router {
+    build_test_app_with_repo().await.0
 }
 
 fn auth_header(user_id: Uuid) -> String {
@@ -322,8 +358,8 @@ async fn create_key(
 
 #[tokio::test]
 async fn create_api_key_returns_the_raw_key_exactly_once() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let response = app
         .oneshot(
@@ -354,8 +390,8 @@ async fn create_api_key_returns_the_raw_key_exactly_once() {
 
 #[tokio::test]
 async fn create_api_key_rejects_empty_scopes() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let response = app
         .oneshot(
@@ -377,8 +413,8 @@ async fn create_api_key_rejects_empty_scopes() {
 
 #[tokio::test]
 async fn create_api_key_rejects_unknown_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let response = app
         .oneshot(
@@ -400,8 +436,8 @@ async fn create_api_key_rejects_unknown_scope() {
 
 #[tokio::test]
 async fn list_api_keys_returns_created_keys_without_the_raw_key_or_hash() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let create_response = app
         .clone()
@@ -444,8 +480,8 @@ async fn list_api_keys_returns_created_keys_without_the_raw_key_or_hash() {
 
 #[tokio::test]
 async fn delete_api_key_removes_it_from_the_list() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let create_response = app
         .clone()
@@ -496,8 +532,8 @@ async fn delete_api_key_removes_it_from_the_list() {
 
 #[tokio::test]
 async fn delete_api_key_is_not_found_for_an_unknown_id() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let response = app
         .oneshot(
@@ -516,7 +552,7 @@ async fn delete_api_key_is_not_found_for_an_unknown_id() {
 
 #[tokio::test]
 async fn external_endpoint_rejects_missing_api_key() {
-    let app = build_test_app();
+    let app = build_test_app().await;
 
     let response = app
         .oneshot(
@@ -534,8 +570,8 @@ async fn external_endpoint_rejects_missing_api_key() {
 
 #[tokio::test]
 async fn external_endpoint_accepts_a_key_with_the_right_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     let (_, raw_key) = create_key(&app, user_id, "Reader", &["monitor:read"]).await;
 
@@ -556,8 +592,8 @@ async fn external_endpoint_accepts_a_key_with_the_right_scope() {
 
 #[tokio::test]
 async fn external_endpoint_rejects_a_key_missing_the_required_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     // Key only has status_page:read — NOT monitor:read.
     let (_, raw_key) = create_key(&app, user_id, "Wrong scope", &["status_page:read"]).await;
@@ -579,7 +615,7 @@ async fn external_endpoint_rejects_a_key_missing_the_required_scope() {
 
 #[tokio::test]
 async fn external_endpoint_rejects_a_malformed_or_unknown_key() {
-    let app = build_test_app();
+    let app = build_test_app().await;
 
     let response = app
         .oneshot(
@@ -602,8 +638,8 @@ async fn external_endpoint_rejects_a_malformed_or_unknown_key() {
 
 #[tokio::test]
 async fn external_checks_requires_monitor_read_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     // Right scope: monitor:read -> 200 (empty list)
     let (_, monitor_read_key) = create_key(&app, user_id, "Checks OK", &["monitor:read"]).await;
@@ -639,8 +675,8 @@ async fn external_checks_requires_monitor_read_scope() {
 
 #[tokio::test]
 async fn external_list_incidents_requires_incident_read_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
     let monitor_id = Uuid::new_v4();
 
     // Right scope: incident:read -> 404 (monitor doesn't exist in this test)
@@ -677,8 +713,8 @@ async fn external_list_incidents_requires_incident_read_scope() {
 
 #[tokio::test]
 async fn external_acknowledge_incident_requires_incident_write_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
     let incident_id = Uuid::new_v4();
 
     // Right scope: incident:write -> 404 (incident doesn't exist)
@@ -719,8 +755,8 @@ async fn external_acknowledge_incident_requires_incident_write_scope() {
 
 #[tokio::test]
 async fn external_list_status_pages_requires_status_page_read_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
 
     // Right scope -> 200 (empty list)
     let (_, read_key) = create_key(&app, user_id, "SP Read", &["status_page:read"]).await;
@@ -756,8 +792,8 @@ async fn external_list_status_pages_requires_status_page_read_scope() {
 
 #[tokio::test]
 async fn external_update_status_page_requires_status_page_write_scope() {
-    let app = build_test_app();
-    let user_id = Uuid::new_v4();
+    let app = build_test_app().await;
+    let user_id = test_user_id();
     let status_page_id = Uuid::new_v4();
 
     // Right scope -> 404 (status page doesn't exist)
@@ -812,8 +848,8 @@ async fn external_update_status_page_requires_status_page_write_scope() {
 
 #[tokio::test]
 async fn revoked_api_key_is_rejected() {
-    let (app, _repo) = build_test_app_with_repo();
-    let user_id = Uuid::new_v4();
+    let (app, _repo) = build_test_app_with_repo().await;
+    let user_id = test_user_id();
 
     let (key_id, raw_key) = create_key(&app, user_id, "Revoke Me", &["monitor:read"]).await;
 
@@ -849,7 +885,7 @@ async fn revoked_api_key_is_rejected() {
 
 #[tokio::test]
 async fn expired_api_key_is_rejected() {
-    let (app, repo) = build_test_app_with_repo();
+    let (app, repo) = build_test_app_with_repo().await;
 
     // Directly insert an already-expired key into the repository.
     let raw_key = "pv_expired_secret";

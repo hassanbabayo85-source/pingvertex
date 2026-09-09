@@ -88,6 +88,7 @@ pub mod revoke_invitation;
 pub mod admin_pricing;
 pub mod payg_preview;
 pub mod payg_pricing;
+pub mod platform_admin;
 pub mod pricing_quote;
 pub mod pricing_types;
 
@@ -220,3 +221,5 @@ pub mod cancel_proxy_check_job;
 pub mod list_proxy_check_results;
 pub use cancel_proxy_check_job::*;
 pub use list_proxy_check_results::*;
+
+pub use platform_admin::*;

@@ -231,7 +231,10 @@ impl TokenService for NoopTokenService {
     }
 }
 
-fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepository) -> axum::Router {
+fn build_test_app_with_status_repo(
+    status_page_repo: InMemoryStatusPageRepository,
+    user_id: Uuid,
+) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
     let mut state = AppState::new(
         monitor_repository.clone(),
@@ -248,20 +251,26 @@ fn build_test_app_with_status_repo(status_page_repo: InMemoryStatusPageRepositor
     );
     state.status_page_repository = Arc::new(status_page_repo);
     state.logo_storage = Arc::new(InMemoryLogoStorage::new());
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_id = tenant_repository.seed_for_user(UserId(user_id));
+    tenant_membership_repository.seed_owner(tenant_id, UserId(user_id));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
     build_test_router(state, auth_state)
 }
 
-fn build_test_app() -> axum::Router {
-    build_test_app_with_status_repo(InMemoryStatusPageRepository::new())
+fn build_test_app(user_id: Uuid) -> axum::Router {
+    build_test_app_with_status_repo(InMemoryStatusPageRepository::new(), user_id)
 }
 
 fn auth_header(user_id: Uuid) -> String {
@@ -312,8 +321,8 @@ async fn create_status_page_via_api(
 async fn remove_custom_domain_endpoint_clears_verified_domain() {
     let status_page_repo = InMemoryStatusPageRepository::new();
     let seed_repo = status_page_repo.clone();
-    let app = build_test_app_with_status_repo(status_page_repo);
     let user_id = Uuid::new_v4();
+    let app = build_test_app_with_status_repo(status_page_repo, user_id);
 
     let page_id = create_status_page_via_api(&app, user_id, "Acme Status", "acme").await;
 
@@ -383,7 +392,8 @@ async fn custom_domain_routing_rejects_spoofed_host_for_unclaimed_domain() {
     // No status page ever claims this domain at all — a bare Host header
     // spoofing attempt against a domain nobody owns must fall through to
     // normal routing, never leak a status page.
-    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let response = app
         .clone()
@@ -409,10 +419,11 @@ async fn custom_domain_routing_does_not_match_similar_but_different_domain() {
     // suffix/substring match a crafted Host header could exploit.
     let status_page_repo = InMemoryStatusPageRepository::new();
     let seed_repo = status_page_repo.clone();
+    let user_id = Uuid::new_v4();
 
     let mut page = StatusPage::create(CreateStatusPage {
         id: StatusPageId::new(),
-        user_id: UserId::new(),
+        user_id: UserId(user_id),
         tenant_id: TenantId::new(),
         name: "Real Status Page".to_string(),
         subdomain: Subdomain::new("real").unwrap(),
@@ -424,7 +435,7 @@ async fn custom_domain_routing_does_not_match_similar_but_different_domain() {
     page.mark_custom_domain_verified().unwrap();
     seed_repo.save(&page).await.unwrap();
 
-    let app = build_test_app_with_status_repo(status_page_repo);
+    let app = build_test_app_with_status_repo(status_page_repo, user_id);
 
     for spoofed_host in [
         "evil-status.example.com",

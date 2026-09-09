@@ -23,6 +23,7 @@ pub struct BulkImportExistingMonitor {
     pub dns_expected_value: Option<String>,
     pub heartbeat_interval_seconds: Option<u32>,
     pub heartbeat_grace_period_seconds: Option<u32>,
+    pub regions: Vec<domain::RegionCode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +122,7 @@ pub trait MonitorRepository: Send + Sync {
                 dns_expected_value: monitor.dns_expected_value,
                 heartbeat_interval_seconds: monitor.heartbeat_interval_seconds,
                 heartbeat_grace_period_seconds: monitor.heartbeat_grace_period_seconds,
+                regions: monitor.regions.clone(),
             })
             .collect();
         Ok(BulkImportMonitorSnapshot {

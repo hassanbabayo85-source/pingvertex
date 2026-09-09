@@ -25,6 +25,16 @@ use crate::{error::ApiError, state::AppState};
 const MAX_CSV_BYTES: usize = 1_000_000;
 const DEFAULT_FORECAST_DAYS: u32 = 30;
 const DEFAULT_BATCH_SIZE: i32 = 500;
+const MIN_BATCH_SIZE: i32 = 50;
+const MAX_BATCH_SIZE: i32 = 1000;
+
+fn configured_batch_size() -> i32 {
+    std::env::var("BULK_IMPORT_BATCH_SIZE")
+        .ok()
+        .and_then(|v| v.trim().parse::<i32>().ok())
+        .map(|v| v.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE))
+        .unwrap_or(DEFAULT_BATCH_SIZE)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct BulkMonitorImportConfirmQuery {
@@ -218,7 +228,7 @@ pub async fn confirm_bulk_monitor_import(
             .map_err(|_| ApiError::bad_request("bulk import estimate is too large"))?,
         estimated_charge_units: preview.estimated_payg_cost_units,
         currency: preview.currency.clone(),
-        batch_size: DEFAULT_BATCH_SIZE,
+        batch_size: configured_batch_size(),
         pricing_snapshot: serde_json::to_value(&preview.pricing_versions)
             .map_err(|_| ApiError::internal("failed to serialize pricing snapshot"))?,
         rows: durable_rows,

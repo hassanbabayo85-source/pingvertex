@@ -35,6 +35,7 @@ pub async fn create_invitation(
     );
 
     let created = use_case
+        .with_audit_log_repository(auth_state.audit_log_entry_repository.clone())
         .execute(
             CreateInvitationCommand {
                 email: payload.email,

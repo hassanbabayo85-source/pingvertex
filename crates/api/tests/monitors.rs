@@ -127,7 +127,7 @@ impl IncidentRepository for NoopIncidentRepository {
     }
 }
 
-fn build_test_app() -> axum::Router {
+fn build_test_app(user_id: Uuid) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
     let state = AppState::new(
@@ -144,13 +144,19 @@ fn build_test_app() -> axum::Router {
         InMemoryAuditLogEntryRepository::new(),
     );
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_id = tenant_repository.seed_for_user(domain::UserId(user_id));
+    tenant_membership_repository.seed_owner(tenant_id, domain::UserId(user_id));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
     build_test_router(state, auth_state)
@@ -180,8 +186,8 @@ async fn read_json(response: axum::response::Response) -> Value {
 
 #[tokio::test]
 async fn list_monitors_endpoint_lists_created_monitors() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     for name in ["Monitor 1", "Monitor 2"] {
         let response = app
@@ -235,8 +241,8 @@ async fn list_monitors_endpoint_lists_created_monitors() {
 
 #[tokio::test]
 async fn get_monitor_endpoint_returns_monitor() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -280,8 +286,8 @@ async fn get_monitor_endpoint_returns_monitor() {
 
 #[tokio::test]
 async fn update_monitor_endpoint_updates_monitor() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -335,8 +341,8 @@ async fn update_monitor_endpoint_updates_monitor() {
 
 #[tokio::test]
 async fn delete_monitor_endpoint_deletes_monitor() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -527,8 +533,8 @@ fn monitor_payload_with_kind(
 
 #[tokio::test]
 async fn update_monitor_endpoint_switches_kind_from_http_to_tcp_and_persists_tcp_port() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -606,8 +612,8 @@ async fn update_monitor_endpoint_switches_kind_from_http_to_tcp_and_persists_tcp
 
 #[tokio::test]
 async fn update_monitor_endpoint_switching_kind_clears_stale_fields_from_previous_kind() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -682,8 +688,8 @@ async fn update_monitor_endpoint_switching_kind_clears_stale_fields_from_previou
 
 #[tokio::test]
 async fn update_monitor_endpoint_switching_to_tcp_without_tcp_port_is_rejected() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -757,8 +763,8 @@ async fn update_monitor_endpoint_switching_to_tcp_without_tcp_port_is_rejected()
 
 #[tokio::test]
 async fn update_monitor_endpoint_switching_to_heartbeat_sets_kind_and_never_exposes_token() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
@@ -826,8 +832,8 @@ async fn update_monitor_endpoint_switching_to_heartbeat_sets_kind_and_never_expo
 
 #[tokio::test]
 async fn create_monitor_with_tcp_and_url_scheme_is_rejected() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let response = app
         .clone()
@@ -862,8 +868,8 @@ async fn create_monitor_with_tcp_and_url_scheme_is_rejected() {
 
 #[tokio::test]
 async fn enable_disable_monitor_endpoints_toggle_enabled_field() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let create_response = app
         .clone()
