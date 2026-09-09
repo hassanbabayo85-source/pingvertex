@@ -117,6 +117,9 @@ pub async fn record_heartbeat(
                         .to_owned(),
                     units: 1,
                     request_id: format!("heartbeat:{}", request_id),
+
+                    monitor_id: None,
+                    execution_id: None,
                 },
                 || {
                     state

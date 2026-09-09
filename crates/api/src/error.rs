@@ -89,6 +89,9 @@ impl ApiError {
 
     pub fn from_payg_error(err: application::ChargeForUsageError) -> Self {
         match err {
+            application::ChargeForUsageError::SpendLimitExceeded => {
+                Self::payment_required("PAYG spend limit exceeded", "PAYG_SPEND_LIMIT_EXCEEDED")
+            }
             application::ChargeForUsageError::InsufficientBalance => {
                 Self::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE")
             }

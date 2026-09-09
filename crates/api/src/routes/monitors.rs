@@ -11,19 +11,28 @@ use crate::{
         advanced_monitoring::{
             list_escalation_policies, list_maintenance_windows, update_escalation_policy,
         },
-        bulk_monitor_action, create_escalation_policy, create_maintenance_window, create_monitor,
-        create_one_time_check, delete_monitor, disable_monitor, enable_monitor, get_incident,
-        get_monitor, get_one_time_check, list_incidents, list_monitor_checks, list_monitors,
+        bulk_monitor_action, confirm_bulk_monitor_import, create_escalation_policy,
+        create_maintenance_window, create_monitor, create_one_time_check, delete_monitor,
+        disable_monitor, enable_monitor, get_bulk_monitor_import_job, get_incident, get_monitor,
+        get_one_time_check, list_incidents, list_monitor_checks, list_monitors,
         preview_bulk_monitor_import, update_monitor,
     },
     state::AppState,
 };
 
 pub fn router() -> Router<AppState> {
-    let bulk_import_preview = Router::new()
+    let bulk_import = Router::new()
         .route(
             "/monitors/bulk-import/preview",
             post(preview_bulk_monitor_import),
+        )
+        .route(
+            "/monitors/bulk-import/confirm",
+            post(confirm_bulk_monitor_import),
+        )
+        .route(
+            "/monitors/bulk-import/jobs/{job_id}",
+            get(get_bulk_monitor_import_job),
         )
         .layer(DefaultBodyLimit::max(1_100_000))
         .layer(GovernorLayer::new(
@@ -31,7 +40,7 @@ pub fn router() -> Router<AppState> {
                 .per_second(2)
                 .burst_size(4)
                 .finish()
-                .expect("valid bulk import preview rate-limit configuration"),
+                .expect("valid bulk import rate-limit configuration"),
         ));
 
     Router::new()
@@ -59,7 +68,7 @@ pub fn router() -> Router<AppState> {
             "/incidents/{incident_id}/acknowledge",
             post(acknowledge_incident),
         )
-        .merge(bulk_import_preview)
+        .merge(bulk_import)
 }
 
 pub fn one_time_check_router() -> Router<AppState> {

@@ -128,6 +128,20 @@ where
         request: CreateMonitorRequest,
         authenticated_user: AuthenticatedUser,
     ) -> Result<Monitor, CreateMonitorError> {
+        let monitor_id = self.id_generator.next_monitor_id().await;
+        self.execute_with_monitor_id(request, authenticated_user, monitor_id)
+            .await
+    }
+
+    /// Bulk-import execution uses a durable, preallocated monitor id so a
+    /// worker crash after INSERT but before row-state acknowledgement can be
+    /// retried without creating a duplicate monitor.
+    pub async fn execute_with_monitor_id(
+        &self,
+        request: CreateMonitorRequest,
+        authenticated_user: AuthenticatedUser,
+        monitor_id: domain::shared::ids::MonitorId,
+    ) -> Result<Monitor, CreateMonitorError> {
         if !authenticated_user.can(Permission::CreateMonitor) {
             return Err(CreateMonitorError::Forbidden);
         }
@@ -172,7 +186,7 @@ where
         }
 
         let monitor = self
-            .build_monitor(request, &authenticated_user)
+            .build_monitor(request, &authenticated_user, monitor_id)
             .await
             .map_err(CreateMonitorError::Other)?;
 
@@ -208,11 +222,10 @@ where
         &self,
         request: CreateMonitorRequest,
         authenticated_user: &AuthenticatedUser,
+        id: domain::shared::ids::MonitorId,
     ) -> UseCaseResult<Monitor> {
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
-
-        let id = self.id_generator.next_monitor_id().await;
 
         let target = match request.kind {
             MonitorKind::Http | MonitorKind::Heartbeat => {

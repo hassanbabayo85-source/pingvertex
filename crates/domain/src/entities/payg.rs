@@ -28,6 +28,10 @@ pub struct UsageEvent {
     pub currency: String,
     pub pricing_version: i64,
     pub request_id: String,
+    /// Trusted server-side monitor identity when this usage came from a monitor execution.
+    pub monitor_id: Option<Uuid>,
+    /// Trusted durable execution/attempt identity. Never supplied by public clients.
+    pub execution_id: Option<Uuid>,
     pub status: String,
     pub created_at: DateTime<Utc>,
 }

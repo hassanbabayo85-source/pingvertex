@@ -14,6 +14,10 @@ pub struct MeterUsageInput {
     pub operation: String,
     pub units: i64,
     pub request_id: String,
+    /// Trusted runtime monitor context.
+    pub monitor_id: Option<Uuid>,
+    /// Trusted durable execution context.
+    pub execution_id: Option<Uuid>,
 }
 
 pub struct MeterUsageUseCase {
@@ -62,6 +66,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 operation,
             )
@@ -94,6 +100,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 operation,
             )
@@ -118,6 +126,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 operation,
             )
@@ -141,6 +151,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 operation,
             )
@@ -161,6 +173,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 attempted,
             )
@@ -186,6 +200,8 @@ impl MeterUsageUseCase {
                     operation: input.operation,
                     units: input.units,
                     request_id: input.request_id,
+                    monitor_id: input.monitor_id,
+                    execution_id: input.execution_id,
                 },
                 operation,
             )

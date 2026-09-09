@@ -318,6 +318,9 @@ pub async fn collect_rum_event(
                     operation: "rum_event".to_owned(),
                     units: 1,
                     request_id,
+
+                    monitor_id: None,
+                    execution_id: None,
                 },
                 || use_case.execute_for_site(payload, country_code, site.clone()),
             )

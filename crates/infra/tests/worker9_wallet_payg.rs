@@ -57,6 +57,9 @@ async fn same_request_id_is_idempotent_under_concurrency() {
         operation: "http_check.monitoring".into(),
         units: 1,
         request_id: "same-request".into(),
+
+        monitor_id: None,
+        execution_id: None,
     };
 
     let mut tasks = Vec::new();
@@ -201,6 +204,9 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
                     operation: operation.to_owned(),
                     units,
                     request_id: request_id.clone(),
+
+                    monitor_id: None,
+                    execution_id: None,
                 },
                 || async { Ok::<_, &'static str>(()) },
             )
@@ -213,6 +219,9 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
                     operation: operation.to_owned(),
                     units,
                     request_id: request_id.clone(),
+
+                    monitor_id: None,
+                    execution_id: None,
                 },
                 || async { panic!("idempotent runtime operation was executed twice") },
             )
@@ -379,6 +388,9 @@ async fn durable_network_egress_retry_does_not_double_charge() {
                 operation: "network_egress".into(),
                 units: 1,
                 request_id: request_id.clone(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { Ok::<_, &'static str>(()) },
         )
@@ -391,6 +403,9 @@ async fn durable_network_egress_retry_does_not_double_charge() {
                 operation: "network_egress".into(),
                 units: 1,
                 request_id: request_id.clone(),
+
+                monitor_id: None,
+                execution_id: None,
             },
             || async { panic!("durable retry executed network operation twice") },
         )

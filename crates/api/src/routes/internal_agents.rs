@@ -119,10 +119,17 @@ async fn claim_checks(
                     .await
                 {
                     Ok(reservation) => reservation,
-                    Err(err) if err.to_string() == "insufficient wallet balance" => {
+                    Err(err)
+                        if matches!(
+                            err.to_string().as_str(),
+                            "insufficient wallet balance"
+                                | "wallet daily spend limit exceeded"
+                                | "wallet monthly spend limit exceeded"
+                        ) =>
+                    {
                         // Leave the short agent lease to expire. This prevents
-                        // an exhausted tenant from blocking unrelated tenants
-                        // in the same claim batch.
+                        // an exhausted or spend-limited tenant from blocking
+                        // unrelated tenants in the same claim batch.
                         continue;
                     }
                     Err(err) => {
@@ -250,6 +257,10 @@ async fn submit_result(
                                 operation: operation.as_str().to_owned(),
                                 units: 1,
                                 request_id,
+                                monitor_id: Some(monitor.id.0),
+                                // The durable agent check ID is the execution identity
+                                // for this metered agent-region attempt.
+                                execution_id: Some(payload.check_id),
                             },
                             payload.attempted,
                         )

@@ -1,6 +1,7 @@
 pub mod acknowledge_incident;
 pub mod api_key_types;
 pub mod bulk_monitor_action;
+pub mod bulk_monitor_import_confirm;
 pub mod bulk_monitor_import_preview;
 pub mod change_password;
 pub mod common;
@@ -99,6 +100,7 @@ pub mod support_types;
 pub use acknowledge_incident::*;
 pub use api_key_types::*;
 pub use bulk_monitor_action::*;
+pub use bulk_monitor_import_confirm::*;
 pub use bulk_monitor_import_preview::*;
 pub use change_password::*;
 pub use create_api_flow::*;

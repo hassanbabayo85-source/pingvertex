@@ -7,21 +7,23 @@ use async_trait::async_trait;
 use infra::{
     AesGcmProxyCredentialCipher, BillingConfig, DisabledBillingProvider, FakeBillingProvider,
     HickoryCustomDomainVerifier, NotificationDispatcher, PostgresApiFlowRepository,
-    PostgresCheckRepository, PostgresDiagnosticReportRepository,
-    PostgresEscalationPolicyRepository, PostgresHistoryRetentionRepository,
-    PostgresIncidentRepository, PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
-    PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
-    PostgresPAYGPricingRepository, PostgresPricingConfigRepository,
-    PostgresProxyCheckJobRepository, PostgresSchedulingRepository, PostgresStatusPageRepository,
-    PostgresSubscriptionRepository, PostgresTenantRepository, PostgresUsageEventRepository,
+    PostgresAuditLogEntryRepository, PostgresBulkMonitorImportRepository, PostgresCheckRepository,
+    PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
+    PostgresHistoryRetentionRepository, PostgresIncidentRepository,
+    PostgresMaintenanceWindowRepository, PostgresMonitorIntervalPolicyRepository,
+    PostgresMonitorRepository, PostgresNotificationChannelRepository,
+    PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
+    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionRepository,
+    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUsageEventRepository,
     RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
-    AutoTopUpWorker, CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper,
-    IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
-    RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
+    AutoTopUpWorker, BulkMonitorImportWorker, CustomDomainVerificationWorker, EscalationWorker,
+    HeartbeatSweeper, IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker,
+    ProxyCheckWorker, RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
     TenantNotificationRateLimiter, WalletExpirationWorker, WalletNotificationEmailWorker,
     init_rustls_crypto_provider, metrics,
 };
@@ -115,6 +117,21 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .with_audit_log_repository(financial_audit_repository.clone()),
     );
+    let bulk_import_worker = BulkMonitorImportWorker::new(
+        Arc::new(PostgresBulkMonitorImportRepository::new(pool.clone())),
+        monitor_repository.clone(),
+        Arc::new(PostgresTenantMembershipRepository::new(pool.clone())),
+        Arc::new(PostgresAuditLogEntryRepository::new(pool.clone())),
+        wallet_repository.clone(),
+        Arc::new(PostgresMonitorIntervalPolicyRepository::new(pool.clone())),
+    );
+    let bulk_import_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = bulk_import_worker.run_forever(bulk_import_cancel).await {
+            tracing::error!(error=%err, "bulk monitor import worker stopped unexpectedly");
+        }
+    });
+
     let auto_top_up_worker = AutoTopUpWorker::new(
         wallet_repository.clone(),
         billing_provider,

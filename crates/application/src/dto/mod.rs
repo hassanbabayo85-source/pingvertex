@@ -82,7 +82,9 @@ pub mod payg;
 pub use payg::MeterUsageRequest;
 
 pub mod bulk_monitor_import;
+pub mod bulk_monitor_import_job;
 pub use bulk_monitor_import::{
     BulkMonitorImportError, BulkMonitorImportPreview, BulkMonitorImportPricingVersion,
     BulkMonitorImportRow,
 };
+pub use bulk_monitor_import_job::*;

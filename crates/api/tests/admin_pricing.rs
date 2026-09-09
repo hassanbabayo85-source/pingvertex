@@ -36,7 +36,9 @@ impl SecretCipher for NoopSecretCipher {
 }
 
 #[derive(Clone, Default)]
-struct NoopUserRepository;
+struct NoopUserRepository {
+    platform_admin_user: Option<domain::UserId>,
+}
 
 #[async_trait]
 impl UserRepository for NoopUserRepository {
@@ -63,7 +65,11 @@ impl UserRepository for NoopUserRepository {
             )
             .email(domain::Email::new(format!("user-{}@example.test", id.0.simple())).unwrap())
             .password_hash(domain::PasswordHash::new("test-hash-not-checked").unwrap())
-            .role(domain::UserRole::User)
+            .role(if self.platform_admin_user == Some(*id) {
+                domain::UserRole::Admin
+            } else {
+                domain::UserRole::User
+            })
             .status(domain::UserStatus::Active)
             .email_verified_at(Some(now))
             .created_at(now)
@@ -149,6 +155,14 @@ fn build_test_app(
     membership_repo: InMemoryTenantMembershipRepository,
     pricing_repo: InMemoryPricingConfigRepository,
 ) -> axum::Router {
+    build_test_app_with_platform_admin(membership_repo, pricing_repo, None)
+}
+
+fn build_test_app_with_platform_admin(
+    membership_repo: InMemoryTenantMembershipRepository,
+    pricing_repo: InMemoryPricingConfigRepository,
+    platform_admin_user: Option<UserId>,
+) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
     let app_state = AppState::new(
@@ -167,7 +181,9 @@ fn build_test_app(
     .with_pricing_config_repository(pricing_repo);
 
     let auth_state = AuthState::new(
-        NoopUserRepository,
+        NoopUserRepository {
+            platform_admin_user,
+        },
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
@@ -350,7 +366,7 @@ async fn admin_without_manage_billing_gets_forbidden() {
 }
 
 #[tokio::test]
-async fn owner_can_list_pricing_configs() {
+async fn platform_admin_can_list_pricing_configs() {
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -358,7 +374,7 @@ async fn owner_can_list_pricing_configs() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
 
     let response = app
         .oneshot(
@@ -379,7 +395,7 @@ async fn owner_can_list_pricing_configs() {
 }
 
 #[tokio::test]
-async fn owner_can_get_pricing_config_by_version() {
+async fn platform_admin_can_get_pricing_config_by_version() {
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -387,7 +403,7 @@ async fn owner_can_get_pricing_config_by_version() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
 
     let response = app
         .oneshot(
@@ -407,7 +423,7 @@ async fn owner_can_get_pricing_config_by_version() {
 }
 
 #[tokio::test]
-async fn owner_can_get_active_pricing_config() {
+async fn platform_admin_can_get_active_pricing_config() {
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -415,7 +431,7 @@ async fn owner_can_get_active_pricing_config() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
 
     let response = app
         .oneshot(
@@ -435,7 +451,7 @@ async fn owner_can_get_active_pricing_config() {
 }
 
 #[tokio::test]
-async fn owner_can_create_new_pricing_config_and_audit_log_is_written() {
+async fn platform_admin_can_create_new_pricing_config_and_audit_log_is_written() {
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -443,7 +459,7 @@ async fn owner_can_create_new_pricing_config_and_audit_log_is_written() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
 
     // Create version 2
     let response = app
@@ -502,7 +518,7 @@ async fn owner_can_create_new_pricing_config_and_audit_log_is_written() {
 }
 
 #[tokio::test]
-async fn validation_rejects_bad_config() {
+async fn platform_admin_validation_rejects_bad_config() {
     let tenant_id = TenantId(Uuid::new_v4());
     let owner_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
@@ -510,7 +526,7 @@ async fn validation_rejects_bad_config() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
 
     let mut bad_payload = valid_pricing_payload(2);
     bad_payload["max_retention_days"] = json!(50);

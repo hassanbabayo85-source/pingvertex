@@ -5,18 +5,18 @@ use std::time::Instant;
 use application::ports::{
     AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
     AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
-    CheckRepository, CheckoutDetails, CheckoutRequest, CheckoutSessionRepository,
-    CustomDomainVerifier, DashboardRepository, DiagnosticReportRepository,
-    EscalationPolicyRepository, FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort,
-    HealthCheckResult, HelpArticleRepository, HelpCategoryRepository, IncidentRepository,
-    LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
-    NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
-    PaymentProvider, PaymentRepository, PaymentVerification, PricingConfigRepository,
-    ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
-    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, SmsProviderPricing,
-    StatusPageCache, StatusPageRepository, SubscriptionRepository,
-    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
-    UsageEventRepository, WalletRepository,
+    BulkMonitorImportRepository, CheckRepository, CheckoutDetails, CheckoutRequest,
+    CheckoutSessionRepository, CustomDomainVerifier, DashboardRepository,
+    DiagnosticReportRepository, EscalationPolicyRepository, FinancialAuditLogRepository,
+    GeoIpLookup, HealthCheckPort, HealthCheckResult, HelpArticleRepository, HelpCategoryRepository,
+    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository,
+    MonitorRepository, NotificationChannelRepository, NotificationService, PAYGPricingRepository,
+    PasswordHasher, PaymentProvider, PaymentRepository, PaymentVerification,
+    PricingConfigRepository, ProxyCheckJobRepository, RateLimiter, RateLimiterResult,
+    RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SchedulingRepository,
+    SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
+    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
+    SupportTicketRepository, UsageEventRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -45,6 +45,7 @@ fn new_heartbeat_rate_limiter() -> HeartbeatRateLimiter {
 #[derive(Clone)]
 pub struct AppState {
     pub monitor_repository: Arc<dyn MonitorRepository>,
+    pub bulk_monitor_import_repository: Option<Arc<dyn BulkMonitorImportRepository>>,
     pub check_repository: Arc<dyn CheckRepository>,
     pub diagnostic_report_repository: Arc<dyn DiagnosticReportRepository>,
     pub incident_repository: Arc<dyn IncidentRepository>,
@@ -1302,6 +1303,7 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
+            bulk_monitor_import_repository: None,
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),
             incident_repository: Arc::new(incident_repository),
@@ -1399,6 +1401,7 @@ impl AppState {
             payment_repository: Arc::new(NoopPaymentRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
+            bulk_monitor_import_repository: None,
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),
             incident_repository: Arc::new(incident_repository),
@@ -1449,6 +1452,14 @@ impl AppState {
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             payg_metering: None,
         }
+    }
+
+    pub fn with_bulk_monitor_import_repository<R>(mut self, repository: R) -> Self
+    where
+        R: BulkMonitorImportRepository + 'static,
+    {
+        self.bulk_monitor_import_repository = Some(Arc::new(repository));
+        self
     }
 
     pub fn with_payg_metering(mut self, metering: Arc<application::MeterUsageUseCase>) -> Self {

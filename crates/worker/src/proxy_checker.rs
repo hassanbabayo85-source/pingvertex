@@ -735,7 +735,10 @@ where
                         operation: domain::PaygOperation::ProxyOneTime.as_str().to_owned(),
                         units: 1,
                         request_id,
-                    },
+
+            monitor_id: None,
+            execution_id: None,
+        },
                     || async {
                         if had_existing_result {
                             let result = entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("persisted proxy result missing".to_owned())));

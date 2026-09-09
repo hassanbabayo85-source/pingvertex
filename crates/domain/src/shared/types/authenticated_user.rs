@@ -11,6 +11,7 @@ pub struct AuthenticatedUser {
     session_id: Option<SessionId>,
     tenant_context: TenantContext,
     role: Role,
+    platform_admin: bool,
 }
 
 impl AuthenticatedUser {
@@ -20,6 +21,7 @@ impl AuthenticatedUser {
             session_id: None,
             tenant_context,
             role,
+            platform_admin: false,
         }
     }
 
@@ -34,7 +36,19 @@ impl AuthenticatedUser {
             session_id: Some(session_id),
             tenant_context,
             role,
+            platform_admin: false,
         }
+    }
+
+    /// Marks this request actor as a platform administrator after the authentication
+    /// boundary has verified the current server-side global account role.
+    pub fn with_platform_admin(mut self, platform_admin: bool) -> Self {
+        self.platform_admin = platform_admin;
+        self
+    }
+
+    pub fn is_platform_admin(&self) -> bool {
+        self.platform_admin
     }
 
     pub fn user_id(&self) -> UserId {
