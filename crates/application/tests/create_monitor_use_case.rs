@@ -17,6 +17,7 @@ async fn create_monitor_persists_monitor() {
     let user_id = UserId(Uuid::new_v4());
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "Google".into(),
         url: "https://google.com".into(),
         method: HttpMethod::Get,
@@ -50,6 +51,7 @@ async fn free_tier_enforces_300_second_minimum_and_10_monitor_quota() {
     let tenant_id = tenant_id();
 
     let request = |name: String, interval_seconds: u32| CreateMonitorRequest {
+        regions: Vec::new(),
         name,
         url: "https://example.com".into(),
         method: HttpMethod::Get,
@@ -124,6 +126,7 @@ async fn funded_payg_wallet_has_no_product_monitor_ceiling_and_allows_fast_inter
         .with_wallet_repository(wallet);
     let uid = UserId(Uuid::new_v4());
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "fast".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,
@@ -189,6 +192,7 @@ async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
         .with_wallet_repository(wallet);
 
     let request = CreateMonitorRequest {
+        regions: Vec::new(),
         name: "exhausted-payg".into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,

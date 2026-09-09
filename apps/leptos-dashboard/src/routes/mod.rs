@@ -4,6 +4,7 @@ use crate::pages::account::AccountPage;
 use crate::pages::api_flows::ApiFlowsPage;
 use crate::pages::api_keys::ApiKeysPage;
 use crate::pages::billing::BillingPage;
+use crate::pages::bulk_import::BulkImportPage;
 use crate::pages::dashboard_overview::DashboardOverviewPage;
 use crate::pages::escalation::EscalationPage;
 use crate::pages::forgot_password::ForgotPasswordPage;
@@ -20,6 +21,7 @@ use crate::pages::monitor_form::MonitorFormPage;
 use crate::pages::monitors::MonitorsPage;
 use crate::pages::not_found::NotFoundPage;
 use crate::pages::notifications::NotificationsPage;
+use crate::pages::platform_admin::PlatformAdminPage;
 use crate::pages::proxy_checks::ProxyChecksPage;
 use crate::pages::register::RegisterPage;
 use crate::pages::reset_password::ResetPasswordPage;
@@ -57,6 +59,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("") view=DashboardOverviewPage/>
                     <Route path=path!("monitors") view=MonitorsPage/>
                     <Route path=path!("monitors/new") view=MonitorFormPage/>
+                    <Route path=path!("monitors/import") view=BulkImportPage/>
                     <Route path=path!("monitors/:id") view=MonitorDetailPage/>
                     <Route path=path!("monitors/:id/edit") view=MonitorFormPage/>
                     <Route path=path!("incidents") view=IncidentsPage/>
@@ -75,6 +78,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("billing/usage") view=UsagePage/>
                     <Route path=path!("billing/invoices") view=InvoicesPage/>
                     <Route path=path!("billing/transactions") view=TransactionsPage/>
+                    <Route path=path!("admin") view=PlatformAdminPage/>
                     <Route path=path!("help") view=HelpCenterPage/>
                     <Route path=path!("support") view=SupportPage/>
                     <Route path=path!("maintenance") view=MaintenancePage/>

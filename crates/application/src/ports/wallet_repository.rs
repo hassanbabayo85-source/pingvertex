@@ -77,6 +77,15 @@ pub trait WalletRepository: Send + Sync {
         idempotency_key: &str,
         description: Option<&str>,
     ) -> WalletRepoResult<WalletTransaction>;
+    async fn adjust_balance(
+        &self,
+        _tenant_id: Uuid,
+        _delta_units: i64,
+        _idempotency_key: &str,
+        _description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction> {
+        Err("wallet balance adjustment is not configured".into())
+    }
 
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()>;
     async fn find_top_up_session(
@@ -165,6 +174,14 @@ pub trait WalletRepository: Send + Sync {
         let _ = id;
         Ok(false)
     }
+
+    /// Creates at most one daily and one monthly usage-threshold notification
+    /// per tenant/period. Production implementations must claim/insert using
+    /// database uniqueness so multiple workers cannot duplicate alerts.
+    async fn record_usage_threshold_notifications(&self, limit: u32) -> WalletRepoResult<u64> {
+        let _ = limit;
+        Ok(0)
+    }
 }
 
 #[async_trait]
@@ -248,6 +265,17 @@ where
                 idempotency_key,
                 description,
             )
+            .await
+    }
+    async fn adjust_balance(
+        &self,
+        tenant_id: Uuid,
+        delta_units: i64,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction> {
+        (**self)
+            .adjust_balance(tenant_id, delta_units, idempotency_key, description)
             .await
     }
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {

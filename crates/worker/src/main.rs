@@ -115,7 +115,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             payg_pricing_repository,
             usage_event_repository,
         )
-        .with_audit_log_repository(financial_audit_repository.clone()),
+        .with_audit_log_repository(financial_audit_repository.clone())
+        .with_tenant_repository(tenant_repository.clone()),
     );
     let bulk_import_worker = BulkMonitorImportWorker::new(
         Arc::new(PostgresBulkMonitorImportRepository::new(pool.clone())),

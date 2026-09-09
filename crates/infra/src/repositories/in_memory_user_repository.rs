@@ -84,6 +84,10 @@ impl UserRepository for InMemoryUserRepository {
             .any(|u| u.email().as_str() == email.as_str()))
     }
 
+    async fn list_all(&self) -> RepoResult<Vec<User>> {
+        Ok(self.users.read().unwrap().values().cloned().collect())
+    }
+
     async fn username_exists(&self, username: &Username) -> RepoResult<bool> {
         Ok(self
             .users

@@ -82,7 +82,10 @@ async fn reservation_exceeding_daily_limit_is_rejected() {
         )
         .await;
 
-    assert_eq!(result.unwrap_err().to_string(), "wallet daily spend limit exceeded");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "wallet daily spend limit exceeded"
+    );
 }
 
 #[tokio::test]
@@ -108,7 +111,10 @@ async fn reservation_exceeding_monthly_limit_is_rejected() {
         )
         .await;
 
-    assert_eq!(result.unwrap_err().to_string(), "wallet monthly spend limit exceeded");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "wallet monthly spend limit exceeded"
+    );
 }
 
 #[tokio::test]
@@ -148,7 +154,10 @@ async fn pending_unexpired_reservations_count_toward_the_limit() {
         )
         .await;
 
-    assert_eq!(result.unwrap_err().to_string(), "wallet daily spend limit exceeded");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "wallet daily spend limit exceeded"
+    );
 }
 
 #[tokio::test]
@@ -189,7 +198,10 @@ async fn expired_reservation_reopen_is_still_subject_to_the_spend_limit() {
         )
         .await;
 
-    assert_eq!(result.unwrap_err().to_string(), "wallet daily spend limit exceeded");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "wallet daily spend limit exceeded"
+    );
 }
 
 #[tokio::test]
@@ -231,7 +243,10 @@ async fn expired_reservation_reopen_succeeds_when_within_the_limit() {
         .unwrap();
 
     assert!(outcome.created);
-    assert_eq!(outcome.reservation.status, domain::CreditReservation::PENDING);
+    assert_eq!(
+        outcome.reservation.status,
+        domain::CreditReservation::PENDING
+    );
 }
 
 #[tokio::test]

@@ -5,7 +5,7 @@ use domain::shared::{
     types::{AuthenticatedUser, Permission, Role},
 };
 
-use crate::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
+use crate::ports::{AuditLogEntryRepository, LastOwnerGuardOutcome, TenantMembershipRepository};
 
 use super::membership_common::MembershipError;
 
@@ -26,13 +26,23 @@ pub struct ChangeMemberRoleCommand {
 #[derive(Clone)]
 pub struct ChangeMemberRoleUseCase {
     tenant_membership_repository: Arc<dyn TenantMembershipRepository>,
+    audit_log_repository: Option<Arc<dyn AuditLogEntryRepository>>,
 }
 
 impl ChangeMemberRoleUseCase {
     pub fn new(tenant_membership_repository: Arc<dyn TenantMembershipRepository>) -> Self {
         Self {
             tenant_membership_repository,
+            audit_log_repository: None,
         }
+    }
+
+    pub fn with_audit_log_repository(
+        mut self,
+        repository: Arc<dyn AuditLogEntryRepository>,
+    ) -> Self {
+        self.audit_log_repository = Some(repository);
+        self
     }
 
     pub async fn execute(
@@ -82,7 +92,23 @@ impl ChangeMemberRoleUseCase {
             .await
             .map_err(MembershipError::Other)?
         {
-            LastOwnerGuardOutcome::Applied => Ok(()),
+            LastOwnerGuardOutcome::Applied => {
+                if let Some(audit) = &self.audit_log_repository {
+                    let entry = domain::AuditLogEntry {
+                        id: domain::AuditLogEntryId::new(),
+                        actor_user_id: actor.user_id(),
+                        tenant_id: Some(tenant_id),
+                        action: domain::AuditAction::RoleChanged,
+                        target_id: command.user_id.0.to_string(),
+                        metadata: serde_json::json!({
+                            "new_role": command.new_role,
+                        }),
+                        created_at: chrono::Utc::now(),
+                    };
+                    audit.create(&entry).await.map_err(MembershipError::Other)?;
+                }
+                Ok(())
+            }
             LastOwnerGuardOutcome::NotFound => Err(MembershipError::NotFound),
             LastOwnerGuardOutcome::WouldRemoveLastOwner => Err(MembershipError::InvalidOperation(
                 "cannot demote the last Owner".to_string(),

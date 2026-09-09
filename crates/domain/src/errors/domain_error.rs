@@ -253,6 +253,8 @@ pub enum DomainError {
     InvalidPlanTier(String),
     #[error("invalid tenant account type: {0}")]
     InvalidTenantAccountType(String),
+    #[error("invalid tenant status: {0}")]
+    InvalidTenantStatus(String),
 
     // B12 — Subscription Lifecycle:
     #[error("invalid subscription status: {0}")]

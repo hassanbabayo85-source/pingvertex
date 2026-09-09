@@ -1,4 +1,6 @@
-use crate::ports::{MonitorIntervalPolicyRepository, PAYGPricingRepository};
+use crate::ports::{
+    MonitorIntervalPolicyRepository, PAYGPricingRepository, PricingContext, resolve_price,
+};
 use domain::MonitorKind;
 use std::{error::Error, fmt, sync::Arc};
 
@@ -108,12 +110,18 @@ impl CalculatePaygPreviewUseCase {
         }
 
         let pricing_operation = domain::monitor_operation(input.kind, false);
-        let pricing = self
-            .pricing_repository
-            .find_active(pricing_operation.as_str())
-            .await
-            .map_err(PaygPreviewError::Repository)?
-            .ok_or(PaygPreviewError::NoPricing)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            pricing_operation.as_str(),
+            &PricingContext {
+                monitor_kind: Some(input.kind),
+                quantity: input.monitors.saturating_mul(u64::from(input.regions)),
+                ..PricingContext::default()
+            },
+        )
+        .await
+        .map_err(PaygPreviewError::Repository)?
+        .ok_or(PaygPreviewError::NoPricing)?;
 
         if pricing.unit_price <= 0 {
             return Err(PaygPreviewError::Invalid(

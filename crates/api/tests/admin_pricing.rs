@@ -1,5 +1,6 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::TenantMembershipRepository;
+use application::ports::TenantRepository;
 use application::ports::{PasswordHasher, TokenService, UserRepository};
 use application::ports::{SecretCipher, SecretCipherError};
 use async_trait::async_trait;
@@ -151,14 +152,16 @@ impl TokenService for NoopTokenService {
     }
 }
 
-fn build_test_app(
+async fn build_test_app(
+    tenant_id: TenantId,
     membership_repo: InMemoryTenantMembershipRepository,
     pricing_repo: InMemoryPricingConfigRepository,
 ) -> axum::Router {
-    build_test_app_with_platform_admin(membership_repo, pricing_repo, None)
+    build_test_app_with_platform_admin(tenant_id, membership_repo, pricing_repo, None).await
 }
 
-fn build_test_app_with_platform_admin(
+async fn build_test_app_with_platform_admin(
+    tenant_id: TenantId,
     membership_repo: InMemoryTenantMembershipRepository,
     pricing_repo: InMemoryPricingConfigRepository,
     platform_admin_user: Option<UserId>,
@@ -180,6 +183,12 @@ fn build_test_app_with_platform_admin(
     )
     .with_pricing_config_repository(pricing_repo);
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    tenant_repository
+        .create(&domain::Tenant::new(tenant_id, "Test Tenant", UserId(Uuid::new_v4())).unwrap())
+        .await
+        .unwrap();
+
     let auth_state = AuthState::new(
         NoopUserRepository {
             platform_admin_user,
@@ -187,7 +196,7 @@ fn build_test_app_with_platform_admin(
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
+        tenant_repository,
         membership_repo,
         InMemoryRegistrationTransaction::new(),
     );
@@ -348,7 +357,7 @@ async fn admin_without_manage_billing_gets_forbidden() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app(membership_repo, pricing_repo);
+    let app = build_test_app(tenant_id, membership_repo, pricing_repo).await;
 
     let response = app
         .oneshot(
@@ -374,7 +383,13 @@ async fn platform_admin_can_list_pricing_configs() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
+    let app = build_test_app_with_platform_admin(
+        tenant_id,
+        membership_repo,
+        pricing_repo,
+        Some(owner_user),
+    )
+    .await;
 
     let response = app
         .oneshot(
@@ -403,7 +418,13 @@ async fn platform_admin_can_get_pricing_config_by_version() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
+    let app = build_test_app_with_platform_admin(
+        tenant_id,
+        membership_repo,
+        pricing_repo,
+        Some(owner_user),
+    )
+    .await;
 
     let response = app
         .oneshot(
@@ -431,7 +452,13 @@ async fn platform_admin_can_get_active_pricing_config() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
+    let app = build_test_app_with_platform_admin(
+        tenant_id,
+        membership_repo,
+        pricing_repo,
+        Some(owner_user),
+    )
+    .await;
 
     let response = app
         .oneshot(
@@ -459,7 +486,13 @@ async fn platform_admin_can_create_new_pricing_config_and_audit_log_is_written()
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
+    let app = build_test_app_with_platform_admin(
+        tenant_id,
+        membership_repo,
+        pricing_repo,
+        Some(owner_user),
+    )
+    .await;
 
     // Create version 2
     let response = app
@@ -526,7 +559,13 @@ async fn platform_admin_validation_rejects_bad_config() {
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
-    let app = build_test_app_with_platform_admin(membership_repo, pricing_repo, Some(owner_user));
+    let app = build_test_app_with_platform_admin(
+        tenant_id,
+        membership_repo,
+        pricing_repo,
+        Some(owner_user),
+    )
+    .await;
 
     let mut bad_payload = valid_pricing_payload(2);
     bad_payload["max_retention_days"] = json!(50);

@@ -68,6 +68,8 @@ pub struct SettingsRequest {
     pub monthly_top_up_limit_units: i64,
     pub daily_spend_limit_units: Option<i64>,
     pub monthly_spend_limit_units: Option<i64>,
+    pub daily_usage_alert_threshold_units: Option<i64>,
+    pub monthly_usage_alert_threshold_units: Option<i64>,
     pub retry_limit: i32,
 }
 #[derive(Debug, Deserialize)]
@@ -317,6 +319,8 @@ pub async fn update_settings(
         monthly_top_up_limit_units: req.monthly_top_up_limit_units,
         daily_spend_limit_units: req.daily_spend_limit_units,
         monthly_spend_limit_units: req.monthly_spend_limit_units,
+        daily_usage_alert_threshold_units: req.daily_usage_alert_threshold_units,
+        monthly_usage_alert_threshold_units: req.monthly_usage_alert_threshold_units,
         retry_limit: req.retry_limit,
     };
     if s.critical_balance_threshold_units > s.low_balance_threshold_units
@@ -328,8 +332,14 @@ pub async fn update_settings(
         || s.monthly_top_up_limit_units < s.daily_top_up_limit_units
         || s.daily_spend_limit_units.is_some_and(|v| v <= 0)
         || s.monthly_spend_limit_units.is_some_and(|v| v <= 0)
+        || s.daily_usage_alert_threshold_units.is_some_and(|v| v <= 0)
+        || s.monthly_usage_alert_threshold_units
+            .is_some_and(|v| v <= 0)
         || s.monthly_spend_limit_units
             .zip(s.daily_spend_limit_units)
+            .is_some_and(|(m, d)| m < d)
+        || s.monthly_usage_alert_threshold_units
+            .zip(s.daily_usage_alert_threshold_units)
             .is_some_and(|(m, d)| m < d)
         || !(0..=10).contains(&s.retry_limit)
     {

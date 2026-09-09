@@ -19,9 +19,9 @@ use crate::{
         jwt_auth::jwt_auth, metrics::record_http_metrics, origin_check::require_matching_origin,
     },
     routes::{
-        api_flows, api_keys, auth, billing, checks, dashboard, health, help, internal_agents,
-        invitations, members, monitors, notifications, pricing, proxy_checks, public,
-        rum_dashboard, status_pages, subscription, support, wallet,
+        admin, api_flows, api_keys, auth, billing, checks, dashboard, health, help,
+        internal_agents, invitations, members, monitors, notifications, pricing, proxy_checks,
+        public, rum_dashboard, status_pages, subscription, support, wallet,
     },
     state::AppState,
 };
@@ -380,6 +380,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let platform_admin_routes = admin::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(10)
+                .burst_size(20)
+                .finish()
+                .expect("valid platform admin rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let help_routes = help::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -424,6 +435,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", help_routes)
         .nest("/api/v1", support_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
+        .nest("/api/v1/admin", platform_admin_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)
@@ -592,6 +604,9 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
     let admin_pricing_routes = pricing::admin_router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
+    let platform_admin_routes = admin::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
 
     Router::new()
         .route("/metrics", get(metrics_handler))
@@ -615,6 +630,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", help_routes)
         .nest("/api/v1", support_routes)
         .nest("/api/v1/admin", admin_pricing_routes)
+        .nest("/api/v1/admin", platform_admin_routes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)

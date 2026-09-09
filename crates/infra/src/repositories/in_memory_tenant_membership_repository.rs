@@ -22,6 +22,23 @@ impl InMemoryTenantMembershipRepository {
             fallback_tenant_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
+    /// Test-only helper for explicitly seeding an Owner membership.
+    pub fn seed_owner(&self, tenant_id: TenantId, user_id: UserId) {
+        let now = Utc::now();
+        let membership = TenantMembership {
+            tenant_id,
+            user_id,
+            role: Role::Owner,
+            invited_at: now,
+            joined_at: Some(now),
+        };
+
+        self.memberships
+            .lock()
+            .unwrap()
+            .insert((tenant_id, user_id), membership);
+    }
 }
 
 #[async_trait]

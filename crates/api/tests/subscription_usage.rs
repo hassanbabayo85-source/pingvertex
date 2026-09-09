@@ -256,6 +256,7 @@ fn build_test_app(
     membership_repo: InMemoryTenantMembershipRepository,
     pricing_repo: InMemoryPricingConfigRepository,
     subscription_repo: Arc<InMemorySubscriptionRepository>,
+    tenant_ids: &[TenantId],
 ) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
     let usage_period_repo: Arc<InMemorySubscriptionUsagePeriodRepository> =
@@ -283,12 +284,23 @@ fn build_test_app(
     .with_subscription_usage_period_repository(usage_period_repo)
     .with_subscription_usage_transaction(usage_transaction);
 
+    let tenant_repository = InMemoryTenantRepository::new();
+
+    // The tests create their own exact tenant IDs and memberships.
+    // Seed the exact tenant IDs so auth can resolve them.
+    //
+    // The membership repository exposes async reads, so the test setup
+    // passes the owner user separately through the tenant seed below.
+    for &tenant_id in tenant_ids {
+        tenant_repository.seed_with_id(tenant_id, UserId(tenant_id.0));
+    }
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
+        tenant_repository,
         membership_repo,
         InMemoryRegistrationTransaction::new(),
     );
@@ -317,7 +329,12 @@ async fn member_without_manage_billing_gets_forbidden() {
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
     let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
 
-    let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
+    let app = build_test_app(
+        membership_repo,
+        pricing_repo,
+        subscription_repo,
+        &[tenant_id],
+    );
 
     let response = app
         .oneshot(
@@ -346,7 +363,12 @@ async fn owner_without_existing_subscription_gets_not_found() {
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());
     let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
 
-    let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
+    let app = build_test_app(
+        membership_repo,
+        pricing_repo,
+        subscription_repo,
+        &[tenant_id],
+    );
 
     let response = app
         .oneshot(
@@ -383,7 +405,12 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
     let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Pro);
     subscription_repo.create(&subscription).await.unwrap();
 
-    let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
+    let app = build_test_app(
+        membership_repo,
+        pricing_repo,
+        subscription_repo,
+        &[tenant_id],
+    );
 
     let response = app
         .oneshot(
@@ -420,7 +447,12 @@ async fn client_supplied_plan_tier_in_body_is_ignored() {
     let subscription = Subscription::new(SubscriptionId::new(), tenant_id, PlanTier::Free);
     subscription_repo.create(&subscription).await.unwrap();
 
-    let app = build_test_app(membership_repo, pricing_repo, subscription_repo);
+    let app = build_test_app(
+        membership_repo,
+        pricing_repo,
+        subscription_repo,
+        &[tenant_id],
+    );
 
     let response = app
         .oneshot(

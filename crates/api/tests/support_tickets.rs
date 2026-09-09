@@ -232,6 +232,9 @@ impl IncidentRepository for NoopIncidentRepository {
 fn build_app(
     support_repo: Arc<InMemorySupportTicketRepository>,
     memberships: InMemoryTenantMembershipRepository,
+    tenant_id: TenantId,
+    owner_user_id: UserId,
+    extra_tenant: Option<(TenantId, UserId)>,
 ) -> axum::Router {
     let monitor_repo = InMemoryMonitorRepository::new();
     let app_state = AppState::new(
@@ -249,12 +252,19 @@ fn build_app(
     )
     .with_support_ticket_repository(support_repo);
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    tenant_repository.seed_with_id(tenant_id, owner_user_id);
+
+    if let Some((extra_tenant_id, extra_user_id)) = extra_tenant {
+        tenant_repository.seed_with_id(extra_tenant_id, extra_user_id);
+    }
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
+        tenant_repository,
         memberships,
         InMemoryRegistrationTransaction::new(),
     );
@@ -301,7 +311,13 @@ async fn tenant_isolation_prevents_cross_tenant_ticket_access() {
     .unwrap();
     support_repo.create_ticket(&ticket).await.unwrap();
 
-    let app = build_app(support_repo.clone(), memberships);
+    let app = build_app(
+        support_repo.clone(),
+        memberships,
+        tenant_a,
+        user_a,
+        Some((tenant_b, user_b)),
+    );
 
     let response = app
         .oneshot(
@@ -326,7 +342,7 @@ async fn create_ticket_and_reply_flow() {
     let memberships = InMemoryTenantMembershipRepository::new();
     insert_membership(&memberships, user, tenant, Role::Owner).await;
 
-    let app = build_app(support_repo.clone(), memberships);
+    let app = build_app(support_repo.clone(), memberships, tenant, user, None);
 
     // Create ticket
     let response = app

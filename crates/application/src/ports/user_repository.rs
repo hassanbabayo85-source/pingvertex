@@ -15,6 +15,9 @@ pub trait UserRepository: Send + Sync {
     async fn delete(&self, id: &UserId) -> RepoResult<()>;
     async fn email_exists(&self, email: &Email) -> RepoResult<bool>;
     async fn username_exists(&self, username: &Username) -> RepoResult<bool>;
+    async fn list_all(&self) -> RepoResult<Vec<User>> {
+        Ok(vec![])
+    }
 }
 
 use std::sync::Arc;
@@ -57,5 +60,8 @@ where
 
     async fn username_exists(&self, username: &domain::Username) -> RepoResult<bool> {
         (**self).username_exists(username).await
+    }
+    async fn list_all(&self) -> RepoResult<Vec<domain::User>> {
+        (**self).list_all().await
     }
 }

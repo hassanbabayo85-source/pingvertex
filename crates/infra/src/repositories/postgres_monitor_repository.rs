@@ -79,6 +79,7 @@ struct BulkImportSnapshotRow {
     dns_expected_value: Option<String>,
     heartbeat_interval_seconds: Option<i32>,
     heartbeat_grace_period_seconds: Option<i32>,
+    regions: Vec<String>,
 }
 
 //
@@ -637,7 +638,8 @@ impl MonitorRepository for PostgresMonitorRepository {
                 dns_record_type,
                 dns_expected_value,
                 heartbeat_interval_seconds,
-                heartbeat_grace_period_seconds
+                heartbeat_grace_period_seconds,
+                regions
             FROM monitors
             WHERE tenant_id = $1
             "#,
@@ -667,6 +669,11 @@ impl MonitorRepository for PostgresMonitorRepository {
                     heartbeat_grace_period_seconds: row
                         .heartbeat_grace_period_seconds
                         .map(|value| value as u32),
+                    regions: row
+                        .regions
+                        .iter()
+                        .filter_map(|value| RegionCode::new(value.clone()).ok())
+                        .collect(),
                 })
             })
             .collect::<RepoResult<Vec<_>>>()?;

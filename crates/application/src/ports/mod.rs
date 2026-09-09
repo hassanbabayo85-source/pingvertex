@@ -201,7 +201,9 @@ pub use subscription_plan_change_repository::{
 pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletRepository};
 
 pub mod payg_pricing_repository;
-pub use payg_pricing_repository::{PAYGPricingRepository, PaygPricingRepoResult};
+pub use payg_pricing_repository::{
+    PAYGPricingRepository, PaygPricingRepoResult, PricingContext, PricingRuleContext, resolve_price,
+};
 pub mod usage_event_repository;
 pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};

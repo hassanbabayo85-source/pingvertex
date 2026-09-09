@@ -255,7 +255,11 @@ impl NotificationService for AlwaysFailNotificationService {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-fn build_test_app_with_notification_service<S>(notification_service: S) -> axum::Router
+fn build_test_app_with_notification_service<S>(
+    notification_service: S,
+    owner_id: Uuid,
+    attacker_id: Uuid,
+) -> axum::Router
 where
     S: NotificationService + 'static,
 {
@@ -275,21 +279,34 @@ where
         InMemoryAuditLogEntryRepository::new(),
     );
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let owner_tenant = tenant_repository.seed_for_user(domain::UserId(owner_id));
+    tenant_membership_repository.seed_owner(owner_tenant, domain::UserId(owner_id));
+
+    if attacker_id != owner_id {
+        let attacker_tenant = tenant_repository.seed_for_user(domain::UserId(attacker_id));
+        tenant_membership_repository.seed_owner(attacker_tenant, domain::UserId(attacker_id));
+    }
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
     build_test_router(state, auth_state)
 }
 
-fn build_test_app() -> axum::Router {
-    build_test_app_with_notification_service(NoopNotificationService::new())
+fn build_test_app(owner_id: Uuid, attacker_id: Uuid) -> axum::Router {
+    let notification_service = NoopNotificationService::new();
+
+    build_test_app_with_notification_service(notification_service, owner_id, attacker_id)
 }
 
 fn auth_header(user_id: Uuid) -> String {
@@ -360,8 +377,8 @@ async fn create_channel(
 
 #[tokio::test]
 async fn create_email_channel_succeeds_and_hides_signing_secret() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let response = create_channel(
@@ -385,8 +402,8 @@ async fn create_email_channel_succeeds_and_hides_signing_secret() {
 
 #[tokio::test]
 async fn create_webhook_channel_returns_signing_secret_once_then_hides_it() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let response = create_channel(
@@ -445,8 +462,8 @@ async fn create_webhook_channel_returns_signing_secret_once_then_hides_it() {
 
 #[tokio::test]
 async fn delete_channel_removes_it() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let created = create_channel(
@@ -492,8 +509,8 @@ async fn delete_channel_removes_it() {
 
 #[tokio::test]
 async fn test_notification_endpoint_reports_success() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let created = create_channel(
@@ -525,8 +542,9 @@ async fn test_notification_endpoint_reports_success() {
 
 #[tokio::test]
 async fn test_notification_endpoint_surfaces_delivery_failure() {
-    let app = build_test_app_with_notification_service(AlwaysFailNotificationService);
     let user_id = Uuid::new_v4();
+    let app =
+        build_test_app_with_notification_service(AlwaysFailNotificationService, user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let created = create_channel(
@@ -562,8 +580,8 @@ async fn test_notification_endpoint_surfaces_delivery_failure() {
 
 #[tokio::test]
 async fn rejects_invalid_email_target() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let response = create_channel(
@@ -579,8 +597,8 @@ async fn rejects_invalid_email_target() {
 
 #[tokio::test]
 async fn rejects_invalid_webhook_url() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id, user_id);
     let monitor_id = create_monitor(&app, user_id).await;
 
     let response = create_channel(
@@ -600,9 +618,9 @@ async fn rejects_invalid_webhook_url() {
 
 #[tokio::test]
 async fn cannot_create_channel_on_another_users_monitor() {
-    let app = build_test_app();
     let owner = Uuid::new_v4();
     let attacker = Uuid::new_v4();
+    let app = build_test_app(owner, attacker);
 
     let monitor_id = create_monitor(&app, owner).await;
 
@@ -638,9 +656,9 @@ async fn cannot_create_channel_on_another_users_monitor() {
 
 #[tokio::test]
 async fn cannot_list_channels_on_another_users_monitor() {
-    let app = build_test_app();
     let owner = Uuid::new_v4();
     let attacker = Uuid::new_v4();
+    let app = build_test_app(owner, attacker);
 
     let monitor_id = create_monitor(&app, owner).await;
     create_channel(
@@ -671,9 +689,9 @@ async fn cannot_list_channels_on_another_users_monitor() {
 
 #[tokio::test]
 async fn cannot_delete_another_users_channel() {
-    let app = build_test_app();
     let owner = Uuid::new_v4();
     let attacker = Uuid::new_v4();
+    let app = build_test_app(owner, attacker);
 
     let monitor_id = create_monitor(&app, owner).await;
     let created = create_channel(
@@ -720,9 +738,9 @@ async fn cannot_delete_another_users_channel() {
 
 #[tokio::test]
 async fn cannot_send_test_notification_for_another_users_channel() {
-    let app = build_test_app();
     let owner = Uuid::new_v4();
     let attacker = Uuid::new_v4();
+    let app = build_test_app(owner, attacker);
 
     let monitor_id = create_monitor(&app, owner).await;
     let created = create_channel(

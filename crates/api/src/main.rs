@@ -137,6 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
     let payg_pricing_repository = infra::PostgresPAYGPricingRepository::new(pool.clone());
     let usage_event_repository = infra::PostgresUsageEventRepository::new(pool.clone());
+    let tenant_repository = infra::PostgresTenantRepository::new(pool.clone());
     let financial_audit_repository = std::sync::Arc::new(
         infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
     );
@@ -146,7 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::sync::Arc::new(payg_pricing_repository.clone()),
             std::sync::Arc::new(usage_event_repository.clone()),
         )
-        .with_audit_log_repository(financial_audit_repository.clone()),
+        .with_audit_log_repository(financial_audit_repository.clone())
+        .with_tenant_repository(std::sync::Arc::new(tenant_repository.clone())),
     );
 
     // Shared distributed rate limiter. Constructed once and cloned into
@@ -162,6 +164,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &std::env::var("REDIS_URL")
             .map_err(|_| anyhow::anyhow!("REDIS_URL is required for rate limiting"))?,
     )?;
+
+    // Platform-admin repositories are needed while constructing AppState.
+    // Initialize them before the builder consumes them.
+    let tenant_repository = PostgresTenantRepository::new(pool.clone());
+    let platform_tenant_repository = tenant_repository.clone();
+    let platform_user_repository = PostgresUserRepository::new(pool.clone());
 
     let mut app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
@@ -192,6 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
     .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
+    .with_platform_admin_repositories(platform_user_repository.clone(), platform_tenant_repository)
     .with_bulk_monitor_import_repository(PostgresBulkMonitorImportRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
@@ -253,7 +262,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => app_state,
     };
 
-    let tenant_repository = PostgresTenantRepository::new(pool.clone());
     let tenant_membership_repository = PostgresTenantMembershipRepository::new(pool.clone());
     let registration_transaction = PostgresRegistrationTransaction::new(pool.clone());
 
@@ -333,7 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let auth_state = AuthState::new(
-        PostgresUserRepository::new(pool.clone()),
+        platform_user_repository.clone(),
         Argon2PasswordHasher,
         JsonWebTokenService::new(config.jwt_secret.clone()),
         UuidIdGenerator::new(),
@@ -353,6 +361,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_password_reset(reset_password_token_repository, password_reset_mailer)
     .with_invitation_repository(invitation_repository)
+    .with_audit_log_repository(infra::PostgresAuditLogEntryRepository::new(pool.clone()))
     .with_oauth(
         google_id_token_verifier,
         apple_id_token_verifier,

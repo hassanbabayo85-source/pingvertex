@@ -231,7 +231,10 @@ impl TokenService for NoopTokenService {
         _: &str,
     ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
         Ok(application::ports::VerifiedToken {
-            user_id: domain::UserId::from_uuid(uuid::Uuid::nil()),
+            user_id: domain::UserId::from_uuid(
+                uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+                    .expect("valid test user id"),
+            ),
             issued_at: 0,
         })
     }
@@ -242,6 +245,9 @@ impl TokenService for NoopTokenService {
 // ---------------------------------------------------------------------------
 
 fn build_test_app() -> axum::Router {
+    let test_user_id =
+        uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000001").expect("valid test user id");
+
     let monitor_repo = InMemoryMonitorRepository::new();
 
     let state = AppState::new(
@@ -258,13 +264,19 @@ fn build_test_app() -> axum::Router {
         InMemoryAuditLogEntryRepository::new(),
     );
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_id = tenant_repository.seed_for_user(domain::UserId(test_user_id));
+    tenant_membership_repository.seed_owner(tenant_id, domain::UserId(test_user_id));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 

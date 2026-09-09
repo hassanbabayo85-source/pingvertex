@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 /// The kind of check a monitor performs.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum MonitorKind {
     #[default]
     #[serde(alias = "http")]

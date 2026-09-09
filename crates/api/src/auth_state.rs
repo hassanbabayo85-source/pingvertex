@@ -10,12 +10,12 @@ use domain::{
 };
 
 use application::ports::{
-    BackupCodeRepository, EmailVerificationMailer, EmailVerificationTokenRepository,
-    IdTokenVerifier, OAuthIdentityRepository, PasswordHasher, PasswordResetMailer,
-    PasswordResetMailerResult, PendingAuthCache, PendingAuthCacheResult, RateLimiter,
-    RateLimiterResult, RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher,
-    SecretCipherError, TenantInvitationRepository, TenantMembershipRepository, TenantRepository,
-    TokenService, UserRepository,
+    AuditLogEntryRepository, BackupCodeRepository, EmailVerificationMailer,
+    EmailVerificationTokenRepository, IdTokenVerifier, OAuthIdentityRepository, PasswordHasher,
+    PasswordResetMailer, PasswordResetMailerResult, PendingAuthCache, PendingAuthCacheResult,
+    RateLimiter, RateLimiterResult, RegistrationTransaction, ResetPasswordTokenRepository,
+    SecretCipher, SecretCipherError, TenantInvitationRepository, TenantMembershipRepository,
+    TenantRepository, TokenService, UserRepository,
 };
 use infra::UuidIdGenerator;
 
@@ -315,6 +315,28 @@ impl RateLimiter for InMemoryRateLimiter {
     }
 }
 
+#[derive(Clone, Default)]
+struct NoopAuditLogEntryRepository;
+
+#[async_trait]
+impl AuditLogEntryRepository for NoopAuditLogEntryRepository {
+    async fn create(&self, _entry: &domain::AuditLogEntry) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn list_by_tenant(
+        &self,
+        _tenant_id: domain::TenantId,
+    ) -> RepoResult<Vec<domain::AuditLogEntry>> {
+        Ok(Vec::new())
+    }
+    async fn list_by_actor(
+        &self,
+        _actor_user_id: UserId,
+    ) -> RepoResult<Vec<domain::AuditLogEntry>> {
+        Ok(Vec::new())
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthState {
     pub user_repository: Arc<dyn UserRepository>,
@@ -339,6 +361,7 @@ pub struct AuthState {
     pub google_id_token_verifier: Arc<dyn IdTokenVerifier>,
     pub apple_id_token_verifier: Arc<dyn IdTokenVerifier>,
     pub oauth_identity_repository: Arc<dyn OAuthIdentityRepository>,
+    pub audit_log_entry_repository: Arc<dyn application::ports::AuditLogEntryRepository>,
 }
 
 impl AuthState {
@@ -379,6 +402,7 @@ impl AuthState {
             google_id_token_verifier: Arc::new(NoopIdTokenVerifier),
             apple_id_token_verifier: Arc::new(NoopIdTokenVerifier),
             oauth_identity_repository: Arc::new(NoopOAuthIdentityRepository),
+            audit_log_entry_repository: Arc::new(NoopAuditLogEntryRepository),
         }
     }
 
@@ -442,6 +466,14 @@ impl AuthState {
     /// omitting the call — that keeps the failure mode explicit
     /// ("Google sign-in is not configured") instead of falling back to
     /// the default `NoopIdTokenVerifier`'s generic message.
+    pub fn with_audit_log_repository<R>(mut self, repository: R) -> Self
+    where
+        R: AuditLogEntryRepository + 'static,
+    {
+        self.audit_log_entry_repository = Arc::new(repository);
+        self
+    }
+
     pub fn with_oauth<G, A, O>(
         mut self,
         google_verifier: G,

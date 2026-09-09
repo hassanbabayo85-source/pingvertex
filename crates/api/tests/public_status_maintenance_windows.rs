@@ -254,6 +254,7 @@ impl TokenService for NoopTokenService {
 fn build_test_app(
     status_page_repo: InMemoryStatusPageRepository,
     maintenance_window_repo: InMemoryMaintenanceWindowRepository,
+    user_id: Uuid,
 ) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
@@ -275,13 +276,19 @@ fn build_test_app(
     state.logo_storage = Arc::new(InMemoryLogoStorage::new());
     state.maintenance_window_repository = Arc::new(maintenance_window_repo);
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_id = tenant_repository.seed_for_user(UserId(user_id));
+    tenant_membership_repository.seed_owner(tenant_id, UserId(user_id));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
@@ -310,8 +317,8 @@ async fn public_status_page_includes_maintenance_windows_field() {
     let status_page_repo = InMemoryStatusPageRepository::new();
     let maintenance_window_repo = InMemoryMaintenanceWindowRepository::new();
 
-    let app = build_test_app(status_page_repo, maintenance_window_repo.clone());
     let user_id = Uuid::new_v4();
+    let app = build_test_app(status_page_repo, maintenance_window_repo.clone(), user_id);
 
     let create_response = app
         .clone()

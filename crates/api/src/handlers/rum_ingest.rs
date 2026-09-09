@@ -321,6 +321,7 @@ pub async fn collect_rum_event(
 
                     monitor_id: None,
                     execution_id: None,
+                    pricing_context: None,
                 },
                 || use_case.execute_for_site(payload, country_code, site.clone()),
             )

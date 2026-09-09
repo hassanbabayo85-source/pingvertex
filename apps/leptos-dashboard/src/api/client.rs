@@ -177,6 +177,21 @@ async fn handle_no_content_response(resp: gloo_net::http::Response) -> Result<()
     Err(map_status(status, text, retry_after))
 }
 
+pub async fn post_json_no_content_with_body<B: Serialize>(
+    path: &str,
+    body: &B,
+) -> Result<(), ApiError> {
+    let url = format!("{API_BASE}{path}");
+    let resp = Request::post(&url)
+        .header("Content-Type", "application/json")
+        .credentials(RequestCredentials::Include)
+        .json(body)
+        .map_err(|e| ApiError::Validation(e.to_string()))?
+        .send()
+        .await?;
+    handle_no_content_response(resp).await
+}
+
 pub async fn post_json_no_content(path: &str) -> Result<(), ApiError> {
     let url = format!("{API_BASE}{path}");
     let resp = Request::post(&url)

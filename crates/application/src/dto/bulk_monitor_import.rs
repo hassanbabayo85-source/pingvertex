@@ -1,5 +1,5 @@
 use crate::dto::CreateMonitorRequest;
-use domain::{HttpMethod, MonitorKind};
+use domain::{HttpMethod, MonitorKind, RegionCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +23,8 @@ pub struct BulkMonitorImportRow {
     pub is_public: bool,
     pub ssl_check_enabled: bool,
     pub ssl_expiry_warning_days: u32,
+    pub regions: Vec<RegionCode>,
+    pub auth_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +74,7 @@ impl BulkMonitorImportRow {
             is_public: self.is_public,
             ssl_check_enabled: self.ssl_check_enabled,
             ssl_expiry_warning_days: self.ssl_expiry_warning_days,
+            regions: self.regions,
             kind: self.kind,
             tcp_port: self.tcp_port,
             dns_record_type: self.dns_record_type,

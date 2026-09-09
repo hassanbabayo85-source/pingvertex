@@ -21,6 +21,7 @@ pub async fn remove_member(
     let use_case = RemoveMemberUseCase::new(auth_state.tenant_membership_repository.clone());
 
     use_case
+        .with_audit_log_repository(auth_state.audit_log_entry_repository.clone())
         .execute(UserId(user_id), authenticated_user)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to remove member", err))?;

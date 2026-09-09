@@ -1,5 +1,5 @@
 use crate::dto::AssertionInput;
-use domain::{HttpMethod, MonitorKind};
+use domain::{HttpMethod, MonitorKind, RegionCode};
 
 /// Input data required to create a monitor.
 #[derive(Debug, Clone)]
@@ -10,6 +10,7 @@ pub struct CreateMonitorRequest {
     pub expected_status: u16,
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
+    pub regions: Vec<RegionCode>,
     pub assertions: Vec<AssertionInput>,
     /// Whether the monitor should be exposed on the unauthenticated public
     /// status page. Defaults to `false` if omitted by the caller.

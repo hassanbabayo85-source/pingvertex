@@ -16,7 +16,8 @@ use application::ports::{
     RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SchedulingRepository,
     SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
     SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
-    SupportTicketRepository, UsageEventRepository, WalletRepository,
+    SupportTicketRepository, TenantRepository, UsageEventRepository, UserRepository,
+    WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -120,6 +121,8 @@ pub struct AppState {
     /// Shared PAYG metering service. Optional so lightweight test/development
     /// AppState constructors can remain usable without a wallet backend.
     pub payg_metering: Option<Arc<application::MeterUsageUseCase>>,
+    pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
+    pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
 }
 
 /// Default `DashboardRepository` used until a real one is substituted in.
@@ -1242,6 +1245,59 @@ impl PAYGPricingRepository for NoopPAYGPricingRepository {
 }
 
 #[derive(Clone, Default)]
+struct NoopUserRepository;
+#[async_trait]
+impl UserRepository for NoopUserRepository {
+    async fn create(&self, _: &domain::User) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn update(&self, _: &domain::User) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_id(&self, _: &domain::UserId) -> RepoResult<Option<domain::User>> {
+        Ok(None)
+    }
+    async fn find_by_email(&self, _: &domain::Email) -> RepoResult<Option<domain::User>> {
+        Ok(None)
+    }
+    async fn find_by_username(&self, _: &domain::Username) -> RepoResult<Option<domain::User>> {
+        Ok(None)
+    }
+    async fn delete(&self, _: &domain::UserId) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn email_exists(&self, _: &domain::Email) -> RepoResult<bool> {
+        Ok(false)
+    }
+    async fn username_exists(&self, _: &domain::Username) -> RepoResult<bool> {
+        Ok(false)
+    }
+    async fn list_all(&self) -> RepoResult<Vec<domain::User>> {
+        Ok(vec![])
+    }
+}
+#[derive(Clone, Default)]
+struct NoopTenantRepository;
+#[async_trait]
+impl TenantRepository for NoopTenantRepository {
+    async fn create(&self, _: &domain::Tenant) -> RepoResult<()> {
+        Ok(())
+    }
+    async fn find_by_id(&self, _: domain::TenantId) -> RepoResult<Option<domain::Tenant>> {
+        Ok(None)
+    }
+    async fn find_by_owner_user_id(&self, _: domain::UserId) -> RepoResult<Option<domain::Tenant>> {
+        Ok(None)
+    }
+    async fn list_all(&self) -> RepoResult<Vec<domain::Tenant>> {
+        Ok(vec![])
+    }
+    async fn set_status(&self, _: domain::TenantId, _: domain::TenantStatus) -> RepoResult<bool> {
+        Ok(false)
+    }
+}
+
+#[derive(Clone, Default)]
 struct NoopUsageEventRepository;
 #[async_trait]
 impl UsageEventRepository for NoopUsageEventRepository {
@@ -1357,6 +1413,8 @@ impl AppState {
             financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
             payment_repository: Arc::new(NoopPaymentRepository),
             payg_metering: None,
+            platform_user_repository: Arc::new(NoopUserRepository),
+            platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
     }
 
@@ -1451,7 +1509,19 @@ impl AppState {
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             payg_metering: None,
+            platform_user_repository: Arc::new(NoopUserRepository),
+            platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
+    }
+
+    pub fn with_platform_admin_repositories<U, T>(mut self, users: U, tenants: T) -> Self
+    where
+        U: UserRepository + 'static,
+        T: TenantRepository + 'static,
+    {
+        self.platform_user_repository = Arc::new(users);
+        self.platform_tenant_repository = Arc::new(tenants);
+        self
     }
 
     pub fn with_bulk_monitor_import_repository<R>(mut self, repository: R) -> Self

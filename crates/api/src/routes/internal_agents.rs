@@ -261,6 +261,7 @@ async fn submit_result(
                                 // The durable agent check ID is the execution identity
                                 // for this metered agent-region attempt.
                                 execution_id: Some(payload.check_id),
+                                pricing_context: None,
                             },
                             payload.attempted,
                         )

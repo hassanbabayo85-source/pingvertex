@@ -42,6 +42,21 @@ impl AuditLogEntryRepository for InMemoryAuditLogEntryRepository {
             .collect())
     }
 
+    async fn list_all(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<AuditLogEntry>, Box<dyn Error + Send + Sync>> {
+        Ok(self
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(limit.clamp(1, 1000) as usize)
+            .cloned()
+            .collect())
+    }
+
     async fn list_by_actor(
         &self,
         actor_user_id: UserId,

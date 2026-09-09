@@ -738,6 +738,7 @@ where
 
             monitor_id: None,
             execution_id: None,
+            pricing_context: None,
         },
                     || async {
                         if had_existing_result {

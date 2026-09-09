@@ -24,6 +24,7 @@ pub struct CurrentSessionUser {
     pub tenant_id: String,
     pub role: domain::shared::types::Role,
     pub totp_enabled: bool,
+    pub platform_admin: bool,
 }
 
 /// `GET /api/v1/auth/me`
@@ -58,6 +59,7 @@ pub async fn current_session(
                 .to_string(),
             role: authenticated_user.role(),
             totp_enabled: user.totp_enabled(),
+            platform_admin: authenticated_user.is_platform_admin(),
         },
     }))
 }

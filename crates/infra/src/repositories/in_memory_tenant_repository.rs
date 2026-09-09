@@ -19,6 +19,24 @@ impl InMemoryTenantRepository {
             tenants: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
+    /// Test-only helper for explicitly seeding a tenant.
+    pub fn seed_for_user(&self, user_id: UserId) -> TenantId {
+        let tenant_id = TenantId::new();
+        let tenant = Tenant::new(tenant_id, format!("Test Tenant {}", user_id.0), user_id)
+            .expect("test tenant should be valid");
+
+        self.tenants.lock().unwrap().insert(tenant_id, tenant);
+        tenant_id
+    }
+
+    /// Test-only helper for seeding a tenant with a caller-supplied ID.
+    pub fn seed_with_id(&self, tenant_id: TenantId, user_id: UserId) {
+        let tenant = Tenant::new(tenant_id, format!("Test Tenant {}", user_id.0), user_id)
+            .expect("test tenant should be valid");
+
+        self.tenants.lock().unwrap().insert(tenant_id, tenant);
+    }
 }
 
 #[async_trait]
@@ -53,5 +71,17 @@ impl TenantRepository for InMemoryTenantRepository {
 
     async fn list_all(&self) -> Result<Vec<Tenant>, Box<dyn Error + Send + Sync>> {
         Ok(self.tenants.lock().unwrap().values().cloned().collect())
+    }
+    async fn set_status(
+        &self,
+        id: TenantId,
+        status: domain::TenantStatus,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let mut tenants = self.tenants.lock().unwrap();
+        let Some(t) = tenants.get_mut(&id) else {
+            return Ok(false);
+        };
+        t.status = status;
+        Ok(true)
     }
 }

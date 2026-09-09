@@ -65,6 +65,10 @@ pub struct WalletSettings {
     pub payment_method: Option<String>,
     pub daily_top_up_limit_units: i64,
     pub monthly_top_up_limit_units: i64,
+    pub daily_spend_limit_units: Option<i64>,
+    pub monthly_spend_limit_units: Option<i64>,
+    pub daily_usage_alert_threshold_units: Option<i64>,
+    pub monthly_usage_alert_threshold_units: Option<i64>,
     pub retry_limit: i32,
 }
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +81,10 @@ pub struct WalletSettingsRequest {
     pub payment_method: Option<String>,
     pub daily_top_up_limit_units: i64,
     pub monthly_top_up_limit_units: i64,
+    pub daily_spend_limit_units: Option<i64>,
+    pub monthly_spend_limit_units: Option<i64>,
+    pub daily_usage_alert_threshold_units: Option<i64>,
+    pub monthly_usage_alert_threshold_units: Option<i64>,
     pub retry_limit: i32,
 }
 #[derive(Debug, Clone, Deserialize, PartialEq)]

@@ -236,7 +236,7 @@ impl TokenService for NoopTokenService {
     }
 }
 
-fn build_test_app() -> axum::Router {
+fn build_test_app(user_id: Uuid) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
     let state = AppState::new(
@@ -253,13 +253,19 @@ fn build_test_app() -> axum::Router {
         InMemoryAuditLogEntryRepository::new(),
     );
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_id = tenant_repository.seed_for_user(domain::UserId(user_id));
+    tenant_membership_repository.seed_owner(tenant_id, domain::UserId(user_id));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
     build_test_router(state, auth_state)
@@ -346,8 +352,8 @@ async fn create_heartbeat_monitor(app: &axum::Router, user_id: Uuid, name: &str)
 
 #[tokio::test]
 async fn create_heartbeat_monitor_returns_token_exactly_once() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let created = create_heartbeat_monitor(&app, user_id, "Nightly Backup Job").await;
 
@@ -360,8 +366,8 @@ async fn create_heartbeat_monitor_returns_token_exactly_once() {
 
 #[tokio::test]
 async fn http_monitor_create_response_has_null_heartbeat_token() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let response = app
         .clone()
@@ -400,8 +406,8 @@ async fn http_monitor_create_response_has_null_heartbeat_token() {
 
 #[tokio::test]
 async fn heartbeat_ping_updates_last_heartbeat_at_and_returns_ok() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let created = create_heartbeat_monitor(&app, user_id, "Nightly Backup Job").await;
     let monitor_id = created["id"].as_str().unwrap();
@@ -458,7 +464,8 @@ async fn heartbeat_ping_updates_last_heartbeat_at_and_returns_ok() {
 
 #[tokio::test]
 async fn heartbeat_ping_with_unknown_token_returns_not_found() {
-    let app = build_test_app();
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let response = app
         .clone()
@@ -477,8 +484,8 @@ async fn heartbeat_ping_with_unknown_token_returns_not_found() {
 
 #[tokio::test]
 async fn get_and_list_monitor_endpoints_never_expose_heartbeat_token() {
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let created = create_heartbeat_monitor(&app, user_id, "Nightly Backup Job").await;
     let monitor_id = created["id"].as_str().unwrap();
@@ -528,8 +535,8 @@ async fn heartbeat_ping_is_rate_limited_per_token() {
     // crates/api/src/handlers/heartbeat.rs.
     const MAX_REQUESTS_PER_WINDOW: usize = 6;
 
-    let app = build_test_app();
     let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
 
     let created = create_heartbeat_monitor(&app, user_id, "Nightly Backup Job").await;
     let token = created["heartbeat_token"].as_str().unwrap();

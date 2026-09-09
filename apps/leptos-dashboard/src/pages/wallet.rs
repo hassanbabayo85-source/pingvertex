@@ -24,6 +24,10 @@ pub fn WalletPage() -> impl IntoView {
     let payment_method = RwSignal::new(String::new());
     let daily_limit = RwSignal::new(100_i64);
     let monthly_limit = RwSignal::new(500_i64);
+    let daily_spend_limit = RwSignal::new(0_i64);
+    let monthly_spend_limit = RwSignal::new(0_i64);
+    let daily_usage_alert = RwSignal::new(0_i64);
+    let monthly_usage_alert = RwSignal::new(0_i64);
     let retry_limit = RwSignal::new(3_i32);
     let low_threshold = RwSignal::new(5_i64);
     let critical_threshold = RwSignal::new(1_i64);
@@ -52,6 +56,12 @@ pub fn WalletPage() -> impl IntoView {
                     payment_method.set(v.payment_method.clone().unwrap_or_default());
                     daily_limit.set(v.daily_top_up_limit_units / 1_000_000);
                     monthly_limit.set(v.monthly_top_up_limit_units / 1_000_000);
+                    daily_spend_limit.set(v.daily_spend_limit_units.unwrap_or(0) / 1_000_000);
+                    monthly_spend_limit.set(v.monthly_spend_limit_units.unwrap_or(0) / 1_000_000);
+                    daily_usage_alert
+                        .set(v.daily_usage_alert_threshold_units.unwrap_or(0) / 1_000_000);
+                    monthly_usage_alert
+                        .set(v.monthly_usage_alert_threshold_units.unwrap_or(0) / 1_000_000);
                     retry_limit.set(v.retry_limit);
                     low_threshold.set(v.low_balance_threshold_units / 1_000_000);
                     critical_threshold.set(v.critical_balance_threshold_units / 1_000_000);
@@ -113,6 +123,15 @@ pub fn WalletPage() -> impl IntoView {
             return;
         }
 
+        let daily_spend = daily_spend_limit.get();
+        let monthly_spend = monthly_spend_limit.get();
+        if daily_spend > 0 && monthly_spend > 0 && monthly_spend < daily_spend {
+            error.set(Some(
+                "Monthly spend cap must be at least the daily spend cap.".to_owned(),
+            ));
+            return;
+        }
+
         loading.set(true);
 
         let req = wallet::WalletSettingsRequest {
@@ -124,6 +143,14 @@ pub fn WalletPage() -> impl IntoView {
             payment_method: (!payment.is_empty()).then_some(payment),
             daily_top_up_limit_units: daily * 1_000_000,
             monthly_top_up_limit_units: monthly * 1_000_000,
+            daily_spend_limit_units: (daily_spend_limit.get() > 0)
+                .then(|| daily_spend_limit.get() * 1_000_000),
+            monthly_spend_limit_units: (monthly_spend_limit.get() > 0)
+                .then(|| monthly_spend_limit.get() * 1_000_000),
+            daily_usage_alert_threshold_units: (daily_usage_alert.get() > 0)
+                .then(|| daily_usage_alert.get() * 1_000_000),
+            monthly_usage_alert_threshold_units: (monthly_usage_alert.get() > 0)
+                .then(|| monthly_usage_alert.get() * 1_000_000),
             retry_limit: retries,
         };
 
@@ -136,6 +163,12 @@ pub fn WalletPage() -> impl IntoView {
                     payment_method.set(v.payment_method.clone().unwrap_or_default());
                     daily_limit.set(v.daily_top_up_limit_units / 1_000_000);
                     monthly_limit.set(v.monthly_top_up_limit_units / 1_000_000);
+                    daily_spend_limit.set(v.daily_spend_limit_units.unwrap_or(0) / 1_000_000);
+                    monthly_spend_limit.set(v.monthly_spend_limit_units.unwrap_or(0) / 1_000_000);
+                    daily_usage_alert
+                        .set(v.daily_usage_alert_threshold_units.unwrap_or(0) / 1_000_000);
+                    monthly_usage_alert
+                        .set(v.monthly_usage_alert_threshold_units.unwrap_or(0) / 1_000_000);
                     retry_limit.set(v.retry_limit);
                     low_threshold.set(v.low_balance_threshold_units / 1_000_000);
                     critical_threshold.set(v.critical_balance_threshold_units / 1_000_000);
@@ -403,6 +436,26 @@ pub fn WalletPage() -> impl IntoView {
                         </label>
 
                         <label>
+                            "Daily spend cap ($, 0 = unlimited)"
+                            <input type="number" min="0" prop:value=move || daily_spend_limit.get().to_string() disabled=move || loading.get() on:input=move |event| { if let Ok(v)=event_target_value(&event).parse::<i64>() { daily_spend_limit.set(v.max(0)); } } />
+                        </label>
+
+                        <label>
+                            "Monthly spend cap ($, 0 = unlimited)"
+                            <input type="number" min="0" prop:value=move || monthly_spend_limit.get().to_string() disabled=move || loading.get() on:input=move |event| { if let Ok(v)=event_target_value(&event).parse::<i64>() { monthly_spend_limit.set(v.max(0)); } } />
+                        </label>
+
+                        <label>
+                            "Daily usage alert ($, 0 = off)"
+                            <input type="number" min="0" prop:value=move || daily_usage_alert.get().to_string() disabled=move || loading.get() on:input=move |event| { if let Ok(v)=event_target_value(&event).parse::<i64>() { daily_usage_alert.set(v.max(0)); } } />
+                        </label>
+
+                        <label>
+                            "Monthly usage alert ($, 0 = off)"
+                            <input type="number" min="0" prop:value=move || monthly_usage_alert.get().to_string() disabled=move || loading.get() on:input=move |event| { if let Ok(v)=event_target_value(&event).parse::<i64>() { monthly_usage_alert.set(v.max(0)); } } />
+                        </label>
+
+                        <label>
                             "Retry limit"
                             <input
                                 type="number"
@@ -435,7 +488,7 @@ pub fn WalletPage() -> impl IntoView {
                     </label>
 
                     <p class="muted">
-                        "A saved payment method is required to enable automatic charging. Daily, monthly and retry limits are enforced server-side."
+                        "A saved payment method is required to enable automatic charging. Spend caps and usage alerts are enforced server-side; 0 disables an optional cap/alert."
                     </p>
 
                     <div class="inline-form">
@@ -494,7 +547,7 @@ pub fn WalletPage() -> impl IntoView {
                 <div class="section-heading">
                     <div>
                         <h2>"Wallet notifications"</h2>
-                        <p class="muted">"Low-balance, critical-balance and payment events for this wallet."</p>
+                        <p class="muted">"Low-balance, usage-threshold and payment events for this wallet."</p>
                     </div>
                 </div>
                 {move || if notifications.get().is_empty() {

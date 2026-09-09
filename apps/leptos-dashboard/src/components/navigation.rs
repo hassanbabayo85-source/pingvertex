@@ -63,6 +63,11 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 status: NavStatus::Available,
             },
             NavItem {
+                label: "Bulk import",
+                href: "/monitors/import",
+                status: NavStatus::Available,
+            },
+            NavItem {
                 label: "Incidents",
                 href: "/incidents",
                 status: NavStatus::Available,
@@ -176,6 +181,14 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 status: NavStatus::Available,
             },
         ],
+    },
+    NavGroup {
+        label: "PLATFORM",
+        items: &[NavItem {
+            label: "Administration",
+            href: "/admin",
+            status: NavStatus::Available,
+        }],
     },
     NavGroup {
         label: "SETTINGS",

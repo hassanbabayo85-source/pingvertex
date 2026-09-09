@@ -58,6 +58,7 @@ fn auth_owner(user_id: UserId, tenant_id: TenantId) -> AuthenticatedUser {
 
 fn monitor_request(name: &str) -> CreateMonitorRequest {
     CreateMonitorRequest {
+        regions: Vec::new(),
         name: name.to_string(),
         url: "https://example.com".to_string(),
         method: HttpMethod::Get,

@@ -243,7 +243,7 @@ impl TokenService for NoopTokenService {
     }
 }
 
-fn build_test_app() -> axum::Router {
+fn build_test_app(tenant_a_user: Uuid, tenant_b_user: Uuid) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
     let state = AppState::new(
@@ -261,13 +261,22 @@ fn build_test_app() -> axum::Router {
     )
     .with_api_key_repository(InMemoryApiKeyRepository::new());
 
+    let tenant_repository = InMemoryTenantRepository::new();
+    let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
+
+    let tenant_a = tenant_repository.seed_for_user(domain::UserId(tenant_a_user));
+    let tenant_b = tenant_repository.seed_for_user(domain::UserId(tenant_b_user));
+
+    tenant_membership_repository.seed_owner(tenant_a, domain::UserId(tenant_a_user));
+    tenant_membership_repository.seed_owner(tenant_b, domain::UserId(tenant_b_user));
+
     let auth_state = AuthState::new(
         NoopUserRepository,
         NoopPasswordHasher,
         NoopTokenService,
         UuidIdGenerator::new(),
-        InMemoryTenantRepository::new(),
-        InMemoryTenantMembershipRepository::new(),
+        tenant_repository,
+        tenant_membership_repository,
         InMemoryRegistrationTransaction::new(),
     );
 
@@ -289,9 +298,9 @@ async fn body_json(response: axum::response::Response) -> Value {
 /// "this id exists but isn't yours".
 #[tokio::test]
 async fn cross_tenant_cannot_delete_another_tenants_api_key() {
-    let app = build_test_app();
     let tenant_a_user = Uuid::new_v4();
     let tenant_b_user = Uuid::new_v4();
+    let app = build_test_app(tenant_a_user, tenant_b_user);
 
     let create_response = app
         .clone()
@@ -356,9 +365,9 @@ async fn cross_tenant_cannot_delete_another_tenants_api_key() {
 /// both tenants have created keys.
 #[tokio::test]
 async fn cross_tenant_api_key_listing_is_isolated() {
-    let app = build_test_app();
     let tenant_a_user = Uuid::new_v4();
     let tenant_b_user = Uuid::new_v4();
+    let app = build_test_app(tenant_a_user, tenant_b_user);
 
     for (user, name) in [(tenant_a_user, "A's key"), (tenant_b_user, "B's key")] {
         let response = app

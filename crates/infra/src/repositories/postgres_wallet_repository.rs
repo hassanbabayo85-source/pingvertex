@@ -66,6 +66,7 @@ struct TxRow {
     reference_type: Option<String>,
     reference_id: Option<String>,
     description: Option<String>,
+    usage_event_id: Option<Uuid>,
     created_at: DateTime<Utc>,
 }
 impl TxRow {
@@ -81,6 +82,7 @@ impl TxRow {
             reference_type: self.reference_type,
             reference_id: self.reference_id,
             description: self.description,
+            usage_event_id: self.usage_event_id,
             created_at: self.created_at,
         }
     }
@@ -120,7 +122,7 @@ impl ReservationRow {
     }
 }
 
-const TX_COLUMNS: &str = "id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,reference_type,reference_id,description,created_at";
+const TX_COLUMNS: &str = "id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,reference_type,reference_id,description,usage_event_id,created_at";
 
 fn validate_usage_for_reservation(
     event: &domain::UsageEvent,
@@ -576,7 +578,7 @@ impl WalletRepository for PostgresWalletRepository {
              VALUES($1,$2,$3,'DEBIT',$4,$5,$6,'credit_reservation',$7,$8)
              RETURNING {TX_COLUMNS}"
         );
-        let row = sqlx::query_as::<_, TxRow>(&q)
+        let mut row = sqlx::query_as::<_, TxRow>(&q)
             .bind(Uuid::new_v4())
             .bind(wallet.tenant_id)
             .bind(wallet.id)
@@ -589,6 +591,7 @@ impl WalletRepository for PostgresWalletRepository {
             .await?;
         if let Some(event) = usage_event {
             validate_usage_for_reservation(event, &r, wallet.tenant_id)?;
+            row.usage_event_id = Some(event.id);
             sqlx::query(
                 "INSERT INTO api_usage_events
                  (id,tenant_id,operation,units_requested,units_billed,unit_price,charge_units,currency,pricing_version,request_id,monitor_id,execution_id,status)
@@ -600,6 +603,11 @@ impl WalletRepository for PostgresWalletRepository {
             .bind(event.charge_units).bind(&event.currency).bind(event.pricing_version)
             .bind(&event.request_id).bind(event.monitor_id).bind(event.execution_id).bind(&event.status)
             .execute(&mut *tx).await?;
+            sqlx::query("UPDATE wallet_transactions SET usage_event_id=$2 WHERE id=$1 AND usage_event_id IS NULL")
+                .bind(row.id)
+                .bind(event.id)
+                .execute(&mut *tx)
+                .await?;
         }
         for audit in audit_entries {
             sqlx::query(
@@ -802,9 +810,11 @@ impl WalletRepository for PostgresWalletRepository {
             monthly_top_up_limit_units: i64,
             daily_spend_limit_units: Option<i64>,
             monthly_spend_limit_units: Option<i64>,
+            daily_usage_alert_threshold_units: Option<i64>,
+            monthly_usage_alert_threshold_units: Option<i64>,
             retry_limit: i32,
         }
-        let r = sqlx::query_as::<_, SettingsRow>("SELECT low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,retry_limit FROM wallet_settings WHERE tenant_id=$1").bind(tenant_id).fetch_optional(&self.pool).await?;
+        let r = sqlx::query_as::<_, SettingsRow>("SELECT low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,daily_usage_alert_threshold_units,monthly_usage_alert_threshold_units,retry_limit FROM wallet_settings WHERE tenant_id=$1").bind(tenant_id).fetch_optional(&self.pool).await?;
         Ok(r.map(|x| WalletSettings {
             tenant_id,
             low_balance_threshold_units: x.low_balance_threshold_units,
@@ -817,6 +827,8 @@ impl WalletRepository for PostgresWalletRepository {
             monthly_top_up_limit_units: x.monthly_top_up_limit_units,
             daily_spend_limit_units: x.daily_spend_limit_units,
             monthly_spend_limit_units: x.monthly_spend_limit_units,
+            daily_usage_alert_threshold_units: x.daily_usage_alert_threshold_units,
+            monthly_usage_alert_threshold_units: x.monthly_usage_alert_threshold_units,
             retry_limit: x.retry_limit,
         })
         .unwrap_or_else(|| WalletSettings {
@@ -832,13 +844,21 @@ impl WalletRepository for PostgresWalletRepository {
             || settings.daily_top_up_limit_units <= 0
             || settings.monthly_top_up_limit_units <= 0
             || settings.retry_limit < 0
+            || settings
+                .daily_usage_alert_threshold_units
+                .is_some_and(|v| v <= 0)
+            || settings
+                .monthly_usage_alert_threshold_units
+                .is_some_and(|v| v <= 0)
             || settings.critical_balance_threshold_units > settings.low_balance_threshold_units
         {
             return Err("invalid wallet settings".into());
         }
-        sqlx::query("INSERT INTO wallet_settings (tenant_id,low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,retry_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(tenant_id) DO UPDATE SET low_balance_threshold_units=EXCLUDED.low_balance_threshold_units,critical_balance_threshold_units=EXCLUDED.critical_balance_threshold_units,auto_top_up_enabled=EXCLUDED.auto_top_up_enabled,auto_top_up_threshold_units=EXCLUDED.auto_top_up_threshold_units,auto_top_up_amount_units=EXCLUDED.auto_top_up_amount_units,payment_method=EXCLUDED.payment_method,daily_top_up_limit_units=EXCLUDED.daily_top_up_limit_units,monthly_top_up_limit_units=EXCLUDED.monthly_top_up_limit_units,daily_spend_limit_units=EXCLUDED.daily_spend_limit_units,monthly_spend_limit_units=EXCLUDED.monthly_spend_limit_units,retry_limit=EXCLUDED.retry_limit,updated_at=now()").bind(settings.tenant_id).bind(settings.low_balance_threshold_units).bind(settings.critical_balance_threshold_units).bind(settings.auto_top_up_enabled).bind(settings.auto_top_up_threshold_units).bind(settings.auto_top_up_amount_units).bind(&settings.payment_method).bind(settings.daily_top_up_limit_units).bind(settings.monthly_top_up_limit_units)
+        sqlx::query("INSERT INTO wallet_settings (tenant_id,low_balance_threshold_units,critical_balance_threshold_units,auto_top_up_enabled,auto_top_up_threshold_units,auto_top_up_amount_units,payment_method,daily_top_up_limit_units,monthly_top_up_limit_units,daily_spend_limit_units,monthly_spend_limit_units,daily_usage_alert_threshold_units,monthly_usage_alert_threshold_units,retry_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(tenant_id) DO UPDATE SET low_balance_threshold_units=EXCLUDED.low_balance_threshold_units,critical_balance_threshold_units=EXCLUDED.critical_balance_threshold_units,auto_top_up_enabled=EXCLUDED.auto_top_up_enabled,auto_top_up_threshold_units=EXCLUDED.auto_top_up_threshold_units,auto_top_up_amount_units=EXCLUDED.auto_top_up_amount_units,payment_method=EXCLUDED.payment_method,daily_top_up_limit_units=EXCLUDED.daily_top_up_limit_units,monthly_top_up_limit_units=EXCLUDED.monthly_top_up_limit_units,daily_spend_limit_units=EXCLUDED.daily_spend_limit_units,monthly_spend_limit_units=EXCLUDED.monthly_spend_limit_units,daily_usage_alert_threshold_units=EXCLUDED.daily_usage_alert_threshold_units,monthly_usage_alert_threshold_units=EXCLUDED.monthly_usage_alert_threshold_units,retry_limit=EXCLUDED.retry_limit,updated_at=now()").bind(settings.tenant_id).bind(settings.low_balance_threshold_units).bind(settings.critical_balance_threshold_units).bind(settings.auto_top_up_enabled).bind(settings.auto_top_up_threshold_units).bind(settings.auto_top_up_amount_units).bind(&settings.payment_method).bind(settings.daily_top_up_limit_units).bind(settings.monthly_top_up_limit_units)
             .bind(settings.daily_spend_limit_units)
             .bind(settings.monthly_spend_limit_units)
+            .bind(settings.daily_usage_alert_threshold_units)
+            .bind(settings.monthly_usage_alert_threshold_units)
             .bind(settings.retry_limit).execute(&self.pool).await?;
         Ok(settings.clone())
     }
@@ -1061,6 +1081,8 @@ impl WalletRepository for PostgresWalletRepository {
             monthly_limit: i64,
             daily_spend_limit: Option<i64>,
             monthly_spend_limit: Option<i64>,
+            daily_usage_alert_threshold: Option<i64>,
+            monthly_usage_alert_threshold: Option<i64>,
             retry_limit: i32,
             daily: i64,
             monthly: i64,
@@ -1078,6 +1100,8 @@ impl WalletRepository for PostgresWalletRepository {
                     s.monthly_top_up_limit_units monthly_limit,
                     s.daily_spend_limit_units daily_spend_limit,
                     s.monthly_spend_limit_units monthly_spend_limit,
+                    s.daily_usage_alert_threshold_units daily_usage_alert_threshold,
+                    s.monthly_usage_alert_threshold_units monthly_usage_alert_threshold,
                     s.retry_limit,
                     COALESCE((SELECT SUM(amount_units) FROM wallet_auto_top_up_attempts a
                               WHERE a.tenant_id=w.tenant_id AND a.status='SUCCEEDED'
@@ -1114,6 +1138,8 @@ impl WalletRepository for PostgresWalletRepository {
                     monthly_top_up_limit_units: r.monthly_limit,
                     daily_spend_limit_units: r.daily_spend_limit,
                     monthly_spend_limit_units: r.monthly_spend_limit,
+                    daily_usage_alert_threshold_units: r.daily_usage_alert_threshold,
+                    monthly_usage_alert_threshold_units: r.monthly_usage_alert_threshold,
                     retry_limit: r.retry_limit,
                 },
                 daily_spend_units: r.daily,
@@ -1121,6 +1147,43 @@ impl WalletRepository for PostgresWalletRepository {
                 daily_attempts: r.attempts as i32,
             })
             .collect())
+    }
+
+    async fn adjust_balance(
+        &self,
+        tenant_id: Uuid,
+        delta_units: i64,
+        idempotency_key: &str,
+        description: Option<&str>,
+    ) -> WalletRepoResult<WalletTransaction> {
+        if delta_units == 0 || idempotency_key.trim().is_empty() {
+            return Err("adjustment amount and idempotency key are required".into());
+        }
+        let mut tx = self.pool.begin().await?;
+        let wallet=sqlx::query_as::<_,WalletRow>("SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at FROM user_wallets WHERE tenant_id=$1 FOR UPDATE").bind(tenant_id).fetch_one(&mut *tx).await?;
+        if let Some(row) = sqlx::query_as::<_, TxRow>(&format!(
+            "SELECT {TX_COLUMNS} FROM wallet_transactions WHERE tenant_id=$1 AND idempotency_key=$2"
+        ))
+        .bind(tenant_id)
+        .bind(idempotency_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(row.into_domain());
+        }
+        let reserved:i64=sqlx::query_scalar("SELECT COALESCE(SUM(amount_units),0) FROM credit_reservations WHERE wallet_id=$1 AND status='PENDING' AND expires_at>now()").bind(wallet.id).fetch_one(&mut *tx).await?;
+        let new_balance = wallet
+            .balance_units
+            .checked_add(delta_units)
+            .ok_or("wallet balance overflow")?;
+        if new_balance < 0 || new_balance < reserved {
+            return Err("adjustment would reduce balance below available funds".into());
+        }
+        let txrow=sqlx::query_as::<_,TxRow>("INSERT INTO wallet_transactions(id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,description) VALUES($1,$2,$3,'ADJUSTMENT',$4,$5,$6,$7) RETURNING id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,reference_type,reference_id,description,NULL::uuid AS usage_event_id,created_at").bind(Uuid::new_v4()).bind(tenant_id).bind(wallet.id).bind(delta_units).bind(new_balance).bind(idempotency_key).bind(description).fetch_one(&mut *tx).await?;
+        sqlx::query("UPDATE user_wallets SET balance_units=$2,billing_status=CASE WHEN $2>0 THEN 'ACTIVE' ELSE billing_status END,updated_at=now() WHERE id=$1").bind(wallet.id).bind(new_balance).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(txrow.into_domain())
     }
 
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {
@@ -1550,7 +1613,7 @@ impl WalletRepository for PostgresWalletRepository {
                 SELECT id FROM wallet_notifications
                 WHERE email_sent_at IS NULL
                   AND (email_processing_at IS NULL OR email_processing_at < now() - interval '10 minutes')
-                  AND event_type IN ('WARNING','CRITICAL','BLOCKED','TOP_UP_SUCCESS','REFUND_SUCCESS')
+                  AND event_type IN ('WARNING','CRITICAL','BLOCKED','TOP_UP_SUCCESS','REFUND_SUCCESS','DAILY_USAGE','MONTHLY_USAGE')
                 ORDER BY created_at ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
@@ -1582,5 +1645,77 @@ impl WalletRepository for PostgresWalletRepository {
         let r=sqlx::query("UPDATE wallet_notifications SET email_sent_at=now(),email_processing_at=NULL WHERE id=$1 AND email_sent_at IS NULL")
             .bind(id).execute(&self.pool).await?;
         Ok(r.rows_affected() == 1)
+    }
+    async fn record_usage_threshold_notifications(&self, limit: u32) -> WalletRepoResult<u64> {
+        let cap = i64::from(limit.clamp(1, 100));
+        let mut total = 0u64;
+        let daily = sqlx::query(
+            r#"WITH usage AS (
+                   SELECT e.tenant_id, SUM(e.charge_units)::numeric AS usage_units
+                   FROM api_usage_events e
+                   WHERE e.status='CAPTURED'
+                     AND e.created_at >= date_trunc('day', now())
+                     AND e.created_at < date_trunc('day', now()) + interval '1 day'
+                   GROUP BY e.tenant_id
+               ), candidates AS (
+                   SELECT w.tenant_id, u.usage_units
+                   FROM usage u
+                   JOIN wallet_settings s ON s.tenant_id=u.tenant_id
+                   JOIN user_wallets w ON w.tenant_id=u.tenant_id
+                   WHERE s.daily_usage_alert_threshold_units IS NOT NULL
+                     AND s.daily_usage_alert_threshold_units > 0
+                     AND u.usage_units >= s.daily_usage_alert_threshold_units
+                     AND NOT EXISTS (
+                         SELECT 1 FROM wallet_notifications n
+                         WHERE n.tenant_id=u.tenant_id AND n.event_type='DAILY_USAGE'
+                           AND n.dedupe_key='daily:' || to_char(current_date, 'YYYY-MM-DD')
+                     )
+                   ORDER BY u.usage_units DESC
+                   LIMIT $1
+               )
+               INSERT INTO wallet_notifications(id,tenant_id,event_type,dedupe_key,message)
+               SELECT gen_random_uuid(), tenant_id, 'DAILY_USAGE',
+                      'daily:' || to_char(current_date, 'YYYY-MM-DD'),
+                      'Daily PAYG usage has reached ' || to_char(ROUND(usage_units / 1000000.0, 2), 'FM999999990.00') || ' USD.'
+               FROM candidates
+               ON CONFLICT (tenant_id,event_type,dedupe_key) DO NOTHING"#,
+        )
+        .bind(cap).execute(&self.pool).await?;
+        total += daily.rows_affected();
+
+        let monthly = sqlx::query(
+            r#"WITH usage AS (
+                   SELECT e.tenant_id, SUM(e.charge_units)::numeric AS usage_units
+                   FROM api_usage_events e
+                   WHERE e.status='CAPTURED'
+                     AND e.created_at >= date_trunc('month', now())
+                     AND e.created_at < date_trunc('month', now()) + interval '1 month'
+                   GROUP BY e.tenant_id
+               ), candidates AS (
+                   SELECT w.tenant_id, u.usage_units
+                   FROM usage u
+                   JOIN wallet_settings s ON s.tenant_id=u.tenant_id
+                   JOIN user_wallets w ON w.tenant_id=u.tenant_id
+                   WHERE s.monthly_usage_alert_threshold_units IS NOT NULL
+                     AND s.monthly_usage_alert_threshold_units > 0
+                     AND u.usage_units >= s.monthly_usage_alert_threshold_units
+                     AND NOT EXISTS (
+                         SELECT 1 FROM wallet_notifications n
+                         WHERE n.tenant_id=u.tenant_id AND n.event_type='MONTHLY_USAGE'
+                           AND n.dedupe_key='monthly:' || to_char(date_trunc('month', now()), 'YYYY-MM')
+                     )
+                   ORDER BY u.usage_units DESC
+                   LIMIT $1
+               )
+               INSERT INTO wallet_notifications(id,tenant_id,event_type,dedupe_key,message)
+               SELECT gen_random_uuid(), tenant_id, 'MONTHLY_USAGE',
+                      'monthly:' || to_char(date_trunc('month', now()), 'YYYY-MM'),
+                      'Monthly PAYG usage has reached ' || to_char(ROUND(usage_units / 1000000.0, 2), 'FM999999990.00') || ' USD.'
+               FROM candidates
+               ON CONFLICT (tenant_id,event_type,dedupe_key) DO NOTHING"#,
+        )
+        .bind(cap).execute(&self.pool).await?;
+        total += monthly.rows_affected();
+        Ok(total)
     }
 }

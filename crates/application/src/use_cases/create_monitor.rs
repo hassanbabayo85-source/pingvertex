@@ -270,6 +270,9 @@ where
 
         let mut monitor = builder.try_build()?;
 
+        if !request.regions.is_empty() {
+            monitor.regions = request.regions;
+        }
         monitor.is_public = request.is_public;
         monitor.ssl_check_enabled = request.ssl_check_enabled;
         monitor.ssl_expiry_warning_days = request.ssl_expiry_warning_days;
