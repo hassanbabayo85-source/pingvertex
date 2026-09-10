@@ -5,6 +5,13 @@ pub struct WorkerConfig {
     pub database_url: String,
     pub lease_seconds: u64,
     pub max_concurrent_checks: usize,
+    /// Maximum number of concurrently leased monitor checks for one tenant.
+    pub scheduler_max_concurrency_per_tenant: usize,
+    /// Maximum number of due monitor claims returned for one tenant per claim cycle.
+    pub scheduler_due_claim_limit_per_tenant: usize,
+    /// Maximum deterministic seconds added to the next schedule to spread
+    /// monitors with identical due timestamps.
+    pub scheduler_deterministic_spread_seconds: u64,
     /// Maximum number of tenants processed concurrently during a retention
     /// sweep.
     pub retention_max_concurrent_tenants: usize,
@@ -29,6 +36,9 @@ pub enum WorkerConfigError {
     MissingDatabaseUrl,
     InvalidLeaseSeconds(String),
     InvalidMaxConcurrentChecks(String),
+    InvalidSchedulerMaxConcurrencyPerTenant(String),
+    InvalidSchedulerDueClaimLimitPerTenant(String),
+    InvalidSchedulerDeterministicSpreadSeconds(String),
     InvalidRetentionMaxConcurrentTenants(String),
     InvalidIncidentFailureThreshold(String),
     InvalidIncidentRecoveryThreshold(String),
@@ -47,6 +57,18 @@ impl std::fmt::Display for WorkerConfigError {
             Self::InvalidMaxConcurrentChecks(v) => write!(
                 f,
                 "WORKER_MAX_CONCURRENT_CHECKS must be a positive integer, got: {v}"
+            ),
+            Self::InvalidSchedulerMaxConcurrencyPerTenant(v) => write!(
+                f,
+                "SCHEDULER_MAX_CONCURRENCY_PER_TENANT must be a positive integer, got: {v}"
+            ),
+            Self::InvalidSchedulerDueClaimLimitPerTenant(v) => write!(
+                f,
+                "SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT must be a positive integer, got: {v}"
+            ),
+            Self::InvalidSchedulerDeterministicSpreadSeconds(v) => write!(
+                f,
+                "SCHEDULER_DETERMINISTIC_SPREAD_SECONDS must be a non-negative integer, got: {v}"
             ),
             Self::InvalidRetentionMaxConcurrentTenants(v) => write!(
                 f,
@@ -85,6 +107,17 @@ fn parse_env_u64(key: &str, default: u64) -> Result<u64, WorkerConfigError> {
                     Ok(n)
                 }
             }),
+        None => Ok(default),
+    }
+}
+
+fn parse_env_u64_nonnegative(
+    key: &str,
+    default: u64,
+    err: impl Fn(String) -> WorkerConfigError,
+) -> Result<u64, WorkerConfigError> {
+    match non_empty_env(key) {
+        Some(v) => v.parse::<u64>().map_err(|_| err(v.clone())),
         None => Ok(default),
     }
 }
@@ -131,6 +164,21 @@ impl WorkerConfig {
             10,
             WorkerConfigError::InvalidMaxConcurrentChecks,
         )?;
+        let scheduler_max_concurrency_per_tenant = parse_env_usize(
+            "SCHEDULER_MAX_CONCURRENCY_PER_TENANT",
+            4,
+            WorkerConfigError::InvalidSchedulerMaxConcurrencyPerTenant,
+        )?;
+        let scheduler_due_claim_limit_per_tenant = parse_env_usize(
+            "SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT",
+            4,
+            WorkerConfigError::InvalidSchedulerDueClaimLimitPerTenant,
+        )?;
+        let scheduler_deterministic_spread_seconds = parse_env_u64_nonnegative(
+            "SCHEDULER_DETERMINISTIC_SPREAD_SECONDS",
+            5,
+            WorkerConfigError::InvalidSchedulerDeterministicSpreadSeconds,
+        )?;
         let retention_max_concurrent_tenants = parse_env_usize(
             "RETENTION_MAX_CONCURRENT_TENANTS",
             4,
@@ -152,6 +200,9 @@ impl WorkerConfig {
             database_url,
             lease_seconds,
             max_concurrent_checks,
+            scheduler_max_concurrency_per_tenant,
+            scheduler_due_claim_limit_per_tenant,
+            scheduler_deterministic_spread_seconds,
             retention_max_concurrent_tenants,
             incident_failure_threshold,
             incident_recovery_threshold,
@@ -184,6 +235,9 @@ mod tests {
             env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db");
             env::remove_var("WORKER_LEASE_SECONDS");
             env::remove_var("WORKER_MAX_CONCURRENT_CHECKS");
+            env::remove_var("SCHEDULER_MAX_CONCURRENCY_PER_TENANT");
+            env::remove_var("SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT");
+            env::remove_var("SCHEDULER_DETERMINISTIC_SPREAD_SECONDS");
             env::remove_var("RETENTION_MAX_CONCURRENT_TENANTS");
             env::remove_var("INCIDENT_FAILURE_THRESHOLD");
             env::remove_var("INCIDENT_RECOVERY_THRESHOLD");
@@ -196,6 +250,9 @@ mod tests {
         );
         assert_eq!(config.lease_seconds, 60);
         assert_eq!(config.max_concurrent_checks, 10);
+        assert_eq!(config.scheduler_max_concurrency_per_tenant, 4);
+        assert_eq!(config.scheduler_due_claim_limit_per_tenant, 4);
+        assert_eq!(config.scheduler_deterministic_spread_seconds, 5);
         assert_eq!(config.retention_max_concurrent_tenants, 4);
         assert_eq!(config.incident_failure_threshold, 3);
         assert_eq!(config.incident_recovery_threshold, 2);
@@ -238,4 +295,25 @@ mod tests {
             env::remove_var("INCIDENT_FAILURE_THRESHOLD");
         }
     }
+
+    #[test]
+    #[serial(worker_database_url_env)]
+    fn accepts_scheduler_backpressure_overrides() {
+        unsafe {
+            env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/db");
+            env::set_var("SCHEDULER_MAX_CONCURRENCY_PER_TENANT", "7");
+            env::set_var("SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT", "11");
+            env::set_var("SCHEDULER_DETERMINISTIC_SPREAD_SECONDS", "19");
+        }
+        let config = WorkerConfig::try_from_env().expect("expected valid config");
+        assert_eq!(config.scheduler_max_concurrency_per_tenant, 7);
+        assert_eq!(config.scheduler_due_claim_limit_per_tenant, 11);
+        assert_eq!(config.scheduler_deterministic_spread_seconds, 19);
+        unsafe {
+            env::remove_var("SCHEDULER_MAX_CONCURRENCY_PER_TENANT");
+            env::remove_var("SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT");
+            env::remove_var("SCHEDULER_DETERMINISTIC_SPREAD_SECONDS");
+        }
+    }
+
 }

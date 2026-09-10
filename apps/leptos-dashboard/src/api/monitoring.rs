@@ -473,13 +473,32 @@ pub struct BulkImportError {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BulkImportPricingVersion {
+    pub operation: String,
+    pub account_type: Option<String>,
+    pub monitor_kind: String,
+    pub region: String,
+    pub quantity: u64,
+    pub unit_price: i64,
+    pub estimated_charge_units: i64,
+    pub currency: String,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BulkImportPreview {
     pub total_rows: usize,
     pub valid_rows: usize,
     pub invalid_rows: usize,
+    pub duplicate_rows: usize,
+    pub forecast_days: u32,
     pub estimated_execution_quantity: u64,
     pub estimated_payg_cost_units: i64,
     pub currency: String,
+    pub pricing_version: Option<i64>,
+    pub pricing_versions: Vec<BulkImportPricingVersion>,
+    pub pricing_snapshot_hash: String,
+    pub payg_eligible: bool,
     pub errors: Vec<BulkImportError>,
 }
 
@@ -493,6 +512,7 @@ pub struct BulkImportJob {
     pub processed_rows: i32,
     pub created_rows: i32,
     pub failed_rows: i32,
+    pub skipped_rows: i32,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -517,6 +537,7 @@ pub async fn bulk_import_confirm(
     file_name: String,
     forecast_days: u32,
     idempotency_key: String,
+    pricing_snapshot_hash: String,
 ) -> Result<BulkImportConfirmResponse, String> {
     let form = web_sys::FormData::new().map_err(|_| "Could not create upload form.".to_owned())?;
     let array = js_sys::Uint8Array::from(bytes.as_slice());
@@ -531,6 +552,7 @@ pub async fn bulk_import_confirm(
     let url = format!("/api/v1/monitors/bulk-import/confirm?forecast_days={forecast_days}");
     let response = gloo_net::http::Request::post(&url)
         .header("Idempotency-Key", &idempotency_key)
+        .header("X-Bulk-Pricing-Snapshot", &pricing_snapshot_hash)
         .credentials(web_sys::RequestCredentials::Include)
         .body(form)
         .map_err(|error| error.to_string())?
@@ -545,6 +567,19 @@ pub async fn bulk_import_confirm(
 
 pub async fn bulk_import_job(id: &str) -> Result<BulkImportJob, String> {
     client::get_json(&format!("/monitors/bulk-import/jobs/{id}"))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+
+pub async fn bulk_import_pause(id: &str) -> Result<BulkImportJob, String> {
+    client::post_json(&format!("/monitors/bulk-import/jobs/{id}/pause"), &serde_json::json!({}))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+pub async fn bulk_import_resume(id: &str) -> Result<BulkImportJob, String> {
+    client::post_json(&format!("/monitors/bulk-import/jobs/{id}/resume"), &serde_json::json!({}))
         .await
         .map_err(|error| error.to_string())
 }

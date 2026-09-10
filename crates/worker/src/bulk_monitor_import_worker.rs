@@ -4,14 +4,19 @@ use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
     ports::{
         AuditLogEntryRepository, BulkMonitorImportRepository, MonitorIntervalPolicyRepository,
-        MonitorRepository, TenantMembershipRepository, WalletRepository,
+        MonitorRepository, PricingConfigRepository, SubscriptionRepository, TenantMembershipRepository,
+        TenantRepository, WalletRepository,
     },
     use_cases::{CreateMonitorError, CreateMonitorUseCase},
 };
 use chrono::{Duration as ChronoDuration, Utc};
-use domain::shared::{
-    ids::{MonitorId, TenantId, UserId},
-    types::{AuthenticatedUser, Permission, TenantContext},
+use domain::{
+    enums::{PlanTier, SubscriptionStatus},
+    shared::{
+        ids::{MonitorId, TenantId, UserId},
+        types::{AuthenticatedUser, Permission, TenantContext},
+    },
+    TenantStatus,
 };
 use infra::UuidIdGenerator;
 use rand::{Rng, rng};
@@ -25,6 +30,9 @@ pub struct BulkMonitorImportWorker {
     audits: Arc<dyn AuditLogEntryRepository>,
     wallets: Arc<dyn WalletRepository>,
     interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
+    tenant_repository: Arc<dyn TenantRepository>,
+    subscription_repository: Arc<dyn SubscriptionRepository>,
+    pricing_config_repository: Arc<dyn PricingConfigRepository>,
     worker_id: Uuid,
     poll_interval: Duration,
     lease_duration: Duration,
@@ -32,6 +40,7 @@ pub struct BulkMonitorImportWorker {
     max_row_attempts: i32,
     batch_pause: Duration,
     jitter_ms: u64,
+    pause_check_rows: usize,
 }
 
 impl BulkMonitorImportWorker {
@@ -42,6 +51,9 @@ impl BulkMonitorImportWorker {
         audits: Arc<dyn AuditLogEntryRepository>,
         wallets: Arc<dyn WalletRepository>,
         interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
+        tenant_repository: Arc<dyn TenantRepository>,
+        subscription_repository: Arc<dyn SubscriptionRepository>,
+        pricing_config_repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         Self {
             jobs,
@@ -50,6 +62,9 @@ impl BulkMonitorImportWorker {
             audits,
             wallets,
             interval_policies,
+            tenant_repository,
+            subscription_repository,
+            pricing_config_repository,
             worker_id: Uuid::new_v4(),
             poll_interval: Duration::from_secs(env_u64("BULK_IMPORT_POLL_SECONDS", 2, 1, 60)),
             lease_duration: Duration::from_secs(env_u64("BULK_IMPORT_LEASE_SECONDS", 60, 15, 600)),
@@ -62,6 +77,7 @@ impl BulkMonitorImportWorker {
                 5_000,
             )),
             jitter_ms: env_u64("BULK_IMPORT_JITTER_MS", 250, 0, 5_000),
+            pause_check_rows: env_u64("BULK_IMPORT_PAUSE_CHECK_ROWS", 25, 1, 500) as usize,
         }
     }
 
@@ -138,7 +154,19 @@ impl BulkMonitorImportWorker {
                 )
                 .await?;
             if !lease_ok {
-                return Err("bulk import job lease was lost".into());
+                return Ok(());
+            }
+
+            let tenant = self
+                .tenant_repository
+                .find_by_id(tenant_id)
+                .await?
+                .ok_or("bulk import tenant no longer exists")?;
+            if tenant.status != TenantStatus::Active {
+                self.jobs
+                    .pause_job(job.id, job.tenant_id)
+                    .await?;
+                return Ok(());
             }
 
             let rows = self
@@ -169,6 +197,23 @@ impl BulkMonitorImportWorker {
                 continue;
             }
 
+            if !self
+                .jobs
+                .renew_job_lease(
+                    job.id,
+                    self.worker_id,
+                    Utc::now() + chrono_duration(self.lease_duration),
+                )
+                .await?
+            {
+                for row in rows {
+                    self.jobs
+                        .retry_row(row.id, "bulk import paused or lease ownership changed", Utc::now())
+                        .await?;
+                }
+                return Ok(());
+            }
+
             let membership = self
                 .memberships
                 .find_by_tenant_and_user(tenant_id, actor_user_id)
@@ -176,8 +221,55 @@ impl BulkMonitorImportWorker {
             let can_create = membership.as_ref().is_some_and(|membership| {
                 membership.role.has_permission(Permission::CreateMonitor)
             });
+            let entitlement = self.resolve_entitlement_policy(tenant_id).await?;
+            let monitor_count = self
+                .monitors
+                .find_all_for_tenant(tenant_id)
+                .await?
+                .len() as u32;
+            let wallet_activated = self
+                .wallets
+                .find(tenant_id.0)
+                .await?
+                .is_some_and(|wallet| wallet.payg_activated_at.is_some());
+            let free_entitled = entitlement.is_free_plan
+                && !wallet_activated
+                && monitor_count <= entitlement.plan.max_monitors;
 
-            for row in rows {
+            for (index, row) in rows.into_iter().enumerate() {
+                if index % self.pause_check_rows == 0 {
+                    let lease_alive = self
+                        .jobs
+                        .renew_job_lease(
+                            job.id,
+                            self.worker_id,
+                            Utc::now() + chrono_duration(self.lease_duration),
+                        )
+                        .await?;
+                    let tenant_active = self
+                        .tenant_repository
+                        .find_by_id(tenant_id)
+                        .await?
+                        .is_some_and(|tenant| tenant.status == domain::TenantStatus::Active);
+                    if !lease_alive || !tenant_active {
+                        if !tenant_active {
+                            self.jobs.pause_job(job.id, job.tenant_id).await?;
+                        }
+                        self.jobs
+                            .retry_row(
+                                row.id,
+                                if tenant_active {
+                                    "bulk import paused by operator"
+                                } else {
+                                    "tenant is suspended; bulk import paused safely"
+                                },
+                                Utc::now(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                }
+
                 if !can_create {
                     self.jobs
                         .fail_row(
@@ -218,6 +310,19 @@ impl BulkMonitorImportWorker {
                         }
                     };
 
+                if free_entitled && payload.interval_seconds < entitlement.plan.min_check_interval_seconds {
+                    self.jobs
+                        .skip_row(
+                            row.id,
+                            &format!(
+                                "free entitlement requires an interval of at least {} seconds",
+                                entitlement.plan.min_check_interval_seconds
+                            ),
+                        )
+                        .await?;
+                    continue;
+                }
+
                 let membership = membership
                     .as_ref()
                     .expect("membership checked before row processing");
@@ -233,7 +338,10 @@ impl BulkMonitorImportWorker {
                     self.audits.clone(),
                 )
                 .with_wallet_repository(self.wallets.clone())
-                .with_interval_policy_repository(self.interval_policies.clone());
+                .with_interval_policy_repository(self.interval_policies.clone())
+                .with_subscription_repository(self.subscription_repository.clone())
+                .with_pricing_config_repository(self.pricing_config_repository.clone())
+                .with_tenant_repository(self.tenant_repository.clone());
 
                 match create
                     .execute_with_monitor_id(
@@ -300,6 +408,48 @@ impl BulkMonitorImportWorker {
     }
 }
 
+struct TenantEntitlementPolicy {
+    plan: domain::Plan,
+    is_free_plan: bool,
+}
+
+impl BulkMonitorImportWorker {
+    async fn resolve_entitlement_policy(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<TenantEntitlementPolicy, Box<dyn Error + Send + Sync>> {
+        let plan = application::use_cases::ResolveEntitlementsUseCase::new(
+            self.subscription_repository.clone(),
+        )
+        .with_pricing_config_repository(self.pricing_config_repository.clone())
+        .execute(application::queries::ResolveEntitlements { tenant_id })
+        .await?;
+
+        let tier = if let Some(override_tier) = self
+            .subscription_repository
+            .find_test_plan_override(tenant_id)
+            .await?
+        {
+            override_tier
+        } else {
+            match self.subscription_repository.find_by_tenant_id(tenant_id).await? {
+                Some(subscription) => match subscription.status {
+                    SubscriptionStatus::Expired | SubscriptionStatus::Canceled => PlanTier::Free,
+                    SubscriptionStatus::Trialing
+                    | SubscriptionStatus::Active
+                    | SubscriptionStatus::PastDue => subscription.plan_tier,
+                },
+                None => PlanTier::Free,
+            }
+        };
+
+        Ok(TenantEntitlementPolicy {
+            plan,
+            is_free_plan: tier == PlanTier::Free,
+        })
+    }
+}
+
 fn is_permanent(error: &CreateMonitorError) -> bool {
     matches!(
         error,
@@ -307,6 +457,7 @@ fn is_permanent(error: &CreateMonitorError) -> bool {
             | CreateMonitorError::QuotaExceeded { .. }
             | CreateMonitorError::TooManyAssertions { .. }
             | CreateMonitorError::IntervalBelowPlanMinimum { .. }
+            | CreateMonitorError::TenantSuspended
     )
 }
 

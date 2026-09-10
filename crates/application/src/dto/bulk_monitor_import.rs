@@ -36,7 +36,12 @@ pub struct BulkMonitorImportError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BulkMonitorImportPricingVersion {
     pub operation: String,
+    pub account_type: Option<domain::AccountType>,
+    pub monitor_kind: domain::MonitorKind,
+    pub region: domain::RegionCode,
+    pub quantity: u64,
     pub unit_price: i64,
+    pub estimated_charge_units: i64,
     pub currency: String,
     pub version: i64,
 }
@@ -57,6 +62,7 @@ pub struct BulkMonitorImportPreview {
     /// `pricing_versions` is authoritative.
     pub pricing_version: Option<i64>,
     pub pricing_versions: Vec<BulkMonitorImportPricingVersion>,
+    pub pricing_snapshot_hash: String,
     pub payg_eligible: bool,
     pub errors: Vec<BulkMonitorImportError>,
 }

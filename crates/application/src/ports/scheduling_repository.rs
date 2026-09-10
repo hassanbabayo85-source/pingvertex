@@ -21,9 +21,6 @@ pub struct ClaimedOneTimeCheck {
 pub struct ClaimedMonitor {
     pub monitor: Monitor,
     pub claimed_at: DateTime<Utc>,
-    /// Free monitoring applies only while the tenant has <=10 monitors,
-    /// has never activated PAYG, and this monitor runs at the 5-minute minimum.
-    pub free_entitled: bool,
     pub execution_id: Uuid,
 }
 impl Deref for ClaimedMonitor {
@@ -56,10 +53,44 @@ pub trait SchedulingRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<ClaimedMonitor>>;
 
+    /// Claims due monitors with a hard database-enforced per-tenant cap.
+    /// Implementations may fall back to the legacy claim method when no cap
+    /// is supplied, but production scheduling uses this method.
+    async fn claim_due_monitors_with_limits(
+        &self,
+        limit: u32,
+        lease_owner: Uuid,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<ClaimedMonitor>> {
+        let _ = (max_concurrency_per_tenant, due_claim_limit_per_tenant);
+        self.claim_due_monitors(limit, lease_owner, lease_duration, now)
+            .await
+    }
+
+    /// Returns the number of active monitors that are currently due and
+    /// eligible for scheduling. This is exposed as a backpressure metric.
+    async fn due_monitor_count(&self, _now: DateTime<Utc>) -> RepoResult<u64> {
+        Ok(0)
+    }
+
     /// Clears the lease fields for `monitor_id` and advances
     /// `next_due_at` by `interval_seconds` from the database's `now()`.
     /// Called after an execution attempt finishes (success or error).
     async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()>;
+
+    /// Completes a claim and applies a deterministic, bounded schedule spread.
+    async fn complete_claim_with_spread(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        spread_seconds: u64,
+    ) -> RepoResult<()> {
+        let _ = spread_seconds;
+        self.complete_claim(monitor_id, lease_owner).await
+    }
 
     /// Marks all eligible monitors in a tenant due immediately without
     /// disturbing an active lease. The worker scheduler will claim them on
@@ -138,8 +169,44 @@ where
             .await
     }
 
+    async fn claim_due_monitors_with_limits(
+        &self,
+        limit: u32,
+        lease_owner: Uuid,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<ClaimedMonitor>> {
+        (**self)
+            .claim_due_monitors_with_limits(
+                limit,
+                lease_owner,
+                lease_duration,
+                now,
+                max_concurrency_per_tenant,
+                due_claim_limit_per_tenant,
+            )
+            .await
+    }
+
+    async fn due_monitor_count(&self, now: DateTime<Utc>) -> RepoResult<u64> {
+        (**self).due_monitor_count(now).await
+    }
+
     async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()> {
         (**self).complete_claim(monitor_id, lease_owner).await
+    }
+
+    async fn complete_claim_with_spread(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        spread_seconds: u64,
+    ) -> RepoResult<()> {
+        (**self)
+            .complete_claim_with_spread(monitor_id, lease_owner, spread_seconds)
+            .await
     }
 
     async fn request_immediate_checks(

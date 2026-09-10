@@ -7,7 +7,8 @@ use crate::{
     dto::CreateMonitorRequest,
     ports::{
         AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository, MonitorRepository,
-        PricingConfigRepository, QuotaCheckOutcome, SubscriptionRepository, WalletRepository,
+        PricingConfigRepository, QuotaCheckOutcome, SubscriptionRepository, TenantRepository,
+        WalletRepository,
     },
     queries::ResolveEntitlements,
     use_cases::ResolveEntitlementsUseCase,
@@ -31,6 +32,7 @@ pub enum CreateMonitorError {
     QuotaExceeded { limit: usize },
     TooManyAssertions { limit: usize },
     IntervalBelowPlanMinimum { min: u32 },
+    TenantSuspended,
     Other(Box<dyn Error + Send + Sync>),
 }
 
@@ -59,6 +61,7 @@ impl fmt::Display for CreateMonitorError {
                     "interval must be at least {min} seconds for the current billing eligibility state"
                 )
             }
+            Self::TenantSuspended => write!(f, "tenant is suspended"),
             Self::Other(err) => write!(f, "{err}"),
         }
     }
@@ -71,6 +74,7 @@ impl Error for CreateMonitorError {
             Self::QuotaExceeded { .. } => None,
             Self::TooManyAssertions { .. } => None,
             Self::IntervalBelowPlanMinimum { .. } => None,
+            Self::TenantSuspended => None,
             Self::Other(err) => Some(err.as_ref()),
         }
     }
@@ -84,6 +88,7 @@ pub struct CreateMonitorUseCase<R, G> {
     interval_policy_repository: Option<Arc<dyn MonitorIntervalPolicyRepository>>,
     subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
     pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
+    tenant_repository: Option<Arc<dyn TenantRepository>>,
 }
 
 impl<R, G> CreateMonitorUseCase<R, G>
@@ -104,6 +109,7 @@ where
             interval_policy_repository: None,
             subscription_repository: None,
             pricing_config_repository: None,
+            tenant_repository: None,
         }
     }
 
@@ -133,6 +139,14 @@ where
         repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         self.pricing_config_repository = Some(repository);
+        self
+    }
+
+    pub fn with_tenant_repository(
+        mut self,
+        repository: Arc<dyn TenantRepository>,
+    ) -> Self {
+        self.tenant_repository = Some(repository);
         self
     }
 
@@ -167,6 +181,17 @@ where
 
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
+
+        if let Some(tenant_repository) = &self.tenant_repository {
+            let tenant = tenant_repository
+                .find_by_id(tenant_id)
+                .await
+                .map_err(CreateMonitorError::Other)?
+                .ok_or(CreateMonitorError::TenantSuspended)?;
+            if tenant.status != domain::TenantStatus::Active {
+                return Err(CreateMonitorError::TenantSuspended);
+            }
+        }
 
         let funded = if let Some(wallets) = &self.wallet_repository {
             let wallet = wallets

@@ -6,11 +6,17 @@ use std::{
 
 use rand::{Rng, rng};
 
-use application::ports::SchedulingRepository;
+use application::ports::{
+    MonitorRepository, PricingConfigRepository, SchedulingRepository, SubscriptionRepository,
+    TenantRepository, WalletRepository,
+};
 use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
 use chrono::Utc;
-use domain::Monitor;
+use domain::{
+    Monitor, TenantStatus,
+    enums::{PlanTier, SubscriptionStatus},
+};
 use tokio::{sync::Mutex, task::JoinSet};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -128,6 +134,14 @@ pub struct DurableScheduler<R, E> {
     execution_limiter: Arc<Mutex<Instant>>,
     execution_retry_limit: u32,
     execution_retry_base: Duration,
+    tenant_repository: Option<Arc<dyn TenantRepository>>,
+    monitor_repository: Option<Arc<dyn MonitorRepository>>,
+    wallet_repository: Option<Arc<dyn WalletRepository>>,
+    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
+    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
+    max_concurrency_per_tenant: usize,
+    due_claim_limit_per_tenant: usize,
+    deterministic_spread_seconds: u64,
 }
 
 impl<R, E> DurableScheduler<R, E>
@@ -179,6 +193,14 @@ where
                     .unwrap_or(250)
                     .min(10_000),
             ),
+            tenant_repository: None,
+            monitor_repository: None,
+            wallet_repository: None,
+            subscription_repository: None,
+            pricing_config_repository: None,
+            max_concurrency_per_tenant: 4,
+            due_claim_limit_per_tenant: 4,
+            deterministic_spread_seconds: 5,
         }
     }
 
@@ -188,6 +210,100 @@ where
     pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
         self.metering = Some(metering);
         self
+    }
+
+    pub fn with_tenant_repository(
+        mut self,
+        tenant_repository: Arc<dyn TenantRepository>,
+        subscription_repository: Arc<dyn SubscriptionRepository>,
+        pricing_config_repository: Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.tenant_repository = Some(tenant_repository);
+        self.subscription_repository = Some(subscription_repository);
+        self.pricing_config_repository = Some(pricing_config_repository);
+        self
+    }
+
+    pub fn with_entitlement_repositories(
+        mut self,
+        monitor_repository: Arc<dyn MonitorRepository>,
+        wallet_repository: Arc<dyn WalletRepository>,
+    ) -> Self {
+        self.monitor_repository = Some(monitor_repository);
+        self.wallet_repository = Some(wallet_repository);
+        self
+    }
+
+    pub fn with_backpressure(
+        mut self,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> Self {
+        self.max_concurrency_per_tenant = max_concurrency_per_tenant.max(1);
+        self.due_claim_limit_per_tenant = due_claim_limit_per_tenant.max(1);
+        self
+    }
+
+    pub fn with_deterministic_spread(mut self, spread_seconds: u64) -> Self {
+        self.deterministic_spread_seconds = spread_seconds.min(300);
+        self
+    }
+
+    async fn resolve_free_entitlement(
+        &self,
+        tenant_id: domain::TenantId,
+    ) -> Result<Option<domain::Plan>> {
+        let (Some(monitor_repository), Some(wallet_repository), Some(subscription_repository), Some(pricing_config_repository)) = (
+            &self.monitor_repository,
+            &self.wallet_repository,
+            &self.subscription_repository,
+            &self.pricing_config_repository,
+        ) else {
+            return Ok(None);
+        };
+
+        let plan = application::use_cases::ResolveEntitlementsUseCase::new(
+            subscription_repository.clone(),
+        )
+        .with_pricing_config_repository(pricing_config_repository.clone())
+        .execute(application::queries::ResolveEntitlements { tenant_id })
+        .await?;
+
+        let tier = if let Some(override_tier) = subscription_repository
+            .find_test_plan_override(tenant_id)
+            .await?
+        {
+            override_tier
+        } else {
+            match subscription_repository.find_by_tenant_id(tenant_id).await? {
+                Some(subscription) => match subscription.status {
+                    SubscriptionStatus::Expired | SubscriptionStatus::Canceled => PlanTier::Free,
+                    SubscriptionStatus::Trialing
+                    | SubscriptionStatus::Active
+                    | SubscriptionStatus::PastDue => subscription.plan_tier,
+                },
+                None => PlanTier::Free,
+            }
+        };
+
+        if tier != PlanTier::Free {
+            return Ok(None);
+        }
+
+        let wallet_activated = wallet_repository
+            .find(tenant_id.0)
+            .await?
+            .is_some_and(|wallet| wallet.payg_activated_at.is_some());
+        if wallet_activated {
+            return Ok(None);
+        }
+
+        let monitor_count = monitor_repository
+            .find_all_for_tenant(tenant_id)
+            .await?
+            .len() as u32;
+
+        Ok((monitor_count <= plan.max_monitors).then_some(plan))
     }
 
     pub async fn run(self) -> Result<()> {
@@ -209,7 +325,18 @@ where
                 .recover_expired_leases(Utc::now())
                 .await?;
 
+            let due_depth = self
+                .scheduling_repository
+                .due_monitor_count(Utc::now())
+                .await?;
+            metrics::gauge!("scheduler_due_queue_depth").set(due_depth as f64);
+            metrics::gauge!("scheduler_active_tasks").set(tasks.len() as f64);
+
             let free_capacity = self.max_concurrency.saturating_sub(tasks.len());
+            if free_capacity == 0 {
+                metrics::counter!("scheduler_backpressure_total", "reason" => "global")
+                    .increment(1);
+            }
             if free_capacity > 0 {
                 let one_time = self
                     .scheduling_repository
@@ -230,9 +357,33 @@ where
                     let execution_retry_base = self.execution_retry_base;
                     let jitter = self.jitter;
                     let lease_owner = self.lease_owner;
+                    let tenant_repository = self.tenant_repository.clone();
                     tasks.spawn(async move {
                         let monitor = claim.monitor;
                         let monitor_id = monitor.id;
+                        let account_type = if let Some(tenant_repository) = tenant_repository {
+                            match tenant_repository
+                                .find_by_id(domain::TenantId(monitor.tenant_id.0))
+                                .await?
+                            {
+                                Some(tenant) if tenant.status == TenantStatus::Active => {
+                                    Some(tenant.account_type)
+                                }
+                                Some(_) | None => {
+                                    scheduling_repository
+                                        .complete_one_time_check(
+                                            claim.request.id,
+                                            lease_owner,
+                                            domain::OneTimeCheckRequest::FAILED,
+                                            Some("tenant is not active"),
+                                        )
+                                        .await?;
+                                    return Ok::<(), Box<dyn Error + Send + Sync>>(());
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         let monitor_tenant_id = monitor.tenant_id;
                         let operation = domain::monitor_operation(monitor.kind, true).as_str().to_owned();
                         let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
@@ -245,7 +396,7 @@ where
                                         monitor_kind: Some(monitor.kind),
                                         region: monitor.regions.first().cloned(),
                                         quantity: 1,
-                                        account_type: None,
+                                        account_type,
                                     }),
         },
                                 move || {
@@ -287,11 +438,13 @@ where
                 }
                 let claimed = self
                     .scheduling_repository
-                    .claim_due_monitors(
+                    .claim_due_monitors_with_limits(
                         free_capacity as u32,
                         self.lease_owner,
                         self.lease_duration,
                         Utc::now(),
+                        self.max_concurrency_per_tenant,
+                        self.due_claim_limit_per_tenant,
                     )
                     .await?;
 
@@ -307,50 +460,147 @@ where
                     let execution_retry_base = self.execution_retry_base;
                     let jitter = self.jitter;
                     let lease_owner = self.lease_owner;
+                    let deterministic_spread_seconds = self.deterministic_spread_seconds;
+
+                    let tenant_status = if let Some(tenant_repository) = &self.tenant_repository {
+                        tenant_repository
+                            .find_by_id(domain::TenantId(claim.monitor.tenant_id.0))
+                            .await?
+                            .map(|tenant| (tenant.status, tenant.account_type))
+                    } else {
+                        None
+                    };
+
+                    if tenant_status
+                        .as_ref()
+                        .is_some_and(|(status, _)| *status != TenantStatus::Active)
+                    {
+                        metrics::counter!("scheduler_suspended_tenant_skips_total").increment(1);
+                        scheduling_repository
+                            .complete_claim_with_spread(
+                                claim.monitor.id,
+                                lease_owner,
+                                deterministic_spread_seconds,
+                            )
+                            .await?;
+                        continue;
+                    }
+
+                    let free_plan = self
+                        .resolve_free_entitlement(claim.monitor.tenant_id)
+                        .await
+                        .unwrap_or_else(|error| {
+                            warn!(
+                                monitor_id = %claim.monitor.id.0,
+                                error = %error,
+                                "failed to resolve scheduler entitlement; using PAYG path"
+                            );
+                            None
+                        });
+                    let account_type = tenant_status
+                        .as_ref()
+                        .map(|(_, account_type)| *account_type);
+                    let monitor = claim.monitor;
 
                     tasks.spawn(async move {
-                        let monitor = claim.monitor;
                         let request_id =
                             format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
-                        let result = if claim.free_entitled {
-                            execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|_| ())
+                        let result = if let Some(plan) = free_plan {
+                            if monitor.interval_seconds < plan.min_check_interval_seconds {
+                                metrics::counter!("scheduler_entitlement_skips_total").increment(1);
+                                if let Err(err) = scheduling_repository
+                                    .complete_claim_with_spread(
+                                        monitor.id,
+                                        lease_owner,
+                                        deterministic_spread_seconds,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        monitor_id = %monitor.id.0,
+                                        error = %err,
+                                        "failed to release entitlement-skipped claim"
+                                    );
+                                }
+                                return Ok::<(), Box<dyn Error + Send + Sync>>(());
+                            }
+                            execute_with_controls(
+                                executor.clone(),
+                                monitor.clone(),
+                                execution_limiter.clone(),
+                                execution_min_interval,
+                                execution_retry_limit,
+                                execution_retry_base,
+                                jitter,
+                            )
+                            .await
+                            .map(|_| ())
                         } else if let Some(metering) = metering {
-                            match metering.execute_classified_attempt(
-                                MeterUsageInput {
-                                    tenant_id: monitor.tenant_id.0,
-                                    operation: domain::monitor_operation(monitor.kind, false).as_str().to_owned(),
-                                    units: 1,
-                                    request_id,
-
-                                    monitor_id: Some(monitor.id.0),
-                                    execution_id: Some(claim.execution_id),
-                                    pricing_context: Some(application::ports::PricingContext {
-                                        monitor_kind: Some(monitor.kind),
-                                        region: monitor.regions.first().cloned(),
-                                        quantity: 1,
-                                        account_type: None,
-                                    }),
-        },
-                                || {
-                                    let executor = executor.clone();
-                                    let monitor = monitor.clone();
-                                    async move {
-                                        execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter)
+                            match metering
+                                .execute_classified_attempt(
+                                    MeterUsageInput {
+                                        tenant_id: monitor.tenant_id.0,
+                                        operation: domain::monitor_operation(
+                                            monitor.kind,
+                                            false,
+                                        )
+                                        .as_str()
+                                        .to_owned(),
+                                        units: 1,
+                                        request_id,
+                                        monitor_id: Some(monitor.id.0),
+                                        execution_id: Some(claim.execution_id),
+                                        pricing_context: Some(
+                                            application::ports::PricingContext {
+                                                monitor_kind: Some(monitor.kind),
+                                                region: monitor.regions.first().cloned(),
+                                                quantity: 1,
+                                                account_type,
+                                            },
+                                        ),
+                                    },
+                                    || {
+                                        let executor = executor.clone();
+                                        let monitor = monitor.clone();
+                                        async move {
+                                            execute_with_controls(
+                                                executor.clone(),
+                                                monitor.clone(),
+                                                execution_limiter.clone(),
+                                                execution_min_interval,
+                                                execution_retry_limit,
+                                                execution_retry_base,
+                                                jitter,
+                                            )
                                             .await
-                                            .map(|outcome| MeteredAttempt { attempted: outcome.attempted, error: outcome.error })
-                                    }
-                                },
-                            ).await {
+                                            .map(|outcome| MeteredAttempt {
+                                                attempted: outcome.attempted,
+                                                error: outcome.error,
+                                            })
+                                        }
+                                    },
+                                )
+                                .await
+                            {
                                 Ok(_) => Ok(()),
-                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
-                                    warn!(monitor_id=%monitor.id.0, reason=%reason, "monitor execution did not reach a billable attempt");
+                                Err(application::ChargeForUsageError::OperationNotAttempted(
+                                    reason,
+                                )) => {
+                                    warn!(
+                                        monitor_id = %monitor.id.0,
+                                        reason = %reason,
+                                        "monitor execution did not reach a billable attempt"
+                                    );
                                     Ok(())
                                 }
-                                Err(err) => Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                                Err(err) => {
+                                    Err(Box::new(err) as Box<dyn Error + Send + Sync>)
+                                }
                             }
                         } else {
                             Err("PAYG metering is not configured".into())
                         };
+
                         if let Err(err) = &result {
                             warn!(
                                 monitor_id = %monitor.id.0,
@@ -359,12 +609,12 @@ where
                             );
                         }
 
-                        // Always release the claim after an execution attempt.
-                        // If the process crashes before this point, the lease
-                        // will expire and `recover_expired_leases` will make
-                        // the monitor claimable again.
                         if let Err(err) = scheduling_repository
-                            .complete_claim(monitor.id, lease_owner)
+                            .complete_claim_with_spread(
+                                monitor.id,
+                                lease_owner,
+                                deterministic_spread_seconds,
+                            )
                             .await
                         {
                             error!(
@@ -378,7 +628,6 @@ where
                     });
                 }
             }
-
             if tasks.is_empty() {
                 // No due monitors and no running tasks; avoid a hot loop.
                 tokio::time::sleep(Duration::from_secs(1)).await;

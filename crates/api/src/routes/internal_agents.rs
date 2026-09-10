@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use application::ports::SubmitAgentResultOutcome;
 use axum::{
@@ -18,6 +18,27 @@ use crate::{
     middleware::agent_auth::{AgentId, AgentRegion},
     state::AppState,
 };
+
+fn env_positive_u32(key: &str, default: u32, max: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.min(max))
+        .unwrap_or(default)
+}
+
+fn agent_claim_limit() -> u32 {
+    env_positive_u32("SCHEDULER_AGENT_CLAIM_LIMIT", 100, 500)
+}
+
+fn max_concurrency_per_tenant() -> usize {
+    env_positive_u32("SCHEDULER_MAX_CONCURRENCY_PER_TENANT", 4, 500) as usize
+}
+
+fn due_claim_limit_per_tenant() -> usize {
+    env_positive_u32("SCHEDULER_DUE_CLAIM_LIMIT_PER_TENANT", 4, 500) as usize
+}
 
 #[derive(Debug, Serialize)]
 struct ClaimResponse {
@@ -57,15 +78,18 @@ async fn claim_checks(
     Extension(agent_region): Extension<AgentRegion>,
 ) -> Result<Json<ClaimResponse>, ApiError> {
     let mut checks = Vec::new();
+    let mut plan_cache: HashMap<Uuid, domain::Plan> = HashMap::new();
 
     if let Some(lease_repo) = &state.agent_lease_repository {
         let leases = lease_repo
-            .claim_due_checks(
+            .claim_due_checks_with_limits(
                 &agent_id,
                 &agent_region.0,
-                100,
+                agent_claim_limit(),
                 Duration::from_secs(120),
                 Utc::now(),
+                max_concurrency_per_tenant(),
+                due_claim_limit_per_tenant(),
             )
             .await
             .map_err(|err| ApiError::internal_with_source("failed to claim agent checks", err))?;
@@ -88,10 +112,31 @@ async fn claim_checks(
                     ApiError::internal_with_source("failed to load monitor wallet", err)
                 })?;
 
-            // A never-funded tenant may execute the Free entitlement. Once
-            // PAYG has been activated, every agent-region execution is paid.
+            let plan = if let Some(plan) = plan_cache.get(&monitor.tenant_id.0) {
+                plan.clone()
+            } else {
+                let plan = application::use_cases::ResolveEntitlementsUseCase::new(
+                    state.subscription_repository.clone(),
+                )
+                .with_pricing_config_repository(state.pricing_config_repository.clone())
+                .execute(application::queries::ResolveEntitlements {
+                    tenant_id: monitor.tenant_id,
+                })
+                .await
+                .map_err(|err| {
+                    ApiError::internal_with_source(
+                        "failed to resolve agent scheduler entitlement",
+                        err,
+                    )
+                })?;
+                plan_cache.insert(monitor.tenant_id.0, plan.clone());
+                plan
+            };
+
+            // A never-funded tenant may execute the resolved Free entitlement.
+            // Once PAYG has been activated, every agent-region execution is paid.
             if wallet.payg_activated_at.is_some()
-                || monitor.interval_seconds < domain::FREE_MIN_INTERVAL_SECONDS
+                || monitor.interval_seconds < plan.min_check_interval_seconds
             {
                 let operation = domain::monitor_operation(monitor.kind, false);
                 let tenant = state

@@ -429,6 +429,24 @@ mod tests {
     fn rejects_invalid_header() {
         assert!(parse_csv("name,url").is_err());
     }
+
+    #[test]
+    fn accepts_10_000_rows_and_rejects_10_001() {
+        let row = "site,https://example.com,http,300,10,GET,200,,,,,,,true,14";
+        let mut csv = String::from(HEADER_LINE);
+        for index in 0..10_000 {
+            csv.push('\n');
+            csv.push_str(&format!("site-{index},https://{index}.example.com,http,300,10,GET,200,,,,,,,true,14"));
+        }
+        let (rows, errors) = parse_csv(&csv).unwrap();
+        assert_eq!(rows.len(), 10_000);
+        assert!(errors.is_empty());
+
+        csv.push('\n');
+        csv.push_str(row);
+        assert!(parse_csv(&csv).is_err());
+    }
+
     #[test]
     fn modern_csv_supports_regions_and_rejects_auth() {
         let header = "name,url,kind,interval_seconds,timeout_seconds,method,expected_status,tcp_port,dns_record_type,dns_expected_value,heartbeat_interval_seconds,heartbeat_grace_period_seconds,is_public,ssl_check_enabled,ssl_expiry_warning_days,regions,auth_type";

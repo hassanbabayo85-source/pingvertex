@@ -28,21 +28,17 @@ async fn get_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor_test".to_string()
     });
+
     let pool = PgPool::connect(&database_url)
         .await
         .expect("Failed to connect to db");
+
     sqlx::migrate!("../../migrations")
         .run(&pool)
         .await
         .unwrap_or_default();
-    return pool;
-    // ---
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "postgres://postgres:postgres@localhost:5432/uptime_monitor_test".to_string()
-    });
-    PgPool::connect(&database_url)
-        .await
-        .expect("Failed to connect to database")
+
+    pool
 }
 
 #[tokio::test]
@@ -60,7 +56,7 @@ async fn scheduler_claims_active_tenant_monitor() {
 
     let monitor = MonitorBuilder::new(MonitorId::new(), user_id, tenant.id)
         .name(domain::MonitorName::new("Test").unwrap())
-        .target("example.com".into())
+        .target("https://example.com".into())
         .kind(MonitorKind::Http)
         .expected_status(domain::ExpectedStatus::new(200).unwrap())
         .interval(domain::CheckInterval::new(60).unwrap())
@@ -98,7 +94,7 @@ async fn scheduler_ignores_suspended_tenant_monitor() {
 
     let monitor = MonitorBuilder::new(MonitorId::new(), user_id, tenant.id)
         .name(domain::MonitorName::new("Test 2").unwrap())
-        .target("example.com".into())
+        .target("https://example.com".into())
         .kind(MonitorKind::Http)
         .expected_status(domain::ExpectedStatus::new(200).unwrap())
         .interval(domain::CheckInterval::new(60).unwrap())

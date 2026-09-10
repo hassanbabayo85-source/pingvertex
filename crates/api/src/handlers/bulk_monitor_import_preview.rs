@@ -85,6 +85,15 @@ pub async fn preview_bulk_monitor_import(
     let (rows, parse_errors) = parse_csv(csv).map_err(ApiError::bad_request)?;
 
     let tenant_id = authenticated_user.tenant_context().tenant_id();
+    let tenant = state
+        .platform_tenant_repository
+        .find_by_id(tenant_id)
+        .await
+        .map_err(|error| ApiError::internal_with_source("failed to load tenant status", error))?
+        .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+    if tenant.status != domain::TenantStatus::Active {
+        return Err(ApiError::forbidden("tenant is suspended"));
+    }
     let snapshot = state
         .monitor_repository
         .bulk_import_snapshot_for_tenant(tenant_id)
@@ -129,5 +138,8 @@ pub async fn preview_bulk_monitor_import(
         }
     })?;
 
+    let mut preview = preview;
+    preview.pricing_snapshot_hash =
+        super::bulk_monitor_import_confirm::pricing_snapshot_hash(&preview.pricing_versions)?;
     Ok(Json(preview))
 }

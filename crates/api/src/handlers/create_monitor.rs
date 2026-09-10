@@ -70,6 +70,9 @@ pub async fn create_monitor(
             CreateMonitorError::IntervalBelowPlanMinimum { min } => ApiError::bad_request(format!(
                 "interval must be at least {min} seconds under the current billing eligibility"
             )),
+            CreateMonitorError::TenantSuspended => {
+                ApiError::forbidden("tenant is suspended")
+            },
             CreateMonitorError::Other(err) => {
                 let msg = err.to_string();
                 let is_validation_error = msg.contains("invalid")

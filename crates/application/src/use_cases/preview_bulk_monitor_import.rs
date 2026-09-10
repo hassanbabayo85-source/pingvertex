@@ -152,19 +152,8 @@ impl PreviewBulkMonitorImportUseCase {
         let free_monitor_limit = effective_plan.max_monitors as u64;
         let free_min_interval_seconds = effective_plan.min_check_interval_seconds;
 
-        let active_pricing = self
-            .pricing_repository
-            .list_active()
-            .await
-            .map_err(BulkMonitorImportPreviewError::Repository)?;
-        let mut generic_pricing_by_operation = HashMap::new();
-        for pricing in active_pricing {
-            if pricing.unit_price > 0 {
-                generic_pricing_by_operation.insert(pricing.operation.clone(), pricing);
-            }
-        }
         let mut contextual_pricing_cache: HashMap<
-            (String, MonitorKind, Option<String>),
+            (String, MonitorKind, String, u64),
             Option<PAYGPricing>,
         > = HashMap::new();
 
@@ -173,7 +162,19 @@ impl PreviewBulkMonitorImportUseCase {
             .iter()
             .map(existing_signature)
             .collect::<HashSet<_>>();
+        let existing_names = snapshot
+            .monitors
+            .iter()
+            .map(|monitor| monitor.name.as_str().trim().to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        let existing_targets = snapshot
+            .monitors
+            .iter()
+            .map(|monitor| normalized_target(monitor.kind, &monitor.url))
+            .collect::<HashSet<_>>();
         let mut seen_signatures = HashSet::new();
+        let mut seen_names = HashSet::new();
+        let mut seen_targets = HashSet::new();
         let mut duplicate_rows = 0usize;
         let free_remaining =
             free_monitor_limit.saturating_sub(snapshot.total_count as u64) as usize;
@@ -181,7 +182,7 @@ impl PreviewBulkMonitorImportUseCase {
 
         let mut estimated_execution_quantity = 0u64;
         let mut estimated_payg_cost_units = 0i64;
-        let mut used_pricing: HashMap<String, PAYGPricing> = HashMap::new();
+        let mut pricing_versions = Vec::new();
         let mut valid_rows = 0usize;
 
         // Cache the server-owned minimum interval once per kind instead of
@@ -219,12 +220,31 @@ impl PreviewBulkMonitorImportUseCase {
             }
 
             let signature = candidate_signature(&row);
+            let normalized_name = row.name.trim().to_ascii_lowercase();
+            let normalized_target_value = normalized_target(row.kind, &row.url);
+
+            let mut duplicate = false;
             if existing_signatures.contains(&signature) {
-                duplicate_rows = duplicate_rows.saturating_add(1);
-                row_errors.push("duplicate monitor already exists in this tenant".to_owned());
+                duplicate = true;
+                row_errors.push("duplicate monitor identity already exists in this tenant".to_owned());
             } else if !seen_signatures.insert(signature) {
+                duplicate = true;
+                row_errors.push("duplicate monitor identity appears more than once in this CSV".to_owned());
+            }
+
+            if existing_names.contains(&normalized_name) || !seen_names.insert(normalized_name) {
+                duplicate = true;
+                row_errors.push("duplicate monitor name already exists in this tenant or CSV".to_owned());
+            }
+
+            if existing_targets.contains(&normalized_target_value)
+                || !seen_targets.insert(normalized_target_value)
+            {
+                duplicate = true;
+                row_errors.push("duplicate monitor target URL/host already exists in this tenant or CSV".to_owned());
+            }
+            if duplicate {
                 duplicate_rows = duplicate_rows.saturating_add(1);
-                row_errors.push("duplicate monitor appears more than once in this CSV".to_owned());
             }
 
             if !payg_activated && row_errors.is_empty() && accepted_free_rows >= free_remaining {
@@ -236,34 +256,66 @@ impl PreviewBulkMonitorImportUseCase {
             let operation = domain::monitor_operation(row.kind, false)
                 .as_str()
                 .to_owned();
-            let region_key = row.regions.first().map(ToString::to_string);
-            let cache_key = (operation.clone(), row.kind, region_key.clone());
-            let pricing = if let Some(cached) = contextual_pricing_cache.get(&cache_key) {
-                cached.as_ref()
+
+            let execution_interval = if row.kind == MonitorKind::Heartbeat {
+                row.heartbeat_interval_seconds
+                    .expect("heartbeat interval validated")
             } else {
-                let resolved = resolve_price(
-                    self.pricing_repository.as_ref(),
-                    &operation,
-                    &PricingContext {
-                        account_type,
-                        region: row.regions.first().cloned(),
-                        monitor_kind: Some(row.kind),
-                        quantity: row.regions.len().max(1) as u64,
-                    },
-                )
-                .await
-                .map_err(BulkMonitorImportPreviewError::Repository)?;
-                let resolved = resolved.filter(|p| p.unit_price > 0);
-                contextual_pricing_cache.insert(cache_key, resolved);
-                contextual_pricing_cache
-                    .get(&(operation.clone(), row.kind, region_key.clone()))
-                    .and_then(|p| p.as_ref())
+                row.interval_seconds
             };
-            let pricing = pricing.or_else(|| generic_pricing_by_operation.get(&operation));
-            if pricing.is_none() {
-                row_errors.push(format!(
-                    "PAYG pricing unavailable for operation {operation}"
-                ));
+            let executions_per_region = SECONDS_PER_DAY
+                .checked_div(u64::from(execution_interval))
+                .and_then(|per_day| per_day.checked_mul(u64::from(forecast_days)))
+                .ok_or(BulkMonitorImportPreviewError::Overflow)?;
+
+            let mut row_pricing = Vec::with_capacity(row.regions.len());
+            for region in &row.regions {
+                let region_key = region.as_str().to_owned();
+                let cache_key = (
+                    operation.clone(),
+                    row.kind,
+                    region_key.clone(),
+                    executions_per_region,
+                );
+                let pricing = if let Some(cached) = contextual_pricing_cache.get(&cache_key) {
+                    cached.as_ref()
+                } else {
+                    let resolved = resolve_price(
+                        self.pricing_repository.as_ref(),
+                        &operation,
+                        &PricingContext {
+                            account_type,
+                            region: Some(region.clone()),
+                            monitor_kind: Some(row.kind),
+                            quantity: executions_per_region,
+                        },
+                    )
+                    .await
+                    .map_err(BulkMonitorImportPreviewError::Repository)?;
+                    let resolved = resolved.filter(|p| p.unit_price > 0);
+                    contextual_pricing_cache.insert(cache_key.clone(), resolved);
+                    contextual_pricing_cache
+                        .get(&cache_key)
+                        .and_then(|pricing| pricing.as_ref())
+                };
+
+                let Some(pricing) = pricing else {
+                    row_errors.push(format!(
+                        "PAYG pricing unavailable for operation {operation}, region {region_key}"
+                    ));
+                    continue;
+                };
+
+                let region_cost = if payg_activated {
+                    i64::try_from(executions_per_region)
+                        .ok()
+                        .and_then(|quantity| quantity.checked_mul(pricing.unit_price))
+                        .ok_or(BulkMonitorImportPreviewError::Overflow)?
+                } else {
+                    0
+                };
+
+                row_pricing.push((region.clone(), executions_per_region, pricing.clone(), region_cost));
             }
 
             if !row_errors.is_empty() {
@@ -274,27 +326,21 @@ impl PreviewBulkMonitorImportUseCase {
                 continue;
             }
 
-            let pricing = pricing.expect("pricing checked above");
-            let execution_interval = if row.kind == MonitorKind::Heartbeat {
-                row.heartbeat_interval_seconds
-                    .expect("heartbeat interval validated")
-            } else {
-                row.interval_seconds
-            };
-            let executions_per_day = SECONDS_PER_DAY / u64::from(execution_interval);
-            let row_executions = executions_per_day
-                .checked_mul(u64::from(forecast_days))
-                .and_then(|e| e.checked_mul(row.regions.len().max(1) as u64))
+            let row_executions = executions_per_region
+                .checked_mul(row.regions.len() as u64)
                 .ok_or(BulkMonitorImportPreviewError::Overflow)?;
             estimated_execution_quantity = estimated_execution_quantity
                 .checked_add(row_executions)
                 .ok_or(BulkMonitorImportPreviewError::Overflow)?;
 
             if payg_activated {
-                let row_cost = i64::try_from(row_executions)
-                    .ok()
-                    .and_then(|quantity| quantity.checked_mul(pricing.unit_price))
-                    .ok_or(BulkMonitorImportPreviewError::Overflow)?;
+                let row_cost = row_pricing
+                    .iter()
+                    .try_fold(0i64, |total, (_, _, _, region_cost)| {
+                        total
+                            .checked_add(*region_cost)
+                            .ok_or(BulkMonitorImportPreviewError::Overflow)
+                    })?;
                 estimated_payg_cost_units = estimated_payg_cost_units
                     .checked_add(row_cost)
                     .ok_or(BulkMonitorImportPreviewError::Overflow)?;
@@ -302,24 +348,30 @@ impl PreviewBulkMonitorImportUseCase {
                 accepted_free_rows = accepted_free_rows.saturating_add(1);
             }
 
-            used_pricing
-                .entry(operation)
-                .or_insert_with(|| pricing.clone());
+            for (region, quantity, pricing, estimated_charge_units) in row_pricing {
+                pricing_versions.push(BulkMonitorImportPricingVersion {
+                    operation: operation.clone(),
+                    account_type,
+                    monitor_kind: row.kind,
+                    region,
+                    quantity,
+                    unit_price: pricing.unit_price,
+                    estimated_charge_units,
+                    currency: pricing.currency,
+                    version: pricing.version,
+                });
+            }
             valid_rows = valid_rows.saturating_add(1);
         }
 
         errors.sort_by_key(|error| error.row);
 
-        let mut pricing_versions = used_pricing
-            .into_iter()
-            .map(|(operation, pricing)| BulkMonitorImportPricingVersion {
-                operation,
-                unit_price: pricing.unit_price,
-                currency: pricing.currency,
-                version: pricing.version,
-            })
-            .collect::<Vec<_>>();
-        pricing_versions.sort_by(|left, right| left.operation.cmp(&right.operation));
+        pricing_versions.sort_by(|left, right| {
+            left.operation
+                .cmp(&right.operation)
+                .then_with(|| left.region.as_str().cmp(right.region.as_str()))
+                .then_with(|| left.version.cmp(&right.version))
+        });
 
         let currency = pricing_versions
             .first()
@@ -354,6 +406,7 @@ impl PreviewBulkMonitorImportUseCase {
             currency,
             pricing_version,
             pricing_versions,
+            pricing_snapshot_hash: String::new(),
             payg_eligible: payg_activated,
             errors,
         })
@@ -429,6 +482,50 @@ fn validate_row(row: &BulkMonitorImportRow) -> Vec<String> {
                 );
             }
             Some(_) => {}
+        }
+    }
+
+    match row.kind {
+        MonitorKind::Http | MonitorKind::Flow => {
+            if row.tcp_port.is_some() {
+                errors.push("tcp_port is only valid for Tcp monitors".to_owned());
+            }
+            if row.dns_record_type.is_some() || row.dns_expected_value.is_some() {
+                errors.push("DNS fields are only valid for Dns monitors".to_owned());
+            }
+            if row.heartbeat_interval_seconds.is_some()
+                || row.heartbeat_grace_period_seconds.is_some()
+            {
+                errors.push("heartbeat fields are only valid for Heartbeat monitors".to_owned());
+            }
+        }
+        MonitorKind::Tcp => {
+            if row.dns_record_type.is_some() || row.dns_expected_value.is_some() {
+                errors.push("DNS fields are not valid for Tcp monitors".to_owned());
+            }
+            if row.heartbeat_interval_seconds.is_some()
+                || row.heartbeat_grace_period_seconds.is_some()
+            {
+                errors.push("heartbeat fields are not valid for Tcp monitors".to_owned());
+            }
+        }
+        MonitorKind::Dns => {
+            if row.tcp_port.is_some() {
+                errors.push("tcp_port is not valid for Dns monitors".to_owned());
+            }
+            if row.heartbeat_interval_seconds.is_some()
+                || row.heartbeat_grace_period_seconds.is_some()
+            {
+                errors.push("heartbeat fields are not valid for Dns monitors".to_owned());
+            }
+        }
+        MonitorKind::Heartbeat => {
+            if row.tcp_port.is_some() {
+                errors.push("tcp_port is not valid for Heartbeat monitors".to_owned());
+            }
+            if row.dns_record_type.is_some() || row.dns_expected_value.is_some() {
+                errors.push("DNS fields are not valid for Heartbeat monitors".to_owned());
+            }
         }
     }
 
@@ -531,6 +628,7 @@ mod tests {
 
     struct TestPricing {
         rows: Vec<PAYGPricing>,
+        region_prices: HashMap<String, (i64, i64)>,
     }
 
     #[async_trait]
@@ -538,8 +636,19 @@ mod tests {
         async fn find_active_for_context(
             &self,
             operation: &str,
-            _context: &PricingContext,
+            context: &PricingContext,
         ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
+            if let Some(region) = &context.region
+                && let Some((unit_price, version)) = self.region_prices.get(region.as_str())
+            {
+                let mut pricing = self
+                    .find_active(operation)
+                    .await?
+                    .ok_or_else(|| "missing test pricing".to_owned())?;
+                pricing.unit_price = *unit_price;
+                pricing.version = *version;
+                return Ok(Some(pricing));
+            }
             self.find_active(operation).await
         }
 
@@ -641,6 +750,7 @@ mod tests {
         let use_case = PreviewBulkMonitorImportUseCase::new(
             Arc::new(TestPricing {
                 rows: vec![pricing("http_check.monitoring", 2, 7)],
+                region_prices: HashMap::new(),
             }),
             Arc::new(TestIntervals),
         );
@@ -673,10 +783,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn multi_region_pricing_sums_each_region_price() {
+        let mut row = http_row(2, "api", "https://example.com");
+        row.regions = vec![
+            RegionCode::new("us-east").unwrap(),
+            RegionCode::new("eu-west").unwrap(),
+        ];
+        let use_case = PreviewBulkMonitorImportUseCase::new(
+            Arc::new(TestPricing {
+                rows: vec![pricing("http_check.monitoring", 2, 7)],
+                region_prices: HashMap::from([
+                    ("us-east".to_owned(), (1, 11)),
+                    ("eu-west".to_owned(), (3, 12)),
+                ]),
+            }),
+            Arc::new(TestIntervals),
+        );
+
+        let preview = use_case
+            .execute(
+                user(Role::Admin),
+                vec![row],
+                Vec::new(),
+                BulkImportMonitorSnapshot {
+                    total_count: 0,
+                    monitors: Vec::new(),
+                },
+                true,
+                1,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(preview.estimated_execution_quantity, 2 * 1_440);
+        assert_eq!(preview.estimated_payg_cost_units, 1_440 * 1 + 1_440 * 3);
+        assert_eq!(preview.pricing_versions.len(), 2);
+        let us_east = preview
+            .pricing_versions
+            .iter()
+            .find(|pricing| pricing.region.as_str() == "us-east")
+            .unwrap();
+        let eu_west = preview
+            .pricing_versions
+            .iter()
+            .find(|pricing| pricing.region.as_str() == "eu-west")
+            .unwrap();
+        assert_eq!(us_east.quantity, 1_440);
+        assert_eq!(us_east.unit_price, 1);
+        assert_eq!(eu_west.quantity, 1_440);
+        assert_eq!(eu_west.unit_price, 3);
+    }
+
+    #[tokio::test]
     async fn free_tier_preview_enforces_free_interval_and_quota_without_charge() {
         let use_case = PreviewBulkMonitorImportUseCase::new(
             Arc::new(TestPricing {
                 rows: vec![pricing("http_check.monitoring", 2, 7)],
+                region_prices: HashMap::new(),
             }),
             Arc::new(TestIntervals),
         );
@@ -706,7 +869,7 @@ mod tests {
     #[tokio::test]
     async fn viewer_without_create_permission_is_forbidden() {
         let use_case = PreviewBulkMonitorImportUseCase::new(
-            Arc::new(TestPricing { rows: Vec::new() }),
+            Arc::new(TestPricing { rows: Vec::new(), region_prices: HashMap::new() }),
             Arc::new(TestIntervals),
         );
         let result = use_case

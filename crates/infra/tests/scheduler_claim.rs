@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use application::ports::{SchedulingRepository, WalletRepository};
+use application::ports::{AgentLeaseRepository, SchedulingRepository, WalletRepository};
 use domain::shared::ids::MonitorId;
-use infra::PostgresSchedulingRepository;
+use infra::{PostgresAgentLeaseRepository, PostgresSchedulingRepository};
 use serial_test::serial;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -351,7 +351,7 @@ async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion()
         .await
         .unwrap();
     assert_eq!(free_claim.len(), 1);
-    assert!(free_claim[0].free_entitled);
+    assert_eq!(free_claim[0].monitor.tenant_id, tenant_id);
     repo.complete_claim(MonitorId(monitor_id), owner)
         .await
         .unwrap();
@@ -398,5 +398,139 @@ async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion()
         .await
         .unwrap();
     assert_eq!(paid_claim.len(), 1);
-    assert!(!paid_claim[0].free_entitled);
+    assert_eq!(paid_claim[0].monitor.tenant_id, tenant_id);
 }
+
+#[tokio::test]
+#[serial]
+async fn per_tenant_claim_limit_is_enforced() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+
+    for index in 0..10 {
+        sqlx::query(
+            r#"
+            INSERT INTO monitors (
+                id, user_id, tenant_id, regions, name, url, method,
+                expected_status, interval_seconds, timeout_seconds,
+                enabled, ssl_check_enabled, ssl_expiry_warning_days, kind,
+                created_at, updated_at, next_due_at
+            ) VALUES (
+                $1, $2, $3, ARRAY['us-east'], $4, $5, 'GET',
+                200, 300, 10, true, true, 14, 'http',
+                now(), now(), now()
+            )
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(user_id)
+        .bind(tenant_id.0)
+        .bind(format!("cap-{index}"))
+        .bind(format!("https://cap-{index}.example.com"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let repo = PostgresSchedulingRepository::new(pool);
+    let claims = repo
+        .claim_due_monitors_with_limits(
+            10,
+            Uuid::new_v4(),
+            Duration::from_secs(60),
+            chrono::Utc::now(),
+            2,
+            2,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(claims.len(), 2);
+}
+
+#[tokio::test]
+#[serial]
+async fn ten_thousand_due_monitors_are_capped_per_tenant() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO monitors (
+            id, user_id, tenant_id, regions, name, url, method,
+            expected_status, interval_seconds, timeout_seconds,
+            enabled, ssl_check_enabled, ssl_expiry_warning_days, kind,
+            created_at, updated_at, next_due_at
+        )
+        SELECT
+            gen_random_uuid(), $1, $2, ARRAY['us-east'],
+            'herd-' || g::text,
+            'https://herd-' || g::text || '.example.com',
+            'GET', 200, 300, 10, true, true, 14, 'http',
+            now(), now(), now()
+        FROM generate_series(1, 10000) AS g
+        "#,
+    )
+    .bind(user_id)
+    .bind(tenant_id.0)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = PostgresSchedulingRepository::new(pool);
+    let claims = repo
+        .claim_due_monitors_with_limits(
+            100,
+            Uuid::new_v4(),
+            Duration::from_secs(60),
+            chrono::Utc::now(),
+            4,
+            4,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(claims.len(), 4);
+}
+
+#[tokio::test]
+#[serial]
+async fn agent_region_claim_respects_cross_region_tenant_cap() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+
+    for index in 0..10 {
+        let monitor_id = insert_due_monitor(
+            &pool,
+            &format!("agent-cap-{index}"),
+            user_id,
+            tenant_id.0,
+        )
+        .await;
+        sqlx::query("UPDATE monitors SET regions = ARRAY['us-east','eu-west'] WHERE id = $1")
+            .bind(monitor_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let repo = PostgresAgentLeaseRepository::new(pool);
+    let claims = repo
+        .claim_due_checks_with_limits(
+            "agent-1",
+            &domain::RegionCode::new("us-east").unwrap(),
+            100,
+            Duration::from_secs(120),
+            chrono::Utc::now(),
+            2,
+            4,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(claims.len(), 2);
+}
+
