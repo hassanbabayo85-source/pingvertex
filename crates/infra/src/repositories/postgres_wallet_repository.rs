@@ -1533,7 +1533,10 @@ impl WalletRepository for PostgresWalletRepository {
             "INSERT INTO wallet_auto_top_up_attempts
              (id,tenant_id,amount_units,status,provider_reference,error_message,attempted_at)
              VALUES($1,$2,$3,$4,$5,$6,$7)
-             ON CONFLICT (id) DO NOTHING",
+             ON CONFLICT (id) DO UPDATE 
+             SET status = EXCLUDED.status,
+                 provider_reference = COALESCE(EXCLUDED.provider_reference, wallet_auto_top_up_attempts.provider_reference),
+                 error_message = EXCLUDED.error_message",
         )
         .bind(attempt.id)
         .bind(attempt.tenant_id)

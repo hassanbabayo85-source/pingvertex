@@ -352,6 +352,7 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                 SELECT \
                   COUNT(*) FILTER (WHERE validation_status='CREATED')::int AS created_count, \
                   COUNT(*) FILTER (WHERE validation_status='FAILED')::int AS failed_count, \
+                  COUNT(*) FILTER (WHERE validation_status='INVALID')::int AS invalid_count, \
                   COUNT(*) FILTER (WHERE validation_status IN ('VALID','PROCESSING'))::int AS remaining_count, \
                   COALESCE( \
                     jsonb_agg( \
@@ -366,8 +367,8 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                 FROM monitor_bulk_import_rows WHERE job_id=$1 \
              ) \
              UPDATE monitor_bulk_import_jobs j \
-             SET processed_rows=c.created_count+c.failed_count, \
-                 created_rows=c.created_count, failed_rows=c.failed_count, \
+             SET processed_rows=c.created_count+c.failed_count+c.invalid_count, \
+                 created_rows=c.created_count, failed_rows=c.failed_count, invalid_rows=c.invalid_count, \
                  error_report=CASE WHEN c.remaining_count=0 THEN c.errors ELSE error_report END, \
                  status=CASE WHEN c.remaining_count=0 THEN 'COMPLETED' ELSE 'RUNNING' END, \
                  completed_at=CASE WHEN c.remaining_count=0 THEN COALESCE(completed_at, now()) ELSE completed_at END, \

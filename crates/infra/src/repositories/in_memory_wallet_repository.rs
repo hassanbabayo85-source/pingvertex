@@ -634,7 +634,13 @@ impl WalletRepository for InMemoryWalletRepository {
 
     async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()> {
         let mut g = self.attempts.lock().unwrap();
-        if !g.iter().any(|x| x.id == attempt.id) {
+        if let Some(existing) = g.iter_mut().find(|x| x.id == attempt.id) {
+            existing.status = attempt.status.clone();
+            if attempt.provider_reference.is_some() {
+                existing.provider_reference = attempt.provider_reference.clone();
+            }
+            existing.error_message = attempt.error_message.clone();
+        } else {
             g.push(attempt.clone());
         }
         Ok(())

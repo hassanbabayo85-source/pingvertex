@@ -25,9 +25,16 @@ async fn insert_test_user(pool: &PgPool, user_id: UserId) {
 }
 
 async fn get_pool() -> PgPool {
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/uptime_monitor_test".to_string());
-    let pool = PgPool::connect(&database_url).await.expect("Failed to connect to db");
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap_or_default();
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgres://postgres:postgres@localhost:5432/uptime_monitor_test".to_string()
+    });
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to db");
+    sqlx::migrate!("../../migrations")
+        .run(&pool)
+        .await
+        .unwrap_or_default();
     return pool;
     // ---
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {

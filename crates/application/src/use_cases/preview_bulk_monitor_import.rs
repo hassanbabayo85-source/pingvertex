@@ -129,10 +129,10 @@ impl PreviewBulkMonitorImportUseCase {
         let tenant_id = authenticated_user.tenant_context().tenant_id();
 
         let mut account_type = None;
-        if let Some(repo) = &self.tenant_repository {
-            if let Ok(Some(tenant)) = repo.find_by_id(tenant_id).await {
-                account_type = Some(tenant.account_type);
-            }
+        if let Some(repo) = &self.tenant_repository
+            && let Ok(Some(tenant)) = repo.find_by_id(tenant_id).await
+        {
+            account_type = Some(tenant.account_type);
         }
 
         // Determine entitlement-based limits from the DB
