@@ -107,14 +107,34 @@ where
                     _ => CheckInterval::MIN,
                 }
             }
-        } else if let Some(pricing) = &self.pricing_config_repository {
+        } else {
+            // The database is the single source of truth for the free-tier
+            // interval. Both a missing repository and a missing active
+            // config are operational errors: silently falling back to a
+            // hardcoded domain constant would make the effective minimum
+            // interval depend on which build/binary happened to be running
+            // and would let a stale binary enforce an interval the active
+            // price book no longer sanctions. Production `main.rs` always
+            // wires `PostgresPricingConfigRepository`, so this branch is
+            // the only one that executes in production.
+            let pricing = self
+                .pricing_config_repository
+                .as_ref()
+                .ok_or_else(|| {
+                    Box::<dyn Error + Send + Sync>::from(
+                        "pricing config repository is not wired; cannot resolve the free-tier minimum interval",
+                    )
+                })?;
             pricing
                 .find_active_config()
                 .await?
-                .map(|config| config.free_tier.interval_seconds)
-                .unwrap_or_else(|| domain::FREE_MIN_INTERVAL_SECONDS)
-        } else {
-            domain::FREE_MIN_INTERVAL_SECONDS
+                .ok_or_else(|| {
+                    Box::<dyn Error + Send + Sync>::from(
+                        "no active pricing config found; refusing to fall back to a hardcoded free-tier interval",
+                    )
+                })?
+                .free_tier
+                .interval_seconds
         };
 
         if command.interval_seconds < min_interval {

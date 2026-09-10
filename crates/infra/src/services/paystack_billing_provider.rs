@@ -22,6 +22,19 @@ impl std::fmt::Debug for PaystackBillingProvider {
 }
 impl PaystackBillingProvider {
     pub fn new(secret_key: String) -> PaymentProviderResult<Self> {
+        Self::with_base_url(secret_key, "https://api.paystack.co")
+    }
+
+    /// Constructs a provider pointed at a custom Paystack-compatible base URL.
+    ///
+    /// Used by contract tests (which stand up a local `wiremock` server) and
+    /// by any future staging deployment that needs to talk to a Paystack
+    /// sandbox on a different hostname. Production code paths must continue
+    /// to use `new`, which pins the production base URL.
+    pub fn with_base_url(
+        secret_key: String,
+        base_url: impl Into<String>,
+    ) -> PaymentProviderResult<Self> {
         if secret_key.trim().is_empty() {
             return Err(Box::<dyn std::error::Error + Send + Sync>::from(
                 std::io::Error::other("Paystack secret key is required"),
@@ -30,7 +43,7 @@ impl PaystackBillingProvider {
         Ok(Self {
             client: Client::builder().timeout(Duration::from_secs(15)).build()?,
             secret_key,
-            base_url: "https://api.paystack.co".into(),
+            base_url: base_url.into(),
         })
     }
     fn auth(&self, r: reqwest::RequestBuilder) -> reqwest::RequestBuilder {

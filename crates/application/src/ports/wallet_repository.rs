@@ -102,6 +102,54 @@ pub trait WalletRepository: Send + Sync {
         tenant_id: Uuid,
         provider_checkout_id: &str,
     ) -> WalletRepoResult<Option<WalletTopUpSession>>;
+
+    /// Looks up a top-up session by provider identity alone, without a
+    /// pre-known tenant id. Used by provider webhooks (e.g. Paystack's
+    /// `charge.success`) where the payload only carries the provider's
+    /// reference and never the internal tenant id.
+    ///
+    /// `(provider, provider_checkout_id)` is globally unique per the
+    /// `uq_wallet_topup_provider_checkout` constraint added in migration
+    /// 0081, so a single lookup suffices and no tenant can collide with
+    /// another's session.
+    ///
+    /// Default returns `Ok(None)`, matching the "test/development harness
+    /// does not implement this" convention used by the other optional
+    /// methods on this trait.
+    async fn find_top_up_session_global(
+        &self,
+        provider: &str,
+        provider_checkout_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        let _ = (provider, provider_checkout_id);
+        Ok(None)
+    }
+
+    /// Marks a PENDING wallet top-up session as FAILED. Only affects rows
+    /// whose current status is PENDING; sessions already COMPLETED or
+    /// FAILED are left untouched and the method returns `false`.
+    ///
+    /// Paystack's `charge.failed` webhook does not go through
+    /// `ProcessBillingWebhookUseCase` because that use case only routes
+    /// `wallet_top_up=true` events when the event type is PaymentSucceeded,
+    /// and otherwise falls into the subscription path (which will not find
+    /// a subscription for a wallet-only tenant). The state transition is a
+    /// direct, idempotent, tenant-scoped repository update instead.
+    ///
+    /// `reason` is informational; the schema has no reason column on
+    /// `wallet_top_up_sessions`, so it is only logged by implementations.
+    ///
+    /// Default returns `Ok(false)`, matching the convention used by other
+    /// optional methods on this trait.
+    async fn mark_top_up_session_failed(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+        reason: &str,
+    ) -> WalletRepoResult<bool> {
+        let _ = (tenant_id, provider_checkout_id, reason);
+        Ok(false)
+    }
     async fn complete_top_up_session(
         &self,
         tenant_id: Uuid,

@@ -91,6 +91,7 @@ pub mod revoke_invitation;
 pub mod admin_pricing;
 pub mod payg_preview;
 pub mod payg_pricing;
+pub mod paystack_webhook;
 pub mod platform_admin;
 pub mod pricing_quote;
 pub mod pricing_types;
@@ -188,6 +189,7 @@ pub use verify_checkout::*;
 // B15 — Billing Webhooks:
 pub mod billing_webhook;
 pub use billing_webhook::*;
+pub use paystack_webhook::paystack_webhook;
 
 // H12 — Subscription Usage Update:
 pub mod subscription_types;
