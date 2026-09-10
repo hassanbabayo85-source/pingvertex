@@ -33,6 +33,7 @@ struct JobRow {
     processed_rows: i32,
     created_rows: i32,
     failed_rows: i32,
+    skipped_rows: i32,
     forecast_days: i32,
     estimated_checks: i64,
     estimated_charge_units: i64,
@@ -53,6 +54,7 @@ impl JobRow {
             "VALIDATING" => BulkMonitorImportJobStatus::Validating,
             "READY" => BulkMonitorImportJobStatus::Ready,
             "RUNNING" => BulkMonitorImportJobStatus::Running,
+            "PAUSED" => BulkMonitorImportJobStatus::Paused,
             "COMPLETED" => BulkMonitorImportJobStatus::Completed,
             "FAILED" => BulkMonitorImportJobStatus::Failed,
             "CANCELLED" => BulkMonitorImportJobStatus::Cancelled,
@@ -69,6 +71,7 @@ impl JobRow {
             processed_rows: self.processed_rows,
             created_rows: self.created_rows,
             failed_rows: self.failed_rows,
+            skipped_rows: self.skipped_rows,
             forecast_days: self.forecast_days,
             estimated_checks: self.estimated_checks,
             estimated_charge_units: self.estimated_charge_units,
@@ -85,7 +88,7 @@ impl JobRow {
 }
 
 const JOB_COLUMNS: &str = "id, tenant_id, actor_user_id, status, total_rows, valid_rows, invalid_rows, \
-processed_rows, created_rows, failed_rows, forecast_days, estimated_checks, estimated_charge_units, currency, \
+processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, estimated_charge_units, currency, \
 batch_size, pricing_snapshot, error_report, created_at, started_at, completed_at, updated_at";
 
 #[async_trait]
@@ -99,9 +102,9 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         let inserted = sqlx::query_as::<_, JobRow>(&format!(
             "INSERT INTO monitor_bulk_import_jobs \
              (id, tenant_id, actor_user_id, status, total_rows, valid_rows, invalid_rows, \
-              processed_rows, created_rows, failed_rows, forecast_days, estimated_checks, estimated_charge_units, \
+              processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, estimated_charge_units, \
               currency, batch_size, idempotency_key, source_sha256, pricing_snapshot, confirmed_at) \
-             VALUES ($1,$2,$3,'READY',$4,$5,$6,0,0,0,$7,$8,$9,$10,$11,$12,$13,$14,now()) \
+             VALUES ($1,$2,$3,'READY',$4,$5,$6,0,0,0,0,$7,$8,$9,$10,$11,$12,$13,$14,now()) \
              ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING \
              RETURNING {JOB_COLUMNS}"
         ))
@@ -190,6 +193,37 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         row.map(JobRow::into_domain).transpose()
     }
 
+    async fn find_job_by_idempotency_key(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> BulkMonitorImportRepoResult<Option<(BulkMonitorImportJob, Option<String>, i32)>> {
+        let row = sqlx::query_as::<_, JobRow>(&format!(
+            "SELECT {JOB_COLUMNS} FROM monitor_bulk_import_jobs
+             WHERE tenant_id=$1 AND idempotency_key=$2",
+        ))
+        .bind(tenant_id)
+        .bind(idempotency_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let (source_sha256, forecast_days): (Option<String>, i32) = sqlx::query_as(
+            "SELECT source_sha256, forecast_days
+             FROM monitor_bulk_import_jobs
+             WHERE tenant_id=$1 AND idempotency_key=$2",
+        )
+        .bind(tenant_id)
+        .bind(idempotency_key)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Some((row.into_domain()?, source_sha256, forecast_days)))
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,
@@ -257,8 +291,9 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
 
         let rows = sqlx::query_as::<_, Row>(
             "WITH candidates AS ( \
-                SELECT id FROM monitor_bulk_import_rows \
-                WHERE job_id=$1 \
+                SELECT r.id FROM monitor_bulk_import_rows r \
+                 JOIN monitor_bulk_import_jobs j ON j.id = r.job_id \
+                 WHERE r.job_id=$1 AND j.status='RUNNING' \
                   AND ( \
                     (validation_status='VALID' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) \
                     OR (validation_status='PROCESSING' AND updated_at < $3) \
@@ -342,6 +377,55 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         Ok(())
     }
 
+    async fn skip_row(&self, row_id: i64, reason: &str) -> BulkMonitorImportRepoResult<()> {
+        let reason = reason.trim();
+        if reason.is_empty() || reason.len() > 1_000 {
+            return Err("invalid bulk import skip reason".into());
+        }
+        sqlx::query(
+            "UPDATE monitor_bulk_import_rows              SET validation_status='SKIPPED', last_error=$2, next_attempt_at=NULL, updated_at=now()              WHERE id=$1",
+        )
+        .bind(row_id)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn pause_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool> {
+        let result = sqlx::query(
+            "UPDATE monitor_bulk_import_jobs
+             SET status='PAUSED', lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
+             WHERE id=$1 AND tenant_id=$2 AND status IN ('READY','RUNNING')",
+        )
+        .bind(job_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn resume_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool> {
+        let result = sqlx::query(
+            "UPDATE monitor_bulk_import_jobs
+             SET status='READY', updated_at=now()
+             WHERE id=$1 AND tenant_id=$2 AND status='PAUSED'",
+        )
+        .bind(job_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     async fn refresh_job_state(
         &self,
         job_id: Uuid,
@@ -353,7 +437,8 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                   COUNT(*) FILTER (WHERE validation_status='CREATED')::int AS created_count, \
                   COUNT(*) FILTER (WHERE validation_status='FAILED')::int AS failed_count, \
                   COUNT(*) FILTER (WHERE validation_status='INVALID')::int AS invalid_count, \
-                  COUNT(*) FILTER (WHERE validation_status IN ('VALID','PROCESSING'))::int AS remaining_count, \
+                   COUNT(*) FILTER (WHERE validation_status='SKIPPED')::int AS skipped_count, \
+                   COUNT(*) FILTER (WHERE validation_status IN ('VALID','PROCESSING'))::int AS remaining_count, \
                   COALESCE( \
                     jsonb_agg( \
                       jsonb_build_object( \
@@ -367,8 +452,8 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                 FROM monitor_bulk_import_rows WHERE job_id=$1 \
              ) \
              UPDATE monitor_bulk_import_jobs j \
-             SET processed_rows=c.created_count+c.failed_count+c.invalid_count, \
-                 created_rows=c.created_count, failed_rows=c.failed_count, invalid_rows=c.invalid_count, \
+             SET processed_rows=c.created_count+c.failed_count+c.invalid_count+c.skipped_count, \
+                 created_rows=c.created_count, failed_rows=c.failed_count, invalid_rows=c.invalid_count, skipped_rows=c.skipped_count, \
                  error_report=CASE WHEN c.remaining_count=0 THEN c.errors ELSE error_report END, \
                  status=CASE WHEN c.remaining_count=0 THEN 'COMPLETED' ELSE 'RUNNING' END, \
                  completed_at=CASE WHEN c.remaining_count=0 THEN COALESCE(completed_at, now()) ELSE completed_at END, \

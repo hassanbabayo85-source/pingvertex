@@ -67,13 +67,38 @@ fn validated_idempotency_key(headers: &HeaderMap) -> Result<String, ApiError> {
     Ok(value.to_owned())
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(64);
     for byte in digest {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+pub(crate) fn pricing_snapshot_hash(
+    pricing_versions: &[application::dto::BulkMonitorImportPricingVersion],
+) -> Result<String, ApiError> {
+    let bytes = serde_json::to_vec(pricing_versions)
+        .map_err(|_| ApiError::internal("failed to serialize pricing snapshot"))?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn validated_pricing_snapshot_hash(headers: &HeaderMap) -> Result<String, ApiError> {
+    let value = headers
+        .get("x-bulk-pricing-snapshot")
+        .ok_or_else(|| ApiError::bad_request("X-Bulk-Pricing-Snapshot header is required"))?
+        .to_str()
+        .map_err(|_| ApiError::bad_request("invalid X-Bulk-Pricing-Snapshot header"))?
+        .trim()
+        .to_owned();
+
+    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::bad_request(
+            "X-Bulk-Pricing-Snapshot must be a 64-character SHA-256 digest",
+        ));
+    }
+    Ok(value.to_ascii_lowercase())
 }
 
 pub async fn confirm_bulk_monitor_import(
@@ -126,9 +151,41 @@ pub async fn confirm_bulk_monitor_import(
 
     let csv = std::str::from_utf8(&bytes)
         .map_err(|_| ApiError::bad_request("CSV file must be valid UTF-8"))?;
+    let tenant_id = authenticated_user.tenant_context().tenant_id();
+    let tenant = state
+        .platform_tenant_repository
+        .find_by_id(tenant_id)
+        .await
+        .map_err(|error| ApiError::internal_with_source("failed to load tenant status", error))?
+        .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+    if tenant.status != domain::TenantStatus::Active {
+        return Err(ApiError::forbidden("tenant is suspended"));
+    }
+    let source_hash = sha256_hex(&bytes);
+
+    if let Some((existing_job, existing_hash, existing_forecast)) = repository
+        .find_job_by_idempotency_key(tenant_id.0, &idempotency_key)
+        .await
+        .map_err(|error| {
+            ApiError::internal_with_source("failed to inspect bulk import idempotency state", error)
+        })?
+    {
+        if existing_hash.as_deref() == Some(source_hash.as_str())
+            && existing_forecast == query.forecast_days as i32
+        {
+            return Ok(Json(BulkMonitorImportConfirmResponse {
+                job: existing_job,
+                replayed: true,
+            }));
+        }
+        return Err(ApiError::conflict(
+            "Idempotency-Key is already associated with a different CSV payload or forecast",
+        ));
+    }
+
+    let requested_pricing_snapshot_hash = validated_pricing_snapshot_hash(&headers)?;
     let (rows, parse_errors) = parse_csv(csv).map_err(ApiError::bad_request)?;
 
-    let tenant_id = authenticated_user.tenant_context().tenant_id();
     let snapshot = state
         .monitor_repository
         .bulk_import_snapshot_for_tenant(tenant_id)
@@ -170,6 +227,13 @@ pub async fn confirm_bulk_monitor_import(
             ApiError::internal_with_source("failed to validate bulk import confirmation", source)
         }
     })?;
+
+    let actual_pricing_snapshot_hash = pricing_snapshot_hash(&preview.pricing_versions)?;
+    if actual_pricing_snapshot_hash != requested_pricing_snapshot_hash {
+        return Err(ApiError::conflict(
+            "pricing snapshot changed since preview; request a new preview before confirming",
+        ));
+    }
 
     if preview.valid_rows == 0 {
         return Err(ApiError::bad_request(
@@ -217,7 +281,7 @@ pub async fn confirm_bulk_monitor_import(
         tenant_id: tenant_id.0,
         actor_user_id: authenticated_user.user_id().0,
         idempotency_key,
-        source_sha256: sha256_hex(&bytes),
+        source_sha256: source_hash,
         total_rows: i32::try_from(preview.total_rows)
             .map_err(|_| ApiError::bad_request("too many CSV rows"))?,
         valid_rows: i32::try_from(preview.valid_rows)

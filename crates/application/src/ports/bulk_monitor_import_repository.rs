@@ -24,6 +24,12 @@ pub trait BulkMonitorImportRepository: Send + Sync {
         tenant_id: Uuid,
     ) -> BulkMonitorImportRepoResult<Option<BulkMonitorImportJob>>;
 
+    async fn find_job_by_idempotency_key(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> BulkMonitorImportRepoResult<Option<(BulkMonitorImportJob, Option<String>, i32)>>;
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,
@@ -60,6 +66,20 @@ pub trait BulkMonitorImportRepository: Send + Sync {
 
     async fn fail_row(&self, row_id: i64, error: &str) -> BulkMonitorImportRepoResult<()>;
 
+    async fn skip_row(&self, row_id: i64, reason: &str) -> BulkMonitorImportRepoResult<()>;
+
+    async fn pause_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool>;
+
+    async fn resume_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool>;
+
     async fn refresh_job_state(
         &self,
         job_id: Uuid,
@@ -92,6 +112,16 @@ where
         tenant_id: Uuid,
     ) -> BulkMonitorImportRepoResult<Option<BulkMonitorImportJob>> {
         (**self).find_job_for_tenant(job_id, tenant_id).await
+    }
+
+    async fn find_job_by_idempotency_key(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> BulkMonitorImportRepoResult<Option<(BulkMonitorImportJob, Option<String>, i32)>> {
+        (**self)
+            .find_job_by_idempotency_key(tenant_id, idempotency_key)
+            .await
     }
 
     async fn claim_jobs(
@@ -142,6 +172,26 @@ where
 
     async fn fail_row(&self, row_id: i64, error: &str) -> BulkMonitorImportRepoResult<()> {
         (**self).fail_row(row_id, error).await
+    }
+
+    async fn skip_row(&self, row_id: i64, reason: &str) -> BulkMonitorImportRepoResult<()> {
+        (**self).skip_row(row_id, reason).await
+    }
+
+    async fn pause_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool> {
+        (**self).pause_job(job_id, tenant_id).await
+    }
+
+    async fn resume_job(
+        &self,
+        job_id: Uuid,
+        tenant_id: Uuid,
+    ) -> BulkMonitorImportRepoResult<bool> {
+        (**self).resume_job(job_id, tenant_id).await
     }
 
     async fn refresh_job_state(

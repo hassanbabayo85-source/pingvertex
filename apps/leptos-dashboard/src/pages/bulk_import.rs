@@ -39,6 +39,8 @@ pub fn BulkImportPage() -> impl IntoView {
     let forecast_days = RwSignal::new("30".to_owned());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
+    let action_busy = RwSignal::new(false);
+    let polling_started = RwSignal::new(false);
 
     let on_file_change = move |event: web_sys::Event| {
         let input: HtmlInputElement = event_target(&event);
@@ -101,8 +103,17 @@ pub fn BulkImportPage() -> impl IntoView {
         let key = format!("bulk-{}", js_sys::Date::now() as u64);
         busy.set(true);
         error.set(None);
+        polling_started.set(false);
+        job.set(None);
         spawn_local(async move {
-            match monitoring::bulk_import_confirm(bytes, name, days, key).await {
+            match monitoring::bulk_import_confirm(
+                bytes,
+                name,
+                days,
+                key,
+                value.pricing_snapshot_hash.clone(),
+            )
+            .await {
                 Ok(value) => job.set(Some(value.job)),
                 Err(value) => error.set(Some(value)),
             }
@@ -114,6 +125,10 @@ pub fn BulkImportPage() -> impl IntoView {
         let Some(current) = job.get() else {
             return;
         };
+        if polling_started.get() {
+            return;
+        }
+        polling_started.set(true);
         let job_id = current.id;
         spawn_local(async move {
             loop {
@@ -163,7 +178,7 @@ pub fn BulkImportPage() -> impl IntoView {
                             />
                         </label>
                     </div>
-                    <p class="muted">"Maximum 10,000 data rows and 1 MB. Regions use semicolons (one supported region per monitor); authentication is explicitly limited to auth_type=none."</p>
+                    <p class="muted">"Maximum 10,000 data rows and 1 MB. Separate multiple regions with semicolons; auth_type must be none."</p>
                     <button class="button" disabled=move || busy.get() on:click=preview_import>
                         {move || if busy.get() { "Working…" } else { "Preview import" }}
                     </button>
@@ -175,12 +190,38 @@ pub fn BulkImportPage() -> impl IntoView {
                             <div><strong>{value.total_rows}</strong><span>"Rows"</span></div>
                             <div><strong>{value.valid_rows}</strong><span>"Valid"</span></div>
                             <div><strong>{value.invalid_rows}</strong><span>"Invalid"</span></div>
+                            <div><strong>{value.duplicate_rows}</strong><span>"Duplicate"</span></div>
                             <div><strong>{value.estimated_execution_quantity}</strong><span>"Estimated checks"</span></div>
-                            <div><strong>{format_units(value.estimated_payg_cost_units, &value.currency)}</strong><span>"Estimated usage"</span></div>
-    </div>
+                            <div><strong>{format_units(value.estimated_payg_cost_units, &value.currency)}</strong><span>"Estimated cost"</span></div>
+                        </div>
                         <div class="stack-form">
-                            <p class="muted">"Pricing is server-resolved and pinned in the import job. Unit prices:"</p>
-    </div>
+                            <p class="muted">{format!(
+                                "Pricing snapshot: {} version(s), {} day forecast{}",
+                                value.pricing_versions.len(),
+                                value.forecast_days,
+                                value.pricing_version
+                                    .map(|v| format!(", pinned version {v}"))
+                                    .unwrap_or_default()
+                            )}</p>
+                            <p class="muted"><code>{value.pricing_snapshot_hash.clone()}</code></p>
+                            <div class="table-wrap">
+                                <table class="data-table">
+                                    <thead><tr><th>"Region"</th><th>"Operation"</th><th>"Quantity"</th><th>"Unit price"</th><th>"Estimated cost"</th><th>"Version"</th></tr></thead>
+                                    <tbody>
+                                        {value.pricing_versions.iter().map(|item| view! {
+                                            <tr>
+                                                <td>{item.region.clone()}</td>
+                                                <td>{item.operation.clone()}</td>
+                                                <td>{item.quantity}</td>
+                                                <td>{format_units(item.unit_price, &item.currency)}</td>
+                                                <td>{format_units(item.estimated_charge_units, &item.currency)}</td>
+                                                <td>{item.version}</td>
+                                            </tr>
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                         {if value.errors.is_empty() {
                             view! { <p class="muted">"No validation errors."</p> }.into_any()
                         } else {
@@ -215,7 +256,56 @@ pub fn BulkImportPage() -> impl IntoView {
                         <h2>"Import progress"</h2>
                         <p>{format!("{} / {} processed", value.processed_rows, value.total_rows)}</p>
                         <progress max=value.total_rows value=value.processed_rows></progress>
-                        <p class="muted">{format!("{} created · {} failed · {} invalid · {}", value.created_rows, value.failed_rows, value.invalid_rows, value.status)}</p>
+                        <p class="muted">{format!("{} created · {} failed · {} invalid · {} skipped · {}", value.created_rows, value.failed_rows, value.invalid_rows, value.skipped_rows, value.status)}</p>
+                        <div class="inline-form">
+                            {if value.status == "RUNNING" || value.status == "READY" {
+                                let id = value.id.clone();
+                                view! {
+                                    <button class="btn" disabled=move || action_busy.get() on:click=move |_| {
+                                        let id = id.clone();
+                                        action_busy.set(true);
+                                        spawn_local(async move {
+                                            match monitoring::bulk_import_pause(&id).await {
+                                                Ok(updated) => job.set(Some(updated)),
+                                                Err(message) => error.set(Some(message)),
+                                            }
+                                            action_busy.set(false);
+                                        });
+                                    }>"Pause"</button>
+                                }.into_any()
+                            } else { ().into_any() }}
+                            {if value.status == "PAUSED" {
+                                let id = value.id.clone();
+                                view! {
+                                    <button class="btn btn-primary" disabled=move || action_busy.get() on:click=move |_| {
+                                        let id = id.clone();
+                                        action_busy.set(true);
+                                        spawn_local(async move {
+                                            match monitoring::bulk_import_resume(&id).await {
+                                                Ok(updated) => job.set(Some(updated)),
+                                                Err(message) => error.set(Some(message)),
+                                            }
+                                            action_busy.set(false);
+                                        });
+                                    }>"Resume"</button>
+                                }.into_any()
+                            } else { ().into_any() }}
+                        </div>
+                        {if matches!(value.status.as_str(), "COMPLETED" | "FAILED" | "CANCELLED") {
+                            view! {
+                                <div class="success" role="status">
+                                    {format!(
+                                        "Final summary: {} created, {} failed, {} invalid, {} skipped.",
+                                        value.created_rows,
+                                        value.failed_rows,
+                                        value.invalid_rows,
+                                        value.skipped_rows
+                                    )}
+                                </div>
+                            }.into_any()
+                        } else {
+                            ().into_any()
+                        }}
                     </section>
                 })}
             </div>

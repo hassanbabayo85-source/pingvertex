@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Ayyukan da ake iya rikodi a cikin audit log.
+/// Actions that can be recorded in the audit log.
 ///
 /// Keep this list stable and additive. Avoid removing or reusing
 /// variant names once they are shipped.
@@ -38,4 +38,6 @@ pub enum AuditAction {
     BulkMonitorDisabled,
     BulkMonitorPaused,
     BulkMonitorResumed,
+    BulkImportPaused,
+    BulkImportResumed,
 }

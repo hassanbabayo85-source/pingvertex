@@ -37,6 +37,21 @@ pub trait AgentLeaseRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<AgentLease>>;
 
+    async fn claim_due_checks_with_limits(
+        &self,
+        agent_id: &str,
+        region: &RegionCode,
+        limit: u32,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<AgentLease>> {
+        let _ = (max_concurrency_per_tenant, due_claim_limit_per_tenant);
+        self.claim_due_checks(agent_id, region, limit, lease_duration, now)
+            .await
+    }
+
     async fn submit_result_with_check(
         &self,
         agent_id: &str,
@@ -69,6 +84,29 @@ where
     ) -> RepoResult<Vec<AgentLease>> {
         (**self)
             .claim_due_checks(agent_id, region, limit, lease_duration, now)
+            .await
+    }
+
+    async fn claim_due_checks_with_limits(
+        &self,
+        agent_id: &str,
+        region: &RegionCode,
+        limit: u32,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<AgentLease>> {
+        (**self)
+            .claim_due_checks_with_limits(
+                agent_id,
+                region,
+                limit,
+                lease_duration,
+                now,
+                max_concurrency_per_tenant,
+                due_claim_limit_per_tenant,
+            )
             .await
     }
 

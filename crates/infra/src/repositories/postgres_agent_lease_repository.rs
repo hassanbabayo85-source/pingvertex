@@ -75,15 +75,16 @@ struct LeaseStatusRow {
     completed_at: Option<DateTime<Utc>>,
 }
 
-#[async_trait]
-impl AgentLeaseRepository for PostgresAgentLeaseRepository {
-    async fn claim_due_checks(
+impl PostgresAgentLeaseRepository {
+    async fn claim_due_checks_inner(
         &self,
         agent_id: &str,
         region: &RegionCode,
         limit: u32,
         lease_duration: Duration,
         now: DateTime<Utc>,
+        max_concurrency_per_tenant: Option<usize>,
+        due_claim_limit_per_tenant: Option<usize>,
     ) -> RepoResult<Vec<AgentLease>> {
         let mut tx = self.pool.begin().await?;
 
@@ -98,6 +99,15 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         .execute(&mut *tx)
         .await?;
 
+        let max_per_tenant = i64::try_from(
+            max_concurrency_per_tenant.unwrap_or(i64::MAX as usize),
+        )
+        .unwrap_or(i64::MAX);
+        let due_per_tenant = i64::try_from(
+            due_claim_limit_per_tenant.unwrap_or(i64::MAX as usize),
+        )
+        .unwrap_or(i64::MAX);
+
         let due_monitor_ids: Vec<Uuid> = sqlx::query_scalar(
             r#"
             SELECT m.id
@@ -106,6 +116,7 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
             WHERE m.enabled = true
               AND t.status = 'active'
               AND m.kind = 'http'
+              AND cardinality(m.regions) > 1
               AND m.regions @> ARRAY[$1]::text[]
               AND NOT EXISTS (
                   SELECT 1
@@ -123,6 +134,62 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
                   ),
                   'epoch'::timestamptz
               ) + (m.interval_seconds * interval '1 second') <= $2
+              AND (
+                  $4 = 9223372036854775807
+                  OR (
+                      pg_try_advisory_xact_lock(
+                          hashtextextended('agent-scheduler:' || m.tenant_id::text, 0)
+                      )
+                      AND (
+                          SELECT COUNT(*)
+                          FROM agent_check_leases active_leases
+                          JOIN monitors leased_monitors
+                            ON leased_monitors.id = active_leases.monitor_id
+                          WHERE leased_monitors.tenant_id = m.tenant_id
+                            AND active_leases.completed_at IS NULL
+                            AND active_leases.lease_expires_at > $2
+                      ) < $4
+                      AND (
+                          SELECT COUNT(*)
+                          FROM monitors earlier
+                          WHERE earlier.tenant_id = m.tenant_id
+                            AND earlier.enabled = true
+                            AND earlier.kind = 'http'
+                            AND cardinality(earlier.regions) > 1
+                            AND earlier.regions @> ARRAY[$1]::text[]
+                            AND NOT EXISTS (
+                                SELECT 1
+                                FROM agent_check_leases el
+                                WHERE el.monitor_id = earlier.id
+                                  AND el.region = $1
+                                  AND el.completed_at IS NULL
+                            )
+                            AND COALESCE(
+                                (
+                                    SELECT MAX(ec.checked_at)
+                                    FROM checks ec
+                                    WHERE ec.monitor_id = earlier.id
+                                      AND ec.region = $1
+                                ),
+                                'epoch'::timestamptz
+                            ) + (earlier.interval_seconds * interval '1 second') <= $2
+                            AND (
+                                earlier.id <= m.id
+                            )
+                      ) <= LEAST(
+                          $5,
+                          $4 - (
+                              SELECT COUNT(*)
+                              FROM agent_check_leases remaining_leases
+                              JOIN monitors remaining_monitors
+                                ON remaining_monitors.id = remaining_leases.monitor_id
+                              WHERE remaining_monitors.tenant_id = m.tenant_id
+                                AND remaining_leases.completed_at IS NULL
+                                AND remaining_leases.lease_expires_at > $2
+                          )
+                      )
+                  )
+              )
             ORDER BY m.id
             FOR UPDATE SKIP LOCKED
             LIMIT $3
@@ -131,10 +198,13 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         .bind(region.as_str())
         .bind(now)
         .bind(limit as i64)
+        .bind(max_per_tenant)
+        .bind(due_per_tenant)
         .fetch_all(&mut *tx)
         .await?;
 
-        let lease_expires_at = now + ChronoDuration::seconds(lease_duration.as_secs() as i64);
+        let lease_expires_at =
+            now + ChronoDuration::seconds(lease_duration.as_secs() as i64);
         let mut claimed = Vec::with_capacity(due_monitor_ids.len());
 
         for monitor_id in due_monitor_ids {
@@ -175,6 +245,51 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
 
         tx.commit().await?;
         Ok(claimed)
+    }
+}
+
+#[async_trait]
+impl AgentLeaseRepository for PostgresAgentLeaseRepository {
+    async fn claim_due_checks(
+        &self,
+        agent_id: &str,
+        region: &RegionCode,
+        limit: u32,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<Vec<AgentLease>> {
+        self.claim_due_checks_inner(
+            agent_id,
+            region,
+            limit,
+            lease_duration,
+            now,
+            None,
+            None,
+        )
+        .await
+    }
+
+    async fn claim_due_checks_with_limits(
+        &self,
+        agent_id: &str,
+        region: &RegionCode,
+        limit: u32,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<AgentLease>> {
+        self.claim_due_checks_inner(
+            agent_id,
+            region,
+            limit,
+            lease_duration,
+            now,
+            Some(max_concurrency_per_tenant.max(1)),
+            Some(due_claim_limit_per_tenant.max(1)),
+        )
+        .await
     }
 
     async fn submit_result_with_check(

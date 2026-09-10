@@ -51,13 +51,11 @@ impl PaystackBillingProvider {
                 std::io::Error::other("PingVertex wallet currently supports USD only"),
             ));
         }
-        amount
-            .checked_mul(10_000)
-            .ok_or_else(|| {
-                Box::<dyn std::error::Error + Send + Sync>::from(std::io::Error::other(
-                    "provider amount overflow",
-                ))
-            })
+        amount.checked_mul(10_000).ok_or_else(|| {
+            Box::<dyn std::error::Error + Send + Sync>::from(std::io::Error::other(
+                "provider amount overflow",
+            ))
+        })
     }
     async fn initialize(
         &self,

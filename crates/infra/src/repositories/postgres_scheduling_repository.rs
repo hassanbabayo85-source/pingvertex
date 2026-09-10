@@ -61,57 +61,85 @@ impl PostgresSchedulingRepository {
     }
 }
 
-#[async_trait]
-impl SchedulingRepository for PostgresSchedulingRepository {
-    async fn claim_due_monitors(
+impl PostgresSchedulingRepository {
+    async fn claim_due_monitors_inner(
         &self,
         limit: u32,
         lease_owner: Uuid,
         lease_duration: Duration,
         now: DateTime<Utc>,
+        max_concurrency_per_tenant: Option<usize>,
+        due_claim_limit_per_tenant: Option<usize>,
     ) -> RepoResult<Vec<ClaimedMonitor>> {
-        let lease_seconds = lease_duration.as_secs() as i64;
+        let lease_seconds = i64::try_from(lease_duration.as_secs()).unwrap_or(i64::MAX);
         let limit_i64 = i64::from(limit);
+        let max_per_tenant = i64::try_from(max_concurrency_per_tenant.unwrap_or(i64::MAX as usize))
+            .unwrap_or(i64::MAX);
+        let due_per_tenant = i64::try_from(due_claim_limit_per_tenant.unwrap_or(i64::MAX as usize))
+            .unwrap_or(i64::MAX);
 
-        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, Uuid, bool)>(
-            r#"
+        let query = r#"
             WITH selected AS (
-                SELECT monitors.id
-                FROM monitors
-                JOIN tenants ON tenants.id = monitors.tenant_id
-                WHERE monitors.enabled = true
-                  AND tenants.status = 'active'
-                  AND monitors.kind != 'heartbeat'
-                  AND monitors.lease_expires_at IS NULL
-                  AND monitors.next_due_at <= $4
-                  AND monitors.interval_seconds >= (
-                      CASE
-                          WHEN NOT EXISTS (
-                              SELECT 1 FROM user_wallets w
-                              WHERE w.tenant_id = monitors.tenant_id
-                                AND w.payg_activated_at IS NOT NULL
-                          )
-                          AND (
-                              SELECT COUNT(*) FROM monitors m2
-                              WHERE m2.tenant_id = monitors.tenant_id
-                          ) <= 10
-                          THEN 300
-                          ELSE COALESCE(
-                              (
-                                  SELECT p.min_interval_seconds
-                                  FROM monitor_interval_policies p
-                                  WHERE p.kind = monitors.kind
-                              ),
-                              30
-                          )
-                      END
-                  )
+                SELECT m.id
+                FROM monitors m
+                JOIN tenants t ON t.id = m.tenant_id
+                WHERE m.enabled = true
+                  AND t.status = 'active'
+                  AND m.kind <> 'heartbeat'
+                  AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
+                  AND m.lease_expires_at IS NULL
+                  AND m.next_due_at <= $4
                   AND NOT EXISTS (
                       SELECT 1
                       FROM monitor_billing_blocks b
-                      WHERE b.monitor_id = monitors.id
+                      WHERE b.monitor_id = m.id
                   )
-                ORDER BY monitors.next_due_at
+                  AND (
+                      $5 = 9223372036854775807
+                      OR (
+                          pg_try_advisory_xact_lock(
+                              hashtextextended('scheduler:' || m.tenant_id::text, 0)
+                          )
+                          AND (
+                              SELECT COUNT(*)
+                              FROM monitors leased
+                              WHERE leased.tenant_id = m.tenant_id
+                                AND leased.lease_owner IS NOT NULL
+                                AND leased.lease_expires_at > $4
+                          ) < $5
+                          AND (
+                              SELECT COUNT(*)
+                              FROM monitors earlier
+                              WHERE earlier.tenant_id = m.tenant_id
+                                AND earlier.enabled = true
+                                AND earlier.kind <> 'heartbeat'
+                                AND (earlier.kind <> 'http' OR cardinality(earlier.regions) <= 1)
+                                AND earlier.lease_expires_at IS NULL
+                                AND earlier.next_due_at <= $4
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM monitor_billing_blocks eb
+                                    WHERE eb.monitor_id = earlier.id
+                                )
+                                AND (
+                                    earlier.next_due_at < m.next_due_at
+                                    OR (
+                                        earlier.next_due_at = m.next_due_at
+                                        AND earlier.id <= m.id
+                                    )
+                                )
+                          ) <= LEAST(
+                              $6,
+                              $5 - (
+                                  SELECT COUNT(*)
+                                  FROM monitors leased_now
+                                  WHERE leased_now.tenant_id = m.tenant_id
+                                    AND leased_now.lease_owner IS NOT NULL
+                                    AND leased_now.lease_expires_at > $4
+                              )
+                          )
+                      )
+                  )
+                ORDER BY m.next_due_at, m.id
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
             )
@@ -122,40 +150,109 @@ impl SchedulingRepository for PostgresSchedulingRepository {
                 lease_execution_id = COALESCE(m.lease_execution_id, gen_random_uuid())
             FROM selected
             WHERE m.id = selected.id
-            RETURNING m.id, m.lease_claimed_at, m.lease_execution_id,
-                      (m.interval_seconds >= 300
-                       AND (SELECT COUNT(*) FROM monitors m2 WHERE m2.tenant_id=m.tenant_id) <= 10
-                       AND NOT EXISTS (
-                           SELECT 1
-                           FROM user_wallets w
-                           WHERE w.tenant_id=m.tenant_id
-                             AND w.payg_activated_at IS NOT NULL
-                       ))
-            "#,
-        )
-        .bind(limit_i64)
-        .bind(lease_owner)
-        .bind(lease_seconds)
-        .bind(now)
-        .fetch_all(&self.pool)
-        .await?;
+            RETURNING m.id, m.lease_claimed_at, m.lease_execution_id
+        "#;
+
+        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, Uuid)>(query)
+            .bind(limit_i64)
+            .bind(lease_owner)
+            .bind(lease_seconds)
+            .bind(now)
+            .bind(max_per_tenant)
+            .bind(due_per_tenant)
+            .fetch_all(&self.pool)
+            .await?;
 
         let mut monitors = Vec::with_capacity(claimed_rows.len());
-        for (id, claimed_at, execution_id, free_entitled) in claimed_rows {
+        for (id, claimed_at, execution_id) in claimed_rows {
             if let Some(monitor) = self.monitor_repository.find_by_id(MonitorId(id)).await? {
                 monitors.push(ClaimedMonitor {
                     monitor,
                     claimed_at,
                     execution_id,
-                    free_entitled,
                 });
             }
         }
 
         Ok(monitors)
     }
+}
 
+#[async_trait]
+impl SchedulingRepository for PostgresSchedulingRepository {
+    async fn claim_due_monitors(
+        &self,
+        limit: u32,
+        lease_owner: Uuid,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<Vec<ClaimedMonitor>> {
+        self.claim_due_monitors_inner(
+            limit,
+            lease_owner,
+            lease_duration,
+            now,
+            None,
+            None,
+        )
+        .await
+    }
+
+    async fn claim_due_monitors_with_limits(
+        &self,
+        limit: u32,
+        lease_owner: Uuid,
+        lease_duration: Duration,
+        now: DateTime<Utc>,
+        max_concurrency_per_tenant: usize,
+        due_claim_limit_per_tenant: usize,
+    ) -> RepoResult<Vec<ClaimedMonitor>> {
+        self.claim_due_monitors_inner(
+            limit,
+            lease_owner,
+            lease_duration,
+            now,
+            Some(max_concurrency_per_tenant.max(1)),
+            Some(due_claim_limit_per_tenant.max(1)),
+        )
+        .await
+    }
+
+    async fn due_monitor_count(&self, now: DateTime<Utc>) -> RepoResult<u64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM monitors m
+            JOIN tenants t ON t.id = m.tenant_id
+            WHERE m.enabled = true
+              AND t.status = 'active'
+              AND m.kind <> 'heartbeat'
+                  AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
+              AND m.lease_expires_at IS NULL
+              AND m.next_due_at <= $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM monitor_billing_blocks b
+                  WHERE b.monitor_id = m.id
+              )
+            "#,
+        )
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count.max(0) as u64)
+    }
     async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()> {
+        self.complete_claim_with_spread(monitor_id, lease_owner, 0)
+            .await
+    }
+
+    async fn complete_claim_with_spread(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        spread_seconds: u64,
+    ) -> RepoResult<()> {
+        let spread = i64::try_from(spread_seconds.min(300)).unwrap_or(300);
         let result = sqlx::query(
             r#"
             UPDATE monitors
@@ -163,13 +260,24 @@ impl SchedulingRepository for PostgresSchedulingRepository {
                 lease_expires_at = NULL,
                 lease_claimed_at = NULL,
                 lease_execution_id = NULL,
-                next_due_at = now() + (interval_seconds * interval '1 second')
+                next_due_at = now()
+                    + (interval_seconds * interval '1 second')
+                    + CASE
+                        WHEN $3 > 0 THEN (
+                            mod(
+                                hashtextextended(id::text, 0) & 9223372036854775807,
+                                $3
+                            ) * interval '1 second'
+                        )
+                        ELSE interval '0 second'
+                      END
             WHERE id = $1
               AND lease_owner = $2
             "#,
         )
         .bind(monitor_id.0)
         .bind(lease_owner)
+        .bind(spread)
         .execute(&self.pool)
         .await?;
 
