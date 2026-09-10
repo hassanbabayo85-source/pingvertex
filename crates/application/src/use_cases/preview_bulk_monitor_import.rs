@@ -857,14 +857,22 @@ mod tests {
             Arc::new(TestIntervals),
         );
         let mut row = http_row(2, "api", "https://example.com");
-        row.interval_seconds = domain::FREE_MIN_INTERVAL_SECONDS;
+        // Pull the free-tier minimum interval from the same source of truth
+        // production uses (`Plan::for_tier(Free).min_check_interval_seconds`)
+        // rather than a hardcoded domain constant, so this test cannot
+        // silently drift from the pricing contract.
+        row.interval_seconds =
+            domain::Plan::for_tier(domain::enums::PlanTier::Free).min_check_interval_seconds;
         let preview = use_case
             .execute(
                 user(Role::Admin),
                 vec![row],
                 Vec::new(),
                 BulkImportMonitorSnapshot {
-                    total_count: domain::FREE_MONITOR_LIMIT as usize,
+                    // Same reasoning as above: use the free-tier monitor limit
+                    // that the production preview code resolves, not a domain constant.
+                    total_count: domain::Plan::for_tier(domain::enums::PlanTier::Free)
+                        .max_monitors as usize,
                     monitors: Vec::new(),
                 },
                 false,

@@ -140,7 +140,11 @@ async fn viewer_can_read_but_not_write_monitor_in_same_tenant() {
     assert_eq!(fetched.unwrap().id, monitor.id);
 
     // Bob (Member) CANNOT update Alice's monitor — Member is read-only.
-    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
+    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
+        .with_pricing_config_repository(std::sync::Arc::new(
+            infra::InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ));
     let update_err = update_use_case
         .execute(
             UpdateMonitor {
@@ -225,7 +229,11 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
     // Outsider ba zai iya gyara ba — even though this outsider is an Owner
     // (so has UpdateMonitor), tenant isolation still blocks cross-tenant
     // access and returns None, same as before this permission patch.
-    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
+    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
+        .with_pricing_config_repository(std::sync::Arc::new(
+            infra::InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ));
     let updated = update_use_case
         .execute(
             UpdateMonitor {
@@ -473,7 +481,11 @@ async fn owner_can_still_write_monitor_in_own_tenant() {
         .await
         .unwrap();
 
-    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo());
+    let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
+        .with_pricing_config_repository(std::sync::Arc::new(
+            infra::InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ));
     let updated = update_use_case
         .execute(
             UpdateMonitor {

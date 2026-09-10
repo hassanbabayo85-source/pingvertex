@@ -11,12 +11,13 @@ use domain::enums::{BillingWebhookEventType, PlanTier};
 use domain::shared::ids::TenantId;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Sha256, Sha512};
 
 use crate::error::ApiError;
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
+type HmacSha512 = Hmac<Sha512>;
 
 #[derive(Debug, Deserialize)]
 pub struct BillingWebhookPayload {
@@ -184,20 +185,28 @@ pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Val
 
 /// Verifies the provider signature on the raw request body.
 ///
-/// The signature header must be `X-Billing-Signature: sha256=<hex>`
-/// (or `X-Webhook-Signature` with the same format). The HMAC secret is
-/// supplied separately so this function is easy to unit-test without
-/// constructing a full `AppState`.
+/// Two provider contracts are supported:
 ///
-/// SEC (B37 backend security audit): this used to compute the expected
-/// signature as a hex `String` and compare it against the caller-supplied
-/// header with `!=`. `String`/`&str` inequality short-circuits on the
-/// first differing byte, which leaks timing information proportional to
-/// how many leading bytes of the signature an attacker has correctly
-/// guessed — a classic timing side-channel that lets a remote attacker
-/// forge a valid signature byte-by-byte without ever knowing
-/// `BILLING_WEBHOOK_SECRET`, since `POST /api/v1/billing/webhook` is
-/// otherwise unauthenticated by design (signature verification IS the
+/// 1. **Paystack** — `X-Paystack-Signature: <hex>` (lowercase hex, NO prefix).
+///    HMAC-SHA512 over the raw request body using the Paystack secret key.
+///    This matches the production Paystack webhook contract.
+///
+/// 2. **Internal/legacy** — `X-Billing-Signature: sha256=<hex>` (or
+///    `X-Webhook-Signature` with the same format). HMAC-SHA256 over the raw
+///    request body using the shared billing webhook secret.
+///
+/// Paystack's header takes precedence when both are present so a single
+/// endpoint can accept traffic from either source without configuration.
+///
+/// SEC (B37 backend security audit): the internal HMAC-SHA256 path used to
+/// compute the expected signature as a hex `String` and compare it against
+/// the caller-supplied header with `!=`. `String`/`&str` inequality
+/// short-circuits on the first differing byte, which leaks timing
+/// information proportional to how many leading bytes of the signature an
+/// attacker has correctly guessed — a classic timing side-channel that lets
+/// a remote attacker forge a valid signature byte-by-byte without ever
+/// knowing `BILLING_WEBHOOK_SECRET`, since `POST /api/v1/billing/webhook`
+/// is otherwise unauthenticated by design (signature verification IS the
 /// authentication). This is the exact bug class `api::metrics::constant_time_eq`
 /// was already introduced to close for `METRICS_TOKEN`; this handler had
 /// never been brought up to that same standard.
@@ -205,8 +214,27 @@ pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Val
 /// Fixed by decoding the expected hex signature to raw bytes and using
 /// `hmac::Mac::verify_slice`, which performs a constant-time comparison
 /// internally (backed by the `subtle` crate) instead of a variable-time
-/// string comparison.
+/// string comparison. The same constant-time primitive is used for the new
+/// Paystack SHA-512 path.
 pub fn verify_signature(secret: &str, headers: &HeaderMap, body: &[u8]) -> Result<(), ApiError> {
+    // Paystack path: X-Paystack-Signature, HMAC-SHA512, raw lowercase hex.
+    if let Some(paystack_hex) = headers
+        .get("x-paystack-signature")
+        .and_then(|v| v.to_str().ok())
+    {
+        let expected_bytes = hex::decode(paystack_hex)
+            .map_err(|_| ApiError::unauthorized("invalid paystack webhook signature format"))?;
+
+        let mut mac = HmacSha512::new_from_slice(secret.as_bytes())
+            .map_err(|_| ApiError::internal("failed to initialize billing webhook verifier"))?;
+        mac.update(body);
+        mac.verify_slice(&expected_bytes)
+            .map_err(|_| ApiError::unauthorized("invalid paystack webhook signature"))?;
+        return Ok(());
+    }
+
+    // Internal/legacy path: X-Billing-Signature (or X-Webhook-Signature) with
+    // `sha256=<hex>` format, HMAC-SHA256.
     let signature_header = headers
         .get("x-billing-signature")
         .or_else(|| headers.get("x-webhook-signature"))
@@ -239,6 +267,12 @@ mod tests {
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body);
         format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+    }
+
+    fn sign_paystack(secret: &str, body: &[u8]) -> String {
+        let mut mac = HmacSha512::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        hex::encode(mac.finalize().into_bytes())
     }
 
     #[test]
@@ -308,5 +342,77 @@ mod tests {
         );
 
         assert!(verify_signature("secret", &headers, b"{}").is_err());
+    }
+
+    // --- Paystack signature tests (HMAC-SHA512, no prefix) ---
+
+    #[test]
+    fn paystack_signature_is_accepted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-paystack-signature",
+            sign_paystack("sk_test_secret", b"{\"event\":\"charge.success\"}")
+                .parse()
+                .unwrap(),
+        );
+
+        assert!(
+            verify_signature("sk_test_secret", &headers, b"{\"event\":\"charge.success\"}")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn invalid_paystack_signature_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-paystack-signature",
+            "deadbeef".parse().unwrap(),
+        );
+
+        assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
+    }
+
+    #[test]
+    fn non_hex_paystack_signature_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-paystack-signature",
+            "not-hex-at-all!!".parse().unwrap(),
+        );
+
+        assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
+    }
+
+    #[test]
+    fn paystack_signature_with_internal_prefix_is_rejected() {
+        // Paystack uses raw hex with no prefix. A value that carries the
+        // internal `sha256=` prefix must NOT be silently accepted on the
+        // Paystack path.
+        let mut headers = HeaderMap::new();
+        let signed = sign("sk_test_secret", b"{}");
+        headers.insert(
+            "x-paystack-signature",
+            signed.parse().unwrap(),
+        );
+
+        assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
+    }
+
+    #[test]
+    fn paystack_header_takes_precedence_over_internal_header() {
+        // If both headers are present, a valid Paystack signature must win
+        // and the (potentially invalid) internal header must be ignored.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-paystack-signature",
+            sign_paystack("sk_test_secret", b"{}").parse().unwrap(),
+        );
+        headers.insert(
+            "x-billing-signature",
+            "sha256=deadbeef".parse().unwrap(),
+        );
+
+        assert!(verify_signature("sk_test_secret", &headers, b"{}").is_ok());
     }
 }

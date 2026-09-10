@@ -2,11 +2,6 @@ use crate::MonitorKind;
 use std::fmt;
 use std::str::FromStr;
 
-/// Free PAYG entitlement constants. The active database pricing configuration
-/// is the runtime source of truth; these values are the safe bootstrap/test
-/// defaults and must stay aligned with the product contract.
-pub const FREE_MONITOR_LIMIT: u64 = 10;
-pub const FREE_MIN_INTERVAL_SECONDS: u32 = 300;
 /// Minimum product-defined wallet top-up: $5 in micro-USD.
 pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000;
 
@@ -126,9 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn free_and_topup_contract_constants_are_stable() {
-        assert_eq!(FREE_MONITOR_LIMIT, 10);
-        assert_eq!(FREE_MIN_INTERVAL_SECONDS, 300);
+    fn topup_contract_constant_is_stable() {
         assert_eq!(MIN_PAYG_TOP_UP_UNITS, 5_000_000);
     }
 

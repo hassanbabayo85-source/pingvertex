@@ -1261,6 +1261,78 @@ impl WalletRepository for PostgresWalletRepository {
         }))
     }
 
+    async fn find_top_up_session_global(
+        &self,
+        provider: &str,
+        provider_checkout_id: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        #[derive(sqlx::FromRow)]
+        struct WalletRepoRowGlobal {
+            id: Uuid,
+            tenant_id: Uuid,
+            provider: String,
+            provider_checkout_id: String,
+            provider_payment_id: Option<String>,
+            amount_units: i64,
+            refunded_amount_units: i64,
+            currency: String,
+            status: String,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+        }
+        let r = sqlx::query_as::<_,WalletRepoRowGlobal>(
+            "SELECT id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
+             FROM wallet_top_up_sessions WHERE provider=$1 AND provider_checkout_id=$2"
+        ).bind(provider).bind(provider_checkout_id).fetch_optional(&self.pool).await?;
+        Ok(r.map(|x| WalletTopUpSession {
+            id: x.id,
+            tenant_id: x.tenant_id,
+            provider: x.provider,
+            provider_checkout_id: x.provider_checkout_id,
+            provider_payment_id: x.provider_payment_id,
+            amount_units: x.amount_units,
+            refunded_amount_units: x.refunded_amount_units,
+            currency: x.currency,
+            status: x.status,
+            created_at: x.created_at,
+            updated_at: x.updated_at,
+        }))
+    }
+
+    async fn mark_top_up_session_failed(
+        &self,
+        tenant_id: Uuid,
+        provider_checkout_id: &str,
+        reason: &str,
+    ) -> WalletRepoResult<bool> {
+        // Only a PENDING session may transition to FAILED. A session that
+        // is already COMPLETED must never be rewritten by a late-arriving
+        // failure (Paystack can deliver charge.failed after charge.success
+        // in race conditions); a session that is already FAILED should
+        // simply report the same idempotent result.
+        let result = sqlx::query(
+            "UPDATE wallet_top_up_sessions
+                SET status='FAILED', updated_at=now()
+              WHERE tenant_id=$1
+                AND provider_checkout_id=$2
+                AND status='PENDING'",
+        )
+        .bind(tenant_id)
+        .bind(provider_checkout_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+        tracing::info!(
+            tenant_id = %tenant_id,
+            provider_checkout_id = %provider_checkout_id,
+            reason = %reason,
+            "wallet top-up session marked FAILED"
+        );
+        Ok(true)
+    }
+
     async fn complete_top_up_session(
         &self,
         tenant_id: Uuid,

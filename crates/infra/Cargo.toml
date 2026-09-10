@@ -61,5 +61,6 @@ aes-gcm = { version = "0.10", features = ["zeroize"] }
 maxminddb = "0.30.0"
 
 [dev-dependencies]
+wiremock = "0.6"
 serial_test = "3.1"
 dotenvy = "0.15"

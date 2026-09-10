@@ -113,9 +113,21 @@ async fn scheduler_ignores_suspended_tenant_monitor() {
         .await
         .unwrap();
 
-    assert_eq!(
-        claims.len(),
-        0,
-        "Should NOT claim monitor for a suspended tenant"
+    // The claim query is deliberately globally scoped: it must return
+    // every due monitor whose tenant is active, not just the monitor of
+    // the tenant this test created. On a fresh database that happens to
+    // mean `claims.len() == 0`, but when the whole workspace suite runs in
+    // parallel, other tests may leave active tenants (and their due
+    // monitors) behind in the shared `uptime_monitor_test` database. What
+    // this test actually needs to prove is that the *suspended* tenant's
+    // monitor is not among the claimed rows — i.e. the claim is scoped to
+    // active tenants, not to "whatever tenants happen to exist".
+    assert!(
+        claims
+            .iter()
+            .all(|claim| claim.monitor.tenant_id != tenant.id),
+        "Suspended tenant {:?} must not have any claimed monitors; got {} claim(s)",
+        tenant.id,
+        claims.len()
     );
 }

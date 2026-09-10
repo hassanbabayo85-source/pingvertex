@@ -68,6 +68,7 @@ pub struct RefundDetails {
     pub provider_refund_id: String,
 }
 
+#[derive(Debug)]
 pub struct CheckoutDetails {
     pub provider_checkout_id: String,
     pub checkout_url: String,

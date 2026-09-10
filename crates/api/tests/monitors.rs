@@ -8,7 +8,9 @@ use axum::http::{Request, StatusCode};
 use domain::User;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, HttpMethod, Incident};
+use domain::pricing::PricingConfig;
 use infra::InMemoryAuditLogEntryRepository;
+use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
@@ -130,6 +132,19 @@ impl IncidentRepository for NoopIncidentRepository {
 fn build_test_app(user_id: Uuid) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
+    // The update-monitor use case treats a missing active pricing config
+    // as an operational error (no silent fallback to a hardcoded free-tier
+    // interval). In production `main.rs` always wires
+    // `PostgresPricingConfigRepository`; the test harness must do the
+    // equivalent by wiring an in-memory repo seeded with the same
+    // `PricingConfig::default_config()` that migration 0055 / 0089 seed
+    // into the real database. Without this, `find_active_config()` returns
+    // `None` and `PUT /monitors/{id}` responds 400 even though the request
+    // is valid.
+    let pricing_repo = Arc::new(
+        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
+    );
+
     let state = AppState::new(
         monitor_repository.clone(),
         NoopCheckRepository,
@@ -142,7 +157,8 @@ fn build_test_app(user_id: Uuid) -> axum::Router {
         UuidIdGenerator::new(),
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
-    );
+    )
+    .with_pricing_config_repository(pricing_repo);
 
     let tenant_repository = InMemoryTenantRepository::new();
     let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
