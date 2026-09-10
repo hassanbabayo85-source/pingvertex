@@ -5925,6 +5925,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "domain",
+ "dotenvy",
  "hickory-resolver",
  "infra",
  "ipnet",
