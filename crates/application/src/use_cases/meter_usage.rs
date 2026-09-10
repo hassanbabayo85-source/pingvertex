@@ -68,12 +68,12 @@ impl MeterUsageUseCase {
                 .and_then(|cache| cache.get(&tenant_id).copied())
             {
                 context.account_type = Some(account_type);
-            } else if let Some(repository) = &self.tenant_repository {
-                if let Ok(Some(tenant)) = repository.find_by_id(domain::TenantId(tenant_id)).await {
-                    context.account_type = Some(tenant.account_type);
-                    if let Ok(mut cache) = self.account_type_cache.write() {
-                        cache.insert(tenant_id, tenant.account_type);
-                    }
+            } else if let Some(repository) = &self.tenant_repository
+                && let Ok(Some(tenant)) = repository.find_by_id(domain::TenantId(tenant_id)).await
+            {
+                context.account_type = Some(tenant.account_type);
+                if let Ok(mut cache) = self.account_type_cache.write() {
+                    cache.insert(tenant_id, tenant.account_type);
                 }
             }
         }

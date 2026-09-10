@@ -856,6 +856,8 @@ impl WalletRepository for InMemoryWalletRepository {
             out.push(domain::AutoTopUpCandidate {
                 tenant_id: w.tenant_id,
                 balance_units: w.balance_units,
+                currency: w.currency.clone(),
+                customer_email: "test@example.invalid".to_owned(),
                 settings: s.clone(),
                 daily_spend_units: daily,
                 monthly_spend_units: monthly,

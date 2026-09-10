@@ -176,62 +176,66 @@ impl ChargeForUsageUseCase {
             });
         }
 
-        let pricing = resolve_price(
-            self.pricing_repository.as_ref(),
-            &input.operation,
-            &PricingContext {
-                quantity: input.units.max(0) as u64,
-                ..input.pricing_context.clone().unwrap_or_default()
-            },
-        )
-        .await
-        .map_err(ChargeForUsageError::Repository)?
-        .ok_or(ChargeForUsageError::NoPricing)?;
-        if pricing.unit_price <= 0 {
-            return Err(ChargeForUsageError::InvalidPricing(
-                "active PAYG unit price must be positive",
-            ));
-        }
-        let charge_units = input
-            .units
-            .checked_mul(pricing.unit_price)
-            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
-
-        let wallet = self
-            .wallet_repository
-            .get_or_create(input.tenant_id, &pricing.currency)
-            .await
-            .map_err(ChargeForUsageError::Repository)?;
-        if wallet.currency != pricing.currency {
-            return Err(ChargeForUsageError::InvalidPricing(
-                "PAYG pricing currency does not match the tenant wallet currency",
-            ));
-        }
-
         let reservation = self
             .wallet_repository
-            .reserve(
-                input.tenant_id,
-                charge_units,
-                &input.operation,
-                pricing.unit_price,
-                pricing.version,
-                &pricing.currency,
-                &input.request_id,
-                Utc::now() + Duration::seconds(120),
-            )
+            .find_reservation_by_request(input.tenant_id, &input.request_id)
             .await
-            .map_err(|e| match e.to_string().as_str() {
-                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
-                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
-                    ChargeForUsageError::SpendLimitExceeded
-                }
-                _ => ChargeForUsageError::Repository(e),
-            })?;
+            .map_err(ChargeForUsageError::Repository)?
+            .ok_or(ChargeForUsageError::Repository(
+                "PAYG reservation not found for reserved execution".into(),
+            ))?;
+        if reservation.operation != input.operation {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "reservation operation does not match finalization",
+            ));
+        }
+        if reservation.status != CreditReservation::PENDING {
+            if reservation.status == CreditReservation::CAPTURED
+                && let Some(event) = self
+                    .usage_event_repository
+                    .find_by_request(input.tenant_id, &input.request_id)
+                    .await
+                    .map_err(ChargeForUsageError::Repository)?
+            {
+                return Ok(ChargeForUsageResult {
+                    usage_event: event,
+                    transaction: None,
+                });
+            }
+            return Err(ChargeForUsageError::ReservationInProgress);
+        }
+        let reserved_unit_price =
+            reservation
+                .unit_price
+                .ok_or(ChargeForUsageError::InvalidPricing(
+                    "reservation has no unit price",
+                ))?;
+        let reserved_pricing_version =
+            reservation
+                .pricing_version
+                .ok_or(ChargeForUsageError::InvalidPricing(
+                    "reservation has no pricing version",
+                ))?;
+        let reserved_currency =
+            reservation
+                .currency
+                .as_deref()
+                .ok_or(ChargeForUsageError::InvalidPricing(
+                    "reservation has no currency",
+                ))?;
+        let expected_amount = input
+            .units
+            .checked_mul(reserved_unit_price)
+            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+        if expected_amount != reservation.amount_units {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "reservation amount does not match pinned price",
+            ));
+        }
 
         if !attempted {
             self.wallet_repository
-                .release(reservation.reservation.id)
+                .release(reservation.id)
                 .await
                 .map_err(ChargeForUsageError::Repository)?;
             return Err(ChargeForUsageError::OperationNotAttempted(
@@ -239,24 +243,11 @@ impl ChargeForUsageUseCase {
             ));
         }
 
-        let reserved_unit_price = reservation
-            .reservation
-            .unit_price
-            .unwrap_or(pricing.unit_price);
-        let reserved_pricing_version = reservation
-            .reservation
-            .pricing_version
-            .unwrap_or(pricing.version);
-        let reserved_currency = reservation
-            .reservation
-            .currency
-            .as_deref()
-            .unwrap_or(&pricing.currency);
         let event = self.build_event(
             &input,
             input.units,
             reserved_unit_price,
-            reservation.reservation.amount_units,
+            reservation.amount_units,
             reserved_pricing_version,
             reserved_currency,
             "CAPTURED",
@@ -264,7 +255,7 @@ impl ChargeForUsageUseCase {
         let audits = self.build_payg_audits(&input, &event);
         let transaction = self
             .wallet_repository
-            .capture(reservation.reservation.id, Some(&event), &audits)
+            .capture(reservation.id, Some(&event), &audits)
             .await
             .map_err(ChargeForUsageError::CaptureFailed)?;
         let event = self

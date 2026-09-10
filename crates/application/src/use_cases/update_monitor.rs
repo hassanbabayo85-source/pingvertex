@@ -1,3 +1,4 @@
+use crate::ports::PricingConfigRepository;
 use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
@@ -25,6 +26,7 @@ pub struct UpdateMonitorUseCase<R> {
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     wallet_repository: Option<Arc<dyn WalletRepository>>,
     interval_policy_repository: Option<Arc<dyn MonitorIntervalPolicyRepository>>,
+    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -40,6 +42,7 @@ where
             audit_log_entry_repository,
             wallet_repository: None,
             interval_policy_repository: None,
+            pricing_config_repository: None,
         }
     }
 
@@ -53,6 +56,14 @@ where
         repository: Arc<dyn MonitorIntervalPolicyRepository>,
     ) -> Self {
         self.interval_policy_repository = Some(repository);
+        self
+    }
+
+    pub fn with_pricing_config_repository(
+        mut self,
+        repository: Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.pricing_config_repository = Some(repository);
         self
     }
 
@@ -96,6 +107,12 @@ where
                     _ => CheckInterval::MIN,
                 }
             }
+        } else if let Some(pricing) = &self.pricing_config_repository {
+            pricing
+                .find_active_config()
+                .await?
+                .map(|config| config.free_tier.interval_seconds)
+                .unwrap_or_else(|| domain::FREE_MIN_INTERVAL_SECONDS)
         } else {
             domain::FREE_MIN_INTERVAL_SECONDS
         };

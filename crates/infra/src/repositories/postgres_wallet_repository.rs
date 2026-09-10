@@ -236,6 +236,24 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(rows.into_iter().map(TxRow::into_domain).collect())
     }
 
+    async fn find_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+    ) -> WalletRepoResult<Option<CreditReservation>> {
+        let row = sqlx::query_as::<_, ReservationRow>(
+            "SELECT r.id,r.wallet_id,r.amount_units,r.status,r.operation,r.unit_price,r.pricing_version,r.currency,r.request_id,r.expires_at,r.created_at,r.updated_at
+             FROM credit_reservations r
+             JOIN user_wallets w ON w.id=r.wallet_id
+             WHERE w.tenant_id=$1 AND r.request_id=$2"
+        )
+        .bind(tenant_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(ReservationRow::into_domain))
+    }
+
     async fn reserve(
         &self,
         tenant_id: Uuid,
@@ -1071,6 +1089,8 @@ impl WalletRepository for PostgresWalletRepository {
         struct AutoTopUpRow {
             tenant_id: Uuid,
             balance_units: i64,
+            currency: String,
+            customer_email: String,
             low: i64,
             critical: i64,
             enabled: bool,
@@ -1089,7 +1109,7 @@ impl WalletRepository for PostgresWalletRepository {
             attempts: i64,
         }
         let rows = sqlx::query_as::<_, AutoTopUpRow>(
-            "SELECT w.tenant_id,w.balance_units,
+            "SELECT w.tenant_id,w.balance_units,w.currency,u.email::text customer_email,
                     s.low_balance_threshold_units low,
                     s.critical_balance_threshold_units critical,
                     s.auto_top_up_enabled enabled,
@@ -1113,6 +1133,8 @@ impl WalletRepository for PostgresWalletRepository {
                               WHERE a.tenant_id=w.tenant_id AND a.attempted_at>=date_trunc('day',now())),0) attempts
              FROM user_wallets w
              JOIN wallet_settings s ON s.tenant_id=w.tenant_id
+             JOIN tenants t ON t.id=w.tenant_id
+             JOIN users u ON u.id=t.owner_user_id
              WHERE s.auto_top_up_enabled
                AND w.balance_units < s.auto_top_up_threshold_units
              ORDER BY w.balance_units
@@ -1126,6 +1148,8 @@ impl WalletRepository for PostgresWalletRepository {
             .map(|r| domain::AutoTopUpCandidate {
                 tenant_id: r.tenant_id,
                 balance_units: r.balance_units,
+                currency: r.currency,
+                customer_email: r.customer_email,
                 settings: WalletSettings {
                     tenant_id: r.tenant_id,
                     low_balance_threshold_units: r.low,
@@ -1528,13 +1552,54 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(())
     }
 
+    async fn list_auto_top_up_reconciliation_attempts(
+        &self,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<AutoTopUpAttempt>> {
+        #[derive(sqlx::FromRow)]
+        struct AttemptRow {
+            id: Uuid,
+            tenant_id: Uuid,
+            amount_units: i64,
+            status: String,
+            provider_payment_id: Option<String>,
+            provider_reference: Option<String>,
+            error_message: Option<String>,
+            attempted_at: DateTime<Utc>,
+        }
+        let rows = sqlx::query_as::<_, AttemptRow>(
+            "SELECT id,tenant_id,amount_units,status,provider_payment_id,provider_reference,error_message,attempted_at
+             FROM wallet_auto_top_up_attempts
+             WHERE status IN ('PENDING','PROCESSING','REQUIRES_RECONCILIATION')
+               AND provider_reference IS NOT NULL
+             ORDER BY attempted_at ASC LIMIT $1"
+        )
+        .bind(limit.clamp(1,100) as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| AutoTopUpAttempt {
+                id: r.id,
+                tenant_id: r.tenant_id,
+                amount_units: r.amount_units,
+                status: r.status,
+                provider_payment_id: r.provider_payment_id,
+                provider_reference: r.provider_reference,
+                error_message: r.error_message,
+                attempted_at: r.attempted_at,
+            })
+            .collect())
+    }
+
     async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()> {
         sqlx::query(
             "INSERT INTO wallet_auto_top_up_attempts
-             (id,tenant_id,amount_units,status,provider_reference,error_message,attempted_at)
-             VALUES($1,$2,$3,$4,$5,$6,$7)
+             (id,tenant_id,amount_units,status,provider_payment_id,provider_reference,error_message,attempted_at)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)
              ON CONFLICT (id) DO UPDATE 
              SET status = EXCLUDED.status,
+                 provider_payment_id = COALESCE(EXCLUDED.provider_payment_id, wallet_auto_top_up_attempts.provider_payment_id),
                  provider_reference = COALESCE(EXCLUDED.provider_reference, wallet_auto_top_up_attempts.provider_reference),
                  error_message = EXCLUDED.error_message",
         )
@@ -1542,6 +1607,7 @@ impl WalletRepository for PostgresWalletRepository {
         .bind(attempt.tenant_id)
         .bind(attempt.amount_units)
         .bind(&attempt.status)
+        .bind(&attempt.provider_payment_id)
         .bind(&attempt.provider_reference)
         .bind(&attempt.error_message)
         .bind(attempt.attempted_at)

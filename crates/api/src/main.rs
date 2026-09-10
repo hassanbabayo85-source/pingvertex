@@ -19,11 +19,12 @@ use infra::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
     DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
     FakeBillingProvider, HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    OidcIdTokenVerifier, PostgresAddOnSubscriptionRepository, PostgresAgentLeaseRepository,
-    PostgresApiFlowRepository, PostgresApiKeyRepository, PostgresAuditLogEntryRepository,
-    PostgresBackupCodeRepository, PostgresBillingAuditLogRepository,
-    PostgresBillingWebhookIdempotencyRepository, PostgresBulkMonitorImportRepository,
-    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
+    OidcIdTokenVerifier, PaystackBillingProvider, PostgresAddOnSubscriptionRepository,
+    PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
+    PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
+    PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
+    PostgresBulkMonitorImportRepository, PostgresCheckRepository,
+    PostgresCheckoutSessionRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
@@ -85,7 +86,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
         "fake" => Arc::new(FakeBillingProvider),
         "disabled" => Arc::new(DisabledBillingProvider),
-        other => panic!("unsupported billing provider: {other}"),
+        "paystack" => Arc::new(
+            PaystackBillingProvider::new(
+                billing_config
+                    .secret_key
+                    .clone()
+                    .ok_or("Paystack secret key is required")?,
+            )
+            .map_err(|e| e as Box<dyn std::error::Error>)?,
+        ),
+        other => return Err(format!("unsupported billing provider: {other}").into()),
     };
 
     let status_page_cache: Arc<dyn StatusPageCache> = match &config.redis_url {

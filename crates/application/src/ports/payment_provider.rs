@@ -11,11 +11,26 @@ pub type PaymentProviderResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// IMPORTANT: this is ALWAYS produced by calling the provider. Clients
 /// never report this value; a client only tells us which checkout
 /// session it wants to verify.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaymentVerification {
-    Paid,
-    Pending,
-    Failed,
+    Paid {
+        provider_payment_id: String,
+        provider_reference: String,
+        amount_units: i64,
+        currency: String,
+    },
+    Pending {
+        provider_payment_id: Option<String>,
+        provider_reference: Option<String>,
+        amount_units: Option<i64>,
+        currency: Option<String>,
+    },
+    Failed {
+        provider_payment_id: Option<String>,
+        provider_reference: Option<String>,
+        amount_units: Option<i64>,
+        currency: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +39,7 @@ pub struct CheckoutRequest {
     pub plan_tier: PlanTier,
     pub amount_minor: i64,
     pub currency: String,
+    pub customer_email: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +50,8 @@ pub struct WalletTopUpRequest {
     /// Provider-side idempotency key. Must be unique per payment attempt.
     pub idempotency_key: String,
     pub payment_method: Option<String>,
+    /// Customer email paired with the reusable provider authorization.
+    pub customer_email: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

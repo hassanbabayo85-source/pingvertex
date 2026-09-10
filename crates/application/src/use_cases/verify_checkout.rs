@@ -69,7 +69,7 @@ where
             .await?;
 
         match verification {
-            PaymentVerification::Paid => {
+            PaymentVerification::Paid { .. } => {
                 self.activate_subscription(session.tenant_id, session.plan_tier)
                     .await?;
 
@@ -81,10 +81,10 @@ where
                     checkout_status: CheckoutStatus::Completed,
                 })
             }
-            PaymentVerification::Pending => Ok(VerifyCheckoutOutcome {
+            PaymentVerification::Pending { .. } => Ok(VerifyCheckoutOutcome {
                 checkout_status: CheckoutStatus::Pending,
             }),
-            PaymentVerification::Failed => {
+            PaymentVerification::Failed { .. } => {
                 let mut updated = session.clone();
                 updated.mark_failed();
                 self.checkout_session_repository.update(&updated).await?;

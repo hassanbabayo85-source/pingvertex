@@ -1,6 +1,5 @@
 use application::ports::{
-    FinancialAuditLogRepository, PaymentProvider, PaymentVerification, WalletRepository,
-    WalletTopUpRequest,
+    PaymentProvider, PaymentVerification, WalletRepository, WalletTopUpRequest,
 };
 use chrono::Utc;
 use domain::AutoTopUpAttempt;
@@ -11,9 +10,7 @@ pub struct AutoTopUpWorker {
     wallet: Arc<dyn WalletRepository>,
     provider: Arc<dyn PaymentProvider>,
     interval: Duration,
-    audit: Option<Arc<dyn FinancialAuditLogRepository>>,
 }
-
 impl AutoTopUpWorker {
     pub fn new(
         wallet: Arc<dyn WalletRepository>,
@@ -24,15 +21,124 @@ impl AutoTopUpWorker {
             wallet,
             provider,
             interval,
-            audit: None,
         }
     }
-
-    pub fn with_audit_repository(mut self, audit: Arc<dyn FinancialAuditLogRepository>) -> Self {
-        self.audit = Some(audit);
-        self
+    async fn reconcile(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        for attempt in self
+            .wallet
+            .list_auto_top_up_reconciliation_attempts(50)
+            .await?
+        {
+            let Some(reference) = attempt.provider_reference.as_deref() else {
+                continue;
+            };
+            match self.provider.verify_payment(reference).await? {
+                PaymentVerification::Paid {
+                    provider_payment_id,
+                    provider_reference,
+                    amount_units,
+                    currency,
+                } => {
+                    if amount_units != attempt.amount_units || !currency.eq_ignore_ascii_case("USD")
+                    {
+                        self.wallet
+                            .record_auto_top_up_attempt(&AutoTopUpAttempt {
+                                id: attempt.id,
+                                tenant_id: attempt.tenant_id,
+                                amount_units: attempt.amount_units,
+                                status: "REQUIRES_RECONCILIATION".into(),
+                                provider_payment_id: Some(provider_payment_id),
+                                provider_reference: Some(provider_reference),
+                                error_message: Some("provider amount/currency mismatch".into()),
+                                attempted_at: Utc::now(),
+                            })
+                            .await?;
+                        continue;
+                    }
+                    let key = format!("auto-topup-provider:{provider_payment_id}");
+                    match self
+                        .wallet
+                        .credit(
+                            attempt.tenant_id,
+                            amount_units,
+                            domain::WalletTransactionType::TopUp,
+                            &key,
+                            Some("Automatic wallet top-up reconciliation"),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            self.wallet
+                                .record_auto_top_up_attempt(&AutoTopUpAttempt {
+                                    id: attempt.id,
+                                    tenant_id: attempt.tenant_id,
+                                    amount_units: attempt.amount_units,
+                                    status: "SUCCEEDED".into(),
+                                    provider_payment_id: Some(provider_payment_id),
+                                    provider_reference: Some(provider_reference),
+                                    error_message: None,
+                                    attempted_at: Utc::now(),
+                                })
+                                .await?
+                        }
+                        Err(e) => {
+                            self.wallet
+                                .record_auto_top_up_attempt(&AutoTopUpAttempt {
+                                    id: attempt.id,
+                                    tenant_id: attempt.tenant_id,
+                                    amount_units: attempt.amount_units,
+                                    status: "REQUIRES_RECONCILIATION".into(),
+                                    provider_payment_id: attempt.provider_payment_id,
+                                    provider_reference: attempt.provider_reference,
+                                    error_message: Some(format!("wallet credit failed: {e}")),
+                                    attempted_at: Utc::now(),
+                                })
+                                .await?
+                        }
+                    }
+                }
+                PaymentVerification::Pending {
+                    provider_payment_id,
+                    provider_reference,
+                    ..
+                } => {
+                    self.wallet
+                        .record_auto_top_up_attempt(&AutoTopUpAttempt {
+                            id: attempt.id,
+                            tenant_id: attempt.tenant_id,
+                            amount_units: attempt.amount_units,
+                            status: "REQUIRES_RECONCILIATION".into(),
+                            provider_payment_id: provider_payment_id
+                                .or(attempt.provider_payment_id),
+                            provider_reference: provider_reference.or(attempt.provider_reference),
+                            error_message: Some("provider payment is still pending".into()),
+                            attempted_at: Utc::now(),
+                        })
+                        .await?
+                }
+                PaymentVerification::Failed {
+                    provider_payment_id,
+                    provider_reference,
+                    ..
+                } => {
+                    self.wallet
+                        .record_auto_top_up_attempt(&AutoTopUpAttempt {
+                            id: attempt.id,
+                            tenant_id: attempt.tenant_id,
+                            amount_units: attempt.amount_units,
+                            status: "FAILED".into(),
+                            provider_payment_id: provider_payment_id
+                                .or(attempt.provider_payment_id),
+                            provider_reference: provider_reference.or(attempt.provider_reference),
+                            error_message: Some("provider reports payment failed".into()),
+                            attempted_at: Utc::now(),
+                        })
+                        .await?
+                }
+            }
+        }
+        Ok(())
     }
-
     pub async fn run_forever(
         &self,
         cancel: CancellationToken,
@@ -40,133 +146,28 @@ impl AutoTopUpWorker {
         let mut ticker = tokio::time::interval(self.interval);
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => return Ok(()),
-                _ = ticker.tick() => {
-                    let candidates = self.wallet.auto_top_up_candidates(50).await?;
-                    for candidate in candidates {
-                        if candidate.daily_attempts >= candidate.settings.retry_limit {
-                            continue;
+                _=cancel.cancelled()=>return Ok(()),
+                _=ticker.tick()=>{
+                    self.reconcile().await?;
+                    for candidate in self.wallet.auto_top_up_candidates(50).await?{
+                        if candidate.daily_attempts>=candidate.settings.retry_limit{continue;}
+                        let amount=candidate.settings.auto_top_up_amount_units.min(candidate.settings.daily_top_up_limit_units.saturating_sub(candidate.daily_spend_units)).min(candidate.settings.monthly_top_up_limit_units.saturating_sub(candidate.monthly_spend_units));
+                        if amount<=0{continue;}
+                        let lease_id=uuid::Uuid::new_v4();
+                        if !self.wallet.claim_auto_top_up(candidate.tenant_id,lease_id,Duration::from_secs(600)).await?{continue;}
+                        let attempt_id=uuid::Uuid::new_v4();
+                        let reference=format!("pv-auto-{}",attempt_id.simple());
+                        self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"PENDING".into(),provider_payment_id:None,provider_reference:Some(reference.clone()),error_message:None,attempted_at:Utc::now()}).await?;
+                        let result=self.provider.charge_saved_payment_method(&WalletTopUpRequest{tenant_id:domain::shared::ids::TenantId(candidate.tenant_id),amount_units:amount,currency:candidate.currency.clone(),idempotency_key:reference.clone(),payment_method:candidate.settings.payment_method.clone(),customer_email:candidate.customer_email.clone()}).await;
+                        match result{
+                            Ok(PaymentVerification::Paid{provider_payment_id,provider_reference,amount_units,currency})=>{
+                                if amount_units!=amount || !currency.eq_ignore_ascii_case(&candidate.currency){self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"REQUIRES_RECONCILIATION".into(),provider_payment_id:Some(provider_payment_id),provider_reference:Some(provider_reference),error_message:Some("provider amount/currency mismatch".into()),attempted_at:Utc::now()}).await?;}
+                                else{let key=format!("auto-topup-provider:{provider_payment_id}");match self.wallet.credit(candidate.tenant_id,amount_units,domain::WalletTransactionType::TopUp,&key,Some("Automatic wallet top-up")).await{Ok(_)=>self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"SUCCEEDED".into(),provider_payment_id:Some(provider_payment_id),provider_reference:Some(provider_reference),error_message:None,attempted_at:Utc::now()}).await?,Err(e)=>self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"REQUIRES_RECONCILIATION".into(),provider_payment_id:Some(provider_payment_id),provider_reference:Some(provider_reference),error_message:Some(format!("wallet credit failed: {e}")),attempted_at:Utc::now()}).await?}}}
+                            Ok(PaymentVerification::Pending{provider_payment_id,provider_reference,..})=>self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"REQUIRES_RECONCILIATION".into(),provider_payment_id,provider_reference:provider_reference.or(Some(reference)),error_message:Some("provider payment is pending".into()),attempted_at:Utc::now()}).await?,
+                            Ok(PaymentVerification::Failed{provider_payment_id,provider_reference,..})=>self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"FAILED".into(),provider_payment_id,provider_reference:provider_reference.or(Some(reference)),error_message:Some("automatic top-up payment failed".into()),attempted_at:Utc::now()}).await?,
+                            Err(e)=>self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt{id:attempt_id,tenant_id:candidate.tenant_id,amount_units:amount,status:"REQUIRES_RECONCILIATION".into(),provider_payment_id:None,provider_reference:Some(reference),error_message:Some(format!("provider error; reconciliation required: {e}")),attempted_at:Utc::now()}).await?,
                         }
-
-                        let daily_remaining = candidate.settings.daily_top_up_limit_units
-                            .saturating_sub(candidate.daily_spend_units);
-                        let monthly_remaining = candidate.settings.monthly_top_up_limit_units
-                            .saturating_sub(candidate.monthly_spend_units);
-                        let amount = candidate.settings.auto_top_up_amount_units
-                            .min(daily_remaining)
-                            .min(monthly_remaining);
-                        if amount <= 0 { continue; }
-
-                        let lease_id = uuid::Uuid::new_v4();
-                        if !self.wallet.claim_auto_top_up(
-                            candidate.tenant_id,
-                            lease_id,
-                            Duration::from_secs(600),
-                        ).await? {
-                            continue;
-                        }
-
-                        let attempt_id = uuid::Uuid::new_v4();
-                        // 1. Create PENDING Attempt (C.5)
-                        self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                            id: attempt_id,
-                            tenant_id: candidate.tenant_id,
-                            amount_units: amount,
-                            status: "PENDING".to_owned(),
-                            provider_reference: None,
-                            error_message: None,
-                            attempted_at: Utc::now(),
-                        }).await?;
-
-                        let result = self.provider.charge_saved_payment_method(&WalletTopUpRequest {
-                            tenant_id: domain::shared::ids::TenantId(candidate.tenant_id),
-                            amount_units: amount,
-                            currency: "USD".to_owned(),
-                            idempotency_key: format!("auto-topup:{attempt_id}"),
-                            payment_method: candidate.settings.payment_method.clone(),
-                        }).await;
-
-                        match result {
-                            Ok(PaymentVerification::Paid) => {
-                                // 2. Provider Charge = SUCCESS. Mark PROCESSING before Credit.
-                                self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                                    id: attempt_id,
-                                    tenant_id: candidate.tenant_id,
-                                    amount_units: amount,
-                                    status: "PROCESSING".to_owned(),
-                                    provider_reference: Some("provider_ref_placeholder".to_owned()), // In practice this comes from provider response
-                                    error_message: None,
-                                    attempted_at: Utc::now(),
-                                }).await?;
-
-                                let key = format!("auto-topup:{attempt_id}");
-
-                                // 3. Idempotent Wallet Credit (C.8)
-                                match self.wallet.credit(
-                                    candidate.tenant_id, amount,
-                                    domain::WalletTransactionType::TopUp,
-                                    &key,
-                                    Some("Automatic wallet top-up"),
-                                ).await {
-                                    Ok(_) => {
-                                        // 4. Mark SUCCEEDED
-                                        self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                                            id: attempt_id,
-                                            tenant_id: candidate.tenant_id,
-                                            amount_units: amount,
-                                            status: "SUCCEEDED".to_owned(),
-                                            provider_reference: None,
-                                            error_message: None,
-                                            attempted_at: Utc::now(),
-                                        }).await?;
-
-                                        if let Some(audit)=&self.audit { audit.create(&domain::FinancialAuditLogEntry::new("system:auto_top_up",Some(candidate.tenant_id),"wallet_credited","wallet",None,serde_json::json!({"amount_units":amount,"idempotency_key":key}))).await?; }
-                                        let _ = self.wallet.record_balance_notification(
-                                            candidate.tenant_id,
-                                            "TOP_UP_SUCCESS",
-                                            &attempt_id.to_string(),
-                                            "Automatic wallet top-up successful",
-                                        ).await;
-                                    },
-                                    Err(e) => {
-                                        // 5. Provider SUCCESS but Wallet FAILED -> REQUIRES_RECONCILIATION (C.6)
-                                        self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                                            id: attempt_id,
-                                            tenant_id: candidate.tenant_id,
-                                            amount_units: amount,
-                                            status: "REQUIRES_RECONCILIATION".to_owned(),
-                                            provider_reference: None,
-                                            error_message: Some(format!("Wallet credit failed: {}", e)),
-                                            attempted_at: Utc::now(),
-                                        }).await?;
-                                    }
-                                }
-                            }
-                            Ok(PaymentVerification::Pending) => {
-                                // Already marked PENDING, just update error message
-                                self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                                    id: attempt_id,
-                                    tenant_id: candidate.tenant_id,
-                                    amount_units: amount,
-                                    status: "PENDING".to_owned(),
-                                    provider_reference: None,
-                                    error_message: Some("payment provider returned pending".to_owned()),
-                                    attempted_at: Utc::now(),
-                                }).await?;
-                            }
-                            Ok(PaymentVerification::Failed) | Err(_) => {
-                                self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {
-                                    id: attempt_id,
-                                    tenant_id: candidate.tenant_id,
-                                    amount_units: amount,
-                                    status: "FAILED".to_owned(),
-                                    provider_reference: None,
-                                    error_message: Some("automatic top-up payment failed".to_owned()),
-                                    attempted_at: Utc::now(),
-                                }).await?;
-                            }
-                        }
-                        let _ = self.wallet.release_auto_top_up(candidate.tenant_id, lease_id).await;
+                        let _=self.wallet.release_auto_top_up(candidate.tenant_id,lease_id).await;
                     }
                 }
             }

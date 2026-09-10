@@ -63,7 +63,7 @@ impl BillingConfig {
     /// function — never hardcoded in any Rust source file. Unknown
     /// non-dev providers require `BILLING_SECRET_KEY` and reject known
     /// placeholder values. Supported providers for this worker are:
-    /// `disabled` and `fake`.
+    /// `disabled`, `fake`, and `paystack`.
     pub fn try_from_env() -> Result<Self, BillingConfigError> {
         let provider = non_empty_env("BILLING_PROVIDER")
             .unwrap_or_else(|| "disabled".to_owned())

@@ -64,7 +64,7 @@ impl VerifyAddOnCheckoutUseCase {
             .await
             .map_err(VerifyAddOnError::Provider)?
         {
-            PaymentVerification::Paid => {
+            PaymentVerification::Paid { .. } => {
                 let mut a = self
                     .addons
                     .find_by_id(domain::AddOnSubscriptionId(id))
@@ -88,8 +88,8 @@ impl VerifyAddOnCheckoutUseCase {
                     .map_err(VerifyAddOnError::Repository)?;
                 Ok((id, CheckoutStatus::Completed))
             }
-            PaymentVerification::Pending => Ok((id, CheckoutStatus::Pending)),
-            PaymentVerification::Failed => {
+            PaymentVerification::Pending { .. } => Ok((id, CheckoutStatus::Pending)),
+            PaymentVerification::Failed { .. } => {
                 let mut a = self
                     .addons
                     .find_by_id(domain::AddOnSubscriptionId(id))

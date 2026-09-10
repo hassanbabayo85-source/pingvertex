@@ -166,6 +166,18 @@ pub async fn create_add_on(
             plan_tier,
             amount_minor,
             currency: addon.currency.clone(),
+            customer_email: Some(
+                state
+                    .platform_user_repository
+                    .find_by_id(&user.user_id())
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal_with_source("failed to load billing customer", e)
+                    })?
+                    .ok_or_else(|| ApiError::internal("billing customer account not found"))?
+                    .email()
+                    .to_string(),
+            ),
         })
         .await
         .map_err(|e| {
