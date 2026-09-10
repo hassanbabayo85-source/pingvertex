@@ -513,6 +513,13 @@ pub struct BulkImportJob {
     pub created_rows: i32,
     pub failed_rows: i32,
     pub skipped_rows: i32,
+    /// Server-computed forecast summary, carried through to the final
+    /// import summary so the user can see what the run was estimated to
+    /// cost without opening the preview again.
+    pub forecast_days: i32,
+    pub estimated_checks: i64,
+    pub estimated_charge_units: i64,
+    pub currency: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
