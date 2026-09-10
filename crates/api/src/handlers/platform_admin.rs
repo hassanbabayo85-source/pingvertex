@@ -1,7 +1,7 @@
 use crate::{error::ApiError, state::AppState};
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
 };
 use domain::shared::types::AuthenticatedUser;
@@ -56,20 +56,19 @@ pub async fn list_companies(
         .map_err(|e| ApiError::internal_with_source("failed to list companies", e))?;
     let mut out = Vec::with_capacity(ts.len());
     for t in ts {
-        let b = s
-            .wallet_repository
-            .find(t.id.0)
-            .await
-            .map_err(|e| ApiError::internal_with_source("failed to load company wallet", e))?
-            .map(|w| w.balance_units)
-            .unwrap_or(0);
         out.push(CompanyResponse {
             id: t.id.0.to_string(),
             name: t.name,
             owner_user_id: t.owner_user_id.0.to_string(),
             account_type: t.account_type.as_str().into(),
             status: t.status.as_str().into(),
-            wallet_balance_units: b,
+            wallet_balance_units: s
+                .wallet_repository
+                .find(t.id.0)
+                .await
+                .map_err(|e| ApiError::internal_with_source("failed to load company wallet", e))?
+                .map(|w| w.balance_units)
+                .unwrap_or(0),
         })
     }
     Ok(Json(out))
@@ -178,10 +177,10 @@ pub async fn set_user_status(
         id: domain::AuditLogEntryId::new(),
         actor_user_id: u.user_id(),
         tenant_id: None,
-        action: if st == UserStatus::Suspended {
-            domain::AuditAction::PlatformUserSuspended
-        } else {
-            domain::AuditAction::PlatformUserActivated
+        action: match st {
+            UserStatus::Suspended => domain::AuditAction::PlatformUserSuspended,
+            UserStatus::Deleted => domain::AuditAction::PlatformUserDeleted,
+            _ => domain::AuditAction::PlatformUserActivated,
         },
         target_id: id.to_string(),
         metadata: serde_json::json!({"status":st.to_string()}),
@@ -271,17 +270,57 @@ pub async fn grant_company_promo(
     Ok(Json(tx))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PlatformAuditQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+    pub actor: Option<Uuid>,
+    pub tenant: Option<Uuid>,
+    pub action: Option<String>,
+    pub target: Option<String>,
+    pub from: Option<chrono::DateTime<chrono::Utc>>,
+    pub to: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 pub async fn audit_records(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
-) -> Result<Json<Vec<domain::AuditLogEntry>>, ApiError> {
+    Query(query): Query<PlatformAuditQuery>,
+) -> Result<Json<crate::handlers::audit::AuditPageResponse>, ApiError> {
     admin(&u)?;
-    Ok(Json(
-        s.audit_log_entry_repository
-            .list_all(500)
-            .await
-            .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?,
-    ))
+    crate::handlers::audit::_validate_date_range(query.from, query.to)?;
+    let filter = application::ports::AuditLogFilter {
+        actor_user_id: query.actor.map(domain::UserId),
+        tenant_id: query.tenant.map(domain::TenantId),
+        action: query.action,
+        target_id: query.target,
+        from: query.from,
+        to: query.to,
+    };
+    let page = s
+        .audit_log_entry_repository
+        .list_page(
+            &filter,
+            crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?,
+            query.limit.unwrap_or(50).clamp(1, 100),
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?;
+    let next_cursor = if page.has_more {
+        page.entries
+            .last()
+            .map(crate::handlers::audit::encode_cursor_for_admin)
+    } else {
+        None
+    };
+    Ok(Json(crate::handlers::audit::AuditPageResponse {
+        items: page
+            .entries
+            .into_iter()
+            .map(crate::handlers::audit::response_for_admin)
+            .collect(),
+        next_cursor,
+    }))
 }
 
 pub async fn company_usage(

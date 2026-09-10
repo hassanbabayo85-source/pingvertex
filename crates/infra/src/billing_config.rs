@@ -28,6 +28,7 @@ pub struct BillingConfig {
 pub enum BillingConfigError {
     MissingSecretKey { provider: String },
     SecretKeyIsKnownPlaceholder,
+    ProductionProviderRequired { provider: String },
 }
 
 impl std::fmt::Display for BillingConfigError {
@@ -42,6 +43,10 @@ impl std::fmt::Display for BillingConfigError {
             Self::SecretKeyIsKnownPlaceholder => write!(
                 f,
                 "BILLING_SECRET_KEY matches a known example/placeholder value; set a real credential"
+            ),
+            Self::ProductionProviderRequired { provider } => write!(
+                f,
+                "production billing requires the real Paystack provider; got '{provider}'"
             ),
         }
     }
@@ -81,6 +86,26 @@ impl BillingConfig {
         }
 
         let webhook_secret = non_empty_env("BILLING_WEBHOOK_SECRET").or_else(|| secret_key.clone());
+
+        let production = env::var("ENVIRONMENT")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "production" | "prod"
+                )
+            })
+            .unwrap_or(false);
+
+        if production && !matches!(provider.as_str(), "paystack") {
+            return Err(BillingConfigError::ProductionProviderRequired { provider });
+        }
+
+        if production && webhook_secret.is_none() {
+            return Err(BillingConfigError::MissingSecretKey {
+                provider: "billing webhook".to_owned(),
+            });
+        }
 
         match provider.as_str() {
             "disabled" | "fake" => Ok(Self {

@@ -157,6 +157,16 @@ pub async fn create_payg_price(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to audit PAYG price change", e))?;
 
+    state.audit_log_entry_repository.create(&domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: user.user_id(),
+        tenant_id: None,
+        action: domain::AuditAction::PricingChanged,
+        target_id: pricing.id.to_string(),
+        metadata: serde_json::json!({"version": pricing.version, "operation": pricing.operation, "unit_price": pricing.unit_price, "currency": pricing.currency, "effective_from": pricing.effective_from}),
+        created_at: chrono::Utc::now(),
+    }).await.map_err(|e| ApiError::internal_with_source("failed to record pricing audit", e))?;
+
     Ok((
         StatusCode::CREATED,
         Json(PaygPriceResponse {

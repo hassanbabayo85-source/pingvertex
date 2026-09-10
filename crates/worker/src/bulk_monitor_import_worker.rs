@@ -112,7 +112,9 @@ impl BulkMonitorImportWorker {
             )
             .await?;
 
+        metrics::gauge!("payg_bulk_queue_depth").set(jobs.len() as f64);
         for job in jobs {
+            metrics::counter!("payg_bulk_jobs_claimed_total").increment(1);
             if let Err(error) = self.process_job(&job).await {
                 tracing::error!(
                     job_id=%job.id,
@@ -178,6 +180,17 @@ impl BulkMonitorImportWorker {
             if rows.is_empty() {
                 let refreshed = self.jobs.refresh_job_state(job.id, self.worker_id).await?;
                 if refreshed.status == BulkMonitorImportJobStatus::Completed {
+                    let action = if refreshed.failed_rows > 0 {
+                        domain::AuditAction::BulkImportPartiallyFailed
+                    } else {
+                        domain::AuditAction::BulkImportCompleted
+                    };
+                    let _ = self.audits.create(&domain::AuditLogEntry {
+                        id: domain::AuditLogEntryId::new(), actor_user_id, tenant_id: Some(tenant_id), action,
+                        target_id: format!("bulk-import:{}", job.id),
+                        metadata: serde_json::json!({"created_rows": refreshed.created_rows, "failed_rows": refreshed.failed_rows, "invalid_rows": refreshed.invalid_rows}),
+                        created_at: Utc::now(),
+                    }).await;
                     tracing::info!(
                         job_id=%job.id,
                         tenant_id=%job.tenant_id,
@@ -269,6 +282,7 @@ impl BulkMonitorImportWorker {
                 }
 
                 if !can_create {
+                    metrics::counter!("payg_bulk_rows_failed_total").increment(1);
                     self.jobs
                         .fail_row(
                             row.id,
@@ -281,6 +295,7 @@ impl BulkMonitorImportWorker {
                 let planned_id = MonitorId(row.planned_monitor_id);
                 if let Some(existing) = self.monitors.find_by_id(planned_id).await? {
                     if existing.tenant_id != tenant_id {
+                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(row.id, "planned monitor id collided across tenant boundary")
                             .await?;
@@ -288,6 +303,7 @@ impl BulkMonitorImportWorker {
                         self.jobs
                             .mark_row_created(row.id, row.planned_monitor_id)
                             .await?;
+                        metrics::counter!("payg_bulk_rows_processed_total").increment(1);
                     }
                     continue;
                 }
@@ -355,13 +371,16 @@ impl BulkMonitorImportWorker {
                         self.jobs
                             .mark_row_created(row.id, row.planned_monitor_id)
                             .await?;
+                        metrics::counter!("payg_bulk_rows_processed_total").increment(1);
                     }
                     Err(error) if is_permanent(&error) => {
+                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(row.id, &bounded_error(&error.to_string()))
                             .await?;
                     }
                     Err(error) if row.attempt_count >= self.max_row_attempts => {
+                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(
                                 row.id,

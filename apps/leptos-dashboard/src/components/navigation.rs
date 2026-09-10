@@ -165,6 +165,11 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 href: "/billing/transactions",
                 status: NavStatus::Available,
             },
+            NavItem {
+                label: "Audit log",
+                href: "/audit",
+                status: NavStatus::Available,
+            },
         ],
     },
     NavGroup {

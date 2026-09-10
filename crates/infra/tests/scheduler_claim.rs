@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use application::ports::{AgentLeaseRepository, SchedulingRepository, WalletRepository};
 use domain::shared::ids::MonitorId;
@@ -527,4 +527,70 @@ async fn agent_region_claim_respects_cross_region_tenant_cap() {
         .unwrap();
 
     assert_eq!(claims.len(), 2);
+}
+
+/// Release-gate load test: exercises the real PostgreSQL claim query at the
+/// 10k-due-monitor boundary. It is ignored during the ordinary unit/integration
+/// suite because it intentionally creates a large fixture; run it explicitly
+/// with `cargo test -p infra --test scheduler_claim ten_thousand_due_monitors -- --ignored --nocapture`.
+#[tokio::test]
+#[serial]
+#[ignore]
+async fn ten_thousand_due_monitors_can_be_claimed_without_duplicates() {
+    let pool = common::setup_pool().await;
+    let user_id = Uuid::new_v4();
+    let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
+    sqlx::query(
+        r#"
+        INSERT INTO monitors (
+            id, user_id, tenant_id, regions, name, url, method,
+            expected_status, interval_seconds, timeout_seconds,
+            enabled, ssl_check_enabled, ssl_expiry_warning_days, kind,
+            created_at, updated_at, next_due_at
+        )
+        SELECT gen_random_uuid(), $1, $2, ARRAY['us-east'], 'load-' || g,
+               'http://example.com', 'GET', 200, 60, 10, true, true, 14,
+               'http', now(), now(), now() - interval '1 minute'
+        FROM generate_series(1, 10000) AS g
+        "#,
+    )
+    .bind(user_id)
+    .bind(tenant_id.0)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = Arc::new(PostgresSchedulingRepository::new(pool.clone()));
+    let mut tasks = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let repo = repo.clone();
+        tasks.spawn(async move {
+            repo.claim_due_monitors(
+                625,
+                Uuid::new_v4(),
+                Duration::from_secs(120),
+                chrono::Utc::now(),
+            )
+            .await
+        });
+    }
+
+    let mut ids = Vec::with_capacity(10_000);
+    while let Some(result) = tasks.join_next().await {
+        ids.extend(result.unwrap().unwrap().into_iter().map(|m| m.id.0));
+    }
+    ids.sort_unstable();
+    let claimed = ids.len();
+    ids.dedup();
+    assert_eq!(claimed, 10_000);
+    assert_eq!(ids.len(), 10_000, "no monitor may be claimed twice");
+
+    let leased: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM monitors WHERE tenant_id=$1 AND lease_owner IS NOT NULL",
+    )
+    .bind(tenant_id.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(leased, 10_000);
 }

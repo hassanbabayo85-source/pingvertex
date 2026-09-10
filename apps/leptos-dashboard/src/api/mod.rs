@@ -12,3 +12,5 @@ pub mod team;
 pub mod proxy_checks;
 
 pub mod wallet;
+
+pub mod audit;

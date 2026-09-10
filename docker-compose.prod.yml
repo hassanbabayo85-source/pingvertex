@@ -51,6 +51,10 @@ services:
   api:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+      ENVIRONMENT: production
+      BILLING_PROVIDER: ${BILLING_PROVIDER:?BILLING_PROVIDER must be set for production}
+      BILLING_SECRET_KEY: ${BILLING_SECRET_KEY:?BILLING_SECRET_KEY must be set for production}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:?BILLING_WEBHOOK_SECRET must be set for production}
     logging: *default-logging
     stop_grace_period: 30s
     deploy:
@@ -68,6 +72,10 @@ services:
   worker:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+      ENVIRONMENT: production
+      BILLING_PROVIDER: ${BILLING_PROVIDER:?BILLING_PROVIDER must be set for production}
+      BILLING_SECRET_KEY: ${BILLING_SECRET_KEY:?BILLING_SECRET_KEY must be set for production}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:?BILLING_WEBHOOK_SECRET must be set for production}
       METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
     logging: *default-logging
     stop_grace_period: 30s

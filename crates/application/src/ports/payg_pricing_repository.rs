@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::PAYGPricing;
+use metrics::counter;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -73,7 +74,22 @@ pub async fn resolve_price(
     if !domain::PaygOperation::is_canonical(op) {
         return Err("unsupported PAYG operation".into());
     }
-    repository.find_active_for_context(op, context).await
+    match repository.find_active_for_context(op, context).await {
+        Ok(Some(price)) => {
+            counter!("payg_pricing_resolution_success_total", "operation" => op.to_owned())
+                .increment(1);
+            Ok(Some(price))
+        }
+        Ok(None) => {
+            counter!("payg_pricing_missing_price_total", "operation" => op.to_owned()).increment(1);
+            Ok(None)
+        }
+        Err(error) => {
+            counter!("payg_pricing_resolution_error_total", "operation" => op.to_owned())
+                .increment(1);
+            Err(error)
+        }
+    }
 }
 
 #[async_trait]

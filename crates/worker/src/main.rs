@@ -148,7 +148,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         wallet_repository.clone(),
         billing_provider,
         Duration::from_secs(300),
-    );
+    )
+    .with_financial_audit_repository(financial_audit_repository.clone());
     let auto_top_up_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {

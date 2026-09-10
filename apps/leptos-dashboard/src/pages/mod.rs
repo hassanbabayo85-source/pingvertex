@@ -43,3 +43,5 @@ pub mod transactions;
 pub mod bulk_import;
 
 pub mod platform_admin;
+
+pub mod audit;

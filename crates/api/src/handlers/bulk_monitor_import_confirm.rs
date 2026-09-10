@@ -173,6 +173,22 @@ pub async fn confirm_bulk_monitor_import(
         if existing_hash.as_deref() == Some(source_hash.as_str())
             && existing_forecast == query.forecast_days as i32
         {
+            let replay_audit = domain::AuditLogEntry {
+                id: domain::AuditLogEntryId::new(),
+                actor_user_id: authenticated_user.user_id(),
+                tenant_id: Some(tenant_id),
+                action: domain::AuditAction::BulkImportReplay,
+                target_id: format!("bulk-import:{}", existing_job.id),
+                metadata: json!({"replayed": true, "forecast_days": existing_forecast}),
+                created_at: chrono::Utc::now(),
+            };
+            state
+                .audit_log_entry_repository
+                .create(&replay_audit)
+                .await
+                .map_err(|e| {
+                    ApiError::internal_with_source("failed to record bulk import replay audit", e)
+                })?;
             return Ok(Json(BulkMonitorImportConfirmResponse {
                 job: existing_job,
                 replayed: true,
@@ -314,6 +330,31 @@ pub async fn confirm_bulk_monitor_import(
             ));
         }
     };
+
+    let audit_action = if replayed {
+        domain::AuditAction::BulkImportReplay
+    } else {
+        domain::AuditAction::BulkImportConfirmed
+    };
+    let audit_entry = domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: authenticated_user.user_id(),
+        tenant_id: Some(tenant_id),
+        action: audit_action,
+        target_id: format!("bulk-import:{}", job.id),
+        metadata: json!({
+            "replayed": replayed, "total_rows": job.total_rows, "valid_rows": job.valid_rows,
+            "invalid_rows": job.invalid_rows, "estimated_charge_units": job.estimated_charge_units,
+        }),
+        created_at: chrono::Utc::now(),
+    };
+    state
+        .audit_log_entry_repository
+        .create(&audit_entry)
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to record bulk import confirmation audit", e)
+        })?;
 
     info!(
         tenant_id = %tenant_id.0,
