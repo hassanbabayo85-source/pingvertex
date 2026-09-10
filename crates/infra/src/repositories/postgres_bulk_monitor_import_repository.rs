@@ -90,6 +90,12 @@ impl JobRow {
 const JOB_COLUMNS: &str = "id, tenant_id, actor_user_id, status, total_rows, valid_rows, invalid_rows, \
 processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, estimated_charge_units, currency, \
 batch_size, pricing_snapshot, error_report, created_at, started_at, completed_at, updated_at";
+/// Same column list as `JOB_COLUMNS`, but every column is qualified
+/// with the `j.` table alias so it can be used in `RETURNING` clauses
+/// of an `UPDATE ... FROM` statement without PostgreSQL reporting
+/// "column reference \"id\" is ambiguous" (42702).
+const JOB_COLUMNS_QUALIFIED: &str = "j.id, j.tenant_id, j.actor_user_id, j.status, j.total_rows, j.valid_rows, j.invalid_rows, j.processed_rows, j.created_rows, j.failed_rows, j.skipped_rows, j.forecast_days, j.estimated_checks, j.estimated_charge_units, j.currency, j.batch_size, j.pricing_snapshot, j.error_report, j.created_at, j.started_at, j.completed_at, j.updated_at";
+
 
 #[async_trait]
 impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
@@ -244,7 +250,7 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                  attempt_count=attempt_count+1, started_at=COALESCE(started_at, now()), \
                  updated_at=now() \
              FROM candidates c WHERE j.id=c.id \
-             RETURNING {JOB_COLUMNS}"
+             RETURNING {JOB_COLUMNS_QUALIFIED}"
         ))
         .bind(i64::from(limit))
         .bind(worker_id)
@@ -295,8 +301,8 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                  JOIN monitor_bulk_import_jobs j ON j.id = r.job_id \
                  WHERE r.job_id=$1 AND j.status='RUNNING' \
                   AND ( \
-                    (validation_status='VALID' AND (next_attempt_at IS NULL OR next_attempt_at <= now())) \
-                    OR (validation_status='PROCESSING' AND updated_at < $3) \
+                    (r.validation_status='VALID' AND (r.next_attempt_at IS NULL OR r.next_attempt_at <= now())) \
+                    OR (r.validation_status='PROCESSING' AND r.updated_at < $3) \
                   ) \
                 ORDER BY row_number ASC \
                 FOR UPDATE SKIP LOCKED \
@@ -454,7 +460,7 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
                  updated_at=now() \
              FROM counts c \
              WHERE j.id=$1 AND j.lease_owner=$2 \
-             RETURNING {JOB_COLUMNS}"
+             RETURNING {JOB_COLUMNS_QUALIFIED}"
         ))
         .bind(job_id)
         .bind(worker_id)
