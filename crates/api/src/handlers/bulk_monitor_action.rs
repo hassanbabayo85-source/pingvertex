@@ -18,6 +18,8 @@ const MAX_SELECTED_MONITORS: usize = 500;
 pub enum BulkMonitorAction {
     Enable,
     Disable,
+    Pause,
+    Resume,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,7 +75,16 @@ pub async fn bulk_monitor_action(
         Some(parsed)
     };
 
-    let enabled = matches!(request.action, BulkMonitorAction::Enable);
+    let enabled = matches!(
+        request.action,
+        BulkMonitorAction::Enable | BulkMonitorAction::Resume
+    );
+    let audit_action = match request.action {
+        BulkMonitorAction::Enable => domain::AuditAction::BulkMonitorEnabled,
+        BulkMonitorAction::Disable => domain::AuditAction::BulkMonitorDisabled,
+        BulkMonitorAction::Pause => domain::AuditAction::BulkMonitorPaused,
+        BulkMonitorAction::Resume => domain::AuditAction::BulkMonitorResumed,
+    };
     let tenant_id = user.tenant_context().tenant_id();
     let affected = state
         .monitor_repository
@@ -85,7 +96,7 @@ pub async fn bulk_monitor_action(
         id: domain::AuditLogEntryId::new(),
         actor_user_id: user.user_id(),
         tenant_id: Some(tenant_id),
-        action: domain::AuditAction::MonitorUpdated,
+        action: audit_action,
         target_id: if request.all {
             format!("tenant:{}", tenant_id.0)
         } else {
@@ -93,7 +104,7 @@ pub async fn bulk_monitor_action(
         },
         metadata: serde_json::json!({
             "bulk": true,
-            "action": if enabled { "enable" } else { "disable" },
+            "action": request.action,
             "scope": if request.all { "all" } else { "selected" },
             "affected": affected,
         }),

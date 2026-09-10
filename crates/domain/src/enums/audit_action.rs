@@ -34,4 +34,8 @@ pub enum AuditAction {
     PlatformUserActivated,
     PlatformWalletAdjusted,
     PlatformPromotionalCreditGranted,
+    BulkMonitorEnabled,
+    BulkMonitorDisabled,
+    BulkMonitorPaused,
+    BulkMonitorResumed,
 }
