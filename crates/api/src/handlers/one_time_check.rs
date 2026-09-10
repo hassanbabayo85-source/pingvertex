@@ -50,11 +50,19 @@ pub async fn create_one_time_check(
     }
 
     let operation = domain::monitor_operation(monitor.kind, true);
+    let tenant = state
+        .platform_tenant_repository
+        .find_by_id(tenant_id)
+        .await
+        .map_err(|err| {
+            ApiError::internal_with_source("failed to load tenant pricing context", err)
+        })?
+        .ok_or_else(|| ApiError::not_found("tenant not found"))?;
     let pricing_context = PricingContext {
         quantity: 1,
         monitor_kind: Some(monitor.kind),
         region: monitor.regions.first().cloned(),
-        account_type: None, // In production, we'd query tenant repo here or pass via enriched context
+        account_type: Some(tenant.account_type),
     };
 
     let price = resolve_price(

@@ -72,30 +72,30 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
             }
 
             // Check dimensions. A rule must either have no requirement (None) or match exactly.
-            if let Some(ref acc_type) = record.context.account_type {
-                if Some(acc_type) != context.account_type.as_ref() {
-                    continue;
-                }
+            if let Some(ref acc_type) = record.context.account_type
+                && Some(acc_type) != context.account_type.as_ref()
+            {
+                continue;
             }
-            if let Some(ref reg) = record.context.region {
-                if Some(reg) != context.region.as_ref() {
-                    continue;
-                }
+            if let Some(ref reg) = record.context.region
+                && Some(reg) != context.region.as_ref()
+            {
+                continue;
             }
-            if let Some(ref mk) = record.context.monitor_kind {
-                if Some(mk) != context.monitor_kind.as_ref() {
-                    continue;
-                }
+            if let Some(ref mk) = record.context.monitor_kind
+                && Some(mk) != context.monitor_kind.as_ref()
+            {
+                continue;
             }
-            if let Some(min_q) = record.context.min_quantity {
-                if context.quantity < min_q {
-                    continue;
-                }
+            if let Some(min_q) = record.context.min_quantity
+                && context.quantity < min_q
+            {
+                continue;
             }
-            if let Some(max_q) = record.context.max_quantity {
-                if context.quantity > max_q {
-                    continue;
-                }
+            if let Some(max_q) = record.context.max_quantity
+                && context.quantity > max_q
+            {
+                continue;
             }
 
             // Calculate "specificity" score (higher is more specific)
@@ -120,7 +120,7 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
             return Ok(None);
         }
 
-        candidates.sort_by(|a, b| b.0.cmp(&a.0)); // Descending by score
+        candidates.sort_by_key(|b| std::cmp::Reverse(b.0)); // Descending by score
         let top_score = candidates[0].0;
 
         let top_candidates: Vec<_> = candidates
@@ -173,21 +173,6 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
         context: &PricingRuleContext,
     ) -> PaygPricingRepoResult<PAYGPricing> {
         let mut guard = self.rows.write().await;
-
-        // Deactivate old rule with EXACT same context
-        for record in guard.iter_mut() {
-            if record.pricing.operation == operation
-                && record.pricing.effective_until.is_none()
-                && record.context.account_type == context.account_type
-                && record.context.region == context.region
-                && record.context.monitor_kind == context.monitor_kind
-                && record.context.min_quantity == context.min_quantity
-                && record.context.max_quantity == context.max_quantity
-            {
-                record.pricing.effective_until = Some(effective_from);
-            }
-        }
-
         let version = self.next_version.fetch_add(1, Ordering::SeqCst);
         let pricing = PAYGPricing {
             id: Uuid::new_v4(),

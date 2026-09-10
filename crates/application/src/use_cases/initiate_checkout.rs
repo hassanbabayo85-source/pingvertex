@@ -37,6 +37,7 @@ where
                 plan_tier: command.plan_tier,
                 amount_minor: 0,
                 currency: "USD".to_owned(),
+                customer_email: None,
             })
             .await?;
         let mut session = CheckoutSession::new_pending(
@@ -78,6 +79,7 @@ where
                 plan_tier: command.plan_tier,
                 amount_minor,
                 currency: currency.clone(),
+                customer_email: None,
             })
             .await?;
         let mut session = CheckoutSession::new_pending(

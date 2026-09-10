@@ -1,8 +1,8 @@
 use crate::{error::ApiError, state::AppState};
-use application::ports::RefundRequest;
+use application::ports::{PaymentVerification, RefundRequest};
 use axum::{
     Json,
-    extract::{Extension, Query, State},
+    extract::{Extension, Path, Query, State},
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
 use domain::shared::types::AuthenticatedUser;
@@ -257,6 +257,14 @@ pub async fn top_up(
             currency: "USD".to_owned(),
             idempotency_key: checkout_idempotency_key,
             payment_method: req.payment_method,
+            customer_email: state
+                .platform_user_repository
+                .find_by_id(&user.user_id())
+                .await
+                .map_err(|e| ApiError::internal_with_source("failed to load billing customer", e))?
+                .ok_or_else(|| ApiError::internal("billing customer account not found"))?
+                .email()
+                .to_string(),
         })
         .await
         .map_err(|e| ApiError::internal_with_source("wallet top-up provider error", e))?;
@@ -285,6 +293,79 @@ pub async fn top_up(
         amount_units: req.amount_units,
     }))
 }
+pub async fn verify_wallet_top_up(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(provider_checkout_id): Path<String>,
+) -> Result<Json<TopUpResponse>, ApiError> {
+    user.require(Permission::ManageBilling)
+        .map_err(|e| ApiError::forbidden(e.to_string()))?;
+    let tenant_id = user.tenant_context().tenant_id().0;
+    let session = state
+        .wallet_repository
+        .find_top_up_session(tenant_id, &provider_checkout_id)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load wallet top-up session", e))?
+        .ok_or_else(|| ApiError::not_found("wallet top-up session not found"))?;
+    let provider_payment_id = match session.status.as_str() {
+        WalletTopUpSession::COMPLETED => session.provider_payment_id.clone(),
+        _ => match state
+            .payment_provider
+            .verify_payment(&session.provider_checkout_id)
+            .await
+            .map_err(|e| ApiError::internal_with_source("failed to verify wallet top-up", e))?
+        {
+            PaymentVerification::Paid {
+                provider_payment_id,
+                amount_units,
+                currency,
+                ..
+            } => {
+                if amount_units != session.amount_units
+                    || !currency.eq_ignore_ascii_case(&session.currency)
+                {
+                    return Err(ApiError::conflict(
+                        "provider amount or currency does not match wallet top-up",
+                    ));
+                }
+                Some(provider_payment_id)
+            }
+            PaymentVerification::Pending { .. } => {
+                return Err(ApiError::conflict("payment is still pending"));
+            }
+            PaymentVerification::Failed { .. } => return Err(ApiError::conflict("payment failed")),
+        },
+    };
+    let payment_id = provider_payment_id
+        .ok_or_else(|| ApiError::internal("completed top-up has no provider payment id"))?;
+    let completed = if session.status == WalletTopUpSession::COMPLETED {
+        session
+    } else {
+        state
+            .wallet_repository
+            .complete_top_up_session(tenant_id, &provider_checkout_id, &payment_id)
+            .await
+            .map_err(|e| ApiError::internal_with_source("failed to complete wallet top-up", e))?
+            .ok_or_else(|| ApiError::not_found("wallet top-up session not found"))?
+    };
+    state
+        .wallet_repository
+        .credit(
+            tenant_id,
+            completed.amount_units,
+            domain::WalletTransactionType::TopUp,
+            &format!("topup:{payment_id}"),
+            Some("Wallet top-up"),
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to credit wallet", e))?;
+    Ok(Json(TopUpResponse {
+        checkout_url: String::new(),
+        provider_checkout_id: completed.provider_checkout_id,
+        amount_units: completed.amount_units,
+    }))
+}
+
 pub async fn get_settings(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,

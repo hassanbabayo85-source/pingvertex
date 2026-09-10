@@ -6,8 +6,9 @@ use application::ports::{PaymentProvider, StatusPageCache};
 use async_trait::async_trait;
 use infra::{
     AesGcmProxyCredentialCipher, BillingConfig, DisabledBillingProvider, FakeBillingProvider,
-    HickoryCustomDomainVerifier, NotificationDispatcher, PostgresApiFlowRepository,
-    PostgresAuditLogEntryRepository, PostgresBulkMonitorImportRepository, PostgresCheckRepository,
+    HickoryCustomDomainVerifier, NotificationDispatcher, PaystackBillingProvider,
+    PostgresApiFlowRepository, PostgresAuditLogEntryRepository,
+    PostgresBulkMonitorImportRepository, PostgresCheckRepository,
     PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
     PostgresHistoryRetentionRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorIntervalPolicyRepository,
@@ -83,6 +84,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
         "fake" => Arc::new(FakeBillingProvider),
         "disabled" => Arc::new(DisabledBillingProvider),
+        "paystack" => Arc::new(PaystackBillingProvider::new(
+            billing_config
+                .secret_key
+                .clone()
+                .ok_or("Paystack secret key is required")?,
+        )?),
         other => return Err(format!("unsupported billing provider: {other}").into()),
     };
 
@@ -138,7 +145,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         billing_provider,
         Duration::from_secs(300),
     )
-    .with_audit_repository(financial_audit_repository.clone());
+    ;
     let auto_top_up_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {

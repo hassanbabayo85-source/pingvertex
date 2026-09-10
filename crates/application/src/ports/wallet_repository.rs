@@ -87,6 +87,15 @@ pub trait WalletRepository: Send + Sync {
         Err("wallet balance adjustment is not configured".into())
     }
 
+    async fn find_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+    ) -> WalletRepoResult<Option<CreditReservation>> {
+        let _ = (tenant_id, request_id);
+        Ok(None)
+    }
+
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()>;
     async fn find_top_up_session(
         &self,
@@ -122,6 +131,14 @@ pub trait WalletRepository: Send + Sync {
         idempotency_key: &str,
         provider_refund_id: &str,
     ) -> WalletRepoResult<()>;
+    async fn list_auto_top_up_reconciliation_attempts(
+        &self,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<AutoTopUpAttempt>> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+
     async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()>;
     async fn claim_auto_top_up(
         &self,
@@ -278,6 +295,16 @@ where
             .adjust_balance(tenant_id, delta_units, idempotency_key, description)
             .await
     }
+    async fn find_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+    ) -> WalletRepoResult<Option<CreditReservation>> {
+        (**self)
+            .find_reservation_by_request(tenant_id, request_id)
+            .await
+    }
+
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {
         (**self).create_top_up_session(session).await
     }
@@ -342,6 +369,15 @@ where
             .set_refund_provider_id(tenant_id, idempotency_key, provider_refund_id)
             .await
     }
+    async fn list_auto_top_up_reconciliation_attempts(
+        &self,
+        limit: u32,
+    ) -> WalletRepoResult<Vec<AutoTopUpAttempt>> {
+        (**self)
+            .list_auto_top_up_reconciliation_attempts(limit)
+            .await
+    }
+
     async fn record_auto_top_up_attempt(&self, attempt: &AutoTopUpAttempt) -> WalletRepoResult<()> {
         (**self).record_auto_top_up_attempt(attempt).await
     }

@@ -39,7 +39,12 @@ impl PaymentProvider for FakeBillingProvider {
         &self,
         _provider_checkout_id: &str,
     ) -> PaymentProviderResult<PaymentVerification> {
-        Ok(PaymentVerification::Paid)
+        Ok(PaymentVerification::Paid {
+            provider_payment_id: format!("fake-payment-{}", _provider_checkout_id),
+            provider_reference: _provider_checkout_id.to_owned(),
+            amount_units: 1_000_000,
+            currency: "USD".to_owned(),
+        })
     }
     async fn create_wallet_top_up(
         &self,
@@ -59,9 +64,19 @@ impl PaymentProvider for FakeBillingProvider {
         request: &application::ports::WalletTopUpRequest,
     ) -> PaymentProviderResult<PaymentVerification> {
         if request.payment_method.as_deref().unwrap_or("").is_empty() {
-            return Ok(PaymentVerification::Failed);
+            return Ok(PaymentVerification::Failed {
+                provider_payment_id: None,
+                provider_reference: None,
+                amount_units: None,
+                currency: None,
+            });
         }
-        Ok(PaymentVerification::Paid)
+        Ok(PaymentVerification::Paid {
+            provider_payment_id: format!("fake-payment-{}", request.idempotency_key),
+            provider_reference: request.idempotency_key.clone(),
+            amount_units: request.amount_units,
+            currency: request.currency.clone(),
+        })
     }
     async fn refund_payment(
         &self,

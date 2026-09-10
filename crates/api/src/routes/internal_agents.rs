@@ -94,14 +94,27 @@ async fn claim_checks(
                 || monitor.interval_seconds < domain::FREE_MIN_INTERVAL_SECONDS
             {
                 let operation = domain::monitor_operation(monitor.kind, false);
-                let pricing = state
-                    .payg_pricing_repository
-                    .find_active(operation.as_str())
+                let tenant = state
+                    .platform_tenant_repository
+                    .find_by_id(monitor.tenant_id)
                     .await
                     .map_err(|err| {
-                        ApiError::internal_with_source("failed to load PAYG price", err)
+                        ApiError::internal_with_source("failed to load tenant pricing context", err)
                     })?
-                    .ok_or_else(|| ApiError::internal("PAYG pricing is unavailable"))?;
+                    .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+                let pricing = application::ports::resolve_price(
+                    state.payg_pricing_repository.as_ref(),
+                    operation.as_str(),
+                    &application::ports::PricingContext {
+                        account_type: Some(tenant.account_type),
+                        region: Some(agent_region.0.clone()),
+                        monitor_kind: Some(monitor.kind),
+                        quantity: 1,
+                    },
+                )
+                .await
+                .map_err(|err| ApiError::internal_with_source("failed to resolve PAYG price", err))?
+                .ok_or_else(|| ApiError::internal("PAYG pricing is unavailable"))?;
 
                 let request_id = format!("agent-check:{}", lease.check_id.0);
                 let reservation = match state

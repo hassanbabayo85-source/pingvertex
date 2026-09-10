@@ -17,6 +17,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/wallet/top-up", post(crate::handlers::wallet::top_up))
         .route(
+            "/wallet/top-up/:provider_checkout_id/verify",
+            post(crate::handlers::wallet::verify_wallet_top_up),
+        )
+        .route(
             "/wallet/settings",
             get(crate::handlers::wallet::get_settings)
                 .put(crate::handlers::wallet::update_settings),

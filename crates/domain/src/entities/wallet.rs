@@ -144,6 +144,8 @@ impl Default for WalletSettings {
 pub struct AutoTopUpCandidate {
     pub tenant_id: Uuid,
     pub balance_units: i64,
+    pub currency: String,
+    pub customer_email: String,
     pub settings: WalletSettings,
     pub daily_spend_units: i64,
     pub monthly_spend_units: i64,
@@ -190,6 +192,7 @@ pub struct AutoTopUpAttempt {
     pub tenant_id: Uuid,
     pub amount_units: i64,
     pub status: String,
+    pub provider_payment_id: Option<String>,
     pub provider_reference: Option<String>,
     pub error_message: Option<String>,
     pub attempted_at: DateTime<Utc>,

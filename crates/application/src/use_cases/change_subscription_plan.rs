@@ -134,6 +134,7 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                     plan_tier: new_plan,
                     amount_minor: cents,
                     currency: cfg.currency.clone(),
+                    customer_email: None,
                 })
                 .await
                 .map_err(ChangePlanError::Provider)?;
@@ -224,14 +225,14 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             .await
             .map_err(ChangePlanError::Provider)?
         {
-            PaymentVerification::Pending => Ok(ChangePlanOutcome {
+            PaymentVerification::Pending { .. } => Ok(ChangePlanOutcome {
                 plan_change_id: cid,
                 calculated_amount: s.amount.unwrap_or(Decimal::ZERO),
                 checkout_session_id: Some(session_id),
                 checkout_url: None,
                 applied: false,
             }),
-            PaymentVerification::Failed => {
+            PaymentVerification::Failed { .. } => {
                 let mut c = self
                     .changes
                     .find_by_id(cid, tenant.0)
@@ -251,7 +252,7 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                     .map_err(ChangePlanError::Repository)?;
                 Err(ChangePlanError::Invalid("payment failed".into()))
             }
-            PaymentVerification::Paid => {
+            PaymentVerification::Paid { .. } => {
                 let c = self
                     .changes
                     .find_by_id(cid, tenant.0)

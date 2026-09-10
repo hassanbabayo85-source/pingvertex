@@ -59,9 +59,24 @@ impl PaymentProvider for TestBillingProvider {
         _provider_checkout_id: &str,
     ) -> Result<PaymentVerification, Box<dyn std::error::Error + Send + Sync>> {
         Ok(match self.verification {
-            TestVerification::Paid => PaymentVerification::Paid,
-            TestVerification::Pending => PaymentVerification::Pending,
-            TestVerification::Failed => PaymentVerification::Failed,
+            TestVerification::Paid => PaymentVerification::Paid {
+                provider_payment_id: "test-payment".into(),
+                provider_reference: "test-reference".into(),
+                amount_units: 1_000_000,
+                currency: "USD".into(),
+            },
+            TestVerification::Pending => PaymentVerification::Pending {
+                provider_payment_id: None,
+                provider_reference: None,
+                amount_units: None,
+                currency: None,
+            },
+            TestVerification::Failed => PaymentVerification::Failed {
+                provider_payment_id: None,
+                provider_reference: None,
+                amount_units: None,
+                currency: None,
+            },
         })
     }
 }
