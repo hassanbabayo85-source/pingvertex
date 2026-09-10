@@ -62,3 +62,5 @@ target/
 geoip.tar.gz
 .architecture-security-backup-*/
 erro
+*.bak.*
+*.bak
