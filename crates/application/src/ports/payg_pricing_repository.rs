@@ -8,24 +8,20 @@ pub type PaygPricingRepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[async_trait]
 pub trait PAYGPricingRepository: Send + Sync {
+    /// Legacy method for generic lookups. Prefer resolve_price with context.
     async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>>;
 
     /// Resolves the most specific active price for the trusted server-side context.
-    /// Implementations should prefer exact context matches and fall back to the
-    /// generic operation price when no contextual override exists.
+    /// Fails safely (returns Err) if multiple rules match with ambiguous precedence.
     async fn find_active_for_context(
         &self,
         operation: &str,
         context: &PricingContext,
-    ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
-        let _ = context;
-        self.find_active(operation).await
-    }
+    ) -> PaygPricingRepoResult<Option<PAYGPricing>>;
 
     async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>>;
 
-    /// Appends a new immutable PAYG price version. The repository owns the
-    /// global version allocation so concurrent administrators cannot collide.
+    /// Appends a new immutable PAYG price version.
     async fn create_version(
         &self,
         operation: &str,
@@ -43,11 +39,7 @@ pub trait PAYGPricingRepository: Send + Sync {
         currency: &str,
         effective_from: DateTime<Utc>,
         context: &PricingRuleContext,
-    ) -> PaygPricingRepoResult<PAYGPricing> {
-        let _ = context;
-        self.create_version(operation, unit_name, unit_price, currency, effective_from)
-            .await
-    }
+    ) -> PaygPricingRepoResult<PAYGPricing>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -67,15 +59,21 @@ pub struct PricingRuleContext {
     pub max_quantity: Option<u64>,
 }
 
+/// The authoritative server-side resolver for PAYG pricing.
+/// Validates the operation and calls the context-aware repository method.
 pub async fn resolve_price(
     repository: &dyn PAYGPricingRepository,
     operation: &str,
     context: &PricingContext,
 ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
-    if operation.trim().is_empty() {
+    let op = operation.trim();
+    if op.is_empty() {
         return Ok(None);
     }
-    repository.find_active_for_context(operation, context).await
+    if !domain::PaygOperation::is_canonical(op) {
+        return Err("unsupported PAYG operation".into());
+    }
+    repository.find_active_for_context(op, context).await
 }
 
 #[async_trait]

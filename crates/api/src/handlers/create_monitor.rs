@@ -50,7 +50,9 @@ pub async fn create_monitor(
         state.audit_log_entry_repository.clone(),
     )
     .with_wallet_repository(state.wallet_repository.clone())
-    .with_interval_policy_repository(state.monitor_interval_policy_repository.clone());
+    .with_interval_policy_repository(state.monitor_interval_policy_repository.clone())
+    .with_subscription_repository(state.subscription_repository.clone())
+    .with_pricing_config_repository(state.pricing_config_repository.clone());
 
     let monitor = use_case
         .execute(request, authenticated_user)

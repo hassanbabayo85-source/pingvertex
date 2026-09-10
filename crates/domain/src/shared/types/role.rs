@@ -9,7 +9,7 @@ use super::permission::Permission;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum Role {
-    Member,
+    Operator,
     Admin,
     Owner,
     Auditor,
@@ -21,14 +21,27 @@ impl Role {
         use Permission::*;
 
         match self {
-            Role::Member => &[
+            Role::Viewer => &[
                 ViewOwnProfile,
                 UpdateOwnProfile,
                 ChangeOwnPassword,
                 ViewMonitor,
                 ViewIncident,
                 ViewSupportTickets,
-                ViewBilling,
+            ],
+            Role::Operator => &[
+                ViewOwnProfile,
+                UpdateOwnProfile,
+                ChangeOwnPassword,
+                ViewMonitor,
+                CreateMonitor,
+                UpdateMonitor,
+                DeleteMonitor,
+                PauseMonitor,
+                ViewIncident,
+                AcknowledgeIncident,
+                ResolveIncident,
+                ViewSupportTickets,
                 CreateSupportTicket,
                 ReplySupportTicket,
             ],
@@ -49,10 +62,12 @@ impl Role {
                 ManageUsers,
                 ManageApiKeys,
                 ViewSupportTickets,
-                ViewBilling,
                 CreateSupportTicket,
                 ReplySupportTicket,
                 ManageSupportTicketStatus,
+                ViewBilling,
+                // Note: ManageBilling is explicitly excluded by product policy.
+                // Admin must NOT manage billing semantics ambiguously.
             ],
             Role::Owner => &[
                 ViewOwnProfile,
@@ -71,8 +86,9 @@ impl Role {
                 ManageUsers,
                 ManageApiKeys,
                 ManageBilling,
-                ViewSupportTickets,
                 ViewBilling,
+                ViewAuditLog,
+                ViewSupportTickets,
                 CreateSupportTicket,
                 ReplySupportTicket,
                 ManageSupportTicketStatus,
@@ -84,13 +100,7 @@ impl Role {
                 ViewIncident,
                 ViewTenantSettings,
                 ViewSupportTickets,
-            ],
-            Role::Viewer => &[
-                ViewOwnProfile,
-                ViewBilling,
-                ViewMonitor,
-                ViewIncident,
-                ViewSupportTickets,
+                ViewAuditLog,
             ],
         }
     }
@@ -105,31 +115,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn viewer_has_only_read_permissions() {
-        let perms = Role::Viewer.permissions();
-        assert!(perms.contains(&Permission::ViewOwnProfile));
-        assert!(perms.contains(&Permission::ViewMonitor));
-        assert!(perms.contains(&Permission::ViewIncident));
-        assert!(!perms.contains(&Permission::CreateMonitor));
-        assert!(!perms.contains(&Permission::UpdateMonitor));
-        assert!(!perms.contains(&Permission::DeleteMonitor));
-        assert!(!perms.contains(&Permission::ManageUsers));
-        assert!(!perms.contains(&Permission::ManageApiKeys));
+    fn owner_has_full_authority() {
+        let p = Role::Owner.permissions();
+        assert!(p.contains(&Permission::CreateMonitor));
+        assert!(p.contains(&Permission::ManageBilling));
+        assert!(p.contains(&Permission::ManageUsers));
+        assert!(p.contains(&Permission::UpdateTenantSettings));
     }
 
     #[test]
-    fn admin_can_manage_users() {
-        assert!(Role::Admin.has_permission(Permission::ManageUsers));
+    fn admin_has_admin_operations_but_no_billing() {
+        let p = Role::Admin.permissions();
+        assert!(p.contains(&Permission::CreateMonitor));
+        assert!(p.contains(&Permission::ManageUsers));
+        assert!(p.contains(&Permission::UpdateTenantSettings));
+        assert!(!p.contains(&Permission::ManageBilling)); // Explicitly disabled
     }
 
     #[test]
-    fn owner_can_manage_users_and_billing() {
-        assert!(Role::Owner.has_permission(Permission::ManageUsers));
-        assert!(Role::Owner.has_permission(Permission::ManageBilling));
+    fn operator_has_monitor_operations_only() {
+        let p = Role::Operator.permissions();
+        assert!(p.contains(&Permission::CreateMonitor));
+        assert!(p.contains(&Permission::UpdateMonitor));
+        assert!(p.contains(&Permission::ViewMonitor));
+        assert!(!p.contains(&Permission::ManageUsers));
+        assert!(!p.contains(&Permission::ManageBilling));
+        assert!(!p.contains(&Permission::UpdateTenantSettings));
     }
 
     #[test]
-    fn member_does_not_have_manage_users() {
-        assert!(!Role::Member.has_permission(Permission::ManageUsers));
+    fn viewer_is_read_only() {
+        let p = Role::Viewer.permissions();
+        assert!(p.contains(&Permission::ViewMonitor));
+        assert!(!p.contains(&Permission::CreateMonitor));
+        assert!(!p.contains(&Permission::UpdateMonitor));
+        assert!(!p.contains(&Permission::ManageUsers));
+        assert!(!p.contains(&Permission::ManageBilling));
+        assert!(!p.contains(&Permission::UpdateTenantSettings));
     }
 }

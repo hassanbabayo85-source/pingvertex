@@ -102,7 +102,9 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
             r#"
             SELECT m.id
             FROM monitors m
+            JOIN tenants t ON t.id = m.tenant_id
             WHERE m.enabled = true
+              AND t.status = 'active'
               AND m.kind = 'http'
               AND m.regions @> ARRAY[$1]::text[]
               AND NOT EXISTS (
@@ -186,6 +188,24 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
     ) -> RepoResult<SubmitAgentResultOutcome> {
         let mut tx = self.pool.begin().await?;
 
+        // Race Condition Check: A suspended tenant shouldn't record checks/billing
+        let is_active: Option<bool> = sqlx::query_scalar(
+            r#"
+            SELECT 1 FROM tenants t
+            JOIN monitors m ON m.tenant_id = t.id
+            WHERE m.id = $1 AND t.status = 'active'
+            "#,
+        )
+        .bind(monitor_id.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if is_active.is_none() {
+            // Drop silently to avoid payload billing
+            tx.rollback().await?;
+            return Ok(SubmitAgentResultOutcome::Stale);
+        }
+
         let updated = sqlx::query(
             r#"
             UPDATE agent_check_leases
@@ -252,6 +272,7 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
 
         Ok(result.rows_affected())
     }
+
     async fn mark_billing_reserved(&self, check_id: CheckId) -> RepoResult<()> {
         let affected = sqlx::query(
             "UPDATE agent_check_leases SET billing_reserved=TRUE WHERE check_id=$1 AND completed_at IS NULL",

@@ -120,17 +120,16 @@ async fn metered_logo_upload_charges_ceil_mb_and_is_idempotent() {
         )
         .await
         .unwrap();
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
-        id: Uuid::new_v4(),
-        version: 1,
-        operation: "storage".into(),
-        unit_name: "MB-month".into(),
-        unit_price: 20,
-        currency: "USD".into(),
-        effective_from: Utc::now() - Duration::minutes(1),
-        effective_until: None,
-        active: true,
-    }]));
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
+    let _ = application::ports::PAYGPricingRepository::create_version(
+        &*pricing,
+        "storage",
+        "MB-month",
+        20,
+        "USD",
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
     let usage = Arc::new(InMemoryUsageEventRepository::default());
     let metering = Arc::new(application::MeterUsageUseCase::new(
         wallet.clone(),

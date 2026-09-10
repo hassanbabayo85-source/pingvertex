@@ -9,7 +9,7 @@ type TxResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 fn role_to_db(role: &Role) -> &'static str {
     match role {
-        Role::Member => "Member",
+        Role::Operator => "Operator",
         Role::Admin => "Admin",
         Role::Owner => "Owner",
         Role::Auditor => "Auditor",

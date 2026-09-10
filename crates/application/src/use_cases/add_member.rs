@@ -67,7 +67,7 @@ impl AddMemberUseCase {
                     return Err(MembershipError::Forbidden);
                 }
             }
-            Role::Member | Role::Viewer | Role::Auditor => {
+            Role::Operator | Role::Viewer | Role::Auditor => {
                 if !matches!(actor_role, Role::Owner | Role::Admin) {
                     return Err(MembershipError::Forbidden);
                 }
