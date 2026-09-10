@@ -503,13 +503,8 @@ async fn agent_region_claim_respects_cross_region_tenant_cap() {
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
     for index in 0..10 {
-        let monitor_id = insert_due_monitor(
-            &pool,
-            &format!("agent-cap-{index}"),
-            user_id,
-            tenant_id.0,
-        )
-        .await;
+        let monitor_id =
+            insert_due_monitor(&pool, &format!("agent-cap-{index}"), user_id, tenant_id.0).await;
         sqlx::query("UPDATE monitors SET regions = ARRAY['us-east','eu-west'] WHERE id = $1")
             .bind(monitor_id)
             .execute(&pool)
@@ -533,4 +528,3 @@ async fn agent_region_claim_respects_cross_region_tenant_cap() {
 
     assert_eq!(claims.len(), 2);
 }
-

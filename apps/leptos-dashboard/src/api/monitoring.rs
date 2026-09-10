@@ -571,15 +571,20 @@ pub async fn bulk_import_job(id: &str) -> Result<BulkImportJob, String> {
         .map_err(|error| error.to_string())
 }
 
-
 pub async fn bulk_import_pause(id: &str) -> Result<BulkImportJob, String> {
-    client::post_json(&format!("/monitors/bulk-import/jobs/{id}/pause"), &serde_json::json!({}))
-        .await
-        .map_err(|error| error.to_string())
+    client::post_json(
+        &format!("/monitors/bulk-import/jobs/{id}/pause"),
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 pub async fn bulk_import_resume(id: &str) -> Result<BulkImportJob, String> {
-    client::post_json(&format!("/monitors/bulk-import/jobs/{id}/resume"), &serde_json::json!({}))
-        .await
-        .map_err(|error| error.to_string())
+    client::post_json(
+        &format!("/monitors/bulk-import/jobs/{id}/resume"),
+        &serde_json::json!({}),
+    )
+    .await
+    .map_err(|error| error.to_string())
 }

@@ -187,15 +187,8 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         lease_duration: Duration,
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<ClaimedMonitor>> {
-        self.claim_due_monitors_inner(
-            limit,
-            lease_owner,
-            lease_duration,
-            now,
-            None,
-            None,
-        )
-        .await
+        self.claim_due_monitors_inner(limit, lease_owner, lease_duration, now, None, None)
+            .await
     }
 
     async fn claim_due_monitors_with_limits(

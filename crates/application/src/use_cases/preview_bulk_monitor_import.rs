@@ -226,22 +226,29 @@ impl PreviewBulkMonitorImportUseCase {
             let mut duplicate = false;
             if existing_signatures.contains(&signature) {
                 duplicate = true;
-                row_errors.push("duplicate monitor identity already exists in this tenant".to_owned());
+                row_errors
+                    .push("duplicate monitor identity already exists in this tenant".to_owned());
             } else if !seen_signatures.insert(signature) {
                 duplicate = true;
-                row_errors.push("duplicate monitor identity appears more than once in this CSV".to_owned());
+                row_errors.push(
+                    "duplicate monitor identity appears more than once in this CSV".to_owned(),
+                );
             }
 
             if existing_names.contains(&normalized_name) || !seen_names.insert(normalized_name) {
                 duplicate = true;
-                row_errors.push("duplicate monitor name already exists in this tenant or CSV".to_owned());
+                row_errors
+                    .push("duplicate monitor name already exists in this tenant or CSV".to_owned());
             }
 
             if existing_targets.contains(&normalized_target_value)
                 || !seen_targets.insert(normalized_target_value)
             {
                 duplicate = true;
-                row_errors.push("duplicate monitor target URL/host already exists in this tenant or CSV".to_owned());
+                row_errors.push(
+                    "duplicate monitor target URL/host already exists in this tenant or CSV"
+                        .to_owned(),
+                );
             }
             if duplicate {
                 duplicate_rows = duplicate_rows.saturating_add(1);
@@ -315,7 +322,12 @@ impl PreviewBulkMonitorImportUseCase {
                     0
                 };
 
-                row_pricing.push((region.clone(), executions_per_region, pricing.clone(), region_cost));
+                row_pricing.push((
+                    region.clone(),
+                    executions_per_region,
+                    pricing.clone(),
+                    region_cost,
+                ));
             }
 
             if !row_errors.is_empty() {
@@ -334,13 +346,14 @@ impl PreviewBulkMonitorImportUseCase {
                 .ok_or(BulkMonitorImportPreviewError::Overflow)?;
 
             if payg_activated {
-                let row_cost = row_pricing
-                    .iter()
-                    .try_fold(0i64, |total, (_, _, _, region_cost)| {
-                        total
-                            .checked_add(*region_cost)
-                            .ok_or(BulkMonitorImportPreviewError::Overflow)
-                    })?;
+                let row_cost =
+                    row_pricing
+                        .iter()
+                        .try_fold(0i64, |total, (_, _, _, region_cost)| {
+                            total
+                                .checked_add(*region_cost)
+                                .ok_or(BulkMonitorImportPreviewError::Overflow)
+                        })?;
                 estimated_payg_cost_units = estimated_payg_cost_units
                     .checked_add(row_cost)
                     .ok_or(BulkMonitorImportPreviewError::Overflow)?;
@@ -869,7 +882,10 @@ mod tests {
     #[tokio::test]
     async fn viewer_without_create_permission_is_forbidden() {
         let use_case = PreviewBulkMonitorImportUseCase::new(
-            Arc::new(TestPricing { rows: Vec::new(), region_prices: HashMap::new() }),
+            Arc::new(TestPricing {
+                rows: Vec::new(),
+                region_prices: HashMap::new(),
+            }),
             Arc::new(TestIntervals),
         );
         let result = use_case

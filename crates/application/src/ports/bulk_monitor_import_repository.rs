@@ -68,17 +68,9 @@ pub trait BulkMonitorImportRepository: Send + Sync {
 
     async fn skip_row(&self, row_id: i64, reason: &str) -> BulkMonitorImportRepoResult<()>;
 
-    async fn pause_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool>;
+    async fn pause_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool>;
 
-    async fn resume_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool>;
+    async fn resume_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool>;
 
     async fn refresh_job_state(
         &self,
@@ -178,19 +170,11 @@ where
         (**self).skip_row(row_id, reason).await
     }
 
-    async fn pause_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool> {
+    async fn pause_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool> {
         (**self).pause_job(job_id, tenant_id).await
     }
 
-    async fn resume_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool> {
+    async fn resume_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool> {
         (**self).resume_job(job_id, tenant_id).await
     }
 

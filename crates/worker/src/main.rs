@@ -115,8 +115,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         pool.clone(),
     ));
     let payg_pricing_repository = Arc::new(PostgresPAYGPricingRepository::new(pool.clone()));
-    let pricing_config_repository =
-        Arc::new(PostgresPricingConfigRepository::new(pool.clone()));
+    let pricing_config_repository = Arc::new(PostgresPricingConfigRepository::new(pool.clone()));
     let usage_event_repository = Arc::new(PostgresUsageEventRepository::new(pool.clone()));
     let metering = Arc::new(
         application::MeterUsageUseCase::new(
@@ -149,8 +148,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         wallet_repository.clone(),
         billing_provider,
         Duration::from_secs(300),
-    )
-    ;
+    );
     let auto_top_up_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {
@@ -350,34 +348,34 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     tracing::info!("worker started; press Ctrl+C or send SIGTERM to shut down");
 
     tokio::select! {
-        result = worker::DurableScheduler::new(
-            scheduling_repository,
-            executor,
-            Duration::from_secs(worker_config.lease_seconds),
-            worker_config.max_concurrent_checks,
-        )
-        .with_metering(metering.clone())
-.with_tenant_repository(
-            tenant_repository.clone(),
-            subscription_repository.clone(),
-            pricing_config_repository.clone(),
-        )
-        .with_entitlement_repositories(
-            monitor_repository.clone(),
-            wallet_repository.clone(),
-        )
-        .with_backpressure(
-            worker_config.scheduler_max_concurrency_per_tenant,
-            worker_config.scheduler_due_claim_limit_per_tenant,
-        )
-        .with_deterministic_spread(worker_config.scheduler_deterministic_spread_seconds)
-        .run() => {
-            result?;
+            result = worker::DurableScheduler::new(
+                scheduling_repository,
+                executor,
+                Duration::from_secs(worker_config.lease_seconds),
+                worker_config.max_concurrent_checks,
+            )
+            .with_metering(metering.clone())
+    .with_tenant_repository(
+                tenant_repository.clone(),
+                subscription_repository.clone(),
+                pricing_config_repository.clone(),
+            )
+            .with_entitlement_repositories(
+                monitor_repository.clone(),
+                wallet_repository.clone(),
+            )
+            .with_backpressure(
+                worker_config.scheduler_max_concurrency_per_tenant,
+                worker_config.scheduler_due_claim_limit_per_tenant,
+            )
+            .with_deterministic_spread(worker_config.scheduler_deterministic_spread_seconds)
+            .run() => {
+                result?;
+            }
+            _ = shutdown_signal() => {
+                tracing::info!("shutdown signal received, cancelling background workers");
+            }
         }
-        _ = shutdown_signal() => {
-            tracing::info!("shutdown signal received, cancelling background workers");
-        }
-    }
 
     cancel_token.cancel();
     tracing::info!(

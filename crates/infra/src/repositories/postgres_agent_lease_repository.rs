@@ -99,14 +99,10 @@ impl PostgresAgentLeaseRepository {
         .execute(&mut *tx)
         .await?;
 
-        let max_per_tenant = i64::try_from(
-            max_concurrency_per_tenant.unwrap_or(i64::MAX as usize),
-        )
-        .unwrap_or(i64::MAX);
-        let due_per_tenant = i64::try_from(
-            due_claim_limit_per_tenant.unwrap_or(i64::MAX as usize),
-        )
-        .unwrap_or(i64::MAX);
+        let max_per_tenant = i64::try_from(max_concurrency_per_tenant.unwrap_or(i64::MAX as usize))
+            .unwrap_or(i64::MAX);
+        let due_per_tenant = i64::try_from(due_claim_limit_per_tenant.unwrap_or(i64::MAX as usize))
+            .unwrap_or(i64::MAX);
 
         let due_monitor_ids: Vec<Uuid> = sqlx::query_scalar(
             r#"
@@ -203,8 +199,7 @@ impl PostgresAgentLeaseRepository {
         .fetch_all(&mut *tx)
         .await?;
 
-        let lease_expires_at =
-            now + ChronoDuration::seconds(lease_duration.as_secs() as i64);
+        let lease_expires_at = now + ChronoDuration::seconds(lease_duration.as_secs() as i64);
         let mut claimed = Vec::with_capacity(due_monitor_ids.len());
 
         for monitor_id in due_monitor_ids {
@@ -258,16 +253,8 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         lease_duration: Duration,
         now: DateTime<Utc>,
     ) -> RepoResult<Vec<AgentLease>> {
-        self.claim_due_checks_inner(
-            agent_id,
-            region,
-            limit,
-            lease_duration,
-            now,
-            None,
-            None,
-        )
-        .await
+        self.claim_due_checks_inner(agent_id, region, limit, lease_duration, now, None, None)
+            .await
     }
 
     async fn claim_due_checks_with_limits(
