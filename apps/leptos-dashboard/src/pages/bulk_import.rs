@@ -180,6 +180,15 @@ pub fn BulkImportPage() -> impl IntoView {
                     </label>
                 </div>
                 <p class="muted">"Maximum 10,000 data rows and 1 MB. Separate multiple regions with semicolons; auth_type must be none."</p>
+                <details class="muted">
+                    <summary>"CSV schema (17 columns)"</summary>
+                    <p>"The header must exactly match one of:"</p>
+                    <p><strong>"Modern (17 columns):"</strong></p>
+                    <pre>"name,url,kind,interval_seconds,timeout_seconds,method,expected_status,tcp_port,dns_record_type,dns_expected_value,heartbeat_interval_seconds,heartbeat_grace_period_seconds,is_public,ssl_check_enabled,ssl_expiry_warning_days,regions,auth_type"</pre>
+                    <p><strong>"Legacy (15 columns, still accepted):"</strong></p>
+                    <pre>"name,url,kind,interval_seconds,timeout_seconds,method,expected_status,tcp_port,dns_record_type,dns_expected_value,heartbeat_interval_seconds,heartbeat_grace_period_seconds,is_public,ssl_check_enabled,ssl_expiry_warning_days"</pre>
+                    <p>"Legacy rows are normalized to " <code>"regions=us-east"</code> " and " <code>"auth_type=none"</code> "."</p>
+                </details>
                 <button class="button" disabled=move || busy.get() on:click=preview_import>
                     {move || if busy.get() { "Working…" } else { "Preview import" }}
                 </button>
@@ -295,13 +304,19 @@ pub fn BulkImportPage() -> impl IntoView {
                     {if matches!(value.status.as_str(), "COMPLETED" | "FAILED" | "CANCELLED") {
                         view! {
                             <div class="success" role="status">
-                                {format!(
+                                <p>{format!(
                                     "Final summary: {} created, {} failed, {} invalid, {} skipped.",
                                     value.created_rows,
                                     value.failed_rows,
                                     value.invalid_rows,
                                     value.skipped_rows
-                                )}
+                                )}</p>
+                                <p class="muted">{format!(
+                                    "Forecast: {} day(s), {} estimated check(s), {} estimated cost.",
+                                    value.forecast_days,
+                                    value.estimated_checks,
+                                    format_units(value.estimated_charge_units, &value.currency)
+                                )}</p>
                             </div>
                         }.into_any()
                     } else {
