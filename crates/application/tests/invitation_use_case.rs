@@ -108,7 +108,7 @@ async fn full_invite_accept_flow_creates_membership_with_invited_role() {
         TestPasswordHasher,
     );
 
-    let invitee_actor = auth_user(invitee, TenantId::new(), Role::Member);
+    let invitee_actor = auth_user(invitee, TenantId::new(), Role::Operator);
 
     let membership = accept_use_case
         .execute(created.raw_token, invitee_actor)
@@ -150,7 +150,7 @@ async fn expired_invitation_is_rejected() {
         domain::InvitationId::new(),
         tenant_id,
         email.to_string(),
-        Role::Member,
+        Role::Operator,
         prefix,
         raw_token.clone(),
         chrono::Utc::now() - chrono::Duration::seconds(1),
@@ -166,7 +166,7 @@ async fn expired_invitation_is_rejected() {
         TestPasswordHasher,
     );
 
-    let invitee_actor = auth_user(invitee, tenant_id, Role::Member);
+    let invitee_actor = auth_user(invitee, tenant_id, Role::Operator);
     let result = accept_use_case.execute(raw_token, invitee_actor).await;
     assert!(matches!(result, Err(InvitationError::InvalidToken)));
 }
@@ -188,7 +188,7 @@ async fn already_member_is_rejected() {
         .create(&TenantMembership {
             tenant_id,
             user_id: invitee,
-            role: Role::Member,
+            role: Role::Operator,
             invited_at: now,
             joined_at: Some(now),
         })
@@ -207,7 +207,7 @@ async fn already_member_is_rejected() {
         domain::InvitationId::new(),
         tenant_id,
         email.to_string(),
-        Role::Member,
+        Role::Operator,
         prefix,
         raw_token.clone(),
         chrono::Utc::now() + chrono::Duration::hours(1),
@@ -222,7 +222,7 @@ async fn already_member_is_rejected() {
         TestPasswordHasher,
     );
 
-    let invitee_actor = auth_user(invitee, tenant_id, Role::Member);
+    let invitee_actor = auth_user(invitee, tenant_id, Role::Operator);
     let result = accept_use_case.execute(raw_token, invitee_actor).await;
     assert!(matches!(result, Err(InvitationError::Conflict)));
 }
@@ -258,7 +258,7 @@ async fn wrong_recipient_is_rejected() {
         domain::InvitationId::new(),
         tenant_id,
         invitee_email.to_string(),
-        Role::Member,
+        Role::Operator,
         prefix,
         raw_token.clone(),
         chrono::Utc::now() + chrono::Duration::hours(1),
@@ -273,7 +273,7 @@ async fn wrong_recipient_is_rejected() {
         TestPasswordHasher,
     );
 
-    let wrong_actor = auth_user(wrong_user, tenant_id, Role::Member);
+    let wrong_actor = auth_user(wrong_user, tenant_id, Role::Operator);
     let result = accept_use_case.execute(raw_token, wrong_actor).await;
     assert!(matches!(result, Err(InvitationError::InvalidToken)));
 }

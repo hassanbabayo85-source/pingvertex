@@ -8,8 +8,11 @@ use crate::{
     },
     ports::{
         BulkImportExistingMonitor, BulkImportMonitorSnapshot, MonitorIntervalPolicyRepository,
-        PAYGPricingRepository, PricingContext, resolve_price,
+        PAYGPricingRepository, PricingConfigRepository, PricingContext, SubscriptionRepository,
+        resolve_price,
     },
+    queries::ResolveEntitlements,
+    use_cases::ResolveEntitlementsUseCase,
 };
 use domain::{
     CheckInterval, ExpectedStatus, Host, MonitorKind, MonitorName, PAYGPricing, Timeout, Url,
@@ -51,8 +54,11 @@ impl Error for BulkMonitorImportPreviewError {
 }
 
 pub struct PreviewBulkMonitorImportUseCase {
+    tenant_repository: Option<Arc<dyn crate::ports::TenantRepository>>,
     pricing_repository: Arc<dyn PAYGPricingRepository>,
     interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
+    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
+    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
 }
 
 impl PreviewBulkMonitorImportUseCase {
@@ -63,7 +69,34 @@ impl PreviewBulkMonitorImportUseCase {
         Self {
             pricing_repository,
             interval_policy_repository,
+            subscription_repository: None,
+            pricing_config_repository: None,
+            tenant_repository: None,
         }
+    }
+
+    pub fn with_subscription_repository(
+        mut self,
+        repository: Arc<dyn SubscriptionRepository>,
+    ) -> Self {
+        self.subscription_repository = Some(repository);
+        self
+    }
+
+    pub fn with_tenant_repository(
+        mut self,
+        repository: Arc<dyn crate::ports::TenantRepository>,
+    ) -> Self {
+        self.tenant_repository = Some(repository);
+        self
+    }
+
+    pub fn with_pricing_config_repository(
+        mut self,
+        repository: Arc<dyn PricingConfigRepository>,
+    ) -> Self {
+        self.pricing_config_repository = Some(repository);
+        self
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -93,6 +126,32 @@ impl PreviewBulkMonitorImportUseCase {
             ));
         }
 
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+
+        let mut account_type = None;
+        if let Some(repo) = &self.tenant_repository {
+            if let Ok(Some(tenant)) = repo.find_by_id(tenant_id).await {
+                account_type = Some(tenant.account_type);
+            }
+        }
+
+        // Determine entitlement-based limits from the DB
+        let effective_plan = if let Some(sub_repo) = &self.subscription_repository {
+            let mut resolver = ResolveEntitlementsUseCase::new(sub_repo.clone());
+            if let Some(pricing_repo) = &self.pricing_config_repository {
+                resolver = resolver.with_pricing_config_repository(pricing_repo.clone());
+            }
+            resolver
+                .execute(ResolveEntitlements { tenant_id })
+                .await
+                .map_err(BulkMonitorImportPreviewError::Repository)?
+        } else {
+            domain::Plan::for_tier(domain::enums::PlanTier::Free)
+        };
+
+        let free_monitor_limit = effective_plan.max_monitors as u64;
+        let free_min_interval_seconds = effective_plan.min_check_interval_seconds;
+
         let active_pricing = self
             .pricing_repository
             .list_active()
@@ -117,7 +176,7 @@ impl PreviewBulkMonitorImportUseCase {
         let mut seen_signatures = HashSet::new();
         let mut duplicate_rows = 0usize;
         let free_remaining =
-            domain::FREE_MONITOR_LIMIT.saturating_sub(snapshot.total_count as u64) as usize;
+            free_monitor_limit.saturating_sub(snapshot.total_count as u64) as usize;
         let mut accepted_free_rows = 0usize;
 
         let mut estimated_execution_quantity = 0u64;
@@ -150,7 +209,7 @@ impl PreviewBulkMonitorImportUseCase {
                     }
                 }
             } else {
-                domain::FREE_MIN_INTERVAL_SECONDS
+                free_min_interval_seconds
             };
 
             if row.interval_seconds < min_interval {
@@ -186,10 +245,10 @@ impl PreviewBulkMonitorImportUseCase {
                     self.pricing_repository.as_ref(),
                     &operation,
                     &PricingContext {
-                        account_type: None,
+                        account_type,
                         region: row.regions.first().cloned(),
                         monitor_kind: Some(row.kind),
-                        quantity: 1,
+                        quantity: row.regions.len().max(1) as u64,
                     },
                 )
                 .await
@@ -225,6 +284,7 @@ impl PreviewBulkMonitorImportUseCase {
             let executions_per_day = SECONDS_PER_DAY / u64::from(execution_interval);
             let row_executions = executions_per_day
                 .checked_mul(u64::from(forecast_days))
+                .and_then(|e| e.checked_mul(row.regions.len().max(1) as u64))
                 .ok_or(BulkMonitorImportPreviewError::Overflow)?;
             estimated_execution_quantity = estimated_execution_quantity
                 .checked_add(row_executions)
@@ -460,6 +520,7 @@ mod tests {
 
     use super::*;
     use crate::ports::PaygPricingRepoResult;
+    use crate::ports::PricingRuleContext;
     use async_trait::async_trait;
     use chrono::{Duration, Utc};
     use domain::shared::{
@@ -474,6 +535,26 @@ mod tests {
 
     #[async_trait]
     impl PAYGPricingRepository for TestPricing {
+        async fn find_active_for_context(
+            &self,
+            operation: &str,
+            _context: &PricingContext,
+        ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
+            self.find_active(operation).await
+        }
+
+        async fn create_version_with_context(
+            &self,
+            operation: &str,
+            unit_name: &str,
+            unit_price: i64,
+            currency: &str,
+            effective_from: chrono::DateTime<chrono::Utc>,
+            _context: &PricingRuleContext,
+        ) -> PaygPricingRepoResult<PAYGPricing> {
+            self.create_version(operation, unit_name, unit_price, currency, effective_from)
+                .await
+        }
         async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
             Ok(self
                 .rows
@@ -623,14 +704,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn member_without_create_permission_is_forbidden() {
+    async fn viewer_without_create_permission_is_forbidden() {
         let use_case = PreviewBulkMonitorImportUseCase::new(
             Arc::new(TestPricing { rows: Vec::new() }),
             Arc::new(TestIntervals),
         );
         let result = use_case
             .execute(
-                user(Role::Member),
+                user(Role::Viewer),
                 Vec::new(),
                 Vec::new(),
                 BulkImportMonitorSnapshot {

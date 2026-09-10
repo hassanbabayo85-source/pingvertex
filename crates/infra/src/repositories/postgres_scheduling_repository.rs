@@ -76,13 +76,15 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, Uuid, bool)>(
             r#"
             WITH selected AS (
-                SELECT id
+                SELECT monitors.id
                 FROM monitors
-                WHERE enabled = true
-                  AND kind != 'heartbeat'
-                  AND lease_expires_at IS NULL
-                  AND next_due_at <= $4
-                  AND interval_seconds >= (
+                JOIN tenants ON tenants.id = monitors.tenant_id
+                WHERE monitors.enabled = true
+                  AND tenants.status = 'active'
+                  AND monitors.kind != 'heartbeat'
+                  AND monitors.lease_expires_at IS NULL
+                  AND monitors.next_due_at <= $4
+                  AND monitors.interval_seconds >= (
                       CASE
                           WHEN NOT EXISTS (
                               SELECT 1 FROM user_wallets w
@@ -109,7 +111,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
                       FROM monitor_billing_blocks b
                       WHERE b.monitor_id = monitors.id
                   )
-                ORDER BY next_due_at
+                ORDER BY monitors.next_due_at
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
             )
@@ -259,7 +261,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
 
         let row = sqlx::query_as::<_, OneTimeRow>(
             r#"INSERT INTO one_time_check_requests
-                (id,tenant_id,monitor_id,created_by,request_id,status,execution_id)
+                 (id,tenant_id,monitor_id,created_by,request_id,status,execution_id)
                VALUES($1,$2,$3,$4,$5,'QUEUED',$6)
                ON CONFLICT (tenant_id,request_id) DO NOTHING
                RETURNING id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at"#,
@@ -303,7 +305,31 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         n: DateTime<Utc>,
     ) -> RepoResult<Vec<application::ports::ClaimedOneTimeCheck>> {
         let sec = d.as_secs() as i64;
-        let rows=sqlx::query_as::<_,OneTimeRow>(r#"WITH selected AS (SELECT id FROM one_time_check_requests WHERE status='QUEUED' OR (status='RUNNING' AND lease_expires_at < $4) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT $1) UPDATE one_time_check_requests r SET status='RUNNING',lease_owner=$2,lease_expires_at=$4+($3::bigint*interval '1 second'),started_at=COALESCE(started_at,$4) FROM selected WHERE r.id=selected.id RETURNING r.id,r.tenant_id,r.monitor_id,r.created_by,r.request_id,r.status,r.execution_id,r.lease_owner,r.lease_expires_at,r.error,r.created_at,r.started_at,r.completed_at"#).bind(i64::from(l)).bind(o).bind(sec).bind(n).fetch_all(&self.pool).await?;
+        let rows = sqlx::query_as::<_,OneTimeRow>(
+            r#"
+            WITH selected AS (
+                SELECT r.id 
+                FROM one_time_check_requests r
+                JOIN tenants t ON t.id = r.tenant_id
+                WHERE t.status = 'active' 
+                  AND (r.status='QUEUED' OR (r.status='RUNNING' AND r.lease_expires_at < $4)) 
+                ORDER BY r.created_at 
+                FOR UPDATE SKIP LOCKED 
+                LIMIT $1
+            ) 
+            UPDATE one_time_check_requests r 
+            SET status='RUNNING',lease_owner=$2,lease_expires_at=$4+($3::bigint*interval '1 second'),started_at=COALESCE(started_at,$4) 
+            FROM selected 
+            WHERE r.id=selected.id 
+            RETURNING r.id,r.tenant_id,r.monitor_id,r.created_by,r.request_id,r.status,r.execution_id,r.lease_owner,r.lease_expires_at,r.error,r.created_at,r.started_at,r.completed_at
+            "#)
+            .bind(i64::from(l))
+            .bind(o)
+            .bind(sec)
+            .bind(n)
+            .fetch_all(&self.pool)
+            .await?;
+
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             if let Some(monitor) = self

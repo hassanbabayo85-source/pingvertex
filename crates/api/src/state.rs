@@ -1226,10 +1226,22 @@ impl MonitorIntervalPolicyRepository for NoopMonitorIntervalPolicyRepository {
 struct NoopPAYGPricingRepository;
 #[async_trait]
 impl PAYGPricingRepository for NoopPAYGPricingRepository {
-    async fn find_active(&self, _operation: &str) -> RepoResult<Option<domain::PAYGPricing>> {
+    async fn find_active(
+        &self,
+        _operation: &str,
+    ) -> application::ports::PaygPricingRepoResult<Option<domain::PAYGPricing>> {
         Ok(None)
     }
-    async fn list_active(&self) -> RepoResult<Vec<domain::PAYGPricing>> {
+    async fn find_active_for_context(
+        &self,
+        _operation: &str,
+        _context: &application::ports::PricingContext,
+    ) -> application::ports::PaygPricingRepoResult<Option<domain::PAYGPricing>> {
+        Ok(None)
+    }
+    async fn list_active(
+        &self,
+    ) -> application::ports::PaygPricingRepoResult<Vec<domain::PAYGPricing>> {
         Ok(Vec::new())
     }
     async fn create_version(
@@ -1239,7 +1251,18 @@ impl PAYGPricingRepository for NoopPAYGPricingRepository {
         _unit_price: i64,
         _currency: &str,
         _effective_from: chrono::DateTime<chrono::Utc>,
-    ) -> RepoResult<domain::PAYGPricing> {
+    ) -> application::ports::PaygPricingRepoResult<domain::PAYGPricing> {
+        Err("PAYG pricing repository is not configured".into())
+    }
+    async fn create_version_with_context(
+        &self,
+        _operation: &str,
+        _unit_name: &str,
+        _unit_price: i64,
+        _currency: &str,
+        _effective_from: chrono::DateTime<chrono::Utc>,
+        _context: &application::ports::PricingRuleContext,
+    ) -> application::ports::PaygPricingRepoResult<domain::PAYGPricing> {
         Err("PAYG pricing repository is not configured".into())
     }
 }

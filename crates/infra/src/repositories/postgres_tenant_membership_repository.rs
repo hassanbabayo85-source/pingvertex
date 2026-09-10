@@ -37,7 +37,7 @@ struct TenantMembershipRow {
 
 fn role_to_db(role: &Role) -> &'static str {
     match role {
-        Role::Member => "Member",
+        Role::Operator => "Operator",
         Role::Admin => "Admin",
         Role::Owner => "Owner",
         Role::Auditor => "Auditor",
@@ -47,7 +47,7 @@ fn role_to_db(role: &Role) -> &'static str {
 
 fn role_from_db(value: &str) -> RepoResult<Role> {
     match value {
-        "Member" => Ok(Role::Member),
+        "Operator" => Ok(Role::Operator),
         "Admin" => Ok(Role::Admin),
         "Owner" => Ok(Role::Owner),
         "Auditor" => Ok(Role::Auditor),

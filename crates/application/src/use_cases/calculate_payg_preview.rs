@@ -169,7 +169,7 @@ impl CalculatePaygPreviewUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::PaygPricingRepoResult;
+    use crate::ports::{PaygPricingRepoResult, PricingRuleContext};
     use async_trait::async_trait;
     use chrono::{Duration, Utc};
     use domain::PAYGPricing;
@@ -187,6 +187,26 @@ mod tests {
 
     #[async_trait]
     impl PAYGPricingRepository for TestPricingRepository {
+        async fn find_active_for_context(
+            &self,
+            operation: &str,
+            _context: &PricingContext,
+        ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
+            self.find_active(operation).await
+        }
+
+        async fn create_version_with_context(
+            &self,
+            operation: &str,
+            unit_name: &str,
+            unit_price: i64,
+            currency: &str,
+            effective_from: chrono::DateTime<chrono::Utc>,
+            _context: &PricingRuleContext,
+        ) -> PaygPricingRepoResult<PAYGPricing> {
+            self.create_version(operation, unit_name, unit_price, currency, effective_from)
+                .await
+        }
         async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
             Ok(self
                 .pricing

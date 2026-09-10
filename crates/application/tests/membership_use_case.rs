@@ -78,13 +78,13 @@ async fn owner_can_add_admin_and_member() {
         .execute(
             AddMemberCommand {
                 user_id: target_member,
-                role: Role::Member,
+                role: Role::Operator,
             },
             actor,
         )
         .await
         .unwrap();
-    assert_eq!(added_member.role, Role::Member);
+    assert_eq!(added_member.role, Role::Operator);
 }
 
 #[tokio::test]
@@ -138,7 +138,7 @@ async fn admin_cannot_add_owner_or_admin() {
 }
 
 #[tokio::test]
-async fn member_cannot_list_members() {
+async fn operator_cannot_list_members() {
     let membership_repo = Arc::new(InMemoryTenantMembershipRepository::new());
     let tenant_id = TenantId::new();
     let member = UserId::new();
@@ -148,14 +148,14 @@ async fn member_cannot_list_members() {
         .create(&TenantMembership {
             tenant_id,
             user_id: member,
-            role: Role::Member,
+            role: Role::Operator,
             invited_at: now,
             joined_at: Some(now),
         })
         .await
         .unwrap();
 
-    let actor = auth_user(member, tenant_id, Role::Member);
+    let actor = auth_user(member, tenant_id, Role::Operator);
     let use_case = ListMembersUseCase::new(membership_repo.clone());
     let result = use_case.execute(actor).await;
     assert!(matches!(result, Err(MembershipError::Forbidden)));
@@ -188,7 +188,7 @@ async fn owner_can_remove_member() {
         .create(&TenantMembership {
             tenant_id,
             user_id: target,
-            role: Role::Member,
+            role: Role::Operator,
             invited_at: now,
             joined_at: Some(now),
         })
@@ -236,7 +236,7 @@ async fn owner_cannot_demote_last_owner() {
         .execute(
             ChangeMemberRoleCommand {
                 user_id: owner,
-                new_role: Role::Member,
+                new_role: Role::Operator,
             },
             actor,
         )

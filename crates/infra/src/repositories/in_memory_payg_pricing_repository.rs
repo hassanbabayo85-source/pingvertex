@@ -3,80 +3,147 @@ use application::ports::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::{PAYGPricing, PaygOperation};
-use std::sync::{Arc, RwLock};
+use domain::PAYGPricing;
+use std::sync::atomic::{AtomicI64, Ordering};
+use tokio::sync::RwLock;
+use uuid::Uuid;
 
-#[derive(Clone, Default)]
-pub struct InMemoryPAYGPricingRepository {
-    rows: Arc<RwLock<Vec<PAYGPricing>>>,
+struct RuleRecord {
+    pricing: PAYGPricing,
+    context: PricingRuleContext,
 }
+
+pub struct InMemoryPAYGPricingRepository {
+    rows: RwLock<Vec<RuleRecord>>,
+    next_version: AtomicI64,
+}
+
 impl InMemoryPAYGPricingRepository {
-    pub fn new(rows: Vec<PAYGPricing>) -> Self {
+    pub fn new() -> Self {
         Self {
-            rows: Arc::new(RwLock::new(rows)),
+            rows: RwLock::new(Vec::new()),
+            next_version: AtomicI64::new(1),
         }
     }
-    pub fn insert(&self, row: PAYGPricing) {
-        self.rows.write().unwrap().push(row);
+}
+
+impl Default for InMemoryPAYGPricingRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }
+
 #[async_trait]
 impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
     async fn find_active(&self, operation: &str) -> PaygPricingRepoResult<Option<PAYGPricing>> {
-        let now = chrono::Utc::now();
-        let row = self
-            .rows
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|p| p.operation == operation && p.active && p.effective_from <= now)
-            .filter(|p| p.effective_until.map(|v| v > now).unwrap_or(true))
-            .max_by_key(|p| p.version)
-            .cloned();
-        Ok(row)
+        let guard = self.rows.read().await;
+        // Generic fallback logic
+        let mut generic_match = None;
+        for record in guard.iter() {
+            if record.pricing.operation == operation
+                && record.pricing.active
+                && record.pricing.effective_until.is_none()
+                && record.context.account_type.is_none()
+                && record.context.region.is_none()
+                && record.context.monitor_kind.is_none()
+                && record.context.min_quantity.is_none()
+                && record.context.max_quantity.is_none()
+            {
+                generic_match = Some(record.pricing.clone());
+            }
+        }
+        Ok(generic_match)
     }
+
     async fn find_active_for_context(
         &self,
         operation: &str,
-        _context: &PricingContext,
+        context: &PricingContext,
     ) -> PaygPricingRepoResult<Option<PAYGPricing>> {
-        // The in-memory adapter has no contextual columns; preserve the same
-        // safe generic fallback used by production when no override exists.
-        self.find_active(operation).await
-    }
-    async fn create_version_with_context(
-        &self,
-        operation: &str,
-        unit_name: &str,
-        unit_price: i64,
-        currency: &str,
-        effective_from: DateTime<Utc>,
-        _context: &PricingRuleContext,
-    ) -> PaygPricingRepoResult<PAYGPricing> {
-        self.create_version(operation, unit_name, unit_price, currency, effective_from)
-            .await
-    }
-    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
-        let now = chrono::Utc::now();
-        let rows = self.rows.read().unwrap();
-        let mut latest = std::collections::BTreeMap::<String, PAYGPricing>::new();
-        for price in rows.iter().filter(|p| {
-            p.active
-                && PaygOperation::is_canonical(&p.operation)
-                && p.effective_from <= now
-                && p.effective_until.map(|v| v > now).unwrap_or(true)
-        }) {
-            latest
-                .entry(price.operation.clone())
-                .and_modify(|current| {
-                    if price.version > current.version {
-                        *current = price.clone();
-                    }
-                })
-                .or_insert_with(|| price.clone());
+        let guard = self.rows.read().await;
+        let mut candidates = Vec::new();
+
+        for record in guard.iter() {
+            if record.pricing.operation != operation
+                || !record.pricing.active
+                || record.pricing.effective_until.is_some()
+            {
+                continue;
+            }
+
+            // Check dimensions. A rule must either have no requirement (None) or match exactly.
+            if let Some(ref acc_type) = record.context.account_type {
+                if Some(acc_type) != context.account_type.as_ref() {
+                    continue;
+                }
+            }
+            if let Some(ref reg) = record.context.region {
+                if Some(reg) != context.region.as_ref() {
+                    continue;
+                }
+            }
+            if let Some(ref mk) = record.context.monitor_kind {
+                if Some(mk) != context.monitor_kind.as_ref() {
+                    continue;
+                }
+            }
+            if let Some(min_q) = record.context.min_quantity {
+                if context.quantity < min_q {
+                    continue;
+                }
+            }
+            if let Some(max_q) = record.context.max_quantity {
+                if context.quantity > max_q {
+                    continue;
+                }
+            }
+
+            // Calculate "specificity" score (higher is more specific)
+            let mut score = 0;
+            if record.context.account_type.is_some() {
+                score += 1;
+            }
+            if record.context.region.is_some() {
+                score += 1;
+            }
+            if record.context.monitor_kind.is_some() {
+                score += 1;
+            }
+            if record.context.min_quantity.is_some() || record.context.max_quantity.is_some() {
+                score += 1;
+            }
+
+            candidates.push((score, record.pricing.clone()));
         }
-        Ok(latest.into_values().collect())
+
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        candidates.sort_by(|a, b| b.0.cmp(&a.0)); // Descending by score
+        let top_score = candidates[0].0;
+
+        let top_candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|c| c.0 == top_score)
+            .collect();
+
+        if top_candidates.len() > 1 {
+            return Err("ambiguous pricing rules match the context with equal specificity".into());
+        }
+
+        Ok(Some(top_candidates[0].1.clone()))
     }
+
+    async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
+        let guard = self.rows.read().await;
+        Ok(guard
+            .iter()
+            .filter(|r| r.pricing.active && r.pricing.effective_until.is_none())
+            .map(|r| r.pricing.clone())
+            .collect())
+    }
+
     async fn create_version(
         &self,
         operation: &str,
@@ -85,16 +152,45 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
         currency: &str,
         effective_from: DateTime<Utc>,
     ) -> PaygPricingRepoResult<PAYGPricing> {
-        if !PaygOperation::is_canonical(operation) {
-            return Err("unsupported PAYG operation".into());
+        self.create_version_with_context(
+            operation,
+            unit_name,
+            unit_price,
+            currency,
+            effective_from,
+            &PricingRuleContext::default(),
+        )
+        .await
+    }
+
+    async fn create_version_with_context(
+        &self,
+        operation: &str,
+        unit_name: &str,
+        unit_price: i64,
+        currency: &str,
+        effective_from: DateTime<Utc>,
+        context: &PricingRuleContext,
+    ) -> PaygPricingRepoResult<PAYGPricing> {
+        let mut guard = self.rows.write().await;
+
+        // Deactivate old rule with EXACT same context
+        for record in guard.iter_mut() {
+            if record.pricing.operation == operation
+                && record.pricing.effective_until.is_none()
+                && record.context.account_type == context.account_type
+                && record.context.region == context.region
+                && record.context.monitor_kind == context.monitor_kind
+                && record.context.min_quantity == context.min_quantity
+                && record.context.max_quantity == context.max_quantity
+            {
+                record.pricing.effective_until = Some(effective_from);
+            }
         }
-        if unit_price <= 0 || currency != "USD" {
-            return Err("invalid PAYG price".into());
-        }
-        let mut rows = self.rows.write().unwrap();
-        let version = rows.iter().map(|p| p.version).max().unwrap_or(0) + 1;
-        let row = PAYGPricing {
-            id: uuid::Uuid::new_v4(),
+
+        let version = self.next_version.fetch_add(1, Ordering::SeqCst);
+        let pricing = PAYGPricing {
+            id: Uuid::new_v4(),
             version,
             operation: operation.to_owned(),
             unit_name: unit_name.to_owned(),
@@ -104,7 +200,12 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
             effective_until: None,
             active: true,
         };
-        rows.push(row.clone());
-        Ok(row)
+
+        guard.push(RuleRecord {
+            pricing: pricing.clone(),
+            context: context.clone(),
+        });
+
+        Ok(pricing)
     }
 }

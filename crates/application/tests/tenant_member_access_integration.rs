@@ -35,7 +35,7 @@ use infra::{
 };
 use uuid::Uuid;
 
-/// `Role::Member` is intentionally read-only tenant-wide (see `role.rs`).
+/// `Role::Viewer` is intentionally read-only tenant-wide (see `role.rs`).
 /// Per-resource ACLs that would let an Admin grant a specific Member
 /// read+write on a *specific* monitor are a planned follow-up (the
 /// "755/600"-style grants) and don't exist yet — until then, Member means
@@ -43,7 +43,7 @@ use uuid::Uuid;
 fn auth_member(user_id: UserId, tenant_id: TenantId) -> AuthenticatedUser {
     AuthenticatedUser::new(
         user_id,
-        Role::Member,
+        Role::Viewer,
         TenantContext::with_actor(tenant_id, user_id),
     )
 }
@@ -114,7 +114,7 @@ fn assert_permission_denied(err: &(dyn std::error::Error + Send + Sync + 'static
 }
 
 #[tokio::test]
-async fn member_can_read_but_not_write_monitor_in_same_tenant() {
+async fn viewer_can_read_but_not_write_monitor_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());
@@ -266,7 +266,7 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
 }
 
 #[tokio::test]
-async fn member_can_read_but_not_write_status_pages_or_custom_domain_in_same_tenant() {
+async fn viewer_can_read_but_not_write_status_pages_or_custom_domain_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());
@@ -371,7 +371,7 @@ async fn member_can_read_but_not_write_status_pages_or_custom_domain_in_same_ten
 }
 
 #[tokio::test]
-async fn member_can_read_but_not_write_notification_channels_in_same_tenant() {
+async fn viewer_can_read_but_not_write_notification_channels_in_same_tenant() {
     let tid = tenant_id();
     let alice_id = UserId(Uuid::new_v4());
     let bob_id = UserId(Uuid::new_v4());

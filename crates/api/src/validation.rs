@@ -83,7 +83,7 @@ pub fn parse_role(value: &str) -> Result<Role, ApiError> {
     match value {
         "Owner" => Ok(Role::Owner),
         "Admin" => Ok(Role::Admin),
-        "Member" => Ok(Role::Member),
+        "Operator" => Ok(Role::Operator),
         "Viewer" => Ok(Role::Viewer),
         "Auditor" => Ok(Role::Auditor),
         _ => Err(ApiError::bad_request("invalid role")),

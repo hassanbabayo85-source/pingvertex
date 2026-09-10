@@ -21,7 +21,7 @@ async fn get_proxy_job_is_tenant_scoped() {
     repo.save_job(&job, &[]).await.unwrap();
 
     let use_case = GetProxyCheckJobUseCase::new(repo);
-    let actor_b = AuthenticatedUser::new(owner, Role::Member, TenantContext::new(tenant_b));
+    let actor_b = AuthenticatedUser::new(owner, Role::Operator, TenantContext::new(tenant_b));
     assert!(use_case.execute(id, actor_b).await.unwrap().is_none());
 }
 
@@ -31,7 +31,7 @@ async fn create_proxy_job_persists_under_authenticated_tenant() {
     let audit = std::sync::Arc::new(InMemoryAuditLogEntryRepository::new());
     let actor = AuthenticatedUser::new(
         UserId::new(),
-        Role::Member,
+        Role::Operator,
         TenantContext::new(TenantId::new()),
     );
     let use_case = SubmitProxyCheckJobUseCase::new(repo.clone(), UuidIdGenerator::new(), audit);

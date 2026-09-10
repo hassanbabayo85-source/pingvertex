@@ -36,7 +36,7 @@ pub enum CreateApiKeyError {
     /// Feature 10.
     Forbidden,
     /// One or more requested scopes grant more than the caller's own
-    /// `Role` permits (e.g. a `Role::Member` — which lacks
+    /// `Role` permits (e.g. a `Role::Operator` — which lacks
     /// `ManageApiKeys` and so can't even reach this far — or, more
     /// realistically, an `Admin` requesting a scope this codebase later
     /// gates behind an Owner-only permission). Kept distinct from

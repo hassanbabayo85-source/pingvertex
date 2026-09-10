@@ -319,11 +319,11 @@ fn auth_header(user_id: Uuid) -> String {
 }
 
 #[tokio::test]
-async fn member_without_manage_billing_gets_forbidden() {
+async fn operator_without_manage_billing_gets_forbidden() {
     let tenant_id = TenantId(Uuid::new_v4());
     let member_user = UserId(Uuid::new_v4());
     let membership_repo = InMemoryTenantMembershipRepository::new();
-    insert_membership(&membership_repo, member_user, tenant_id, Role::Member).await;
+    insert_membership(&membership_repo, member_user, tenant_id, Role::Operator).await;
 
     let pricing_repo =
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config());

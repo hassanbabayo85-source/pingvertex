@@ -172,13 +172,6 @@ pub async fn create_payg_price(
 }
 
 fn validate_config_request(req: &CreatePricingConfigRequest) -> Result<(), ApiError> {
-    if req.free_tier.monitors != domain::FREE_MONITOR_LIMIT
-        || req.free_tier.interval_seconds != domain::FREE_MIN_INTERVAL_SECONDS
-    {
-        return Err(ApiError::bad_request(
-            "Free entitlement is fixed at 10 monitors with a 5-minute minimum interval",
-        ));
-    }
     if req.cost_per_check < rust_decimal::Decimal::ZERO {
         return Err(ApiError::bad_request("cost_per_check must be >= 0"));
     }

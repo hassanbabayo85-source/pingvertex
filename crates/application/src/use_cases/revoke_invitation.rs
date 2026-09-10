@@ -53,7 +53,7 @@ where
                     return Err(InvitationError::Forbidden);
                 }
             }
-            Role::Member | Role::Viewer | Role::Auditor => {}
+            Role::Operator | Role::Viewer | Role::Auditor => {}
         }
 
         if !invitation.is_pending(Utc::now()) {

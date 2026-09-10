@@ -308,19 +308,16 @@ async fn build_test_app(
         agent_lease_repository.seed_due_monitor(monitor.clone());
     }
     let wallet_repository = Arc::new(InMemoryWalletRepository::default());
-    let payg_pricing_repository = Arc::new(InMemoryPAYGPricingRepository::new(vec![
-        domain::PAYGPricing {
-            id: uuid::Uuid::new_v4(),
-            version: 1,
-            operation: "http_check.monitoring".into(),
-            unit_name: "check".into(),
-            unit_price: 2,
-            currency: "USD".into(),
-            effective_from: chrono::Utc::now() - chrono::Duration::minutes(1),
-            effective_until: None,
-            active: true,
-        },
-    ]));
+    let payg_pricing_repository = Arc::new(InMemoryPAYGPricingRepository::new());
+    let _ = application::ports::PAYGPricingRepository::create_version(
+        &*payg_pricing_repository,
+        "http_check.monitoring",
+        "check",
+        2,
+        "USD",
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
     let usage_event_repository = Arc::new(InMemoryUsageEventRepository::default());
     let metering = Arc::new(application::MeterUsageUseCase::new(
         wallet_repository.clone(),

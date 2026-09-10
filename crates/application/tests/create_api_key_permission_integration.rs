@@ -59,9 +59,9 @@ async fn auditor_cannot_create_an_api_key() {
 }
 
 #[tokio::test]
-async fn member_cannot_create_an_api_key() {
+async fn operator_cannot_create_an_api_key() {
     let use_case = make_use_case();
-    let member = auth_with_role(Role::Member);
+    let member = auth_with_role(Role::Operator);
 
     let result = use_case.execute(valid_command(), member).await;
 

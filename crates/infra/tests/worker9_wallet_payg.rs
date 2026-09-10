@@ -8,7 +8,7 @@ use infra::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn setup(
+async fn setup(
     price: i64,
 ) -> (
     Arc<InMemoryWalletRepository>,
@@ -17,24 +17,23 @@ fn setup(
     Uuid,
 ) {
     let wallet = Arc::new(InMemoryWalletRepository::default());
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
-        id: Uuid::new_v4(),
-        version: 1,
-        operation: "http_check.monitoring".into(),
-        unit_name: "check".into(),
-        unit_price: price,
-        currency: "USD".into(),
-        effective_from: Utc::now() - Duration::minutes(1),
-        effective_until: None,
-        active: true,
-    }]));
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
+    let _ = application::ports::PAYGPricingRepository::create_version(
+        &*pricing,
+        "http_check.monitoring",
+        "check",
+        price,
+        "USD",
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
     let usage = Arc::new(InMemoryUsageEventRepository::default());
     (wallet, pricing, usage, Uuid::new_v4())
 }
 
 #[tokio::test]
 async fn same_request_id_is_idempotent_under_concurrency() {
-    let (wallet, pricing, usage, tenant) = setup(2);
+    let (wallet, pricing, usage, tenant) = setup(2).await;
     wallet.get_or_create(tenant, "USD").await.unwrap();
     wallet
         .credit(
@@ -94,7 +93,7 @@ async fn same_request_id_is_idempotent_under_concurrency() {
 
 #[tokio::test]
 async fn reservation_expiry_does_not_allow_overspending() {
-    let (wallet, _pricing, _usage, tenant) = setup(1);
+    let (wallet, _pricing, _usage, tenant) = setup(1).await;
     wallet.get_or_create(tenant, "USD").await.unwrap();
     wallet
         .credit(
@@ -159,28 +158,19 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
         .unwrap();
 
     let now = Utc::now() - Duration::minutes(1);
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(
-        [
-            ("sms", 1000),
-            ("rum_event", 1),
-            ("storage", 20),
-            ("network_egress", 100),
-            ("heartbeat_processing", 2),
-        ]
-        .into_iter()
-        .map(|(operation, unit_price)| PAYGPricing {
-            id: Uuid::new_v4(),
-            version: 1,
-            operation: operation.to_owned(),
-            unit_name: "unit".to_owned(),
-            unit_price,
-            currency: "USD".to_owned(),
-            effective_from: now,
-            effective_until: None,
-            active: true,
-        })
-        .collect(),
-    ));
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
+    for (op, price) in [
+        ("sms", 1000),
+        ("rum_event", 1),
+        ("storage", 20),
+        ("network_egress", 100),
+        ("heartbeat_processing", 2),
+    ] {
+        let _ = application::ports::PAYGPricingRepository::create_version(
+            &*pricing, op, "unit", price, "USD", now,
+        )
+        .await;
+    }
     let usage = Arc::new(InMemoryUsageEventRepository::default());
     let meter = Arc::new(application::MeterUsageUseCase::new(
         wallet.clone(),
@@ -284,17 +274,16 @@ async fn sms_dispatch_is_metered_once_for_a_retried_request() {
         )
         .await
         .unwrap();
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
-        id: Uuid::new_v4(),
-        version: 2,
-        operation: "sms".into(),
-        unit_name: "message".into(),
-        unit_price: 1000,
-        currency: "USD".into(),
-        effective_from: Utc::now() - Duration::minutes(1),
-        effective_until: None,
-        active: true,
-    }]));
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
+    let _ = application::ports::PAYGPricingRepository::create_version(
+        &*pricing,
+        "sms",
+        "message",
+        1000,
+        "USD",
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
     let usage = Arc::new(InMemoryUsageEventRepository::default());
     let meter = Arc::new(application::MeterUsageUseCase::new(
         wallet.clone(),
@@ -365,17 +354,16 @@ async fn durable_network_egress_retry_does_not_double_charge() {
         )
         .await
         .unwrap();
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new(vec![PAYGPricing {
-        id: Uuid::new_v4(),
-        version: 1,
-        operation: "network_egress".into(),
-        unit_name: "MB".into(),
-        unit_price: 100,
-        currency: "USD".into(),
-        effective_from: Utc::now() - Duration::minutes(1),
-        effective_until: None,
-        active: true,
-    }]));
+    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
+    let _ = application::ports::PAYGPricingRepository::create_version(
+        &*pricing,
+        "network_egress",
+        "MB",
+        100,
+        "USD",
+        chrono::Utc::now() - chrono::Duration::minutes(1),
+    )
+    .await;
     let usage = Arc::new(InMemoryUsageEventRepository::default());
     let meter = Arc::new(application::MeterUsageUseCase::new(
         wallet.clone(),
