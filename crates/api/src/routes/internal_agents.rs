@@ -113,7 +113,7 @@ async fn claim_checks(
                 })?;
 
             let plan = if let Some(plan) = plan_cache.get(&monitor.tenant_id.0) {
-                plan.clone()
+                *plan
             } else {
                 let plan = application::use_cases::ResolveEntitlementsUseCase::new(
                     state.subscription_repository.clone(),
@@ -129,7 +129,7 @@ async fn claim_checks(
                         err,
                     )
                 })?;
-                plan_cache.insert(monitor.tenant_id.0, plan.clone());
+                plan_cache.insert(monitor.tenant_id.0, plan);
                 plan
             };
 

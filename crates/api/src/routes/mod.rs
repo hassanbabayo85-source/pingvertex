@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod api_flows;
 pub mod api_keys;
+pub mod audit;
 pub mod auth;
 pub mod billing;
 pub mod checks;

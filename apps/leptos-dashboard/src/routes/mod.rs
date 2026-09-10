@@ -3,6 +3,7 @@ use crate::components::require_auth::RequireAuth;
 use crate::pages::account::AccountPage;
 use crate::pages::api_flows::ApiFlowsPage;
 use crate::pages::api_keys::ApiKeysPage;
+use crate::pages::audit::AuditPage;
 use crate::pages::billing::BillingPage;
 use crate::pages::bulk_import::BulkImportPage;
 use crate::pages::dashboard_overview::DashboardOverviewPage;
@@ -78,6 +79,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("billing/usage") view=UsagePage/>
                     <Route path=path!("billing/invoices") view=InvoicesPage/>
                     <Route path=path!("billing/transactions") view=TransactionsPage/>
+                    <Route path=path!("audit") view=AuditPage/>
                     <Route path=path!("admin") view=PlatformAdminPage/>
                     <Route path=path!("help") view=HelpCenterPage/>
                     <Route path=path!("support") view=SupportPage/>

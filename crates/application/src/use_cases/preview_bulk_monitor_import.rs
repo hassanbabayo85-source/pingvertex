@@ -829,7 +829,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(preview.estimated_execution_quantity, 2 * 1_440);
-        assert_eq!(preview.estimated_payg_cost_units, 1_440 * 1 + 1_440 * 3);
+        assert_eq!(preview.estimated_payg_cost_units, 1_440 + 1_440 * 3);
         assert_eq!(preview.pricing_versions.len(), 2);
         let us_east = preview
             .pricing_versions

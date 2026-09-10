@@ -8,6 +8,7 @@ use chrono::{DateTime, Datelike, Duration, Utc};
 use domain::shared::types::AuthenticatedUser;
 use domain::shared::types::Permission;
 use domain::{WalletSettings, WalletTopUpSession};
+use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -249,6 +250,8 @@ pub async fn top_up(
     }
     let tenant_id = user.tenant_context().tenant_id();
     let checkout_idempotency_key = format!("wallet-checkout:{}", Uuid::new_v4());
+    counter!("payg_wallet_top_up_attempts_total").increment(1);
+    let started = std::time::Instant::now();
     let d = state
         .payment_provider
         .create_wallet_top_up(&application::ports::WalletTopUpRequest {
@@ -287,6 +290,8 @@ pub async fn top_up(
         .await
         .map_err(|_| ApiError::internal("failed to persist wallet top-up session"))?;
 
+    histogram!("payg_wallet_top_up_latency_seconds").record(started.elapsed().as_secs_f64());
+    counter!("payg_wallet_top_up_pending_total").increment(1);
     Ok(Json(TopUpResponse {
         checkout_url: d.checkout_url,
         provider_checkout_id: d.provider_checkout_id,
@@ -301,6 +306,7 @@ pub async fn verify_wallet_top_up(
     user.require(Permission::ManageBilling)
         .map_err(|e| ApiError::forbidden(e.to_string()))?;
     let tenant_id = user.tenant_context().tenant_id().0;
+    let started = std::time::Instant::now();
     let session = state
         .wallet_repository
         .find_top_up_session(tenant_id, &provider_checkout_id)
@@ -359,6 +365,26 @@ pub async fn verify_wallet_top_up(
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to credit wallet", e))?;
+    counter!("payg_wallet_credit_success_total").increment(1);
+    let audit = domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: user.user_id(),
+        tenant_id: Some(user.tenant_context().tenant_id()),
+        action: domain::AuditAction::WalletCredit,
+        target_id: completed
+            .provider_payment_id
+            .clone()
+            .unwrap_or_else(|| completed.provider_checkout_id.clone()),
+        metadata: serde_json::json!({"amount_units": completed.amount_units, "currency": completed.currency, "provider": completed.provider}),
+        created_at: Utc::now(),
+    };
+    state
+        .audit_log_entry_repository
+        .create(&audit)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to audit wallet credit", e))?;
+    histogram!("payg_wallet_top_up_verification_latency_seconds")
+        .record(started.elapsed().as_secs_f64());
     Ok(Json(TopUpResponse {
         checkout_url: String::new(),
         provider_checkout_id: completed.provider_checkout_id,
@@ -431,13 +457,27 @@ pub async fn update_settings(
             "payment method is required for auto top-up",
         ));
     }
-    Ok(Json(
-        state
-            .wallet_repository
-            .update_settings(&s)
-            .await
-            .map_err(|_| ApiError::bad_request("invalid wallet settings"))?,
-    ))
+    counter!("payg_spend_limit_changes_total").increment(1);
+    let updated = state
+        .wallet_repository
+        .update_settings(&s)
+        .await
+        .map_err(|_| ApiError::bad_request("invalid wallet settings"))?;
+    let audit = domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: user.user_id(),
+        tenant_id: Some(user.tenant_context().tenant_id()),
+        action: domain::AuditAction::SpendLimitChanged,
+        target_id: "wallet-settings".to_owned(),
+        metadata: serde_json::json!({"daily_spend_limit_units": updated.daily_spend_limit_units, "monthly_spend_limit_units": updated.monthly_spend_limit_units}),
+        created_at: Utc::now(),
+    };
+    state
+        .audit_log_entry_repository
+        .create(&audit)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to audit wallet settings", e))?;
+    Ok(Json(updated))
 }
 pub async fn request_refund(
     State(state): State<AppState>,

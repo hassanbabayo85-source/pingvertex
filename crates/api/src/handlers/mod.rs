@@ -1,5 +1,7 @@
+pub use audit::*;
 pub mod acknowledge_incident;
 pub mod api_key_types;
+pub mod audit;
 pub mod bulk_monitor_action;
 pub mod bulk_monitor_import_confirm;
 pub mod bulk_monitor_import_control;

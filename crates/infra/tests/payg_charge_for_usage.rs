@@ -1,7 +1,6 @@
 use application::ports::{PAYGPricingRepository, UsageEventRepository, WalletRepository};
 use application::use_cases::{ChargeForUsageInput, ChargeForUsageUseCase};
 use chrono::Utc;
-use domain::WalletTransactionType;
 use infra::repositories::{
     in_memory_payg_pricing_repository::InMemoryPAYGPricingRepository,
     in_memory_usage_event_repository::InMemoryUsageEventRepository,

@@ -399,6 +399,8 @@ impl ReconciliationWorker {
                     .increment(count as u64);
             }
         }
+        metrics::counter!("payg_reconciliation_runs_total").increment(1);
+        metrics::counter!("payg_reconciliation_anomalies_total").increment(total.max(0) as u64);
         metrics::gauge!("billing_reconciliation_last_status").set(if total == 0 {
             0.0
         } else {
@@ -424,6 +426,14 @@ impl ReconciliationWorker {
    }))
    .bind(&report).execute(&self.pool).await?;
         if total > 0 {
+            let _ = sqlx::query(
+                "INSERT INTO financial_audit_log(id,actor,tenant_id,action,resource,resource_id,created_at,metadata) VALUES($1,'system:reconciliation',NULL,'reconciliation_anomaly','reconciliation_report',$2,now(),$3)"
+            )
+            .bind(Uuid::new_v4())
+            .bind(report.get("window_end").and_then(|v| v.as_str()).unwrap_or("unknown"))
+            .bind(report.clone())
+            .execute(&self.pool)
+            .await;
             tracing::warn!(
                 missing_payment,
                 duplicate_payment,

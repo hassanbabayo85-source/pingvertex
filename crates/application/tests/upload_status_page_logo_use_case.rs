@@ -93,13 +93,10 @@ async fn returns_none_when_caller_is_from_another_tenant() {
 
 #[tokio::test]
 async fn metered_logo_upload_charges_ceil_mb_and_is_idempotent() {
-    use chrono::{Duration, Utc};
-    use domain::PAYGPricing;
     use infra::{
         InMemoryPAYGPricingRepository, InMemoryUsageEventRepository, InMemoryWalletRepository,
     };
     use std::sync::Arc;
-    use uuid::Uuid;
 
     let repo = InMemoryStatusPageRepository::new();
     let storage = InMemoryLogoStorage::new();

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use application::ports::AuditLogEntryRepository;
+use application::ports::{AuditLogCursor, AuditLogEntryRepository, AuditLogFilter, AuditLogPage};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
@@ -8,7 +8,7 @@ use domain::{
     enums::AuditAction,
     shared::ids::{AuditLogEntryId, TenantId, UserId},
 };
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -109,6 +109,58 @@ impl AuditLogEntryRepository for PostgresAuditLogEntryRepository {
         rows.into_iter()
             .map(AuditLogEntryRow::into_domain)
             .collect()
+    }
+
+    async fn list_page(
+        &self,
+        filter: &AuditLogFilter,
+        cursor: Option<AuditLogCursor>,
+        limit: u32,
+    ) -> RepoResult<AuditLogPage> {
+        let limit = limit.clamp(1, 100) as i64;
+        let mut q = QueryBuilder::<Postgres>::new(
+            "SELECT id, actor_user_id, tenant_id, action, target_id, metadata, created_at FROM audit_log WHERE 1=1",
+        );
+        if let Some(actor) = filter.actor_user_id {
+            q.push(" AND actor_user_id = ").push_bind(actor.0);
+        }
+        if let Some(tenant) = filter.tenant_id {
+            q.push(" AND tenant_id = ").push_bind(tenant.0);
+        }
+        if let Some(action) = filter.action.as_deref() {
+            q.push(" AND action = ").push_bind(action);
+        }
+        if let Some(target) = filter.target_id.as_deref() {
+            q.push(" AND target_id = ").push_bind(target);
+        }
+        if let Some(from) = filter.from {
+            q.push(" AND created_at >= ").push_bind(from);
+        }
+        if let Some(to) = filter.to {
+            q.push(" AND created_at < ").push_bind(to);
+        }
+        if let Some(c) = cursor {
+            q.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        q.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(limit + 1);
+        let rows = q
+            .build_query_as::<AuditLogEntryRow>()
+            .fetch_all(&self.pool)
+            .await?;
+        let has_more = rows.len() > limit as usize;
+        let entries = rows
+            .into_iter()
+            .take(limit as usize)
+            .map(AuditLogEntryRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+        Ok(AuditLogPage { entries, has_more })
     }
 
     async fn list_by_actor(&self, actor_user_id: UserId) -> RepoResult<Vec<AuditLogEntry>> {
