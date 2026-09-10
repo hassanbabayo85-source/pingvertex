@@ -289,36 +289,102 @@ pub async fn audit_records(
 ) -> Result<Json<crate::handlers::audit::AuditPageResponse>, ApiError> {
     admin(&u)?;
     crate::handlers::audit::_validate_date_range(query.from, query.to)?;
-    let filter = application::ports::AuditLogFilter {
+
+    // Admin audit is the platform-admin counterpart of `GET /api/v1/tenant/audit`.
+    // Like the tenant endpoint, it must merge the generic audit stream
+    // (`audit_log`) with the financial audit stream (`financial_audit_log`)
+    // so admins see both in a single cursor-paginated response. The tenant
+    // endpoint is scoped to exactly one tenant; this one may be scoped to
+    // one, many, or no tenant, which is why the financial side goes through
+    // `list_page_admin` (accepts `Option<Uuid>`) instead of `list_page`.
+    let limit = query.limit.unwrap_or(50).clamp(1, 100) as usize;
+    let cursor_generic =
+        crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?;
+
+    let generic_filter = application::ports::AuditLogFilter {
         actor_user_id: query.actor.map(domain::UserId),
         tenant_id: query.tenant.map(domain::TenantId),
-        action: query.action,
-        target_id: query.target,
+        action: query.action.clone(),
+        target_id: query.target.clone(),
         from: query.from,
         to: query.to,
     };
-    let page = s
+
+    let generic_page = s
         .audit_log_entry_repository
-        .list_page(
-            &filter,
-            crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?,
-            query.limit.unwrap_or(50).clamp(1, 100),
-        )
+        .list_page(&generic_filter, cursor_generic, (limit + 1) as u32)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?;
-    let next_cursor = if page.has_more {
-        page.entries
-            .last()
-            .map(crate::handlers::audit::encode_cursor_for_admin)
+
+    // The generic audit stream exposes the audited resource identity as
+    // `target_id`; the financial stream uses `resource_id`. Mapping one to
+    // the other keeps the "target" filter semantically identical across
+    // both streams.
+    let financial_filter = application::ports::FinancialAuditLogFilter {
+        action: query.action.clone(),
+        resource_id: query.target.clone(),
+        from: query.from,
+        to: query.to,
+        ..Default::default()
+    };
+
+    let financial_page = s
+        .financial_audit_log_repository
+        .list_page_admin(
+            query.tenant,
+            &financial_filter,
+            cursor_generic.map(|c| application::ports::FinancialAuditLogCursor {
+                created_at: c.created_at,
+                id: c.id,
+            }),
+            (limit + 1) as u32,
+        )
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to load financial audit records", e)
+        })?;
+
+    let mut items: Vec<crate::handlers::audit::AuditEntryResponse> =
+        Vec::with_capacity(generic_page.entries.len() + financial_page.entries.len());
+    for entry in generic_page.entries {
+        items.push(crate::handlers::audit::response_for_admin(entry));
+    }
+    for entry in financial_page.entries {
+        items.push(crate::handlers::audit::AuditEntryResponse {
+            id: entry.id.to_string(),
+            actor_user_id: entry.actor,
+            tenant_id: entry.tenant_id.map(|t| t.to_string()),
+            action: entry.action,
+            target_id: entry.resource_id.unwrap_or(entry.resource),
+            metadata: entry.metadata,
+            created_at: entry.created_at,
+            source: "financial".to_owned(),
+        });
+    }
+
+    // Same ordering as the repositories (`created_at DESC, id DESC`) so the
+    // merged page is stable and cursor-consistent across both streams.
+    items.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+
+    let has_more = items.len() > limit || generic_page.has_more || financial_page.has_more;
+    items.truncate(limit);
+
+    let next_cursor = if has_more {
+        items.last().and_then(|last| {
+            Uuid::parse_str(&last.id)
+                .ok()
+                .map(|id| crate::handlers::audit::encode_cursor_payload(last.created_at, id))
+        })
     } else {
         None
     };
+
     Ok(Json(crate::handlers::audit::AuditPageResponse {
-        items: page
-            .entries
-            .into_iter()
-            .map(crate::handlers::audit::response_for_admin)
-            .collect(),
+        items,
         next_cursor,
     }))
 }

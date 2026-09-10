@@ -59,6 +59,7 @@ base64 = "0.22"
 
 [dev-dependencies]
 async-trait = { workspace = true }
+dotenvy = "0.15"
 rcgen = "0.14.10"
 time = "0.3"
 # Used by crates/worker/src/config.rs's env-var-mutating unit tests, same
