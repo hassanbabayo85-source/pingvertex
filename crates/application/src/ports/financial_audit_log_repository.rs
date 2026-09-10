@@ -71,6 +71,34 @@ pub trait FinancialAuditLogRepository: Send + Sync {
             has_more,
         })
     }
+
+    /// Admin-scoped variant of [`Self::list_page`]. Unlike `list_page`, it
+    /// does NOT require a specific tenant — when `tenant_id` is `None`, the
+    /// implementation must return entries across every tenant.
+    ///
+    /// Used by `platform_admin::audit_records`, the admin counterpart of
+    /// `tenant_audit`, so the platform admin audit endpoint can expose the
+    /// same merged generic + financial audit stream the customer endpoint
+    /// already produces.
+    ///
+    /// The default implementation delegates to `list_page` when a tenant is
+    /// provided, and returns an empty page otherwise. Implementations that
+    /// can cross tenant boundaries override this.
+    async fn list_page_admin(
+        &self,
+        tenant_id: Option<Uuid>,
+        filter: &FinancialAuditLogFilter,
+        cursor: Option<FinancialAuditLogCursor>,
+        limit: u32,
+    ) -> FinancialAuditRepoResult<FinancialAuditLogPage> {
+        match tenant_id {
+            Some(t) => self.list_page(t, filter, cursor, limit).await,
+            None => Ok(FinancialAuditLogPage {
+                entries: Vec::new(),
+                has_more: false,
+            }),
+        }
+    }
 }
 
 #[async_trait]
@@ -95,5 +123,17 @@ where
         limit: u32,
     ) -> FinancialAuditRepoResult<FinancialAuditLogPage> {
         (**self).list_page(tenant_id, filter, cursor, limit).await
+    }
+
+    async fn list_page_admin(
+        &self,
+        tenant_id: Option<Uuid>,
+        filter: &FinancialAuditLogFilter,
+        cursor: Option<FinancialAuditLogCursor>,
+        limit: u32,
+    ) -> FinancialAuditRepoResult<FinancialAuditLogPage> {
+        (**self)
+            .list_page_admin(tenant_id, filter, cursor, limit)
+            .await
     }
 }

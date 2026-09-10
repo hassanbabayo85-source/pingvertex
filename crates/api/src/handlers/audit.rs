@@ -40,9 +40,9 @@ pub struct AuditPageResponse {
     pub next_cursor: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
-struct CursorPayload {
-    created_at: DateTime<Utc>,
-    id: Uuid,
+pub(crate) struct CursorPayload {
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) id: Uuid,
 }
 
 pub(crate) fn decode_cursor(
@@ -183,7 +183,7 @@ pub async fn tenant_audit(
     Ok(Json(AuditPageResponse { items, next_cursor }))
 }
 
-fn encode_cursor_payload(created_at: DateTime<Utc>, id: Uuid) -> String {
+pub(crate) fn encode_cursor_payload(created_at: DateTime<Utc>, id: Uuid) -> String {
     URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&CursorPayload { created_at, id }).expect("audit cursor serialization"),
     )

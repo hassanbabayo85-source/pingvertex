@@ -57,7 +57,11 @@ impl AutoTopUpWorker {
         }
     }
 
-    async fn reconcile(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// Runs one reconciliation pass over every attempt currently in
+    /// `PENDING`, `PROCESSING`, or `REQUIRES_RECONCILIATION` state. Public
+    /// so integration tests can drive the worker deterministically without
+    /// running a real interval loop.
+    pub async fn reconcile(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for attempt in self
             .wallet
             .list_auto_top_up_reconciliation_attempts(50)
