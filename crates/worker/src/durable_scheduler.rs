@@ -253,12 +253,18 @@ where
         &self,
         tenant_id: domain::TenantId,
     ) -> Result<Option<domain::Plan>> {
-        let (Some(monitor_repository), Some(wallet_repository), Some(subscription_repository), Some(pricing_config_repository)) = (
+        let (
+            Some(monitor_repository),
+            Some(wallet_repository),
+            Some(subscription_repository),
+            Some(pricing_config_repository),
+        ) = (
             &self.monitor_repository,
             &self.wallet_repository,
             &self.subscription_repository,
             &self.pricing_config_repository,
-        ) else {
+        )
+        else {
             return Ok(None);
         };
 
@@ -540,24 +546,19 @@ where
                                 .execute_classified_attempt(
                                     MeterUsageInput {
                                         tenant_id: monitor.tenant_id.0,
-                                        operation: domain::monitor_operation(
-                                            monitor.kind,
-                                            false,
-                                        )
-                                        .as_str()
-                                        .to_owned(),
+                                        operation: domain::monitor_operation(monitor.kind, false)
+                                            .as_str()
+                                            .to_owned(),
                                         units: 1,
                                         request_id,
                                         monitor_id: Some(monitor.id.0),
                                         execution_id: Some(claim.execution_id),
-                                        pricing_context: Some(
-                                            application::ports::PricingContext {
-                                                monitor_kind: Some(monitor.kind),
-                                                region: monitor.regions.first().cloned(),
-                                                quantity: 1,
-                                                account_type,
-                                            },
-                                        ),
+                                        pricing_context: Some(application::ports::PricingContext {
+                                            monitor_kind: Some(monitor.kind),
+                                            region: monitor.regions.first().cloned(),
+                                            quantity: 1,
+                                            account_type,
+                                        }),
                                     },
                                     || {
                                         let executor = executor.clone();
@@ -573,10 +574,12 @@ where
                                                 jitter,
                                             )
                                             .await
-                                            .map(|outcome| MeteredAttempt {
-                                                attempted: outcome.attempted,
-                                                error: outcome.error,
-                                            })
+                                            .map(
+                                                |outcome| MeteredAttempt {
+                                                    attempted: outcome.attempted,
+                                                    error: outcome.error,
+                                                },
+                                            )
                                         }
                                     },
                                 )
@@ -593,9 +596,7 @@ where
                                     );
                                     Ok(())
                                 }
-                                Err(err) => {
-                                    Err(Box::new(err) as Box<dyn Error + Send + Sync>)
-                                }
+                                Err(err) => Err(Box::new(err) as Box<dyn Error + Send + Sync>),
                             }
                         } else {
                             Err("PAYG metering is not configured".into())

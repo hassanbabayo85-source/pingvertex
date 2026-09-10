@@ -436,7 +436,9 @@ mod tests {
         let mut csv = String::from(HEADER_LINE);
         for index in 0..10_000 {
             csv.push('\n');
-            csv.push_str(&format!("site-{index},https://{index}.example.com,http,300,10,GET,200,,,,,,,true,14"));
+            csv.push_str(&format!(
+                "site-{index},https://{index}.example.com,http,300,10,GET,200,,,,,,,true,14"
+            ));
         }
         let (rows, errors) = parse_csv(&csv).unwrap();
         assert_eq!(rows.len(), 10_000);

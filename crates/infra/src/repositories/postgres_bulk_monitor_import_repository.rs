@@ -392,11 +392,7 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         Ok(())
     }
 
-    async fn pause_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool> {
+    async fn pause_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool> {
         let result = sqlx::query(
             "UPDATE monitor_bulk_import_jobs
              SET status='PAUSED', lease_owner=NULL, lease_expires_at=NULL, updated_at=now()
@@ -409,11 +405,7 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         Ok(result.rows_affected() == 1)
     }
 
-    async fn resume_job(
-        &self,
-        job_id: Uuid,
-        tenant_id: Uuid,
-    ) -> BulkMonitorImportRepoResult<bool> {
+    async fn resume_job(&self, job_id: Uuid, tenant_id: Uuid) -> BulkMonitorImportRepoResult<bool> {
         let result = sqlx::query(
             "UPDATE monitor_bulk_import_jobs
              SET status='READY', updated_at=now()

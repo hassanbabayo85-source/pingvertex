@@ -142,10 +142,7 @@ where
         self
     }
 
-    pub fn with_tenant_repository(
-        mut self,
-        repository: Arc<dyn TenantRepository>,
-    ) -> Self {
+    pub fn with_tenant_repository(mut self, repository: Arc<dyn TenantRepository>) -> Self {
         self.tenant_repository = Some(repository);
         self
     }

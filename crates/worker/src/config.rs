@@ -315,5 +315,4 @@ mod tests {
             env::remove_var("SCHEDULER_DETERMINISTIC_SPREAD_SECONDS");
         }
     }
-
 }

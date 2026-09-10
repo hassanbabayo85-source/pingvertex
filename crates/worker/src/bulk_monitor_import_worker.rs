@@ -4,19 +4,19 @@ use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
     ports::{
         AuditLogEntryRepository, BulkMonitorImportRepository, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository, SubscriptionRepository, TenantMembershipRepository,
-        TenantRepository, WalletRepository,
+        MonitorRepository, PricingConfigRepository, SubscriptionRepository,
+        TenantMembershipRepository, TenantRepository, WalletRepository,
     },
     use_cases::{CreateMonitorError, CreateMonitorUseCase},
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use domain::{
+    TenantStatus,
     enums::{PlanTier, SubscriptionStatus},
     shared::{
         ids::{MonitorId, TenantId, UserId},
         types::{AuthenticatedUser, Permission, TenantContext},
     },
-    TenantStatus,
 };
 use infra::UuidIdGenerator;
 use rand::{Rng, rng};
@@ -163,9 +163,7 @@ impl BulkMonitorImportWorker {
                 .await?
                 .ok_or("bulk import tenant no longer exists")?;
             if tenant.status != TenantStatus::Active {
-                self.jobs
-                    .pause_job(job.id, job.tenant_id)
-                    .await?;
+                self.jobs.pause_job(job.id, job.tenant_id).await?;
                 return Ok(());
             }
 
@@ -208,7 +206,11 @@ impl BulkMonitorImportWorker {
             {
                 for row in rows {
                     self.jobs
-                        .retry_row(row.id, "bulk import paused or lease ownership changed", Utc::now())
+                        .retry_row(
+                            row.id,
+                            "bulk import paused or lease ownership changed",
+                            Utc::now(),
+                        )
                         .await?;
                 }
                 return Ok(());
@@ -222,11 +224,7 @@ impl BulkMonitorImportWorker {
                 membership.role.has_permission(Permission::CreateMonitor)
             });
             let entitlement = self.resolve_entitlement_policy(tenant_id).await?;
-            let monitor_count = self
-                .monitors
-                .find_all_for_tenant(tenant_id)
-                .await?
-                .len() as u32;
+            let monitor_count = self.monitors.find_all_for_tenant(tenant_id).await?.len() as u32;
             let wallet_activated = self
                 .wallets
                 .find(tenant_id.0)
@@ -310,7 +308,9 @@ impl BulkMonitorImportWorker {
                         }
                     };
 
-                if free_entitled && payload.interval_seconds < entitlement.plan.min_check_interval_seconds {
+                if free_entitled
+                    && payload.interval_seconds < entitlement.plan.min_check_interval_seconds
+                {
                     self.jobs
                         .skip_row(
                             row.id,
@@ -432,7 +432,11 @@ impl BulkMonitorImportWorker {
         {
             override_tier
         } else {
-            match self.subscription_repository.find_by_tenant_id(tenant_id).await? {
+            match self
+                .subscription_repository
+                .find_by_tenant_id(tenant_id)
+                .await?
+            {
                 Some(subscription) => match subscription.status {
                     SubscriptionStatus::Expired | SubscriptionStatus::Canceled => PlanTier::Free,
                     SubscriptionStatus::Trialing
