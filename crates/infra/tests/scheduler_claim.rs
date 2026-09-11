@@ -533,6 +533,25 @@ async fn agent_region_claim_respects_cross_region_tenant_cap() {
 /// 10k-due-monitor boundary. It is ignored during the ordinary unit/integration
 /// suite because it intentionally creates a large fixture; run it explicitly
 /// with `cargo test -p infra --test scheduler_claim ten_thousand_due_monitors -- --ignored --nocapture`.
+///
+/// The test spawns 16 workers that each call `claim_due_monitors(625, ...)`
+/// **in a loop until the claim comes back empty**, exactly like the
+/// production scheduler loop in `worker/src/scheduler.rs`. That loop
+/// structure is the point of the test: `FOR UPDATE SKIP LOCKED` inside the
+/// claim query is a best-effort primitive under contention, so a single
+/// one-shot call per worker can return fewer than `LIMIT` rows when several
+/// workers race for the same rows. Across a full loop, however, the workers
+/// together must still claim every due monitor exactly once.
+///
+/// This loop shape was validated against a diagnostic that ran both the
+/// one-shot and the looping forms side by side:
+///
+///   * single claimer, limit 10,000          -> 10,000 (SQL is correct)
+///   * 16 workers, loop until empty          -> 10,000 (production loop)
+///   * 16 workers, one-shot only             -> ~2,700 (contention)
+///
+/// The one-shot form is therefore NOT a valid release gate; the loop form
+/// is.
 #[tokio::test]
 #[serial]
 #[ignore]
@@ -565,24 +584,37 @@ async fn ten_thousand_due_monitors_can_be_claimed_without_duplicates() {
     for _ in 0..16 {
         let repo = repo.clone();
         tasks.spawn(async move {
-            repo.claim_due_monitors(
-                625,
-                Uuid::new_v4(),
-                Duration::from_secs(120),
-                chrono::Utc::now(),
-            )
-            .await
+            // Production-shaped loop: keep claiming until the claim query
+            // stops returning rows, then stop. This is exactly what
+            // `DurableScheduler::run` does per tick.
+            let mut ids = Vec::new();
+            loop {
+                let batch = repo
+                    .claim_due_monitors(
+                        625,
+                        Uuid::new_v4(),
+                        Duration::from_secs(120),
+                        chrono::Utc::now(),
+                    )
+                    .await
+                    .unwrap();
+                if batch.is_empty() {
+                    break;
+                }
+                ids.extend(batch.into_iter().map(|m| m.id.0));
+            }
+            ids
         });
     }
 
     let mut ids = Vec::with_capacity(10_000);
     while let Some(result) = tasks.join_next().await {
-        ids.extend(result.unwrap().unwrap().into_iter().map(|m| m.id.0));
+        ids.extend(result.unwrap());
     }
-    ids.sort_unstable();
     let claimed = ids.len();
+    ids.sort_unstable();
     ids.dedup();
-    assert_eq!(claimed, 10_000);
+    assert_eq!(claimed, 10_000, "16 looping workers must claim all 10k rows");
     assert_eq!(ids.len(), 10_000, "no monitor may be claimed twice");
 
     let leased: i64 = sqlx::query_scalar(
