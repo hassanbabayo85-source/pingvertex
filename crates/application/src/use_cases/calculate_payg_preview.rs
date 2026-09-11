@@ -6,6 +6,12 @@ use std::{error::Error, fmt, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaygPreviewInput {
+    /// Server-owned tenant account type. The preview must use the same
+    /// account_type the actual billing path will use, otherwise the
+    /// quoted unit price can differ from the price the wallet is later
+    /// debited at. Always derived from the authenticated tenant on the
+    /// server, never trusted from client input.
+    pub account_type: Option<domain::AccountType>,
     pub monitors: u64,
     pub interval_seconds: u32,
     pub regions: u32,
@@ -114,9 +120,20 @@ impl CalculatePaygPreviewUseCase {
             self.pricing_repository.as_ref(),
             pricing_operation.as_str(),
             &PricingContext {
+                // account_type MUST be populated from the trusted tenant
+                // context so this preview resolves exactly the same
+                // contextual price row the actual billing path will
+                // resolve for the same tenant. Leaving it None would
+                // select the generic row and misquote company tenants.
+                account_type: input.account_type,
+                // `region` remains None: this preview forecasts a
+                // quantity of checks across `input.regions` regions, it
+                // does not forecast a per-region price breakdown. The
+                // bulk import preview (which does iterate regions) uses
+                // a per-region PricingContext instead.
+                region: None,
                 monitor_kind: Some(input.kind),
                 quantity: input.monitors.saturating_mul(u64::from(input.regions)),
-                ..PricingContext::default()
             },
         )
         .await
@@ -255,6 +272,7 @@ mod tests {
         }]));
         let preview = CalculatePaygPreviewUseCase::new(pricing)
             .execute(PaygPreviewInput {
+                account_type: None,
                 monitors: 100,
                 interval_seconds: 300,
                 regions: 1,
@@ -284,6 +302,7 @@ mod tests {
         }]));
         let result = CalculatePaygPreviewUseCase::new(pricing)
             .execute(PaygPreviewInput {
+                account_type: None,
                 monitors: 1,
                 interval_seconds: 30,
                 regions: 1,

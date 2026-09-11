@@ -54,9 +54,25 @@ pub async fn payg_preview(
     user.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
 
+    // account_type is server-owned and MUST be loaded from the tenant
+    // record rather than trusted from client input. Without this, a
+    // company tenant would be quoted the individual (or generic) price
+    // while the actual billing path — which already resolves
+    // `account_type` from the tenant — would debit at the company price.
+    let tenant_id = user.tenant_context().tenant_id();
+    let tenant = state
+        .platform_tenant_repository
+        .find_by_id(tenant_id)
+        .await
+        .map_err(|err| {
+            ApiError::internal_with_source("failed to load tenant pricing context", err)
+        })?
+        .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+
     let quote = CalculatePaygPreviewUseCase::new(state.payg_pricing_repository.clone())
         .with_interval_policy_repository(state.monitor_interval_policy_repository.clone())
         .execute(PaygPreviewInput {
+            account_type: Some(tenant.account_type),
             monitors: request.monitors,
             interval_seconds: request.interval_seconds,
             regions: request.regions,
