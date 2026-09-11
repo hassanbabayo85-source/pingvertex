@@ -317,10 +317,7 @@ async fn verify_payment_pending_maps_to_pending() {
         .mount(&server)
         .await;
 
-    let verification = provider
-        .verify_payment("pv-wallet-pending")
-        .await
-        .unwrap();
+    let verification = provider.verify_payment("pv-wallet-pending").await.unwrap();
     assert!(matches!(verification, PaymentVerification::Pending { .. }));
 }
 
@@ -459,10 +456,16 @@ async fn create_wallet_top_up_converts_units_to_minor_units() {
     assert_eq!(requests.len(), 1);
     let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(body["email"], "alice@example.com");
-    assert_eq!(body["amount"], 500, "wallet units must be converted to cents");
+    assert_eq!(
+        body["amount"], 500,
+        "wallet units must be converted to cents"
+    );
     assert_eq!(body["currency"], "USD");
     assert!(
-        body["reference"].as_str().unwrap().starts_with("pv-wallet-"),
+        body["reference"]
+            .as_str()
+            .unwrap()
+            .starts_with("pv-wallet-"),
         "reference {:?} must start with pv-wallet-",
         body["reference"]
     );

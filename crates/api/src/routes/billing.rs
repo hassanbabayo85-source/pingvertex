@@ -37,9 +37,9 @@ pub fn router() -> Router<AppState> {
 /// Two endpoints because the two providers differ on signature algorithm,
 /// header name, and payload shape:
 ///   * `/billing/webhook`           — internal shared-secret contract
-///                                    (HMAC-SHA256, `sha256=<hex>`).
+///     (HMAC-SHA256, `sha256=<hex>`).
 ///   * `/billing/webhook/paystack`  — Paystack's native contract
-///                                    (HMAC-SHA512, `x-paystack-signature`).
+///     (HMAC-SHA512, `x-paystack-signature`).
 pub fn webhook_router() -> Router<AppState> {
     Router::new()
         .route("/billing/webhook", post(billing_webhook))

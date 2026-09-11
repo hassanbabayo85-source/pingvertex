@@ -132,7 +132,9 @@ async fn cleanup_wallet_session(pool: &PgPool, id: Uuid) {
 /// Same exact context (all NULL), different version → allowed (versioning).
 #[tokio::test]
 async fn trigger_allows_same_context_versioning() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let mut tx = pool.begin().await.unwrap();
     let op = unique_op();
 
@@ -158,7 +160,9 @@ async fn trigger_allows_same_context_versioning() {
 /// Two specificity-1 rules whose wildcard contexts overlap → 2nd rejected.
 #[tokio::test]
 async fn trigger_rejects_equal_specificity_overlap() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let mut tx = pool.begin().await.unwrap();
     let op = unique_op();
 
@@ -187,7 +191,10 @@ async fn trigger_rejects_equal_specificity_overlap() {
     .execute(&mut *tx)
     .await;
 
-    assert!(result.is_err(), "equal-specificity overlap must be rejected");
+    assert!(
+        result.is_err(),
+        "equal-specificity overlap must be rejected"
+    );
     let msg = result.unwrap_err().to_string();
     assert!(
         msg.contains("ambiguous PAYG pricing rule"),
@@ -200,7 +207,9 @@ async fn trigger_rejects_equal_specificity_overlap() {
 /// Spec-2 rule coexists with a spec-1 rule that wildcard-overlaps it.
 #[tokio::test]
 async fn trigger_allows_higher_specificity_coexist() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let mut tx = pool.begin().await.unwrap();
     let op = unique_op();
 
@@ -240,7 +249,9 @@ async fn trigger_allows_higher_specificity_coexist() {
 /// cover; only the DB trigger catches it.
 #[tokio::test]
 async fn trigger_rejects_future_effective_overlap() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let mut tx = pool.begin().await.unwrap();
     let op = unique_op();
 
@@ -282,7 +293,9 @@ async fn trigger_rejects_future_effective_overlap() {
 /// Two specificity-1 rules whose quantity ranges overlap → 2nd rejected.
 #[tokio::test]
 async fn trigger_rejects_quantity_range_overlap() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let mut tx = pool.begin().await.unwrap();
     let op = unique_op();
 
@@ -329,7 +342,9 @@ async fn trigger_rejects_quantity_range_overlap() {
 
 #[tokio::test]
 async fn mark_top_up_session_failed_transitions_pending_to_failed() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let Some(tenant_id) = any_tenant_id(&pool).await else {
         eprintln!("SKIP: no tenants in test DB; skipping wallet session test.");
         return;
@@ -338,13 +353,7 @@ async fn mark_top_up_session_failed_transitions_pending_to_failed() {
     let checkout = format!("test-pv-{}", Uuid::new_v4().simple());
 
     let id = seed_wallet_session(
-        &pool,
-        tenant_id,
-        "paystack",
-        &checkout,
-        "PENDING",
-        5_000_000,
-        None,
+        &pool, tenant_id, "paystack", &checkout, "PENDING", 5_000_000, None,
     )
     .await;
 
@@ -367,7 +376,9 @@ async fn mark_top_up_session_failed_transitions_pending_to_failed() {
 
 #[tokio::test]
 async fn mark_top_up_session_failed_leaves_completed_untouched() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let Some(tenant_id) = any_tenant_id(&pool).await else {
         eprintln!("SKIP: no tenants in test DB; skipping wallet session test.");
         return;
@@ -405,7 +416,9 @@ async fn mark_top_up_session_failed_leaves_completed_untouched() {
 
 #[tokio::test]
 async fn mark_top_up_session_failed_is_idempotent() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let Some(tenant_id) = any_tenant_id(&pool).await else {
         eprintln!("SKIP: no tenants in test DB; skipping wallet session test.");
         return;
@@ -414,13 +427,7 @@ async fn mark_top_up_session_failed_is_idempotent() {
     let checkout = format!("test-pv-{}", Uuid::new_v4().simple());
 
     let id = seed_wallet_session(
-        &pool,
-        tenant_id,
-        "paystack",
-        &checkout,
-        "PENDING",
-        5_000_000,
-        None,
+        &pool, tenant_id, "paystack", &checkout, "PENDING", 5_000_000, None,
     )
     .await;
 
@@ -445,7 +452,9 @@ async fn mark_top_up_session_failed_is_idempotent() {
 
 #[tokio::test]
 async fn find_top_up_session_global_finds_by_provider_and_checkout() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let Some(tenant_id) = any_tenant_id(&pool).await else {
         eprintln!("SKIP: no tenants in test DB; skipping wallet session test.");
         return;
@@ -454,13 +463,7 @@ async fn find_top_up_session_global_finds_by_provider_and_checkout() {
     let checkout = format!("test-pv-{}", Uuid::new_v4().simple());
 
     let id = seed_wallet_session(
-        &pool,
-        tenant_id,
-        "paystack",
-        &checkout,
-        "PENDING",
-        5_000_000,
-        None,
+        &pool, tenant_id, "paystack", &checkout, "PENDING", 5_000_000, None,
     )
     .await;
 
@@ -481,7 +484,9 @@ async fn find_top_up_session_global_finds_by_provider_and_checkout() {
 
 #[tokio::test]
 async fn find_top_up_session_global_returns_none_for_unknown() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let repo = PostgresWalletRepository::new(pool.clone());
 
     let unknown = format!("test-pv-unknown-{}", Uuid::new_v4().simple());
@@ -494,7 +499,9 @@ async fn find_top_up_session_global_returns_none_for_unknown() {
 
 #[tokio::test]
 async fn find_top_up_session_global_is_provider_scoped() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let Some(tenant_id) = any_tenant_id(&pool).await else {
         eprintln!("SKIP: no tenants in test DB; skipping wallet session test.");
         return;
@@ -503,13 +510,7 @@ async fn find_top_up_session_global_is_provider_scoped() {
     let checkout = format!("test-pv-{}", Uuid::new_v4().simple());
 
     let id = seed_wallet_session(
-        &pool,
-        tenant_id,
-        "paystack",
-        &checkout,
-        "PENDING",
-        5_000_000,
-        None,
+        &pool, tenant_id, "paystack", &checkout, "PENDING", 5_000_000, None,
     )
     .await;
 

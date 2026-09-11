@@ -65,8 +65,7 @@ impl FinancialAuditLogRepository for InMemoryFinancialAuditLogRepository {
             .filter(|e| filter.to.is_none_or(|v| e.created_at < v))
             .filter(|e| {
                 cursor.is_none_or(|c| {
-                    e.created_at < c.created_at
-                        || (e.created_at == c.created_at && e.id < c.id)
+                    e.created_at < c.created_at || (e.created_at == c.created_at && e.id < c.id)
                 })
             })
             .cloned()
@@ -78,6 +77,9 @@ impl FinancialAuditLogRepository for InMemoryFinancialAuditLogRepository {
         });
         let has_more = rows.len() > limit;
         rows.truncate(limit);
-        Ok(FinancialAuditLogPage { entries: rows, has_more })
+        Ok(FinancialAuditLogPage {
+            entries: rows,
+            has_more,
+        })
     }
 }

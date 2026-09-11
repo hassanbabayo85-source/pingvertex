@@ -30,8 +30,8 @@
 
 use application::ports::{TenantRepository, WalletRepository};
 use chrono::{Duration, Utc};
-use domain::shared::ids::{TenantId, UserId};
 use domain::WalletTransactionType;
+use domain::shared::ids::{TenantId, UserId};
 use infra::repositories::postgres_tenant_repository::PostgresTenantRepository;
 use infra::repositories::postgres_wallet_repository::PostgresWalletRepository;
 use sqlx::PgPool;
@@ -100,10 +100,7 @@ async fn setup_wallet(
         user_id,
     )
     .expect("construct tenant");
-    tenant_repo
-        .create(&tenant)
-        .await
-        .expect("create tenant");
+    tenant_repo.create(&tenant).await.expect("create tenant");
 
     let wallet_repo = Arc::new(PostgresWalletRepository::new(pool.clone()));
     wallet_repo

@@ -6,14 +6,14 @@ use async_trait::async_trait;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use domain::User;
+use domain::pricing::PricingConfig;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, HttpMethod, Incident};
-use domain::pricing::PricingConfig;
 use infra::InMemoryAuditLogEntryRepository;
-use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
+use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,

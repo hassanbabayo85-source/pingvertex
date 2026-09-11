@@ -298,8 +298,7 @@ pub async fn audit_records(
     // one, many, or no tenant, which is why the financial side goes through
     // `list_page_admin` (accepts `Option<Uuid>`) instead of `list_page`.
     let limit = query.limit.unwrap_or(50).clamp(1, 100) as usize;
-    let cursor_generic =
-        crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?;
+    let cursor_generic = crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?;
 
     let generic_filter = application::ports::AuditLogFilter {
         actor_user_id: query.actor.map(domain::UserId),
@@ -340,9 +339,7 @@ pub async fn audit_records(
             (limit + 1) as u32,
         )
         .await
-        .map_err(|e| {
-            ApiError::internal_with_source("failed to load financial audit records", e)
-        })?;
+        .map_err(|e| ApiError::internal_with_source("failed to load financial audit records", e))?;
 
     let mut items: Vec<crate::handlers::audit::AuditEntryResponse> =
         Vec::with_capacity(generic_page.entries.len() + financial_page.entries.len());

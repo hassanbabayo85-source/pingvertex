@@ -33,8 +33,10 @@ async fn seed_company_and_generic_rules(repo: &Arc<InMemoryPAYGPricingRepository
     let effective_from = Utc::now() - ChronoDuration::minutes(1);
 
     // Company-only rule with a distinctive price.
-    let mut company_rule = PricingRuleContext::default();
-    company_rule.account_type = Some(AccountType::Company);
+    let company_rule = PricingRuleContext {
+        account_type: Some(AccountType::Company),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.monitoring",
         "check",

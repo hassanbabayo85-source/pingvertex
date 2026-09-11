@@ -50,7 +50,7 @@ pub struct PaystackWebhookResponse {
 ///   * `charge.success`   — credit the wallet top-up session's owner.
 ///   * `charge.failed`    — mark the top-up session FAILED (no credit).
 ///   * `refund.processed` — credit a verified refund against the original
-///                          completed payment.
+///     completed payment.
 ///
 /// All other Paystack events (transfer.*, dispute.*, subscription.*, ...)
 /// return 200 with `{"status":"ignored"}` so Paystack does not retry them.
@@ -298,11 +298,11 @@ async fn handle_charge_failed(
 ///     "currency": "USD",
 ///     "status": "processed",
 ///     "transaction": {
-///       "id": <transaction_id>,
-///       "reference": "<original reference>",
-///       "amount": <original_amount_minor>,
-///       "currency": "USD",
-///       "status": "success"
+///     "id": <transaction_id>,
+///     "reference": "<original reference>",
+///     "amount": <original_amount_minor>,
+///     "currency": "USD",
+///     "status": "success"
 ///     }
 ///   }
 /// }
@@ -507,10 +507,7 @@ mod tests {
     #[test]
     fn non_hex_paystack_signature_is_rejected() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-paystack-signature",
-            "not-hex-at-all!!".parse().unwrap(),
-        );
+        headers.insert("x-paystack-signature", "not-hex-at-all!!".parse().unwrap());
         assert!(verify_paystack_signature("sk_test_secret", &headers, b"{}").is_err());
     }
 

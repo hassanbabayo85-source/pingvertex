@@ -32,21 +32,21 @@
 //! unreachable, each test prints a SKIP line and returns Ok.
 
 use application::dto::{
-    BulkMonitorImportJobStatus, CreateBulkMonitorImportJob,
-    CreateBulkMonitorImportJobOutcome, NewBulkMonitorImportRow,
+    BulkMonitorImportJobStatus, CreateBulkMonitorImportJob, CreateBulkMonitorImportJobOutcome,
+    NewBulkMonitorImportRow,
 };
+use application::ports::MonitorRepository;
 use application::ports::{BulkMonitorImportRepository, TenantRepository};
 use chrono::{Duration, Utc};
 use domain::shared::ids::{TenantId, UserId};
-use application::ports::MonitorRepository;
 use infra::repositories::postgres_bulk_monitor_import_repository::PostgresBulkMonitorImportRepository;
 use infra::repositories::postgres_monitor_repository::PostgresMonitorRepository;
 use infra::repositories::postgres_tenant_repository::PostgresTenantRepository;
 use serde_json::json;
+use serial_test::serial;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::task::JoinSet;
-use serial_test::serial;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -108,10 +108,7 @@ async fn setup_tenant(pool: &PgPool) -> (Uuid, Uuid) {
         user_id,
     )
     .expect("construct tenant");
-    tenant_repo
-        .create(&tenant)
-        .await
-        .expect("create tenant");
+    tenant_repo.create(&tenant).await.expect("create tenant");
 
     (tenant.id.0, user_id.0)
 }
@@ -168,7 +165,9 @@ fn build_job(
 
 #[tokio::test]
 async fn create_confirmed_job_inserts_new_job_with_rows() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = PostgresBulkMonitorImportRepository::new(pool.clone());
 
@@ -200,13 +199,12 @@ async fn create_confirmed_job_inserts_new_job_with_rows() {
     }
 
     // Rows must have been persisted.
-    let row_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM monitor_bulk_import_rows WHERE job_id = $1",
-    )
-    .bind(job_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM monitor_bulk_import_rows WHERE job_id = $1")
+            .bind(job_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(row_count, 5);
 }
 
@@ -216,7 +214,9 @@ async fn create_confirmed_job_inserts_new_job_with_rows() {
 
 #[tokio::test]
 async fn create_confirmed_job_with_same_key_and_source_returns_existing() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = PostgresBulkMonitorImportRepository::new(pool.clone());
 
@@ -257,13 +257,12 @@ async fn create_confirmed_job_with_same_key_and_source_returns_existing() {
     }
 
     // And no second job exists.
-    let job_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM monitor_bulk_import_jobs WHERE tenant_id = $1",
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let job_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM monitor_bulk_import_jobs WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(job_count, 1);
 }
 
@@ -273,7 +272,9 @@ async fn create_confirmed_job_with_same_key_and_source_returns_existing() {
 
 #[tokio::test]
 async fn create_confirmed_job_with_same_key_but_different_source_returns_conflict() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = PostgresBulkMonitorImportRepository::new(pool.clone());
 
@@ -301,7 +302,10 @@ async fn create_confirmed_job_with_same_key_but_different_source_returns_conflic
         .expect("second create must return Ok(conflict), not Err");
 
     assert!(
-        matches!(conflict, CreateBulkMonitorImportJobOutcome::IdempotencyConflict),
+        matches!(
+            conflict,
+            CreateBulkMonitorImportJobOutcome::IdempotencyConflict
+        ),
         "expected IdempotencyConflict, got {conflict:?}"
     );
 }
@@ -313,7 +317,9 @@ async fn create_confirmed_job_with_same_key_but_different_source_returns_conflic
 #[tokio::test]
 #[serial]
 async fn claim_jobs_yields_each_job_to_a_single_worker() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = Arc::new(PostgresBulkMonitorImportRepository::new(pool.clone()));
 
@@ -334,14 +340,14 @@ async fn claim_jobs_yields_each_job_to_a_single_worker() {
     let mut tasks = JoinSet::new();
     for worker in [worker_a, worker_b] {
         let repo = repo.clone();
-        tasks.spawn(async move {
-            repo.claim_jobs(worker, 10, lease).await
-        });
+        tasks.spawn(async move { repo.claim_jobs(worker, 10, lease).await });
     }
 
     let mut total_claimed = 0usize;
     while let Some(res) = tasks.join_next().await {
-        let jobs = res.expect("task must not panic").expect("claim must succeed");
+        let jobs = res
+            .expect("task must not panic")
+            .expect("claim must succeed");
         // Filter to only jobs belonging to our tenant (other tests may have left jobs behind).
         let ours = jobs
             .into_iter()
@@ -363,7 +369,9 @@ async fn claim_jobs_yields_each_job_to_a_single_worker() {
 #[tokio::test]
 #[serial]
 async fn claim_rows_uses_skip_locked() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = Arc::new(PostgresBulkMonitorImportRepository::new(pool.clone()));
 
@@ -375,9 +383,7 @@ async fn claim_rows_uses_skip_locked() {
         10,
     );
     let job_id = job.id;
-    repo.create_confirmed_job(&job)
-        .await
-        .expect("create job");
+    repo.create_confirmed_job(&job).await.expect("create job");
 
     // Set the job to RUNNING directly. `claim_jobs` is not tenant-scoped
     // (production semantics), so in a serial workspace run it may hand us a
@@ -401,14 +407,14 @@ async fn claim_rows_uses_skip_locked() {
     let mut tasks = JoinSet::new();
     for _ in 0..2 {
         let repo = repo.clone();
-        tasks.spawn(async move {
-            repo.claim_rows(job_id, 5, stale_before).await
-        });
+        tasks.spawn(async move { repo.claim_rows(job_id, 5, stale_before).await });
     }
 
     let mut row_ids: Vec<i64> = Vec::new();
     while let Some(res) = tasks.join_next().await {
-        let rows = res.expect("task must not panic").expect("claim rows must succeed");
+        let rows = res
+            .expect("task must not panic")
+            .expect("claim rows must succeed");
         for row in rows {
             row_ids.push(row.id);
         }
@@ -440,7 +446,9 @@ async fn claim_rows_uses_skip_locked() {
 #[tokio::test]
 #[serial]
 async fn row_state_transitions_are_isolated_per_row() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = PostgresBulkMonitorImportRepository::new(pool.clone());
 
@@ -452,9 +460,7 @@ async fn row_state_transitions_are_isolated_per_row() {
         4,
     );
     let job_id = job.id;
-    repo.create_confirmed_job(&job)
-        .await
-        .expect("create job");
+    repo.create_confirmed_job(&job).await.expect("create job");
 
     let worker = Uuid::new_v4();
     sqlx::query(
@@ -528,10 +534,8 @@ async fn row_state_transitions_are_isolated_per_row() {
     .unwrap();
 
     assert_eq!(statuses.len(), 4);
-    let by_number: std::collections::HashMap<i32, (String, Option<Uuid>)> = statuses
-        .into_iter()
-        .map(|(n, s, m)| (n, (s, m)))
-        .collect();
+    let by_number: std::collections::HashMap<i32, (String, Option<Uuid>)> =
+        statuses.into_iter().map(|(n, s, m)| (n, (s, m))).collect();
 
     assert_eq!(by_number[&1].0, "CREATED");
     assert_eq!(by_number[&1].1, Some(monitor_id));
@@ -548,7 +552,9 @@ async fn row_state_transitions_are_isolated_per_row() {
 #[tokio::test]
 #[serial]
 async fn pause_resume_refresh_round_trip() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
     let repo = PostgresBulkMonitorImportRepository::new(pool.clone());
 
@@ -560,9 +566,7 @@ async fn pause_resume_refresh_round_trip() {
         3,
     );
     let job_id = job.id;
-    repo.create_confirmed_job(&job)
-        .await
-        .expect("create job");
+    repo.create_confirmed_job(&job).await.expect("create job");
 
     // Pause the job (must return true since it is READY).
     let paused = repo
@@ -583,7 +587,10 @@ async fn pause_resume_refresh_round_trip() {
         .pause_job(job_id, tenant_id)
         .await
         .expect("pause again");
-    assert!(!paused_again, "pause of an already-PAUSED job must return false");
+    assert!(
+        !paused_again,
+        "pause of an already-PAUSED job must return false"
+    );
 
     // Resume back to READY.
     let resumed = repo

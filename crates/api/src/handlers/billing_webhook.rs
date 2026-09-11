@@ -357,18 +357,19 @@ mod tests {
         );
 
         assert!(
-            verify_signature("sk_test_secret", &headers, b"{\"event\":\"charge.success\"}")
-                .is_ok()
+            verify_signature(
+                "sk_test_secret",
+                &headers,
+                b"{\"event\":\"charge.success\"}"
+            )
+            .is_ok()
         );
     }
 
     #[test]
     fn invalid_paystack_signature_is_rejected() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-paystack-signature",
-            "deadbeef".parse().unwrap(),
-        );
+        headers.insert("x-paystack-signature", "deadbeef".parse().unwrap());
 
         assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
     }
@@ -376,10 +377,7 @@ mod tests {
     #[test]
     fn non_hex_paystack_signature_is_rejected() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-paystack-signature",
-            "not-hex-at-all!!".parse().unwrap(),
-        );
+        headers.insert("x-paystack-signature", "not-hex-at-all!!".parse().unwrap());
 
         assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
     }
@@ -391,10 +389,7 @@ mod tests {
         // Paystack path.
         let mut headers = HeaderMap::new();
         let signed = sign("sk_test_secret", b"{}");
-        headers.insert(
-            "x-paystack-signature",
-            signed.parse().unwrap(),
-        );
+        headers.insert("x-paystack-signature", signed.parse().unwrap());
 
         assert!(verify_signature("sk_test_secret", &headers, b"{}").is_err());
     }
@@ -408,10 +403,7 @@ mod tests {
             "x-paystack-signature",
             sign_paystack("sk_test_secret", b"{}").parse().unwrap(),
         );
-        headers.insert(
-            "x-billing-signature",
-            "sha256=deadbeef".parse().unwrap(),
-        );
+        headers.insert("x-billing-signature", "sha256=deadbeef".parse().unwrap());
 
         assert!(verify_signature("sk_test_secret", &headers, b"{}").is_ok());
     }
