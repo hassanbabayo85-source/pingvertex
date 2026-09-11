@@ -1,10 +1,13 @@
 use crate::{error::ApiError, state::AppState};
+use application::queries::ResolveEntitlements;
+use application::use_cases::ResolveEntitlementsUseCase;
 use axum::{
     Json,
     extract::{Extension, State},
 };
 use domain::shared::types::{AuthenticatedUser, Permission};
 use serde::Serialize;
+
 #[derive(Debug, Serialize)]
 pub struct PAYGPricingResponse {
     pub operation: String,
@@ -14,19 +17,53 @@ pub struct PAYGPricingResponse {
     pub version: i64,
     pub effective_from: chrono::DateTime<chrono::Utc>,
 }
+
+/// The tenant's current free-tier entitlement, resolved by the same
+/// `ResolveEntitlementsUseCase` the runtime billing and scheduler paths
+/// use. Exposing it here — alongside the PAYG price book — means the
+/// frontend has a single place to read every customer-facing pricing
+/// value and never needs to hardcode a monitor limit or minimum
+/// interval. Changing the DB pricing config is enough to change what
+/// the UI shows.
+#[derive(Debug, Serialize)]
+pub struct FreeTierResponse {
+    pub max_monitors: u32,
+    pub min_check_interval_seconds: u32,
+    pub retention_days: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaygPricingPage {
+    pub prices: Vec<PAYGPricingResponse>,
+    pub free_tier: FreeTierResponse,
+}
+
 pub async fn payg_pricing(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
-) -> Result<Json<Vec<PAYGPricingResponse>>, ApiError> {
+) -> Result<Json<PaygPricingPage>, ApiError> {
     u.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+
     let rows = s
         .payg_pricing_repository
         .list_active()
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load PAYG pricing", e))?;
-    Ok(Json(
-        rows.into_iter()
+
+    // Resolve the tenant's current free-tier entitlement from the same
+    // authoritative path used at monitor creation and by the scheduler.
+    // This is what makes the DB the single source of truth for the UI.
+    let tenant_id = u.tenant_context().tenant_id();
+    let plan = ResolveEntitlementsUseCase::new(s.subscription_repository.clone())
+        .with_pricing_config_repository(s.pricing_config_repository.clone())
+        .execute(ResolveEntitlements { tenant_id })
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to resolve tenant entitlement", e))?;
+
+    Ok(Json(PaygPricingPage {
+        prices: rows
+            .into_iter()
             .map(|p| PAYGPricingResponse {
                 operation: p.operation,
                 unit_name: p.unit_name,
@@ -36,5 +73,10 @@ pub async fn payg_pricing(
                 effective_from: p.effective_from,
             })
             .collect(),
-    ))
+        free_tier: FreeTierResponse {
+            max_monitors: plan.max_monitors,
+            min_check_interval_seconds: plan.min_check_interval_seconds,
+            retention_days: plan.history_retention_days,
+        },
+    }))
 }
