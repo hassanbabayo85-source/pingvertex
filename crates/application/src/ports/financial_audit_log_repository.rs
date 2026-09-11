@@ -11,6 +11,14 @@ pub struct FinancialAuditLogFilter {
     pub action: Option<String>,
     pub resource: Option<String>,
     pub resource_id: Option<String>,
+    /// Matches the `actor` text column verbatim. Financial audit `actor`
+    /// values are heterogeneous: system-generated entries use namespaced
+    /// strings like `"billing:webhook"`, `"system:payg"`, or
+    /// `"system:billing"`, while user-initiated entries store the acting
+    /// user's UUID as a string. Callers that want to filter by a specific
+    /// user must pass `user_id.to_string()`; callers that want a system
+    /// actor must pass the exact string.
+    pub actor: Option<String>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
 }
@@ -52,6 +60,10 @@ pub trait FinancialAuditLogRepository: Send + Sync {
                     .resource_id
                     .as_deref()
                     .is_none_or(|v| entry.resource_id.as_deref() == Some(v))
+                && filter
+                    .actor
+                    .as_deref()
+                    .is_none_or(|v| entry.actor == v)
                 && filter.from.is_none_or(|v| entry.created_at >= v)
                 && filter.to.is_none_or(|v| entry.created_at < v)
                 && cursor.is_none_or(|c| {
