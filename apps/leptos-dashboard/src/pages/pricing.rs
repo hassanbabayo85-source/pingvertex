@@ -9,6 +9,7 @@ fn usd(u: i64) -> String {
 #[component]
 pub fn PricingPage() -> impl IntoView {
     let prices = RwSignal::new(Vec::<billing::PaygPricing>::new());
+    let free_tier = RwSignal::new(None::<billing::FreeTier>);
     let error = RwSignal::new(None::<String>);
 
     let monitors = RwSignal::new("100".to_string());
@@ -22,7 +23,10 @@ pub fn PricingPage() -> impl IntoView {
     Effect::new(move |_| {
         spawn_local(async move {
             match billing::payg_pricing().await {
-                Ok(v) => prices.set(v),
+                Ok(page) => {
+                    prices.set(page.prices);
+                    free_tier.set(Some(page.free_tier));
+                }
                 Err(e) => error.set(Some(e.to_string())),
             }
         })
@@ -149,7 +153,20 @@ pub fn PricingPage() -> impl IntoView {
 
             <section class="card">
                 <h2>"Free entitlement"</h2>
-                <p class="muted">"10 monitors at a 5-minute minimum interval. A funded wallet unlocks PAYG capacity without a product monitor-count ceiling."</p>
+                {move || match free_tier.get() {
+                    Some(ft) => view! {
+                        <p class="muted">{format!(
+                            "Up to {} monitors at a {} second minimum interval, with {} days of history retention. \
+                             A funded wallet unlocks PAYG capacity without a product monitor-count ceiling.",
+                            ft.max_monitors,
+                            ft.min_check_interval_seconds,
+                            ft.retention_days,
+                        )}</p>
+                    }.into_any(),
+                    None => view! {
+                        <p class="muted">"Loading entitlement…"</p>
+                    }.into_any(),
+                }}
             </section>
         </div>
     }

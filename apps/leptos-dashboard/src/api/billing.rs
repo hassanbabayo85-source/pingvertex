@@ -133,7 +133,24 @@ pub struct PaygPricing {
     pub version: i64,
     pub effective_from: String,
 }
-pub async fn payg_pricing() -> Result<Vec<PaygPricing>, ApiError> {
+
+/// The tenant's current free-tier entitlement, resolved server-side from
+/// the active DB pricing config. The UI must display these values
+/// verbatim rather than hardcoding a monitor count or minimum interval.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FreeTier {
+    pub max_monitors: u32,
+    pub min_check_interval_seconds: u32,
+    pub retention_days: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PaygPricingPage {
+    pub prices: Vec<PaygPricing>,
+    pub free_tier: FreeTier,
+}
+
+pub async fn payg_pricing() -> Result<PaygPricingPage, ApiError> {
     client::get_json("/payg/pricing").await
 }
 
