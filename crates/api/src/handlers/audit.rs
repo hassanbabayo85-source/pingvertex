@@ -64,15 +64,6 @@ pub(crate) fn decode_cursor(
         id: payload.id,
     }))
 }
-pub(crate) fn encode_cursor(entry: &domain::AuditLogEntry) -> String {
-    URL_SAFE_NO_PAD.encode(
-        serde_json::to_vec(&CursorPayload {
-            created_at: entry.created_at,
-            id: entry.id.0,
-        })
-        .expect("audit cursor serialization"),
-    )
-}
 pub(crate) fn response(entry: domain::AuditLogEntry) -> AuditEntryResponse {
     AuditEntryResponse {
         id: entry.id.0.to_string(),
@@ -89,9 +80,6 @@ pub(crate) fn decode_cursor_for_admin(
     raw: Option<&str>,
 ) -> Result<Option<application::ports::AuditLogCursor>, ApiError> {
     decode_cursor(raw)
-}
-pub(crate) fn encode_cursor_for_admin(entry: &domain::AuditLogEntry) -> String {
-    encode_cursor(entry)
 }
 pub(crate) fn response_for_admin(entry: domain::AuditLogEntry) -> AuditEntryResponse {
     response(entry)

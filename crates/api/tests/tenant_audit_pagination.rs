@@ -110,7 +110,10 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
 
     loop {
         page_count += 1;
-        assert!(page_count <= 10, "pagination must terminate within 10 pages");
+        assert!(
+            page_count <= 10,
+            "pagination must terminate within 10 pages"
+        );
 
         let query = AuditQuery {
             cursor: cursor.clone(),

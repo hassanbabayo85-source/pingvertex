@@ -96,7 +96,6 @@ batch_size, pricing_snapshot, error_report, created_at, started_at, completed_at
 /// "column reference \"id\" is ambiguous" (42702).
 const JOB_COLUMNS_QUALIFIED: &str = "j.id, j.tenant_id, j.actor_user_id, j.status, j.total_rows, j.valid_rows, j.invalid_rows, j.processed_rows, j.created_rows, j.failed_rows, j.skipped_rows, j.forecast_days, j.estimated_checks, j.estimated_charge_units, j.currency, j.batch_size, j.pricing_snapshot, j.error_report, j.created_at, j.started_at, j.completed_at, j.updated_at";
 
-
 #[async_trait]
 impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
     async fn create_confirmed_job(

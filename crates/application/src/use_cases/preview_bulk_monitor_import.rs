@@ -871,8 +871,8 @@ mod tests {
                 BulkImportMonitorSnapshot {
                     // Same reasoning as above: use the free-tier monitor limit
                     // that the production preview code resolves, not a domain constant.
-                    total_count: domain::Plan::for_tier(domain::enums::PlanTier::Free)
-                        .max_monitors as usize,
+                    total_count: domain::Plan::for_tier(domain::enums::PlanTier::Free).max_monitors
+                        as usize,
                     monitors: Vec::new(),
                 },
                 false,

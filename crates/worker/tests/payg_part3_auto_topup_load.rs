@@ -347,14 +347,19 @@ fn provider_with(entries: Vec<(String, PaymentVerification)>) -> Arc<MapProvider
 #[tokio::test]
 #[serial]
 async fn reconcile_credits_when_provider_confirms_payment() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
     let pid = format!("pid-{}", Uuid::new_v4());
     seed_attempt(&pool, tenant_id, attempt_id, &reference, 10_000).await;
 
-    let provider = provider_with(vec![(reference.clone(), paid(&pid, &reference, 10_000, "USD"))]);
+    let provider = provider_with(vec![(
+        reference.clone(),
+        paid(&pid, &reference, 10_000, "USD"),
+    )]);
     let worker = worker::AutoTopUpWorker::new(wallet.clone(), provider, Duration::from_secs(60));
     worker.reconcile().await.expect("reconcile must not error");
 
@@ -370,14 +375,19 @@ async fn reconcile_credits_when_provider_confirms_payment() {
 #[tokio::test]
 #[serial]
 async fn reconcile_is_idempotent_when_called_twice_on_same_attempt() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
     let pid = format!("pid-{}", Uuid::new_v4());
     seed_attempt(&pool, tenant_id, attempt_id, &reference, 10_000).await;
 
-    let provider = provider_with(vec![(reference.clone(), paid(&pid, &reference, 10_000, "USD"))]);
+    let provider = provider_with(vec![(
+        reference.clone(),
+        paid(&pid, &reference, 10_000, "USD"),
+    )]);
     let worker = worker::AutoTopUpWorker::new(wallet.clone(), provider, Duration::from_secs(60));
 
     worker.reconcile().await.expect("first reconcile");
@@ -407,7 +417,9 @@ async fn reconcile_is_idempotent_when_called_twice_on_same_attempt() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_amount_mismatch() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
@@ -415,8 +427,10 @@ async fn reconcile_keeps_reconciliation_status_on_amount_mismatch() {
     seed_attempt(&pool, tenant_id, attempt_id, &reference, 10_000).await;
 
     // Provider reports a different amount than the attempt recorded.
-    let provider =
-        provider_with(vec![(reference.clone(), paid(&pid, &reference, 99_999, "USD"))]);
+    let provider = provider_with(vec![(
+        reference.clone(),
+        paid(&pid, &reference, 99_999, "USD"),
+    )]);
     let worker = worker::AutoTopUpWorker::new(wallet.clone(), provider, Duration::from_secs(60));
     worker.reconcile().await.expect("reconcile must not error");
 
@@ -431,7 +445,9 @@ async fn reconcile_keeps_reconciliation_status_on_amount_mismatch() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_currency_mismatch() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
@@ -439,7 +455,10 @@ async fn reconcile_keeps_reconciliation_status_on_currency_mismatch() {
     seed_attempt(&pool, tenant_id, attempt_id, &reference, 10_000).await;
 
     // Provider reports a non-USD currency.
-    let provider = provider_with(vec![(reference.clone(), paid(&pid, &reference, 10_000, "EUR"))]);
+    let provider = provider_with(vec![(
+        reference.clone(),
+        paid(&pid, &reference, 10_000, "EUR"),
+    )]);
     let worker = worker::AutoTopUpWorker::new(wallet.clone(), provider, Duration::from_secs(60));
     worker.reconcile().await.expect("reconcile must not error");
 
@@ -454,7 +473,9 @@ async fn reconcile_keeps_reconciliation_status_on_currency_mismatch() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_provider_pending() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
@@ -483,7 +504,9 @@ async fn reconcile_keeps_reconciliation_status_on_provider_pending() {
 #[tokio::test]
 #[serial]
 async fn reconcile_marks_attempt_failed_on_provider_failure() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
     let reference = format!("ref-{}", Uuid::new_v4());
@@ -512,7 +535,9 @@ async fn reconcile_marks_attempt_failed_on_provider_failure() {
 #[tokio::test]
 #[serial]
 async fn reconcile_handles_multiple_attempts_in_one_run() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
 
     let id_a = Uuid::new_v4();
@@ -543,7 +568,9 @@ async fn reconcile_handles_multiple_attempts_in_one_run() {
 #[tokio::test]
 #[serial]
 async fn reconcile_skips_attempt_without_provider_reference() {
-    let Some(pool) = pool_or_skip().await else { return; };
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
     let attempt_id = Uuid::new_v4();
 
@@ -565,7 +592,10 @@ async fn reconcile_skips_attempt_without_provider_reference() {
     let worker = worker::AutoTopUpWorker::new(wallet.clone(), provider, Duration::from_secs(60));
     worker.reconcile().await.expect("reconcile must not error");
 
-    assert_eq!(fetch_attempt(&pool, attempt_id).await.0, "REQUIRES_RECONCILIATION");
+    assert_eq!(
+        fetch_attempt(&pool, attempt_id).await.0,
+        "REQUIRES_RECONCILIATION"
+    );
     assert_eq!(
         wallet.find(tenant_id).await.unwrap().unwrap().balance_units,
         0
