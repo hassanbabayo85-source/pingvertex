@@ -319,9 +319,18 @@ pub async fn audit_records(
     // `target_id`; the financial stream uses `resource_id`. Mapping one to
     // the other keeps the "target" filter semantically identical across
     // both streams.
+    // `PlatformAuditQuery.actor` is `Option<Uuid>`, matching the generic
+    // audit stream's `actor_user_id` column. The financial audit stream's
+    // `actor` is a free-form string: user-initiated entries store the
+    // acting user's UUID as a string, while system entries use namespaced
+    // strings like `"billing:webhook"` or `"system:payg"`. Passing the
+    // UUID as a string keeps user-actor filtering working across both
+    // streams. System-actor filtering is out of scope for this endpoint;
+    // it would require a separate string-typed query parameter.
     let financial_filter = application::ports::FinancialAuditLogFilter {
         action: query.action.clone(),
         resource_id: query.target.clone(),
+        actor: query.actor.map(|u| u.to_string()),
         from: query.from,
         to: query.to,
         ..Default::default()

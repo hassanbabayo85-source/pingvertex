@@ -58,6 +58,9 @@ impl FinancialAuditLogRepository for PostgresFinancialAuditLogRepository {
         if let Some(resource_id) = filter.resource_id.as_deref() {
             q.push(" AND resource_id=").push_bind(resource_id);
         }
+        if let Some(actor) = filter.actor.as_deref() {
+            q.push(" AND actor=").push_bind(actor);
+        }
         if let Some(from) = filter.from {
             q.push(" AND created_at>=").push_bind(from);
         }
@@ -137,6 +140,9 @@ impl FinancialAuditLogRepository for PostgresFinancialAuditLogRepository {
         }
         if let Some(resource_id) = filter.resource_id.as_deref() {
             q.push(" AND resource_id=").push_bind(resource_id);
+        }
+        if let Some(actor) = filter.actor.as_deref() {
+            q.push(" AND actor=").push_bind(actor);
         }
         if let Some(from) = filter.from {
             q.push(" AND created_at>=").push_bind(from);

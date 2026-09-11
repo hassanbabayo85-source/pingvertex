@@ -61,6 +61,7 @@ impl FinancialAuditLogRepository for InMemoryFinancialAuditLogRepository {
                     .as_deref()
                     .is_none_or(|v| e.resource_id.as_deref() == Some(v))
             })
+            .filter(|e| filter.actor.as_deref().is_none_or(|v| e.actor == v))
             .filter(|e| filter.from.is_none_or(|v| e.created_at >= v))
             .filter(|e| filter.to.is_none_or(|v| e.created_at < v))
             .filter(|e| {
