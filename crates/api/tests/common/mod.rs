@@ -28,7 +28,7 @@ use infra::{
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
-struct NoopSecretCipher;
+pub struct NoopSecretCipher;
 
 impl SecretCipher for NoopSecretCipher {
     fn encrypt_bytes(&self, plaintext: &[u8]) -> Result<Vec<u8>, SecretCipherError> {
@@ -40,7 +40,7 @@ impl SecretCipher for NoopSecretCipher {
 }
 
 #[derive(Clone, Default)]
-struct NoopCheckRepository;
+pub struct NoopCheckRepository;
 
 #[async_trait]
 impl CheckRepository for NoopCheckRepository {
@@ -81,7 +81,7 @@ impl CheckRepository for NoopCheckRepository {
 }
 
 #[derive(Clone, Default)]
-struct NoopDiagnosticReportRepository;
+pub struct NoopDiagnosticReportRepository;
 
 #[async_trait]
 impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
@@ -101,7 +101,7 @@ impl DiagnosticReportRepository for NoopDiagnosticReportRepository {
 }
 
 #[derive(Clone, Default)]
-struct NoopIncidentRepository;
+pub struct NoopIncidentRepository;
 
 #[async_trait]
 impl IncidentRepository for NoopIncidentRepository {
@@ -136,7 +136,7 @@ impl IncidentRepository for NoopIncidentRepository {
 }
 
 #[derive(Clone, Default)]
-struct NoopUserRepository;
+pub struct NoopUserRepository;
 
 #[async_trait]
 impl UserRepository for NoopUserRepository {
@@ -204,7 +204,7 @@ impl UserRepository for NoopUserRepository {
 }
 
 #[derive(Clone, Default)]
-struct NoopPasswordHasher;
+pub struct NoopPasswordHasher;
 
 #[async_trait]
 impl PasswordHasher for NoopPasswordHasher {
@@ -221,7 +221,7 @@ impl PasswordHasher for NoopPasswordHasher {
 }
 
 #[derive(Clone, Default)]
-struct NoopTokenService;
+pub struct NoopTokenService;
 
 #[async_trait]
 impl TokenService for NoopTokenService {
