@@ -105,6 +105,16 @@ pub trait SchedulingRepository: Send + Sync {
     /// recovered leases.
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64>;
 
+    /// Extends an active scheduler lease for its current owner.
+    /// Recovered, expired, or differently-owned leases must not be resurrected.
+    async fn renew_lease(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        extend_by: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<bool>;
+
     /// Persists a PAYG billing block for a claimed monitor so repeated
     /// scheduler loops do not keep attempting a check that cannot be funded.
     async fn set_billing_block(
@@ -273,5 +283,16 @@ where
         r: &str,
     ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
         (**self).get_one_time_check_by_request_id(t, m, r).await
+    }
+    async fn renew_lease(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        extend_by: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        (**self)
+            .renew_lease(monitor_id, lease_owner, extend_by, now)
+            .await
     }
 }

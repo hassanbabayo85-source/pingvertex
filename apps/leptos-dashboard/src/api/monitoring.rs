@@ -308,10 +308,14 @@ pub struct BulkMonitorActionRequest {
     pub monitor_ids: Vec<String>,
     #[serde(default)]
     pub all: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BulkMonitorActionResponse {
+    pub job_id: String,
+    pub status: String,
     pub affected: u64,
     pub action: String,
 }
@@ -327,6 +331,7 @@ pub async fn bulk_monitor_action(
             action: action.to_owned(),
             monitor_ids,
             all,
+            reason: None,
         },
     )
     .await
@@ -594,4 +599,12 @@ pub async fn bulk_import_resume(id: &str) -> Result<BulkImportJob, String> {
     )
     .await
     .map_err(|error| error.to_string())
+}
+
+pub async fn fetch_bulk_monitor_action_job(
+    job_id: &str,
+) -> Result<BulkMonitorActionResponse, String> {
+    client::get_json::<BulkMonitorActionResponse>(&format!("/monitors/bulk/jobs/{job_id}"))
+        .await
+        .map_err(to_string_err)
 }

@@ -1,7 +1,5 @@
 use crate::{error::ApiError, state::AppState};
 use application::ports::MonitorIntervalPolicyRepository;
-use application::queries::ResolveEntitlements;
-use application::use_cases::ResolveEntitlementsUseCase;
 use application::use_cases::calculate_payg_preview::{
     MAX_PREVIEW_FORECAST_DAYS, MAX_PREVIEW_REGIONS,
 };
@@ -22,10 +20,9 @@ pub struct PAYGPricingResponse {
     pub effective_from: chrono::DateTime<chrono::Utc>,
 }
 
-/// The tenant's current free-tier entitlement, resolved by the same
-/// `ResolveEntitlementsUseCase` the runtime billing and scheduler paths
-/// use. Changing the DB pricing config is enough to change what the UI
-/// shows.
+/// The tenant's current free-tier entitlement from the active PAYG pricing
+/// configuration. Subscription rows are not consulted by the PAYG runtime.
+/// Changing the DB pricing config is enough to change what the UI shows.
 #[derive(Debug, Serialize)]
 pub struct FreeTierResponse {
     pub max_monitors: u32,
@@ -71,12 +68,14 @@ pub async fn payg_pricing(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load PAYG pricing", e))?;
 
-    let tenant_id = u.tenant_context().tenant_id();
-    let plan = ResolveEntitlementsUseCase::new(s.subscription_repository.clone())
-        .with_pricing_config_repository(s.pricing_config_repository.clone())
-        .execute(ResolveEntitlements { tenant_id })
+    let config = s
+        .pricing_config_repository
+        .find_active_config()
         .await
-        .map_err(|e| ApiError::internal_with_source("failed to resolve tenant entitlement", e))?;
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to load active PAYG pricing config", e)
+        })?
+        .ok_or_else(|| ApiError::internal("active PAYG pricing config is missing"))?;
 
     let policy_repo = &s.monitor_interval_policy_repository;
     let min_interval_seconds_http = policy_repo
@@ -115,9 +114,9 @@ pub async fn payg_pricing(
             })
             .collect(),
         free_tier: FreeTierResponse {
-            max_monitors: plan.max_monitors,
-            min_check_interval_seconds: plan.min_check_interval_seconds,
-            retention_days: plan.history_retention_days,
+            max_monitors: config.free_tier.monitors.min(u32::MAX as u64) as u32,
+            min_check_interval_seconds: config.free_tier.interval_seconds,
+            retention_days: config.free_tier.retention_days,
         },
         payg_min_top_up_units: domain::MIN_PAYG_TOP_UP_UNITS,
         preview_limits: PreviewLimitsResponse {

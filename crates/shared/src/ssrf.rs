@@ -525,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_rejects_ipv4_loopback() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().await;
         unsafe {
             std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
         }
@@ -540,7 +540,7 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_rejects_ipv6_loopback() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().await;
         unsafe {
             std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
         }
@@ -555,7 +555,7 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_allows_public_ip() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.lock().await;
         unsafe {
             std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
         }
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn production_private_true_fails() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         unsafe {
             std::env::set_var("ENVIRONMENT", "production");
             std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn production_private_false_allows() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         unsafe {
             std::env::set_var("ENVIRONMENT", "production");
             std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "false");
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn development_private_true_allows() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         unsafe {
             std::env::set_var("ENVIRONMENT", "development");
             std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
@@ -643,7 +643,7 @@ mod tests {
         // (the default in every docker-compose*.yml here) must NOT
         // silently allow private-IP SSRF. This is the scenario that
         // slipped through the old `environment == "production"` check.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         unsafe {
             std::env::remove_var("ENVIRONMENT");
             std::env::set_var("PINGVERTEX_SSRF_ALLOW_PRIVATE", "true");
@@ -661,7 +661,7 @@ mod tests {
         // Regression test: a typo'd or non-listed ENVIRONMENT value
         // (e.g. "prod", "staging", "Production") must fail closed too,
         // not just the exact unset/"production" cases.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         for bad_value in ["prod", "staging", "Production", "PRODUCTION "] {
             unsafe {
                 std::env::set_var("ENVIRONMENT", bad_value);
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn every_safe_environment_value_with_private_true_allows() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ENV_MUTEX.blocking_lock();
         for good_value in ["development", "dev", "test", "local", "DEV", "Test"] {
             unsafe {
                 std::env::set_var("ENVIRONMENT", good_value);

@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, State},
+    http::HeaderMap,
 };
 use domain::shared::{
     ids::MonitorId,
@@ -37,6 +38,8 @@ pub struct BulkMonitorActionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct BulkMonitorActionResponse {
+    pub job_id: Uuid,
+    pub status: String,
     pub affected: u64,
     pub action: BulkMonitorAction,
 }
@@ -69,6 +72,7 @@ fn normalize_reason(reason: Option<&str>) -> Result<Option<String>, ApiError> {
 pub async fn bulk_monitor_action(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    headers: HeaderMap,
     Json(request): Json<BulkMonitorActionRequest>,
 ) -> Result<Json<BulkMonitorActionResponse>, ApiError> {
     user.require(required_permission(request.action))
@@ -102,6 +106,17 @@ pub async fn bulk_monitor_action(
     }
 
     let reason = normalize_reason(request.reason.as_deref())?;
+    let idempotency_key = headers
+        .get("Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    if idempotency_key.as_ref().is_some_and(|v| v.len() > 128) {
+        return Err(ApiError::bad_request(
+            "Idempotency-Key must be at most 128 characters",
+        ));
+    }
 
     let ids = if request.all {
         None
@@ -117,50 +132,68 @@ pub async fn bulk_monitor_action(
         Some(parsed)
     };
 
-    let enabled = matches!(
-        request.action,
-        BulkMonitorAction::Enable | BulkMonitorAction::Resume
-    );
-    let audit_action = match request.action {
-        BulkMonitorAction::Enable => domain::AuditAction::BulkMonitorEnabled,
-        BulkMonitorAction::Disable => domain::AuditAction::BulkMonitorDisabled,
-        BulkMonitorAction::Pause => domain::AuditAction::BulkMonitorPaused,
-        BulkMonitorAction::Resume => domain::AuditAction::BulkMonitorResumed,
+    let action = match request.action {
+        BulkMonitorAction::Enable => "enable",
+        BulkMonitorAction::Disable => "disable",
+        BulkMonitorAction::Pause => "pause",
+        BulkMonitorAction::Resume => "resume",
     };
-    let affected = state
-        .monitor_repository
-        .set_enabled_for_tenant(tenant_id, ids.as_deref(), enabled)
+    let repo = state
+        .bulk_monitor_action_repository
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("bulk monitor action queue is not configured"))?;
+    let job = repo
+        .create(
+            tenant_id.0,
+            user.user_id().0,
+            action,
+            ids.as_ref()
+                .map(|v| v.iter().map(|id| id.0).collect::<Vec<_>>())
+                .as_deref(),
+            request.all,
+            reason.as_deref(),
+            idempotency_key.as_deref(),
+        )
         .await
-        .map_err(|e| ApiError::internal_with_source("bulk monitor action failed", e))?;
-
-    let entry = domain::AuditLogEntry {
-        id: domain::AuditLogEntryId::new(),
-        actor_user_id: user.user_id(),
-        tenant_id: Some(tenant_id),
-        action: audit_action,
-        target_id: if request.all {
-            format!("tenant:{}", tenant_id.0)
-        } else {
-            "bulk".to_owned()
-        },
-        metadata: serde_json::json!({
-            "bulk": true,
-            "action": request.action,
-            "scope": if request.all { "all" } else { "selected" },
-            "affected": affected,
-            "reason": reason,
-        }),
-        created_at: chrono::Utc::now(),
-    };
-    state
-        .audit_log_entry_repository
-        .create(&entry)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to record bulk monitor audit", e))?;
+        .map_err(|e| ApiError::internal_with_source("failed to enqueue bulk monitor action", e))?;
 
     Ok(Json(BulkMonitorActionResponse {
-        affected,
+        job_id: job.id,
+        status: job.status,
+        affected: job.affected.unwrap_or(0),
         action: request.action,
+    }))
+}
+
+pub async fn get_bulk_monitor_action_job(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    axum::extract::Path(job_id): axum::extract::Path<Uuid>,
+) -> Result<Json<BulkMonitorActionResponse>, ApiError> {
+    user.require(Permission::PauseMonitor)
+        .map_err(|e| ApiError::forbidden(e.to_string()))?;
+    let tenant_id = user.tenant_context().tenant_id();
+    let repo = state
+        .bulk_monitor_action_repository
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("bulk monitor action queue is not configured"))?;
+    let job = repo
+        .find_for_tenant(job_id, tenant_id.0)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load bulk monitor action job", e))?
+        .ok_or_else(|| ApiError::not_found("bulk monitor action job not found"))?;
+    let action = match job.action.as_str() {
+        "enable" => BulkMonitorAction::Enable,
+        "disable" => BulkMonitorAction::Disable,
+        "pause" => BulkMonitorAction::Pause,
+        "resume" => BulkMonitorAction::Resume,
+        _ => return Err(ApiError::internal("invalid bulk monitor action job")),
+    };
+    Ok(Json(BulkMonitorActionResponse {
+        job_id: job.id,
+        status: job.status,
+        affected: job.affected.unwrap_or(0),
+        action,
     }))
 }
 

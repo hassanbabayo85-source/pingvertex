@@ -212,13 +212,12 @@ where
                 )
                 .await
                 .map_err(BillingWebhookError::Other)?;
-            if let Some(monitors) = &self.monitor_repository {
-                if let Err(error) = monitors
+            if let Some(monitors) = &self.monitor_repository
+                && let Err(error) = monitors
                     .clear_balance_billing_blocks_for_tenant(domain::TenantId(command.tenant_id.0))
                     .await
-                {
-                    tracing::warn!(error=%error, tenant_id=%command.tenant_id.0, "wallet credited but billing blocks could not be cleared");
-                }
+            {
+                tracing::warn!(error=%error, tenant_id=%command.tenant_id.0, "wallet credited but billing blocks could not be cleared");
             }
             if let Some(audit) = &self.financial_audit_repository {
                 audit

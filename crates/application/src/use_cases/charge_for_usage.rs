@@ -142,7 +142,7 @@ impl ChargeForUsageUseCase {
                 pricing.version,
                 &pricing.currency,
                 &input.request_id,
-                Utc::now() + Duration::seconds(180),
+                Utc::now() + Duration::seconds(420),
             )
             .await
             .map_err(|e| match e.to_string().as_str() {
