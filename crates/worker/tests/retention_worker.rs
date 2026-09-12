@@ -2,16 +2,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use application::ports::{HistoryRetentionRepository, SubscriptionRepository, TenantRepository};
+use application::ports::{HistoryRetentionRepository, TenantRepository, WalletRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use domain::{
-    Check, CheckStatus, ErrorType, PlanTier, RegionCode, Subscription, Tenant,
-    shared::ids::{CheckId, MonitorId, SubscriptionId, TenantId, UserId},
+    Check, CheckStatus, ErrorType, RegionCode, Tenant,
+    shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
 use infra::{
-    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository,
-    InMemorySubscriptionRepository, InMemoryTenantRepository,
+    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository, InMemoryTenantRepository,
+    InMemoryWalletRepository,
 };
 use uuid::Uuid;
 use worker::{RetentionWorker, retention_worker::DEFAULT_BATCH_SIZE};
@@ -36,50 +36,55 @@ fn tenant(name: &str) -> Tenant {
 }
 
 #[tokio::test]
-async fn retention_deletes_older_than_cutoff_per_plan() {
+async fn retention_deletes_older_than_cutoff_per_payg_entitlement() {
     let tenant_repo = Arc::new(InMemoryTenantRepository::new());
-    let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
+    let wallet_repo = Arc::new(InMemoryWalletRepository::default());
     let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
 
     let free_tenant = tenant("Free Tenant");
-    let starter_tenant = tenant("Starter Tenant");
+    let paid_tenant = tenant("Paid Tenant");
     tenant_repo.create(&free_tenant).await.unwrap();
-    tenant_repo.create(&starter_tenant).await.unwrap();
+    tenant_repo.create(&paid_tenant).await.unwrap();
 
-    subscription_repo
-        .create(&Subscription::new(
-            SubscriptionId::new(),
-            free_tenant.id,
-            PlanTier::Free,
-        ))
+    // Unfunded tenants use the PAYG Free retention. A funded wallet activates
+    // PAYG and uses the configured maximum retention.
+    wallet_repo
+        .get_or_create(paid_tenant.id.0, "USD")
         .await
         .unwrap();
-    subscription_repo
-        .create(&Subscription::new(
-            SubscriptionId::new(),
-            starter_tenant.id,
-            PlanTier::Starter,
-        ))
+    wallet_repo
+        .credit(
+            paid_tenant.id.0,
+            1_000_000,
+            domain::WalletTransactionType::TopUp,
+            "retention-test-topup",
+            Some("retention test"),
+        )
         .await
         .unwrap();
 
-    // Free retains 2 days; Starter retains 30 days.
+    let pricing = Arc::new(
+        InMemoryPricingConfigRepository::new()
+            .with_config(domain::pricing::PricingConfig::default_config()),
+    );
+
+    // Free retains 2 days; funded PAYG retains the configured 3650 days.
     let old_free = sample_check_older_than_days(3);
     let recent_free = sample_check_older_than_days(0);
-    let old_starter = sample_check_older_than_days(10);
+    let old_paid = sample_check_older_than_days(10);
 
     history_repo.seed_check(old_free.clone(), free_tenant.id);
     history_repo.seed_check(recent_free.clone(), free_tenant.id);
-    history_repo.seed_check(old_starter.clone(), starter_tenant.id);
+    history_repo.seed_check(old_paid.clone(), paid_tenant.id);
 
     let worker = RetentionWorker::new(
         tenant_repo,
-        subscription_repo,
         history_repo.clone(),
-        Arc::new(InMemoryPricingConfigRepository::default()),
+        pricing,
         100,
         Duration::from_secs(3600),
         2,
+        wallet_repo,
     );
 
     let summary = worker.run_sweep().await.unwrap();
@@ -89,7 +94,7 @@ async fn retention_deletes_older_than_cutoff_per_plan() {
 
     let remaining_ids = history_repo.list_check_ids();
     assert!(remaining_ids.contains(&recent_free.id));
-    assert!(remaining_ids.contains(&old_starter.id));
+    assert!(remaining_ids.contains(&old_paid.id));
     assert!(!remaining_ids.contains(&old_free.id));
 }
 
@@ -127,19 +132,15 @@ async fn batching_does_not_delete_more_or_less_than_expected() {
 #[tokio::test]
 async fn running_twice_is_idempotent() {
     let tenant_repo = Arc::new(InMemoryTenantRepository::new());
-    let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
+    let wallet_repo = Arc::new(InMemoryWalletRepository::default());
     let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
 
     let tenant = tenant("Idempotent Tenant");
     tenant_repo.create(&tenant).await.unwrap();
-    subscription_repo
-        .create(&Subscription::new(
-            SubscriptionId::new(),
-            tenant.id,
-            PlanTier::Free,
-        ))
-        .await
-        .unwrap();
+    let _pricing = Arc::new(
+        InMemoryPricingConfigRepository::new()
+            .with_config(domain::pricing::PricingConfig::default_config()),
+    );
 
     // Free retention is 2 days. Keep one fresh check and two checks beyond the cutoff.
     let old1 = sample_check_older_than_days(3);
@@ -152,12 +153,15 @@ async fn running_twice_is_idempotent() {
 
     let worker = RetentionWorker::new(
         tenant_repo,
-        subscription_repo,
         history_repo.clone(),
-        Arc::new(InMemoryPricingConfigRepository::default()),
+        Arc::new(
+            InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ),
         DEFAULT_BATCH_SIZE,
         Duration::from_secs(3600),
         2,
+        wallet_repo,
     );
 
     let first = worker.run_sweep().await.unwrap();
@@ -217,20 +221,12 @@ async fn bounded_concurrency_never_exceeds_configured_limit() {
     const MAX_CONCURRENT_TENANTS: usize = 3;
 
     let tenant_repo = Arc::new(InMemoryTenantRepository::new());
-    let subscription_repo = Arc::new(InMemorySubscriptionRepository::new());
+    let wallet_repo = Arc::new(InMemoryWalletRepository::default());
     let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
 
     for i in 0..TENANT_COUNT {
         let t = tenant(&format!("Concurrency Tenant {i}"));
         tenant_repo.create(&t).await.unwrap();
-        subscription_repo
-            .create(&Subscription::new(
-                SubscriptionId::new(),
-                t.id,
-                PlanTier::Free,
-            ))
-            .await
-            .unwrap();
         history_repo.seed_check(sample_check_older_than_days(10), t.id);
     }
 
@@ -243,12 +239,15 @@ async fn bounded_concurrency_never_exceeds_configured_limit() {
 
     let worker = RetentionWorker::new(
         tenant_repo,
-        subscription_repo,
         tracking_repo.clone(),
-        Arc::new(InMemoryPricingConfigRepository::default()),
+        Arc::new(
+            InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ),
         100,
         Duration::from_secs(3600),
         MAX_CONCURRENT_TENANTS,
+        wallet_repo,
     );
 
     let summary = worker.run_sweep().await.unwrap();

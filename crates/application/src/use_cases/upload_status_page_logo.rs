@@ -122,6 +122,9 @@ where
         }
 
         let logo = LogoImage::new(command.data).map_err(UploadStatusPageLogoError::InvalidLogo)?;
+        // Product decision: `storage` is a one-time storage-write fee, not
+        // recurring monthly rent. The price-book API normalizes the historical
+        // unit label to `MB` for customer-facing copy.
         let storage_units = ((logo.data().len() as u64).div_ceil(1024 * 1024)) as i64;
         let status_page_id = status_page.id;
 
@@ -186,7 +189,7 @@ where
             target_id: status_page.id.0.to_string(),
             metadata: json!({
                 "has_logo": true,
-                "storage_billable_mb": storage_units.max(1),
+                "storage_write_billable_mb": storage_units.max(1),
             }),
             created_at: Utc::now(),
         };

@@ -81,6 +81,7 @@ async fn execute_with_controls<E: CheckExecutor>(
 pub struct CheckExecution {
     pub attempted: bool,
     pub error: Option<String>,
+    pub egress_bytes: u64,
 }
 
 impl CheckExecution {
@@ -88,12 +89,14 @@ impl CheckExecution {
         Self {
             attempted,
             error: None,
+            egress_bytes: 0,
         }
     }
     pub fn failed(attempted: bool, error: impl Into<String>) -> Self {
         Self {
             attempted,
             error: Some(error.into()),
+            egress_bytes: 0,
         }
     }
 }
@@ -382,6 +385,17 @@ where
                         let monitor_tenant_id = monitor.tenant_id;
                         let operation = domain::monitor_operation(monitor.kind, true).as_str().to_owned();
                         let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
+                        // Saved for the separate network_egress billing step.
+                        // The metering closure below moves `monitor` by value,
+                        // so it is no longer reachable afterwards.
+                        let one_time_egress_monitor_id = monitor.id.0;
+                        let one_time_egress_monitor_kind = monitor.kind;
+                        let one_time_egress_region = monitor.regions.first().cloned();
+                        let one_time_egress_execution_id = claim.request.execution_id;
+                        let one_time_egress_request_id = format!(
+                            "one-time-egress:{}:{}",
+                            claim.request.id, one_time_egress_execution_id,
+                        );
                         let result = if let Some(metering) = metering {
                             match metering.execute_classified_attempt(
                                 MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id,
@@ -397,7 +411,7 @@ where
                                 move || {
                                     let executor = executor.clone();
                                     let monitor = monitor.clone();
-                                    async move { execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error }) }
+                                    async move { execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error, egress_bytes: o.egress_bytes }) }
                                 },
                             ).await {
                                 Ok((charge_result, attempt)) => {
@@ -411,10 +425,22 @@ where
                                         Some(error)
                                     } else {
                                         if charge_result.transaction.is_some() {
-                                            metrics::counter!("checks_charged_total", "kind" => "one_time")
-                                                .increment(1);
-                                        }
-                                        None
+                                        metrics::counter!("checks_charged_total", "kind" => "one_time")
+                                            .increment(1);
+                                    }
+                                    bill_network_egress(
+                                        metering.as_ref(),
+                                        monitor_tenant_id.0,
+                                        one_time_egress_monitor_id,
+                                        one_time_egress_execution_id,
+                                        one_time_egress_monitor_kind,
+                                        one_time_egress_region,
+                                        account_type,
+                                        attempt.egress_bytes,
+                                        one_time_egress_request_id,
+                                    )
+                                    .await;
+                                    None
                                     }
                                 },
                                 Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
@@ -592,7 +618,7 @@ where
                                             .as_str()
                                             .to_owned(),
                                         units: 1,
-                                        request_id,
+                                        request_id: request_id.clone(),
                                         monitor_id: Some(monitor.id.0),
                                         execution_id: Some(claim.execution_id),
                                         pricing_context: Some(application::ports::PricingContext {
@@ -620,6 +646,7 @@ where
                                                 |outcome| MeteredAttempt {
                                                     attempted: outcome.attempted,
                                                     error: outcome.error,
+                                                    egress_bytes: outcome.egress_bytes,
                                                 },
                                             )
                                         }
@@ -627,11 +654,26 @@ where
                                 )
                                 .await
                             {
-                                Ok((charge_result, _)) => {
+                                Ok((charge_result, attempt)) => {
                                     if charge_result.transaction.is_some() {
                                         metrics::counter!("checks_charged_total", "kind" => "monitor")
                                             .increment(1);
                                     }
+                                    bill_network_egress(
+                                        metering.as_ref(),
+                                        monitor.tenant_id.0,
+                                        monitor.id.0,
+                                        claim.execution_id,
+                                        monitor.kind,
+                                        monitor.regions.first().cloned(),
+                                        account_type,
+                                        attempt.egress_bytes,
+                                        format!(
+                                            "monitor-egress:{}:{}",
+                                            monitor.id.0, claim.execution_id
+                                        ),
+                                    )
+                                    .await;
                                     Ok(())
                                 },
                                 Err(application::ChargeForUsageError::OperationNotAttempted(
@@ -726,4 +768,83 @@ where
     )
     .run()
     .await
+}
+
+/// Converts raw byte counts to whole 1 MiB (1024*1024 byte) units,
+/// rounding up. Returns 0 for 0 bytes.
+pub fn network_egress_units(bytes: u64) -> u64 {
+    bytes.div_ceil(1024 * 1024)
+}
+
+/// Bills the network egress observed during a monitor execution. Called
+/// after the monitor's own monitoring charge has been captured. The request
+/// id is deterministic (derived from the durable execution identity), so a
+/// scheduler retry cannot double-charge egress. A zero-byte execution is a
+/// no-op.
+#[allow(clippy::too_many_arguments)]
+pub async fn bill_network_egress(
+    metering: &MeterUsageUseCase,
+    tenant_id: Uuid,
+    monitor_id: Uuid,
+    execution_id: Uuid,
+    monitor_kind: domain::MonitorKind,
+    region: Option<domain::RegionCode>,
+    account_type: Option<domain::AccountType>,
+    egress_bytes: u64,
+    request_id: String,
+) {
+    let units = network_egress_units(egress_bytes);
+    if units == 0 {
+        return;
+    }
+    let result = metering
+        .execute_recoverable::<_, _, std::convert::Infallible>(
+            MeterUsageInput {
+                tenant_id,
+                operation: domain::PaygOperation::NetworkEgress.as_str().to_owned(),
+                units: units as i64,
+                request_id,
+                monitor_id: Some(monitor_id),
+                execution_id: Some(execution_id),
+                pricing_context: Some(application::ports::PricingContext {
+                    monitor_kind: Some(monitor_kind),
+                    region,
+                    quantity: units,
+                    account_type,
+                }),
+            },
+            || async { Ok::<_, std::convert::Infallible>(()) },
+        )
+        .await;
+    match result {
+        Ok(res) => {
+            if res.transaction.is_some() {
+                metrics::counter!("network_egress_charged_total").increment(1);
+                metrics::counter!("network_egress_units_charged_total").increment(units);
+            }
+        }
+        Err(err) => {
+            metrics::counter!("network_egress_charge_failures_total").increment(1);
+            warn!(
+                monitor_id = %monitor_id,
+                egress_bytes,
+                egress_units = units,
+                error = %err,
+                "network_egress billing failed"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod network_egress_tests {
+    use super::network_egress_units;
+
+    #[test]
+    fn network_egress_uses_binary_mb_and_rounds_up() {
+        assert_eq!(network_egress_units(0), 0);
+        assert_eq!(network_egress_units(1), 1);
+        assert_eq!(network_egress_units(1024 * 1024), 1);
+        assert_eq!(network_egress_units((1024 * 1024) + 1), 2);
+    }
 }

@@ -23,8 +23,8 @@ use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryNotificationOutboxRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemorySubscriptionRepository,
-    InMemoryTenantRepository,
+    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemoryTenantRepository,
+    InMemoryWalletRepository,
 };
 use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, OutboxWorker,
@@ -231,12 +231,12 @@ async fn outbox_worker_stops_gracefully_on_cancellation() {
 async fn retention_worker_stops_gracefully_on_cancellation() {
     let worker = RetentionWorker::new(
         Arc::new(InMemoryTenantRepository::new()),
-        Arc::new(InMemorySubscriptionRepository::new()),
         Arc::new(InMemoryHistoryRetentionRepository::new()),
         Arc::new(InMemoryPricingConfigRepository::default()),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         Duration::from_millis(10),
         2,
+        Arc::new(InMemoryWalletRepository::default()),
     );
 
     let token = CancellationToken::new();

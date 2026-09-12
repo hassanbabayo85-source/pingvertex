@@ -18,7 +18,6 @@ pub struct AddOn {
 pub struct Subscription {
     pub id: String,
     pub tenant_id: String,
-    pub plan_tier: String,
     pub status: String,
     pub trial_ends_at: Option<String>,
     pub grace_period_ends_at: Option<String>,
@@ -98,23 +97,6 @@ pub struct QuoteRequest {
     pub monitors: u64,
     pub interval_seconds: u32,
     pub retention_days: u32,
-}
-#[derive(Debug, Clone, Serialize)]
-pub struct CheckoutRequest {
-    pub plan_tier: String,
-}
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct CheckoutResponse {
-    pub checkout_session_id: String,
-    pub checkout_url: String,
-}
-#[derive(Debug, Clone, Serialize)]
-pub struct VerifyCheckoutRequest {
-    pub checkout_session_id: String,
-}
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct VerifyCheckoutResponse {
-    pub status: String,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct AddOnRequest {
@@ -229,24 +211,6 @@ pub async fn quote(req: &QuoteRequest) -> Result<Quote, ApiError> {
             .unwrap_or_default(),
     );
     client::get_json(&path).await
-}
-pub async fn checkout(plan_tier: &str) -> Result<CheckoutResponse, ApiError> {
-    client::post_json(
-        "/billing/checkout",
-        &CheckoutRequest {
-            plan_tier: plan_tier.to_string(),
-        },
-    )
-    .await
-}
-pub async fn verify_checkout(id: &str) -> Result<VerifyCheckoutResponse, ApiError> {
-    client::post_json(
-        "/billing/checkout/verify",
-        &VerifyCheckoutRequest {
-            checkout_session_id: id.to_string(),
-        },
-    )
-    .await
 }
 pub async fn add_on(req: &AddOnRequest) -> Result<AddOn, ApiError> {
     client::post_json("/billing/addons", req).await

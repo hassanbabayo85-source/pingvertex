@@ -3,13 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use application::{
-    ports::{
-        HistoryRetentionRepository, PricingConfigRepository, SubscriptionRepository,
-        TenantRepository, WalletRepository,
-    },
-    queries::ResolveEntitlements,
-    use_cases::resolve_entitlements::ResolveEntitlementsUseCase,
+use application::ports::{
+    HistoryRetentionRepository, PricingConfigRepository, TenantRepository, WalletRepository,
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use tokio::{sync::Semaphore, task::JoinSet, time};
@@ -26,57 +21,45 @@ pub struct SweepSummary {
     pub checks_deleted: u64,
 }
 
-pub struct RetentionWorker<T, S, H, P>
+pub struct RetentionWorker<T, H, P>
 where
     T: TenantRepository,
-    S: SubscriptionRepository + 'static,
     H: HistoryRetentionRepository + 'static,
     P: PricingConfigRepository + 'static,
 {
     tenant_repository: Arc<T>,
-    subscription_repository: Arc<S>,
     history_repository: Arc<H>,
     pricing_repository: Arc<P>,
     batch_size: u32,
     interval: Duration,
     max_concurrent_tenants: usize,
-    wallet_repository: Option<Arc<dyn WalletRepository>>,
+    wallet_repository: Arc<dyn WalletRepository>,
 }
 
-impl<T, S, H, P> RetentionWorker<T, S, H, P>
+impl<T, H, P> RetentionWorker<T, H, P>
 where
     T: TenantRepository,
-    S: SubscriptionRepository + 'static,
     H: HistoryRetentionRepository + 'static,
     P: PricingConfigRepository + 'static,
 {
     pub fn new(
         tenant_repository: Arc<T>,
-        subscription_repository: Arc<S>,
         history_repository: Arc<H>,
         pricing_repository: Arc<P>,
         batch_size: u32,
         interval: Duration,
         max_concurrent_tenants: usize,
+        wallet_repository: Arc<dyn WalletRepository>,
     ) -> Self {
         Self {
             tenant_repository,
-            subscription_repository,
             history_repository,
             pricing_repository,
             batch_size,
             interval,
             max_concurrent_tenants,
-            wallet_repository: None,
+            wallet_repository,
         }
-    }
-
-    /// PAYG runtime retention source. When configured, subscription plans are
-    /// ignored and retention is derived from the wallet activation state plus
-    /// the active PAYG pricing configuration.
-    pub fn with_wallet_repository(mut self, repository: Arc<dyn WalletRepository>) -> Self {
-        self.wallet_repository = Some(repository);
-        self
     }
 
     /// Runs one full retention sweep over all tenants with bounded
@@ -91,7 +74,6 @@ where
 
         for tenant in tenants {
             let permit = semaphore.clone().acquire_owned().await?;
-            let subscription_repository = self.subscription_repository.clone();
             let history_repository = self.history_repository.clone();
             let pricing_repository = self.pricing_repository.clone();
             let wallet_repository = self.wallet_repository.clone();
@@ -101,7 +83,7 @@ where
             join_set.spawn(async move {
                 let _permit = permit;
 
-                let retention_days = if let Some(wallet_repository) = wallet_repository {
+                let retention_days = {
                     let wallet = match wallet_repository
                         .get_or_create(tenant.id.0, "USD")
                         .await
@@ -132,27 +114,6 @@ where
                     } else {
                         config.free_tier.retention_days
                     }
-                } else {
-                    // Legacy/test compatibility only. Production wires the wallet
-                    // repository, so subscription tiers cannot affect runtime.
-                    let plan = match ResolveEntitlementsUseCase::new(subscription_repository)
-                        .with_pricing_config_repository(pricing_repository)
-                        .execute(ResolveEntitlements {
-                            tenant_id: tenant.id,
-                        })
-                        .await
-                    {
-                        Ok(plan) => plan,
-                        Err(err) => {
-                            error!(
-                                tenant_id = ?tenant.id,
-                                error = %err,
-                                "failed to resolve legacy retention entitlement; skipping retention"
-                            );
-                            return;
-                        }
-                    };
-                    plan.history_retention_days
                 };
                 let cutoff = Utc::now() - ChronoDuration::days(retention_days as i64);
 

@@ -85,6 +85,7 @@ async fn success_returns_200_and_no_error() {
     assert!(outcome.result.success);
     assert_eq!(outcome.result.status_code, Some(200));
     assert!(outcome.result.error.is_none());
+    assert_eq!(outcome.egress_bytes, 2);
 }
 
 #[tokio::test]

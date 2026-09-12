@@ -114,6 +114,7 @@ async fn scheduler_context_resolves_contextual_price_not_generic() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: true,
                 error: None,
+                egress_bytes: 0,
             })
         })
         .await
