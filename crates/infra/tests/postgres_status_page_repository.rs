@@ -1,7 +1,7 @@
 mod common;
 
 use application::ports::status_page_repository::StatusPageRepository;
-use common::{sample_status_page_with_user, setup_pool};
+use common::sample_status_page_with_user;
 use domain::value_objects::{CustomDomain, HexColor};
 use infra::PostgresStatusPageRepository;
 use serial_test::serial;
@@ -9,7 +9,7 @@ use serial_test::serial;
 #[serial]
 #[tokio::test]
 async fn save_and_find_by_id_for_user_round_trips_status_page() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -33,7 +33,7 @@ async fn save_and_find_by_id_for_user_round_trips_status_page() {
 #[serial]
 #[tokio::test]
 async fn find_by_id_for_user_returns_none_for_wrong_user() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -51,7 +51,7 @@ async fn find_by_id_for_user_returns_none_for_wrong_user() {
 #[serial]
 #[tokio::test]
 async fn update_persists_logo_and_color_changes() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let mut page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -81,7 +81,7 @@ async fn update_persists_logo_and_color_changes() {
 #[serial]
 #[tokio::test]
 async fn find_by_subdomain_returns_matching_page() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -97,7 +97,7 @@ async fn find_by_subdomain_returns_matching_page() {
 #[serial]
 #[tokio::test]
 async fn find_by_verified_custom_domain_ignores_pending_domains() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let mut page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -120,7 +120,7 @@ async fn find_by_verified_custom_domain_ignores_pending_domains() {
 #[serial]
 #[tokio::test]
 async fn find_by_verified_custom_domain_returns_page_once_verified() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let mut page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -141,7 +141,7 @@ async fn find_by_verified_custom_domain_returns_page_once_verified() {
 #[serial]
 #[tokio::test]
 async fn delete_for_user_removes_page_only_for_owner() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let page = sample_status_page_with_user(&pool, "Acme Status", "acme").await;
@@ -167,7 +167,7 @@ async fn delete_for_user_removes_page_only_for_owner() {
 #[serial]
 #[tokio::test]
 async fn find_all_for_user_returns_only_owned_pages() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresStatusPageRepository::new(pool.clone());
 
     let mine = sample_status_page_with_user(&pool, "Mine", "mine-page").await;

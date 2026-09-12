@@ -39,6 +39,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
     let user_id = UserId::new();
+    let other_user_id = UserId::new();
     let tenant_id = TenantId::new();
     let base = Utc::now();
 
@@ -72,7 +73,7 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
         let resource_id = format!("financial-{i}");
         let entry = FinancialAuditLogEntry {
             id: Uuid::new_v4(),
-            actor: "test-actor".to_string(),
+            actor: user_id.0.to_string(),
             tenant_id: Some(tenant_id.0),
             action: "wallet_credited".to_string(),
             resource: "wallet_transaction".to_string(),
@@ -85,6 +86,21 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
             .await
             .expect("seed financial audit entry");
     }
+
+    let other_entry = FinancialAuditLogEntry {
+        id: Uuid::new_v4(),
+        actor: other_user_id.0.to_string(),
+        tenant_id: Some(tenant_id.0),
+        action: "wallet_credited".to_string(),
+        resource: "wallet_transaction".to_string(),
+        resource_id: Some("financial-other-actor".to_owned()),
+        metadata: serde_json::json!({"source": "financial", "actor": "other"}),
+        created_at: base + Duration::seconds(55),
+    };
+    FinancialAuditLogRepository::create(financial_repo.as_ref(), &other_entry)
+        .await
+        .expect("seed other-actor financial audit entry");
+    expected_targets.push("financial-other-actor".to_owned());
 
     let state = AppState::new(
         InMemoryMonitorRepository::new(),
@@ -102,6 +118,44 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
     .with_financial_audit_log_repository(financial_repo.clone());
 
     let auth = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
+
+    let Json(filtered_page) = tenant_audit(
+        State(state.clone()),
+        Extension(auth.clone()),
+        Query(AuditQuery {
+            cursor: None,
+            limit: Some(100),
+            action: None,
+            actor: Some(user_id.0),
+            tenant: None,
+            target: None,
+            from: None,
+            to: None,
+        }),
+    )
+    .await
+    .expect("actor-filtered tenant audit must succeed");
+    assert!(
+        filtered_page
+            .items
+            .iter()
+            .all(|item| item.actor_user_id == user_id.0.to_string()),
+        "actor filter must apply to both generic and financial audit streams"
+    );
+    assert!(
+        filtered_page
+            .items
+            .iter()
+            .any(|item| item.source == "financial"),
+        "matching financial audit entries must remain visible"
+    );
+    assert!(
+        filtered_page
+            .items
+            .iter()
+            .all(|item| item.target_id != "financial-other-actor"),
+        "financial entries by another actor must be excluded"
+    );
 
     const PAGE_SIZE: u32 = 3;
     let mut collected = Vec::new();
@@ -186,5 +240,5 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
     let generic_count = collected.iter().filter(|e| e.source == "audit").count();
     let financial_count = collected.iter().filter(|e| e.source == "financial").count();
     assert_eq!(generic_count, 5);
-    assert_eq!(financial_count, 5);
+    assert_eq!(financial_count, 6);
 }

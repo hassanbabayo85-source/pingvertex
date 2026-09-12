@@ -200,6 +200,7 @@ async fn handle_charge_success(
         state.subscription_repository.clone(),
     )
     .with_wallet_repository(state.wallet_repository.clone())
+    .with_monitor_repository(state.monitor_repository.clone())
     .with_payment_repository(state.payment_repository.clone())
     .with_financial_audit_repository(state.financial_audit_log_repository.clone());
 
@@ -416,6 +417,7 @@ async fn handle_refund_processed(
         state.subscription_repository.clone(),
     )
     .with_wallet_repository(state.wallet_repository.clone())
+    .with_monitor_repository(state.monitor_repository.clone())
     .with_payment_repository(state.payment_repository.clone())
     .with_financial_audit_repository(state.financial_audit_log_repository.clone());
 

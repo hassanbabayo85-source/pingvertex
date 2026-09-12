@@ -712,3 +712,430 @@ async fn refund_payment_propagates_status_false_as_error() {
 
     assert!(err.to_string().contains("Refund window has closed"));
 }
+
+// ============================================================================
+// Task 5 completion matrix
+// ----------------------------------------------------------------------------
+// Adds coverage for the matrix rows the original contract file omitted:
+// malformed JSON responses, unknown transactions, provider rejections on
+// the charge path, immediate network failures, and secret-redaction
+// guarantees. Timeout tests are marked `#[ignore]` because the provider's
+// reqwest client uses a fixed 15-second timeout and gating them by default
+// would add ~30s to every `cargo test` run.
+// ============================================================================
+
+/// Helper: bind and immediately release a local TCP port so we have a
+/// `127.0.0.1:<port>` that is guaranteed to refuse connections. Used to
+/// test network-error paths deterministically (no wiremock shutdown race).
+fn unreachable_base_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    format!("http://{addr}")
+}
+
+async fn provider_at(base_url: String) -> PaystackBillingProvider {
+    PaystackBillingProvider::with_base_url(SECRET.to_owned(), base_url)
+        .expect("provider must construct with a non-empty secret and a valid base URL")
+}
+
+// ----------------------------------------------------------------------------
+// CHECKOUT: malformed JSON, network error, timeout
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn create_checkout_rejects_malformed_json_response() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/initialize"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>not json</html>"))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .create_checkout(&CheckoutRequest {
+            tenant_id: tenant(),
+            plan_tier: PlanTier::Free,
+            amount_minor: 500,
+            currency: "USD".to_owned(),
+            customer_email: Some("alice@example.com".to_owned()),
+        })
+        .await
+        .unwrap_err();
+
+    // The exact wording of a serde decode error is not part of the
+    // contract; the important guarantee is that we surface it as an Err
+    // rather than pretending the checkout succeeded.
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+async fn create_checkout_propagates_network_error() {
+    let provider = provider_at(unreachable_base_url()).await;
+
+    let err = provider
+        .create_checkout(&CheckoutRequest {
+            tenant_id: tenant(),
+            plan_tier: PlanTier::Free,
+            amount_minor: 500,
+            currency: "USD".to_owned(),
+            customer_email: Some("alice@example.com".to_owned()),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "runs in ~15s because reqwest uses a fixed 15s timeout; run with --ignored"]
+async fn create_checkout_timeout_is_bounded() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/initialize"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_secs(30))
+                .set_body_json(json!({"status": true, "data": null})),
+        )
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .create_checkout(&CheckoutRequest {
+            tenant_id: tenant(),
+            plan_tier: PlanTier::Free,
+            amount_minor: 500,
+            currency: "USD".to_owned(),
+            customer_email: Some("alice@example.com".to_owned()),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+// ----------------------------------------------------------------------------
+// VERIFY: unknown transaction, malformed JSON, network error
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn verify_payment_unknown_transaction_returns_error() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("GET"))
+        .and(path("/transaction/verify/pv-unknown"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "status": false,
+            "message": "Transaction not found",
+            "data": null
+        })))
+        .mount(&server)
+        .await;
+
+    let err = provider.verify_payment("pv-unknown").await.unwrap_err();
+    assert!(
+        err.to_string().contains("Transaction not found"),
+        "expected provider message, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn verify_payment_rejects_malformed_json_response() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("GET"))
+        .and(path("/transaction/verify/pv-malformed"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("}{ not json"))
+        .mount(&server)
+        .await;
+
+    let err = provider.verify_payment("pv-malformed").await.unwrap_err();
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+async fn verify_payment_propagates_network_error() {
+    let provider = provider_at(unreachable_base_url()).await;
+    let err = provider.verify_payment("pv-wallet-abc").await.unwrap_err();
+    assert!(!err.to_string().is_empty());
+}
+
+// ----------------------------------------------------------------------------
+// CHARGE SAVED AUTHORIZATION: provider rejection, malformed, network error
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn charge_saved_payment_method_propagates_provider_rejection() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/charge_authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": false,
+            "message": "Charge attempted but rejected by issuer",
+            "data": null
+        })))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .charge_saved_payment_method(&WalletTopUpRequest {
+            tenant_id: tenant(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "key-rej".to_owned(),
+            payment_method: Some("AUTH_xyz".to_owned()),
+            customer_email: "alice@example.com".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(
+        err.to_string().contains("rejected by issuer"),
+        "expected provider rejection message, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn charge_saved_payment_method_rejects_malformed_response() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/charge_authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .charge_saved_payment_method(&WalletTopUpRequest {
+            tenant_id: tenant(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "key-bad".to_owned(),
+            payment_method: Some("AUTH_xyz".to_owned()),
+            customer_email: "alice@example.com".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+async fn charge_saved_payment_method_propagates_network_error() {
+    let provider = provider_at(unreachable_base_url()).await;
+
+    let err = provider
+        .charge_saved_payment_method(&WalletTopUpRequest {
+            tenant_id: tenant(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "key-net".to_owned(),
+            payment_method: Some("AUTH_xyz".to_owned()),
+            customer_email: "alice@example.com".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "runs in ~15s because reqwest uses a fixed 15s timeout; run with --ignored"]
+async fn charge_saved_payment_method_timeout_is_bounded() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/charge_authorization"))
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(30)))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .charge_saved_payment_method(&WalletTopUpRequest {
+            tenant_id: tenant(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "key-slow".to_owned(),
+            payment_method: Some("AUTH_xyz".to_owned()),
+            customer_email: "alice@example.com".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+// ----------------------------------------------------------------------------
+// REFUND: malformed response, network error, timeout
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn refund_payment_rejects_malformed_response() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/refund"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("oops"))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .refund_payment(&RefundRequest {
+            tenant_id: tenant(),
+            provider_payment_id: "302961".to_owned(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "refund-bad".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+async fn refund_payment_propagates_network_error() {
+    let provider = provider_at(unreachable_base_url()).await;
+
+    let err = provider
+        .refund_payment(&RefundRequest {
+            tenant_id: tenant(),
+            provider_payment_id: "302961".to_owned(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "refund-net".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "runs in ~15s because reqwest uses a fixed 15s timeout; run with --ignored"]
+async fn refund_payment_timeout_is_bounded() {
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/refund"))
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(30)))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .refund_payment(&RefundRequest {
+            tenant_id: tenant(),
+            provider_payment_id: "302961".to_owned(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "refund-slow".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(!err.to_string().is_empty());
+}
+
+// ----------------------------------------------------------------------------
+// SECURITY: no secret / credential leakage
+// ----------------------------------------------------------------------------
+
+#[test]
+fn provider_debug_does_not_leak_secret_key() {
+    const UNIQUE_SECRET: &str = "sk_test_unique_should_never_leak_9a8b7c6d";
+    let provider = PaystackBillingProvider::new(UNIQUE_SECRET.to_owned()).unwrap();
+    let debug = format!("{provider:?}");
+    assert!(
+        !debug.contains(UNIQUE_SECRET),
+        "Debug output must not contain the secret key; got: {debug}"
+    );
+    assert!(
+        debug.contains("PaystackBillingProvider"),
+        "Debug output must identify the type: {debug}"
+    );
+}
+
+#[tokio::test]
+async fn provider_error_messages_do_not_leak_secret_key() {
+    const UNIQUE_SECRET: &str = "sk_test_unique_should_never_leak_5e4d3c2b";
+    let server = MockServer::start().await;
+    let provider =
+        PaystackBillingProvider::with_base_url(UNIQUE_SECRET.to_owned(), server.uri()).unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/transaction/verify/pv-leak"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "status": false,
+            "message": "Transaction not found",
+            "data": null
+        })))
+        .mount(&server)
+        .await;
+
+    let err = provider.verify_payment("pv-leak").await.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        !msg.contains(UNIQUE_SECRET),
+        "provider error must not contain the secret key; got: {msg}"
+    );
+
+    // Also verify the outbound request header did carry the secret (so
+    // the test really exercises the credential path) — this sanity-check
+    // ensures the redaction assertion above is meaningful.
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let auth = requests[0]
+        .headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(auth.starts_with("Bearer "));
+}
+
+#[tokio::test]
+async fn charge_saved_error_does_not_leak_authorization_code() {
+    const UNIQUE_AUTH: &str = "AUTH_sensitive_card_token_1234567890";
+    let server = MockServer::start().await;
+    let provider = provider_for(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/transaction/charge_authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": false,
+            "message": "Charge rejected",
+            "data": null
+        })))
+        .mount(&server)
+        .await;
+
+    let err = provider
+        .charge_saved_payment_method(&WalletTopUpRequest {
+            tenant_id: tenant(),
+            amount_units: 5_000_000,
+            currency: "USD".to_owned(),
+            idempotency_key: "key-sec".to_owned(),
+            payment_method: Some(UNIQUE_AUTH.to_owned()),
+            customer_email: "alice@example.com".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+    let msg = err.to_string();
+    assert!(
+        !msg.contains(UNIQUE_AUTH),
+        "provider error must not contain the saved authorization code; got: {msg}"
+    );
+}

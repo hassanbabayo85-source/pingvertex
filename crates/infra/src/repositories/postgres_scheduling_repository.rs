@@ -305,7 +305,21 @@ impl SchedulingRepository for PostgresSchedulingRepository {
     }
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
-        let result=sqlx::query(r#"UPDATE monitors SET lease_owner=NULL,lease_expires_at=NULL WHERE lease_expires_at IS NOT NULL AND lease_expires_at < $1"#).bind(now).execute(&self.pool).await?;
+        // Recover only the current lease. Keep lease_execution_id intact so
+        // PAYG idempotency survives a worker crash and a subsequent reclaim.
+        let result = sqlx::query(
+            r#"
+            UPDATE monitors
+            SET lease_owner = NULL,
+                lease_expires_at = NULL
+            WHERE lease_expires_at IS NOT NULL
+              AND lease_expires_at < $1
+            "#,
+        )
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
         Ok(result.rows_affected())
     }
 
@@ -409,13 +423,21 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         let rows = sqlx::query_as::<_,OneTimeRow>(
             r#"
             WITH selected AS (
-                SELECT r.id 
+                SELECT r.id
                 FROM one_time_check_requests r
-                JOIN tenants t ON t.id = r.tenant_id
-                WHERE t.status = 'active' 
-                  AND (r.status='QUEUED' OR (r.status='RUNNING' AND r.lease_expires_at < $4)) 
-                ORDER BY r.created_at 
-                FOR UPDATE SKIP LOCKED 
+                JOIN tenants t
+                  ON t.id = r.tenant_id
+                JOIN monitors m
+                  ON m.id = r.monitor_id
+                 AND m.tenant_id = r.tenant_id
+                WHERE t.status = 'active'
+                  AND m.enabled = true
+                  AND (
+                      r.status = 'QUEUED'
+                      OR (r.status = 'RUNNING' AND r.lease_expires_at < $4)
+                  )
+                ORDER BY r.created_at
+                FOR UPDATE OF r SKIP LOCKED 
                 LIMIT $1
             ) 
             UPDATE one_time_check_requests r 

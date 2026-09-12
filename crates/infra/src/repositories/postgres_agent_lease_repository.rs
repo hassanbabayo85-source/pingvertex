@@ -76,6 +76,7 @@ struct LeaseStatusRow {
 }
 
 impl PostgresAgentLeaseRepository {
+    #[allow(clippy::too_many_arguments)]
     async fn claim_due_checks_inner(
         &self,
         agent_id: &str,

@@ -220,7 +220,6 @@ pub async fn confirm_bulk_monitor_import(
         state.payg_pricing_repository.clone(),
         state.monitor_interval_policy_repository.clone(),
     )
-    .with_subscription_repository(state.subscription_repository.clone())
     .with_pricing_config_repository(state.pricing_config_repository.clone())
     .execute(
         authenticated_user,

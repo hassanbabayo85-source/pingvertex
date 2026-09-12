@@ -165,7 +165,7 @@ fn load_env_test() {
     }
 }
 
-async fn pool_or_skip() -> Option<PgPool> {
+async fn pool_or_skip() -> Option<(PgPool, infra::test_support::ExclusiveTestGuard)> {
     load_env_test();
     let url = match std::env::var("DATABASE_URL") {
         Ok(u) => u,
@@ -176,15 +176,11 @@ async fn pool_or_skip() -> Option<PgPool> {
             return None;
         }
     };
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!(
-                "SKIP: cannot connect to test Postgres ({e}); skipping auto-topup reconciliation test."
-            );
-            None
-        }
-    }
+    // Use infra::test_support::setup_pool_exclusive so every connection in the pool
+    // has search_path set to this test binary's private schema. A raw
+    // `PgPool::connect` would use the default `public` schema (empty),
+    // producing "relation users does not exist" errors.
+    Some(infra::test_support::setup_pool_exclusive(&url).await)
 }
 
 /// Mock provider with a reference→response map.
@@ -347,7 +343,7 @@ fn provider_with(entries: Vec<(String, PaymentVerification)>) -> Arc<MapProvider
 #[tokio::test]
 #[serial]
 async fn reconcile_credits_when_provider_confirms_payment() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -375,7 +371,7 @@ async fn reconcile_credits_when_provider_confirms_payment() {
 #[tokio::test]
 #[serial]
 async fn reconcile_is_idempotent_when_called_twice_on_same_attempt() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -417,7 +413,7 @@ async fn reconcile_is_idempotent_when_called_twice_on_same_attempt() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_amount_mismatch() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -445,7 +441,7 @@ async fn reconcile_keeps_reconciliation_status_on_amount_mismatch() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_currency_mismatch() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -473,7 +469,7 @@ async fn reconcile_keeps_reconciliation_status_on_currency_mismatch() {
 #[tokio::test]
 #[serial]
 async fn reconcile_keeps_reconciliation_status_on_provider_pending() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -504,7 +500,7 @@ async fn reconcile_keeps_reconciliation_status_on_provider_pending() {
 #[tokio::test]
 #[serial]
 async fn reconcile_marks_attempt_failed_on_provider_failure() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -535,7 +531,7 @@ async fn reconcile_marks_attempt_failed_on_provider_failure() {
 #[tokio::test]
 #[serial]
 async fn reconcile_handles_multiple_attempts_in_one_run() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;
@@ -568,7 +564,7 @@ async fn reconcile_handles_multiple_attempts_in_one_run() {
 #[tokio::test]
 #[serial]
 async fn reconcile_skips_attempt_without_provider_reference() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_tenant_and_wallet(&pool, 0).await;

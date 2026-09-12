@@ -133,8 +133,8 @@ pub async fn notifications() -> Result<Vec<WalletNotification>, ApiError> {
 pub async fn refund(req: &RefundRequest) -> Result<RefundResponse, ApiError> {
     client::post_json("/wallet/refund", req).await
 }
-pub async fn top_up(req: &TopUpRequest) -> Result<TopUpResponse, ApiError> {
-    client::post_json("/wallet/top-up", req).await
+pub async fn top_up(req: &TopUpRequest, idempotency_key: &str) -> Result<TopUpResponse, ApiError> {
+    client::post_json_with_header("/wallet/top-up", req, "Idempotency-Key", idempotency_key).await
 }
 pub async fn settings() -> Result<WalletSettings, ApiError> {
     client::get_json("/wallet/settings").await

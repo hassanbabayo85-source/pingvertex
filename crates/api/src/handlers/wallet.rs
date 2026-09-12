@@ -3,6 +3,7 @@ use application::ports::{PaymentVerification, RefundRequest};
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
+    http::HeaderMap,
 };
 use chrono::{DateTime, Datelike, Duration, Utc};
 use domain::shared::types::AuthenticatedUser;
@@ -238,6 +239,7 @@ pub async fn notifications(
 pub async fn top_up(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
+    headers: HeaderMap,
     Json(req): Json<TopUpRequest>,
 ) -> Result<Json<TopUpResponse>, ApiError> {
     user.require(Permission::ManageBilling)
@@ -249,7 +251,42 @@ pub async fn top_up(
         return Err(ApiError::bad_request("payment method id is too long"));
     }
     let tenant_id = user.tenant_context().tenant_id();
-    let checkout_idempotency_key = format!("wallet-checkout:{}", Uuid::new_v4());
+    let checkout_idempotency_key = headers
+        .get("idempotency-key")
+        .ok_or_else(|| ApiError::bad_request("Idempotency-Key header is required"))?
+        .to_str()
+        .map_err(|_| ApiError::bad_request("invalid Idempotency-Key header"))?
+        .trim()
+        .to_owned();
+    if checkout_idempotency_key.is_empty()
+        || checkout_idempotency_key.len() > 200
+        || !checkout_idempotency_key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':'))
+    {
+        return Err(ApiError::bad_request(
+            "Idempotency-Key must be 1-200 URL-safe characters",
+        ));
+    }
+    if let Some(existing) = state
+        .wallet_repository
+        .find_top_up_session_by_idempotency(tenant_id.0, &checkout_idempotency_key)
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to inspect wallet top-up idempotency", e)
+        })?
+    {
+        if existing.amount_units != req.amount_units {
+            return Err(ApiError::conflict(
+                "Idempotency-Key is already associated with a different top-up amount",
+            ));
+        }
+        return Ok(Json(TopUpResponse {
+            checkout_url: existing.checkout_url,
+            provider_checkout_id: existing.provider_checkout_id,
+            amount_units: existing.amount_units,
+        }));
+    }
     counter!("payg_wallet_top_up_attempts_total").increment(1);
     let started = std::time::Instant::now();
     let d = state
@@ -258,7 +295,7 @@ pub async fn top_up(
             tenant_id,
             amount_units: req.amount_units,
             currency: "USD".to_owned(),
-            idempotency_key: checkout_idempotency_key,
+            idempotency_key: checkout_idempotency_key.clone(),
             payment_method: req.payment_method,
             customer_email: state
                 .platform_user_repository
@@ -279,6 +316,8 @@ pub async fn top_up(
             tenant_id: tenant_id.0,
             provider: state.payment_provider.provider_name().to_owned(),
             provider_checkout_id: d.provider_checkout_id.clone(),
+            checkout_url: d.checkout_url.clone(),
+            idempotency_key: checkout_idempotency_key,
             provider_payment_id: None,
             amount_units: req.amount_units,
             refunded_amount_units: 0,
@@ -365,6 +404,13 @@ pub async fn verify_wallet_top_up(
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to credit wallet", e))?;
+    if let Err(error) = state
+        .monitor_repository
+        .clear_balance_billing_blocks_for_tenant(domain::TenantId(tenant_id))
+        .await
+    {
+        tracing::warn!(error=%error, tenant_id=%tenant_id, "wallet credited but billing blocks could not be cleared");
+    }
     counter!("payg_wallet_credit_success_total").increment(1);
     let audit = domain::AuditLogEntry {
         id: domain::AuditLogEntryId::new(),

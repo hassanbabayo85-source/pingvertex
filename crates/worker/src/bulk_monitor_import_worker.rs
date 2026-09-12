@@ -4,15 +4,15 @@ use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
     ports::{
         AuditLogEntryRepository, BulkMonitorImportRepository, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository, SubscriptionRepository,
-        TenantMembershipRepository, TenantRepository, WalletRepository,
+        MonitorRepository, PricingConfigRepository, TenantMembershipRepository, TenantRepository,
+        WalletRepository,
     },
     use_cases::{CreateMonitorError, CreateMonitorUseCase},
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use domain::{
     TenantStatus,
-    enums::{PlanTier, SubscriptionStatus},
+    enums::PlanTier,
     shared::{
         ids::{MonitorId, TenantId, UserId},
         types::{AuthenticatedUser, Permission, TenantContext},
@@ -31,7 +31,6 @@ pub struct BulkMonitorImportWorker {
     wallets: Arc<dyn WalletRepository>,
     interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
     tenant_repository: Arc<dyn TenantRepository>,
-    subscription_repository: Arc<dyn SubscriptionRepository>,
     pricing_config_repository: Arc<dyn PricingConfigRepository>,
     worker_id: Uuid,
     poll_interval: Duration,
@@ -44,6 +43,7 @@ pub struct BulkMonitorImportWorker {
 }
 
 impl BulkMonitorImportWorker {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         jobs: Arc<dyn BulkMonitorImportRepository>,
         monitors: Arc<dyn MonitorRepository>,
@@ -52,7 +52,6 @@ impl BulkMonitorImportWorker {
         wallets: Arc<dyn WalletRepository>,
         interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
         tenant_repository: Arc<dyn TenantRepository>,
-        subscription_repository: Arc<dyn SubscriptionRepository>,
         pricing_config_repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         Self {
@@ -63,7 +62,6 @@ impl BulkMonitorImportWorker {
             wallets,
             interval_policies,
             tenant_repository,
-            subscription_repository,
             pricing_config_repository,
             worker_id: Uuid::new_v4(),
             poll_interval: Duration::from_secs(env_u64("BULK_IMPORT_POLL_SECONDS", 2, 1, 60)),
@@ -355,7 +353,6 @@ impl BulkMonitorImportWorker {
                 )
                 .with_wallet_repository(self.wallets.clone())
                 .with_interval_policy_repository(self.interval_policies.clone())
-                .with_subscription_repository(self.subscription_repository.clone())
                 .with_pricing_config_repository(self.pricing_config_repository.clone())
                 .with_tenant_repository(self.tenant_repository.clone());
 
@@ -437,38 +434,23 @@ impl BulkMonitorImportWorker {
         &self,
         tenant_id: TenantId,
     ) -> Result<TenantEntitlementPolicy, Box<dyn Error + Send + Sync>> {
-        let plan = application::use_cases::ResolveEntitlementsUseCase::new(
-            self.subscription_repository.clone(),
-        )
-        .with_pricing_config_repository(self.pricing_config_repository.clone())
-        .execute(application::queries::ResolveEntitlements { tenant_id })
-        .await?;
-
-        let tier = if let Some(override_tier) = self
-            .subscription_repository
-            .find_test_plan_override(tenant_id)
+        let config = self
+            .pricing_config_repository
+            .find_active_config()
             .await?
-        {
-            override_tier
-        } else {
-            match self
-                .subscription_repository
-                .find_by_tenant_id(tenant_id)
-                .await?
-            {
-                Some(subscription) => match subscription.status {
-                    SubscriptionStatus::Expired | SubscriptionStatus::Canceled => PlanTier::Free,
-                    SubscriptionStatus::Trialing
-                    | SubscriptionStatus::Active
-                    | SubscriptionStatus::PastDue => subscription.plan_tier,
-                },
-                None => PlanTier::Free,
-            }
-        };
-
+            .ok_or_else(|| "active PAYG pricing config missing".to_owned())?;
+        let mut plan = domain::Plan::for_tier(PlanTier::Free);
+        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+        plan.history_retention_days = config.free_tier.retention_days;
+        let wallet_activated = self
+            .wallets
+            .find(tenant_id.0)
+            .await?
+            .is_some_and(|wallet| wallet.payg_activated_at.is_some());
         Ok(TenantEntitlementPolicy {
             plan,
-            is_free_plan: tier == PlanTier::Free,
+            is_free_plan: !wallet_activated,
         })
     }
 }

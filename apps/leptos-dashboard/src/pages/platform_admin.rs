@@ -28,6 +28,9 @@ struct PlatformUser {
 }
 #[derive(Clone, Debug, Deserialize)]
 struct AuditEntry {
+    // Retained for completeness (Debug/Clone). May be used by future
+    // cursor-pagination work; the backend already returns a stable id.
+    #[allow(dead_code)]
     id: String,
     actor_user_id: String,
     tenant_id: Option<String>,

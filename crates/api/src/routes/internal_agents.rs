@@ -138,64 +138,60 @@ async fn claim_checks(
             if wallet.payg_activated_at.is_some()
                 || monitor.interval_seconds < plan.min_check_interval_seconds
             {
+                let metering = state
+                    .payg_metering
+                    .as_ref()
+                    .ok_or_else(|| ApiError::internal("PAYG metering is not configured"))?
+                    .clone();
                 let operation = domain::monitor_operation(monitor.kind, false);
-                let tenant = state
-                    .platform_tenant_repository
-                    .find_by_id(monitor.tenant_id)
-                    .await
-                    .map_err(|err| {
-                        ApiError::internal_with_source("failed to load tenant pricing context", err)
-                    })?
-                    .ok_or_else(|| ApiError::not_found("tenant not found"))?;
-                let pricing = application::ports::resolve_price(
-                    state.payg_pricing_repository.as_ref(),
-                    operation.as_str(),
-                    &application::ports::PricingContext {
-                        account_type: Some(tenant.account_type),
-                        region: Some(agent_region.0.clone()),
-                        monitor_kind: Some(monitor.kind),
-                        quantity: 1,
-                    },
-                )
-                .await
-                .map_err(|err| ApiError::internal_with_source("failed to resolve PAYG price", err))?
-                .ok_or_else(|| ApiError::internal("PAYG pricing is unavailable"))?;
-
                 let request_id = format!("agent-check:{}", lease.check_id.0);
-                let reservation = match state
-                    .wallet_repository
-                    .reserve(
-                        monitor.tenant_id.0,
-                        pricing.unit_price,
-                        operation.as_str(),
-                        pricing.unit_price,
-                        pricing.version,
-                        &pricing.currency,
-                        &request_id,
-                        Utc::now() + Duration::from_secs(180),
-                    )
+                let reservation = match metering
+                    .reserve_for_execution(application::MeterUsageInput {
+                        tenant_id: monitor.tenant_id.0,
+                        operation: operation.as_str().to_owned(),
+                        units: 1,
+                        request_id,
+                        monitor_id: Some(monitor.id.0),
+                        execution_id: Some(lease.check_id.0),
+                        pricing_context: Some(application::ports::PricingContext {
+                            account_type: None,
+                            region: Some(agent_region.0.clone()),
+                            monitor_kind: Some(monitor.kind),
+                            quantity: 1,
+                        }),
+                    })
                     .await
                 {
                     Ok(reservation) => reservation,
-                    Err(err)
-                        if matches!(
-                            err.to_string().as_str(),
-                            "insufficient wallet balance"
-                                | "wallet daily spend limit exceeded"
-                                | "wallet monthly spend limit exceeded"
-                        ) =>
-                    {
-                        // Leave the short agent lease to expire. This prevents
-                        // an exhausted or spend-limited tenant from blocking
-                        // unrelated tenants in the same claim batch.
+                    Err(application::ChargeForUsageError::InsufficientBalance) => {
+                        if let Err(error) = state
+                            .monitor_repository
+                            .set_billing_block(
+                                monitor.id,
+                                monitor.tenant_id,
+                                "Insufficient wallet balance",
+                            )
+                            .await
+                        {
+                            tracing::warn!(error=%error, monitor_id=%monitor.id.0, "failed to persist agent billing block");
+                        }
                         continue;
                     }
-                    Err(err) => {
-                        return Err(ApiError::internal_with_source(
-                            "failed to reserve PAYG credit for agent check",
-                            err,
-                        ));
+                    Err(application::ChargeForUsageError::SpendLimitExceeded) => {
+                        if let Err(error) = state
+                            .monitor_repository
+                            .set_billing_block(
+                                monitor.id,
+                                monitor.tenant_id,
+                                "PAYG spend limit exceeded",
+                            )
+                            .await
+                        {
+                            tracing::warn!(error=%error, monitor_id=%monitor.id.0, "failed to persist agent spend-limit block");
+                        }
+                        continue;
                     }
+                    Err(err) => return Err(ApiError::from_payg_error(err)),
                 };
 
                 if let Err(err) = state

@@ -105,7 +105,7 @@ async fn insert_monitor_with_data(
 #[tokio::test]
 #[serial_test::serial]
 async fn get_overview_handles_1000_monitors_without_n_plus_one_queries() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresDashboardRepository::new(pool.clone());
 
     let user_id = UserId(Uuid::new_v4());
@@ -176,7 +176,7 @@ async fn get_overview_handles_1000_monitors_without_n_plus_one_queries() {
 #[tokio::test]
 #[serial_test::serial]
 async fn get_overview_counts_disabled_monitors_separately_from_up_down() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresDashboardRepository::new(pool.clone());
 
     let user_id = UserId(Uuid::new_v4());
@@ -203,7 +203,7 @@ async fn get_overview_counts_disabled_monitors_separately_from_up_down() {
 #[tokio::test]
 #[serial_test::serial]
 async fn get_overview_respects_tenant_isolation() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresDashboardRepository::new(pool.clone());
 
     let user_a = UserId(Uuid::new_v4());
@@ -228,7 +228,7 @@ async fn get_overview_respects_tenant_isolation() {
 #[tokio::test]
 #[serial_test::serial]
 async fn get_badges_is_tenant_scoped_and_counts_only_unread_active_pending() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresDashboardRepository::new(pool.clone());
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = insert_user_and_tenant(&pool, user_id).await;

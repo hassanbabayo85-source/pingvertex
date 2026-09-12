@@ -5,6 +5,7 @@ use application::ports::{
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -247,12 +248,14 @@ impl PaymentProvider for PaystackBillingProvider {
                 std::io::Error::other("customer email is required"),
             ));
         }
+        let digest = Sha256::digest(request.idempotency_key.as_bytes());
+        let reference = format!("pv-wallet-{}", hex::encode(&digest[..24]));
         let d = self
             .initialize(
                 email,
                 Self::wallet_to_minor(request.amount_units)?,
                 "USD",
-                format!("pv-wallet-{}", uuid::Uuid::new_v4().simple()),
+                reference,
             )
             .await?;
         Ok(CheckoutDetails {

@@ -1,0 +1,2 @@
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS cert_expires_at TIMESTAMPTZ;
+ALTER TABLE checks ADD COLUMN IF NOT EXISTS cert_days_remaining BIGINT;

@@ -7,11 +7,8 @@ use crate::{
     dto::CreateMonitorRequest,
     ports::{
         AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository, MonitorRepository,
-        PricingConfigRepository, QuotaCheckOutcome, SubscriptionRepository, TenantRepository,
-        WalletRepository,
+        PricingConfigRepository, QuotaCheckOutcome, TenantRepository, WalletRepository,
     },
-    queries::ResolveEntitlements,
-    use_cases::ResolveEntitlementsUseCase,
 };
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, HeartbeatToken,
@@ -86,7 +83,6 @@ pub struct CreateMonitorUseCase<R, G> {
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     wallet_repository: Option<Arc<dyn WalletRepository>>,
     interval_policy_repository: Option<Arc<dyn MonitorIntervalPolicyRepository>>,
-    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
     pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
     tenant_repository: Option<Arc<dyn TenantRepository>>,
 }
@@ -107,7 +103,6 @@ where
             audit_log_entry_repository,
             wallet_repository: None,
             interval_policy_repository: None,
-            subscription_repository: None,
             pricing_config_repository: None,
             tenant_repository: None,
         }
@@ -123,14 +118,6 @@ where
         repository: Arc<dyn MonitorIntervalPolicyRepository>,
     ) -> Self {
         self.interval_policy_repository = Some(repository);
-        self
-    }
-
-    pub fn with_subscription_repository(
-        mut self,
-        repository: Arc<dyn SubscriptionRepository>,
-    ) -> Self {
-        self.subscription_repository = Some(repository);
         self
     }
 
@@ -202,18 +189,24 @@ where
             false
         };
 
-        // Determine entitlement-based limits from the DB (Single Source of Truth)
-        let effective_plan = if let Some(sub_repo) = &self.subscription_repository {
-            let mut resolver = ResolveEntitlementsUseCase::new(sub_repo.clone());
-            if let Some(pricing_repo) = &self.pricing_config_repository {
-                resolver = resolver.with_pricing_config_repository(pricing_repo.clone());
-            }
-            resolver
-                .execute(ResolveEntitlements { tenant_id })
+        // PAYG is the runtime billing model. Before a wallet is activated,
+        // the only runtime entitlement is the active pricing configuration's
+        // free tier. Subscription plans are not consulted for monitor creation.
+        let effective_plan = if let Some(pricing_repo) = &self.pricing_config_repository {
+            if let Some(config) = pricing_repo
+                .find_active_config()
                 .await
                 .map_err(CreateMonitorError::Other)?
+            {
+                let mut plan = domain::Plan::for_tier(domain::enums::PlanTier::Free);
+                plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                plan.history_retention_days = config.free_tier.retention_days;
+                plan
+            } else {
+                domain::Plan::for_tier(domain::enums::PlanTier::Free)
+            }
         } else {
-            // Fallback for tests lacking the repositories
             domain::Plan::for_tier(domain::enums::PlanTier::Free)
         };
 

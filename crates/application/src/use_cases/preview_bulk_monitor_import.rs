@@ -8,11 +8,8 @@ use crate::{
     },
     ports::{
         BulkImportExistingMonitor, BulkImportMonitorSnapshot, MonitorIntervalPolicyRepository,
-        PAYGPricingRepository, PricingConfigRepository, PricingContext, SubscriptionRepository,
-        resolve_price,
+        PAYGPricingRepository, PricingConfigRepository, PricingContext, resolve_price,
     },
-    queries::ResolveEntitlements,
-    use_cases::ResolveEntitlementsUseCase,
 };
 use domain::{
     CheckInterval, ExpectedStatus, Host, MonitorKind, MonitorName, PAYGPricing, Timeout, Url,
@@ -57,7 +54,6 @@ pub struct PreviewBulkMonitorImportUseCase {
     tenant_repository: Option<Arc<dyn crate::ports::TenantRepository>>,
     pricing_repository: Arc<dyn PAYGPricingRepository>,
     interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
-    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
     pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
 }
 
@@ -69,18 +65,9 @@ impl PreviewBulkMonitorImportUseCase {
         Self {
             pricing_repository,
             interval_policy_repository,
-            subscription_repository: None,
             pricing_config_repository: None,
             tenant_repository: None,
         }
-    }
-
-    pub fn with_subscription_repository(
-        mut self,
-        repository: Arc<dyn SubscriptionRepository>,
-    ) -> Self {
-        self.subscription_repository = Some(repository);
-        self
     }
 
     pub fn with_tenant_repository(
@@ -135,16 +122,22 @@ impl PreviewBulkMonitorImportUseCase {
             account_type = Some(tenant.account_type);
         }
 
-        // Determine entitlement-based limits from the DB
-        let effective_plan = if let Some(sub_repo) = &self.subscription_repository {
-            let mut resolver = ResolveEntitlementsUseCase::new(sub_repo.clone());
-            if let Some(pricing_repo) = &self.pricing_config_repository {
-                resolver = resolver.with_pricing_config_repository(pricing_repo.clone());
-            }
-            resolver
-                .execute(ResolveEntitlements { tenant_id })
+        // Free entitlement is sourced only from the active PAYG pricing
+        // configuration. Subscription plans are not part of runtime PAYG.
+        let effective_plan = if let Some(pricing_repo) = &self.pricing_config_repository {
+            if let Some(config) = pricing_repo
+                .find_active_config()
                 .await
                 .map_err(BulkMonitorImportPreviewError::Repository)?
+            {
+                let mut plan = domain::Plan::for_tier(domain::enums::PlanTier::Free);
+                plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                plan.history_retention_days = config.free_tier.retention_days;
+                plan
+            } else {
+                domain::Plan::for_tier(domain::enums::PlanTier::Free)
+            }
         } else {
             domain::Plan::for_tier(domain::enums::PlanTier::Free)
         };
@@ -278,12 +271,7 @@ impl PreviewBulkMonitorImportUseCase {
             let mut row_pricing = Vec::with_capacity(row.regions.len());
             for region in &row.regions {
                 let region_key = region.as_str().to_owned();
-                let cache_key = (
-                    operation.clone(),
-                    row.kind,
-                    region_key.clone(),
-                    executions_per_region,
-                );
+                let cache_key = (operation.clone(), row.kind, region_key.clone(), 1);
                 let pricing = if let Some(cached) = contextual_pricing_cache.get(&cache_key) {
                     cached.as_ref()
                 } else {
@@ -294,7 +282,8 @@ impl PreviewBulkMonitorImportUseCase {
                             account_type,
                             region: Some(region.clone()),
                             monitor_kind: Some(row.kind),
-                            quantity: executions_per_region,
+                            // Actual runtime billing resolves one price per execution.
+                            quantity: 1,
                         },
                     )
                     .await

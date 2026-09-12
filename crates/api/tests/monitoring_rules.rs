@@ -98,10 +98,7 @@ fn every_alert_has_an_expression() {
         if let Some(name) = trimmed.strip_prefix("- alert:") {
             // Close out the previous alert.
             if let Some(prev) = current_alert.take() {
-                assert!(
-                    current_has_expr,
-                    "alert `{prev}` has no `expr:` line"
-                );
+                assert!(current_has_expr, "alert `{prev}` has no `expr:` line");
             }
             current_alert = Some(name.trim().to_owned());
             current_has_expr = false;

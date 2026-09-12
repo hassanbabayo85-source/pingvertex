@@ -49,6 +49,8 @@ use std::sync::Arc;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -62,7 +64,7 @@ fn load_env_test() {
     }
 }
 
-async fn pool_or_skip() -> Option<PgPool> {
+async fn pool_or_skip() -> Option<(PgPool, infra::test_support::ExclusiveTestGuard)> {
     load_env_test();
     let url = match std::env::var("DATABASE_URL") {
         Ok(u) => u,
@@ -73,15 +75,7 @@ async fn pool_or_skip() -> Option<PgPool> {
             return None;
         }
     };
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!(
-                "SKIP: cannot connect to test Postgres ({e}); skipping bulk import integration test."
-            );
-            None
-        }
-    }
+    Some(infra::test_support::setup_pool_exclusive(&url).await)
 }
 
 /// Creates a fresh user + tenant. Returns (tenant_id, actor_user_id) so
@@ -164,8 +158,9 @@ fn build_job(
 // ===========================================================================
 
 #[tokio::test]
+#[serial]
 async fn create_confirmed_job_inserts_new_job_with_rows() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -213,8 +208,9 @@ async fn create_confirmed_job_inserts_new_job_with_rows() {
 // ===========================================================================
 
 #[tokio::test]
+#[serial]
 async fn create_confirmed_job_with_same_key_and_source_returns_existing() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -271,8 +267,9 @@ async fn create_confirmed_job_with_same_key_and_source_returns_existing() {
 // ===========================================================================
 
 #[tokio::test]
+#[serial]
 async fn create_confirmed_job_with_same_key_but_different_source_returns_conflict() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -317,7 +314,7 @@ async fn create_confirmed_job_with_same_key_but_different_source_returns_conflic
 #[tokio::test]
 #[serial]
 async fn claim_jobs_yields_each_job_to_a_single_worker() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -369,7 +366,7 @@ async fn claim_jobs_yields_each_job_to_a_single_worker() {
 #[tokio::test]
 #[serial]
 async fn claim_rows_uses_skip_locked() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -446,7 +443,7 @@ async fn claim_rows_uses_skip_locked() {
 #[tokio::test]
 #[serial]
 async fn row_state_transitions_are_isolated_per_row() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;
@@ -552,7 +549,7 @@ async fn row_state_transitions_are_isolated_per_row() {
 #[tokio::test]
 #[serial]
 async fn pause_resume_refresh_round_trip() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, actor_user_id) = setup_tenant(&pool).await;

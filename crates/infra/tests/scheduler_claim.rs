@@ -76,7 +76,7 @@ async fn insert_due_monitor_with_interval(
 #[tokio::test]
 #[serial]
 async fn concurrent_claim_attempts_do_not_double_claim() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
@@ -135,7 +135,7 @@ async fn concurrent_claim_attempts_do_not_double_claim() {
 #[tokio::test]
 #[serial]
 async fn expired_lease_makes_monitor_claimable_again() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
     let monitor_id =
@@ -204,7 +204,7 @@ async fn expired_lease_makes_monitor_claimable_again() {
 #[tokio::test]
 #[serial]
 async fn immediate_check_request_is_tenant_scoped_and_preserves_leases() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_a = Uuid::new_v4();
     let tenant_a = common::insert_user(&pool, domain::UserId(user_a)).await;
     let user_b = Uuid::new_v4();
@@ -268,7 +268,7 @@ async fn immediate_check_request_is_tenant_scoped_and_preserves_leases() {
 #[tokio::test]
 #[serial]
 async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
     let monitor_id =
@@ -319,7 +319,7 @@ async fn stale_worker_cannot_complete_a_reclaimed_monitor_claim() {
 #[tokio::test]
 #[serial]
 async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
@@ -404,7 +404,7 @@ async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion()
 #[tokio::test]
 #[serial]
 async fn per_tenant_claim_limit_is_enforced() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
@@ -452,7 +452,7 @@ async fn per_tenant_claim_limit_is_enforced() {
 #[tokio::test]
 #[serial]
 async fn ten_thousand_due_monitors_are_capped_per_tenant() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
@@ -492,13 +492,20 @@ async fn ten_thousand_due_monitors_are_capped_per_tenant() {
         .await
         .unwrap();
 
-    assert_eq!(claims.len(), 4);
+    // The scheduler may claim monitors owned by other concurrently running
+    // tests. Filter to our tenant to assert per-tenant cap behaviour.
+    let our_claims: Vec<_> = claims
+        .iter()
+        .filter(|c| c.monitor.tenant_id == tenant_id)
+        .collect();
+
+    assert_eq!(our_claims.len(), 4);
 }
 
 #[tokio::test]
 #[serial]
 async fn agent_region_claim_respects_cross_region_tenant_cap() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
 
@@ -556,7 +563,7 @@ async fn agent_region_claim_respects_cross_region_tenant_cap() {
 #[serial]
 #[ignore]
 async fn ten_thousand_due_monitors_can_be_claimed_without_duplicates() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, domain::UserId(user_id)).await;
     sqlx::query(
@@ -614,7 +621,10 @@ async fn ten_thousand_due_monitors_can_be_claimed_without_duplicates() {
     let claimed = ids.len();
     ids.sort_unstable();
     ids.dedup();
-    assert_eq!(claimed, 10_000, "16 looping workers must claim all 10k rows");
+    assert_eq!(
+        claimed, 10_000,
+        "16 looping workers must claim all 10k rows"
+    );
     assert_eq!(ids.len(), 10_000, "no monitor may be claimed twice");
 
     let leased: i64 = sqlx::query_scalar(

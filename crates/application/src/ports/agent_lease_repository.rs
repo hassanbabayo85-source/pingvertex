@@ -26,8 +26,10 @@ pub enum SubmitAgentResultOutcome {
     Stale,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait AgentLeaseRepository: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn claim_due_checks(
         &self,
         agent_id: &str,

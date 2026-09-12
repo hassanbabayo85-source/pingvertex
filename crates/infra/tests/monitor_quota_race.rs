@@ -1,7 +1,7 @@
 mod common;
 
 use application::ports::monitor_repository::{MonitorRepository, QuotaCheckOutcome};
-use common::{insert_user, setup_pool};
+use common::{insert_user, setup_pool_exclusive};
 use domain::shared::ids::{MonitorId, UserId};
 use domain::{
     CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout, Url,
@@ -28,7 +28,7 @@ use uuid::Uuid;
 #[serial]
 #[tokio::test]
 async fn concurrent_creates_never_exceed_quota() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let user_id = UserId(Uuid::new_v4());
@@ -89,7 +89,7 @@ async fn concurrent_creates_never_exceed_quota() {
 #[serial]
 #[tokio::test]
 async fn quota_exceeded_does_not_persist_a_partial_row() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let user_id = UserId(Uuid::new_v4());

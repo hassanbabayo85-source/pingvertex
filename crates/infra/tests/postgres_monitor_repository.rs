@@ -1,14 +1,14 @@
 mod common;
 
 use application::ports::monitor_repository::MonitorRepository;
-use common::{sample_monitor, setup_pool};
+use common::sample_monitor;
 use infra::PostgresMonitorRepository;
 use serial_test::serial;
 
 #[serial]
 #[tokio::test]
 async fn save_and_find_by_id_round_trips_monitor() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
@@ -30,7 +30,7 @@ async fn save_and_find_by_id_round_trips_monitor() {
 #[serial]
 #[tokio::test]
 async fn update_persists_changes() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let monitor = sample_monitor(&pool, "Google", "https://google.com").await;
@@ -58,16 +58,25 @@ async fn update_persists_changes() {
 #[serial]
 #[tokio::test]
 async fn find_all_returns_saved_monitors() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let first = sample_monitor(&pool, "Monitor 1", "https://example1.com").await;
-    let second = sample_monitor(&pool, "Monitor 2", "https://example2.com").await;
+    let mut second = sample_monitor(&pool, "Monitor 2", "https://example2.com").await;
+    // Force the same tenant for both monitors so `find_all_for_tenant`
+    // can observe both. `sample_monitor` normally gives each monitor its
+    // own tenant (via `insert_user`), which is fine for other tests but
+    // makes this test's assertion impossible.
+    second.tenant_id = first.tenant_id;
+    second.user_id = first.user_id;
 
     repository.save(&first).await.unwrap();
     repository.save(&second).await.unwrap();
 
-    let monitors = repository.find_all().await.unwrap();
+    let monitors = repository
+        .find_all_for_tenant(first.tenant_id)
+        .await
+        .unwrap();
 
     assert_eq!(monitors.len(), 2);
     let names: Vec<_> = monitors
@@ -81,7 +90,7 @@ async fn find_all_returns_saved_monitors() {
 #[serial]
 #[tokio::test]
 async fn delete_removes_monitor() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repository = PostgresMonitorRepository::new(pool.clone());
 
     let monitor = sample_monitor(&pool, "Delete Me", "https://deleteme.com").await;

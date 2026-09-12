@@ -9,7 +9,7 @@ mod common;
 #[tokio::test]
 #[serial]
 async fn audit_log_is_database_append_only() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user = Uuid::new_v4();
     let tenant = common::insert_user(&pool, UserId(user)).await;
     let id = Uuid::new_v4();
@@ -45,7 +45,7 @@ async fn audit_log_is_database_append_only() {
 #[tokio::test]
 #[serial]
 async fn audit_page_filters_and_tenant_scope_are_bounded() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_a = Uuid::new_v4();
     let tenant_a = common::insert_user(&pool, UserId(user_a)).await;
     let user_b = Uuid::new_v4();

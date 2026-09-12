@@ -18,11 +18,11 @@
 //! requires `m.kind = 'http'`), so non-HTTP monitors stay on the
 //! scheduler regardless of how many regions they list.
 
+use application::ports::{AgentLeaseRepository, SchedulingRepository};
 use chrono::Utc;
 use domain::shared::ids::UserId;
 use infra::repositories::postgres_agent_lease_repository::PostgresAgentLeaseRepository;
 use infra::repositories::postgres_scheduling_repository::PostgresSchedulingRepository;
-use application::ports::{AgentLeaseRepository, SchedulingRepository};
 use sqlx::PgPool;
 use std::time::Duration;
 use uuid::Uuid;
@@ -72,7 +72,7 @@ async fn insert_monitor(
 #[tokio::test]
 #[serial_test::serial]
 async fn execution_routing_partitions_monitors_by_kind_and_regions() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let user_id = Uuid::new_v4();
     let tenant_id = common::insert_user(&pool, UserId(user_id)).await;
 

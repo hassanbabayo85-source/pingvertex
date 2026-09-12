@@ -97,7 +97,7 @@ async fn preview_matches_actual_billing_for_company_context() {
             account_type: Some(AccountType::Company),
             region: None,
             monitor_kind: Some(MonitorKind::Http),
-            quantity: preview.checks_total,
+            quantity: 1,
         },
     )
     .await

@@ -49,6 +49,7 @@ fn cors_layer() -> CorsLayer {
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
+            axum::http::header::HeaderName::from_static("idempotency-key"),
         ])
 }
 
@@ -330,33 +331,8 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
-    // H10 (SECURITY GAP FIX): `pricing_routes` previously had no rate
-    // limiting at all, unlike every other route group in this file
-    // (including `public_routes` right above, which is the closest analog
-    // since both groups are fully anonymous — no `jwt_auth`/`api_key_auth`
-    // `route_layer` is attached to either). `pricing::router()` currently
-    // exposes only `POST /pricing/quote`, which is unauthenticated and was
-    // therefore floodable without limit: an attacker could hammer it to
-    // degrade the DB/CPU cost of quote calculation, or scrape pricing
-    // config values at will.
-    //
-    // Per the original spec this endpoint should eventually distinguish
-    // Anonymous (30 req/min) vs Authenticated (120 req/min) callers, but
-    // `pricing_routes` has no auth middleware wired at all today — there is
-    // no `AuthenticatedUser`/`ApiKeyPrincipal` in scope by the time this
-    // layer runs, so the limiter cannot key on "authenticated vs not".
-    // Splitting that would require `jwt_auth`/`api_key_auth` to run BEFORE
-    // rate limiting and expose auth state to a custom `KeyExtractor` (see
-    // `AgentIdKeyExtractor` for the existing precedent) — a real design
-    // decision (does the quote endpoint become auth-required at all?
-    // optional auth?) that is out of scope for this fix and not decidable
-    // from the existing code/ADRs. Until that's decided, every caller is
-    // treated as anonymous and gets the single, conservative 30 req/min
-    // limit called for in the "Anonymous" tier of the original spec.
-    //
-    // `per_second(2)` + `burst_size(30)` == an initial burst of 30
-    // requests, replenishing at 1 token / 2s thereafter == 30 req/min
-    // sustained, matching that Anonymous figure exactly.
+    // Public pricing quotes are deliberately read-only and rate-limited.
+    // Actual PAYG previews and wallet mutations remain authenticated.
     let pricing_routes = pricing::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()

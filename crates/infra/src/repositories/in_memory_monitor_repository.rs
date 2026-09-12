@@ -274,6 +274,18 @@ impl MonitorRepository for InMemoryMonitorRepository {
         Ok((before - blocks.len()) as u64)
     }
 
+    async fn clear_balance_billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let mut blocks = self.billing_blocks.write().unwrap();
+        let before = blocks.len();
+        blocks.retain(|_, (tid, reason)| {
+            *tid != tenant_id || reason != "Insufficient wallet balance"
+        });
+        Ok((before - blocks.len()) as u64)
+    }
+
     async fn billing_blocks_for_tenant(
         &self,
         tenant_id: TenantId,

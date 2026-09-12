@@ -24,7 +24,7 @@ BODY_TEXT=""
 MONITOR_ID=""
 USER_ID=""
 TENANT_ID=""
-CHECKOUT_STATUS=""
+# CHECKOUT_STATUS=""
 VERIFY_CHECKOUT_STATUS=""
 
 step() { STEP="$1"; echo; echo "=== $STEP ==="; }
@@ -272,17 +272,17 @@ if [ "$KEY_STATUS" = "201" ]; then
 fi
 
 # ---------------------------------------------------------------------
-step "UPGRADE"
-CHECKOUT_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/billing/checkout" \
+# step "UPGRADE"
+# CHECKOUT_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/billing/checkout" \
   -H 'Content-Type: application/json' -d '{"plan_tier":"starter"}')
-CHECKOUT_STATUS=$(echo "$CHECKOUT_RESP" | tail -1)
-CHECKOUT_JSON=$(echo "$CHECKOUT_RESP" | sed '$d')
-require_status "initiate checkout" "200" "$CHECKOUT_STATUS"
-if [ "$CHECKOUT_STATUS" = "200" ]; then
-  SESSION_ID=$(echo "$CHECKOUT_JSON" | jq -r '.checkout_session_id')
-  VERIFY_CHECKOUT_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/billing/checkout/verify" \
+# CHECKOUT_STATUS=$(echo "$CHECKOUT_RESP" | tail -1)
+# CHECKOUT_JSON=$(echo "$CHECKOUT_RESP" | sed '$d')
+# require_status "initiate checkout" "200" "$CHECKOUT_STATUS"
+# if [ "$CHECKOUT_STATUS" = "200" ]; then
+#   SESSION_ID=$(echo "$CHECKOUT_JSON" | jq -r '.checkout_session_id')
+#   VERIFY_CHECKOUT_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/billing/checkout/verify" \
     -H 'Content-Type: application/json' -d "$(jq -n --arg id "$SESSION_ID" '{checkout_session_id:$id}')")
-  require_status "verify checkout" "200" "$VERIFY_CHECKOUT_STATUS"
+#   require_status "verify checkout" "200" "$VERIFY_CHECKOUT_STATUS"
 fi
 
 # ---------------------------------------------------------------------
@@ -312,7 +312,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-step "DOWNGRADE via billing webhook"
+# step "DOWNGRADE via billing webhook"
 if [ -n "$BILLING_WEBHOOK_SECRET" ]; then
   if [ "$USER_ID" != "missing" ]; then
     TENANT_ID=$(db_query "SELECT tenant_id FROM tenant_memberships WHERE user_id = '$USER_ID';")

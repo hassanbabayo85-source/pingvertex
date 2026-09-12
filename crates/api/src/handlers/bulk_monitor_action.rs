@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{error::ApiError, state::AppState};
 
 const MAX_SELECTED_MONITORS: usize = 500;
+const MAX_AUDIT_REASON_LEN: usize = 500;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,6 +30,9 @@ pub struct BulkMonitorActionRequest {
     pub monitor_ids: Vec<String>,
     #[serde(default)]
     pub all: bool,
+    /// Optional operator-supplied reason retained in the append-only audit metadata.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,13 +41,49 @@ pub struct BulkMonitorActionResponse {
     pub action: BulkMonitorAction,
 }
 
+fn required_permission(action: BulkMonitorAction) -> Permission {
+    match action {
+        BulkMonitorAction::Enable | BulkMonitorAction::Disable => Permission::PauseMonitor,
+        BulkMonitorAction::Pause | BulkMonitorAction::Resume => Permission::PauseMonitor,
+    }
+}
+
+fn normalize_reason(reason: Option<&str>) -> Result<Option<String>, ApiError> {
+    let reason = reason
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    if reason
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > MAX_AUDIT_REASON_LEN)
+    {
+        return Err(ApiError::bad_request(format!(
+            "reason must be at most {MAX_AUDIT_REASON_LEN} characters"
+        )));
+    }
+
+    Ok(reason)
+}
+
 pub async fn bulk_monitor_action(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(request): Json<BulkMonitorActionRequest>,
 ) -> Result<Json<BulkMonitorActionResponse>, ApiError> {
-    user.require(Permission::PauseMonitor)
+    user.require(required_permission(request.action))
         .map_err(|e| ApiError::forbidden(e.to_string()))?;
+
+    let tenant_id = user.tenant_context().tenant_id();
+    let tenant = state
+        .platform_tenant_repository
+        .find_by_id(tenant_id)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load tenant status", e))?
+        .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+    if tenant.status != domain::TenantStatus::Active {
+        return Err(ApiError::forbidden("tenant is suspended"));
+    }
 
     if request.all && !request.monitor_ids.is_empty() {
         return Err(ApiError::bad_request(
@@ -60,6 +100,8 @@ pub async fn bulk_monitor_action(
             "a bulk request may contain at most {MAX_SELECTED_MONITORS} monitor ids"
         )));
     }
+
+    let reason = normalize_reason(request.reason.as_deref())?;
 
     let ids = if request.all {
         None
@@ -85,7 +127,6 @@ pub async fn bulk_monitor_action(
         BulkMonitorAction::Pause => domain::AuditAction::BulkMonitorPaused,
         BulkMonitorAction::Resume => domain::AuditAction::BulkMonitorResumed,
     };
-    let tenant_id = user.tenant_context().tenant_id();
     let affected = state
         .monitor_repository
         .set_enabled_for_tenant(tenant_id, ids.as_deref(), enabled)
@@ -107,6 +148,7 @@ pub async fn bulk_monitor_action(
             "action": request.action,
             "scope": if request.all { "all" } else { "selected" },
             "affected": affected,
+            "reason": reason,
         }),
         created_at: chrono::Utc::now(),
     };
@@ -120,4 +162,28 @@ pub async fn bulk_monitor_action(
         affected,
         action: request.action,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_reason;
+
+    #[test]
+    fn normalizes_blank_reason_to_none() {
+        assert_eq!(normalize_reason(Some("  ")).unwrap(), None);
+    }
+
+    #[test]
+    fn trims_reason() {
+        assert_eq!(
+            normalize_reason(Some("  maintenance window  ")).unwrap(),
+            Some("maintenance window".to_owned())
+        );
+    }
+
+    #[test]
+    fn rejects_reason_over_500_characters() {
+        let reason = "x".repeat(501);
+        assert!(normalize_reason(Some(&reason)).is_err());
+    }
 }

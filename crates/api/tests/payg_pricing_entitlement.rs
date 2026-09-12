@@ -22,13 +22,14 @@ use domain::pricing::PricingConfig;
 use domain::shared::ids::{TenantId, UserId};
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
 use infra::InMemoryApiFlowRepository;
+use infra::InMemoryMonitorIntervalPolicyRepository;
 use infra::InMemoryMonitorRepository;
 use infra::InMemoryNotificationChannelRepository;
 use infra::InMemoryProxyCheckJobRepository;
 use infra::NoopNotificationService;
 use infra::UuidIdGenerator;
-use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::repositories::in_memory_payg_pricing_repository::InMemoryPAYGPricingRepository;
+use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -47,6 +48,12 @@ async fn payg_pricing_reflects_db_configured_free_tier() {
         Arc::new(InMemoryPricingConfigRepository::new().with_config(config));
 
     let payg_repo = Arc::new(InMemoryPAYGPricingRepository::new());
+    let interval_policies = InMemoryMonitorIntervalPolicyRepository::default()
+        .with_policy(domain::MonitorKind::Http, 47)
+        .with_policy(domain::MonitorKind::Tcp, 53)
+        .with_policy(domain::MonitorKind::Dns, 59)
+        .with_policy(domain::MonitorKind::Heartbeat, 67)
+        .with_policy(domain::MonitorKind::Flow, 89);
 
     let state = AppState::new(
         InMemoryMonitorRepository::new(),
@@ -62,14 +69,18 @@ async fn payg_pricing_reflects_db_configured_free_tier() {
         infra::InMemoryAuditLogEntryRepository::new(),
     )
     .with_pricing_config_repository(pricing_repo)
-    .with_payg_pricing_repository(payg_repo);
+    .with_payg_pricing_repository(payg_repo)
+    .with_monitor_interval_policy_repository(interval_policies);
 
     let auth = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
 
-    let Json(PaygPricingPage { free_tier, .. }) =
-        payg_pricing(State(state), Extension(auth))
-            .await
-            .expect("payg_pricing handler must succeed");
+    let Json(PaygPricingPage {
+        free_tier,
+        preview_limits,
+        ..
+    }) = payg_pricing(State(state), Extension(auth))
+        .await
+        .expect("payg_pricing handler must succeed");
 
     let FreeTierResponse {
         max_monitors,
@@ -89,4 +100,10 @@ async fn payg_pricing_reflects_db_configured_free_tier() {
         retention_days, 7,
         "free_tier.retention_days must come from the DB config"
     );
+
+    assert_eq!(preview_limits.min_interval_seconds_http, 47);
+    assert_eq!(preview_limits.min_interval_seconds_tcp, 53);
+    assert_eq!(preview_limits.min_interval_seconds_dns, 59);
+    assert_eq!(preview_limits.min_interval_seconds_heartbeat, 67);
+    assert_eq!(preview_limits.min_interval_seconds_flow, 89);
 }

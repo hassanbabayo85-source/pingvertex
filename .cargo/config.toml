@@ -1,2 +1,17 @@
+# Cargo target directory is pinned to an external SSD to keep the
+# root filesystem (233G, currently ~85% used) from filling up during
+# workspace builds. The SSD must be mounted at the path below before
+# running any `cargo` command.
+#
+# Mount point:  /run/media/abubakar-hassan-babayo/2e9125ba-a356-4262-9af0-959cb5e15607
+# Device UUID:  2e9125ba-a356-4262-9af0-959cb5e15607
+#
+# If the SSD is not mounted, cargo will fail with "Permission denied"
+# because the target path resolves under an unwritable directory. To
+# build anyway (temporarily), either mount the SSD or override with:
+#     CARGO_TARGET_DIR=$PWD/target cargo build ...
 [build]
 target-dir = "/run/media/abubakar-hassan-babayo/2e9125ba-a356-4262-9af0-959cb5e15607/cargo-target"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

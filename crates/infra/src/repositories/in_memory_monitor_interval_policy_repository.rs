@@ -14,6 +14,24 @@ pub struct InMemoryMonitorIntervalPolicyRepository {
     policies: Arc<RwLock<HashMap<String, u32>>>,
 }
 
+impl InMemoryMonitorIntervalPolicyRepository {
+    /// Override one policy in tests without introducing a second fake.
+    pub fn with_policy(self, kind: MonitorKind, min_interval_seconds: u32) -> Self {
+        let key = match kind {
+            MonitorKind::Http => "http",
+            MonitorKind::Tcp => "tcp",
+            MonitorKind::Dns => "dns",
+            MonitorKind::Heartbeat => "heartbeat",
+            MonitorKind::Flow => "flow",
+        };
+        self.policies
+            .write()
+            .unwrap()
+            .insert(key.to_owned(), min_interval_seconds);
+        self
+    }
+}
+
 impl Default for InMemoryMonitorIntervalPolicyRepository {
     fn default() -> Self {
         let policies = [
