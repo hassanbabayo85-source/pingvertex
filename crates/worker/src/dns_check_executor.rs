@@ -110,6 +110,7 @@ impl crate::durable_scheduler::CheckExecutor for DnsCheckExecutor {
         Ok(CheckExecution {
             attempted: outcome.attempted,
             error: None,
+            egress_bytes: 0,
         })
     }
 }

@@ -66,3 +66,11 @@ erro
 *.bak
 .attic/
 uptime-monitor*.txt
+
+# PAYG migration backups — local only, never commit
+.payg-*-backup-*/
+.payg-*-backup-*/*.patch
+.payg-part5-*/
+.payg-part5-*.patch
+.pingvertex-*-backup-*/
+.pingvertex-repair*/

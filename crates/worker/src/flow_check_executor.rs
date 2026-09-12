@@ -86,6 +86,11 @@ impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
 
         let result = execute_flow(&flow, &self.http_client).await;
         let attempted = result.outcomes.iter().any(|o| o.attempted);
+        let egress_bytes = result
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.egress_bytes)
+            .sum();
 
         let check_id = self.id_generator.next_check_id().await;
         let check = build_check(check_id, monitor, &result);
@@ -118,6 +123,7 @@ impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
         Ok(CheckExecution {
             attempted,
             error: None,
+            egress_bytes,
         })
     }
 }

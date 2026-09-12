@@ -15,9 +15,8 @@ use infra::{
     PostgresMonitorRepository, PostgresNotificationChannelRepository,
     PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository, PostgresUsageEventRepository,
-    RedisStatusPageCache, UuidIdGenerator, create_pool,
+    PostgresStatusPageRepository, PostgresTenantMembershipRepository, PostgresTenantRepository,
+    PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -110,7 +109,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let id_generator = Arc::new(UuidIdGenerator::new());
 
     let tenant_repository = Arc::new(PostgresTenantRepository::new(pool.clone()));
-    let subscription_repository = Arc::new(PostgresSubscriptionRepository::new(pool.clone()));
     let wallet_repository = Arc::new(infra::PostgresWalletRepository::new(pool.clone()));
     let financial_audit_repository = Arc::new(infra::PostgresFinancialAuditLogRepository::new(
         pool.clone(),
@@ -297,14 +295,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let retention_worker = RetentionWorker::new(
         tenant_repository.clone(),
-        subscription_repository.clone(),
         history_retention_repository,
         pricing_config_repository.clone(),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,
-    )
-    .with_wallet_repository(wallet_repository.clone());
+        wallet_repository.clone(),
+    );
     let retention_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = retention_worker.run_forever(retention_cancel).await {

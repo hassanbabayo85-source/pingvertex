@@ -74,6 +74,8 @@ pub struct FlowStepOutcome {
     pub attempted: bool,
     pub status_code: Option<u16>,
     pub error: Option<String>,
+    /// Bytes observed/declared in this HTTP step for PAYG egress metering.
+    pub egress_bytes: u64,
     pub assertion_results: Vec<domain::value_objects::AssertionEvaluationResult>,
 }
 
@@ -186,6 +188,7 @@ pub async fn execute_flow_with_resolver(
                 attempted: in_flight_attempted.load(Ordering::Acquire),
                 status_code: None,
                 error: Some("flow exceeded 60s total timeout".to_string()),
+                egress_bytes: 0,
                 assertion_results: Vec::new(),
             });
 
@@ -268,6 +271,7 @@ async fn execute_step(
         attempted: false,
         status_code: None,
         error: Some(error),
+        egress_bytes: 0,
         assertion_results: Vec::new(),
     };
 
@@ -350,6 +354,11 @@ async fn execute_step(
     };
 
     let status = response.status().as_u16();
+    let declared_egress_bytes = if step.method == domain::HttpMethod::Head {
+        0
+    } else {
+        response.content_length().unwrap_or(0)
+    };
 
     let headers: HashMap<String, String> = response
         .headers()
@@ -369,14 +378,14 @@ async fn execute_step(
     let body_bytes = match read_body_bounded(response).await {
         Ok(bytes) => bytes,
         Err(()) => {
-            return (
-                failed_outcome(
-                    "HTTP response body exceeded the maximum permitted size".to_string(),
-                ),
-                None,
+            let mut outcome = failed_outcome(
+                "HTTP response body exceeded the maximum permitted size".to_string(),
             );
+            outcome.egress_bytes = declared_egress_bytes.min(MAX_STEP_RESPONSE_BODY_BYTES as u64);
+            return (outcome, None);
         }
     };
+    let egress_bytes = (body_bytes.len() as u64).max(declared_egress_bytes);
     let body_string = String::from_utf8_lossy(&body_bytes).into_owned();
 
     // e. Ajiye StepResult domin steps na gaba su iya amfani dashi.
@@ -417,6 +426,7 @@ async fn execute_step(
             passed: all_passed,
             status_code: Some(status),
             error,
+            egress_bytes,
             assertion_results,
         },
         Some(step_result),

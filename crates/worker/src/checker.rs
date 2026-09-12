@@ -33,6 +33,9 @@ pub struct HttpCheckOutcome {
     pub result: CheckResult,
     pub error_kind: CheckErrorKind,
     pub attempted: bool,
+    /// Bytes observed/declared in the remote HTTP response. This is used only
+    /// for PAYG network-egress metering; the response body remains bounded.
+    pub egress_bytes: u64,
 }
 
 impl HttpCheckOutcome {
@@ -41,6 +44,7 @@ impl HttpCheckOutcome {
             result,
             error_kind,
             attempted: true,
+            egress_bytes: 0,
         }
     }
 
@@ -54,6 +58,7 @@ impl HttpCheckOutcome {
             result: CheckResult::failure(region, latency_ms, error),
             error_kind,
             attempted: false,
+            egress_bytes: 0,
         }
     }
 
@@ -68,6 +73,7 @@ impl HttpCheckOutcome {
             result: CheckResult::failure_with_status(region, status, latency_ms, error),
             error_kind,
             attempted: true,
+            egress_bytes: 0,
         }
     }
 }
@@ -364,6 +370,11 @@ async fn handle_http_response(
         Ok(response) => {
             let status = response.status().as_u16();
 
+            let declared_egress_bytes = if monitor.method == HttpMethod::Head {
+                0
+            } else {
+                response.content_length().unwrap_or(0)
+            };
             if status != monitor.expected_status {
                 let error_msg = format!("expected {}, got {}", monitor.expected_status, status);
                 let result = if include_status_on_mismatch {
@@ -376,24 +387,31 @@ async fn handle_http_response(
                 } else {
                     CheckResult::failure(RegionCode::default_region(), latency_ms, error_msg)
                 };
-
-                return HttpCheckOutcome::new(result, CheckErrorKind::HttpError);
+                let mut outcome = HttpCheckOutcome::new(result, CheckErrorKind::HttpError);
+                outcome.egress_bytes = declared_egress_bytes;
+                return outcome;
             }
 
-            let (headers, body_bytes) = if monitor.assertions.is_empty() {
-                (HashMap::new(), Vec::new())
+            let (headers, body_bytes, egress_bytes) = if monitor.assertions.is_empty() {
+                (HashMap::new(), Vec::new(), declared_egress_bytes)
             } else {
                 let headers = collect_headers(&response);
                 match read_body_bounded(response).await {
-                    Ok(body) => (headers, body),
+                    Ok(body) => {
+                        let observed = body.len() as u64;
+                        (headers, body, observed.max(declared_egress_bytes))
+                    }
                     Err(error_kind) => {
-                        return HttpCheckOutcome::failure_with_status(
+                        let mut outcome = HttpCheckOutcome::failure_with_status(
                             RegionCode::default_region(),
                             status,
                             latency_ms,
                             error_kind,
                             "HTTP response body exceeded the maximum permitted size",
                         );
+                        outcome.egress_bytes =
+                            declared_egress_bytes.min(MAX_HTTP_RESPONSE_BODY_BYTES as u64);
+                        return outcome;
                     }
                 }
             };
@@ -413,13 +431,15 @@ async fn handle_http_response(
                         results.iter().filter_map(|r| r.message.clone()).collect();
                     let error_msg = format!("assertions sun gaza: {}", errors.join("; "));
 
-                    return HttpCheckOutcome::failure_with_status(
+                    let mut outcome = HttpCheckOutcome::failure_with_status(
                         RegionCode::default_region(),
                         status,
                         latency_ms,
                         CheckErrorKind::AssertionFailed,
                         error_msg,
                     );
+                    outcome.egress_bytes = egress_bytes;
+                    return outcome;
                 }
             }
 
@@ -430,11 +450,13 @@ async fn handle_http_response(
                 None => (None, None),
             };
 
-            HttpCheckOutcome::new(
+            let mut outcome = HttpCheckOutcome::new(
                 CheckResult::success(RegionCode::default_region(), status, latency_ms)
                     .with_cert_info(cert_expires_at, cert_days_remaining),
                 CheckErrorKind::Unknown,
-            )
+            );
+            outcome.egress_bytes = egress_bytes;
+            outcome
         }
 
         Err(err) => {

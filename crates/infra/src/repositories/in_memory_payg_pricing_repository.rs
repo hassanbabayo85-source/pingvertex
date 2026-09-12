@@ -139,7 +139,11 @@ impl PAYGPricingRepository for InMemoryPAYGPricingRepository {
         let guard = self.rows.read().await;
         Ok(guard
             .iter()
-            .filter(|r| r.pricing.active && r.pricing.effective_until.is_none())
+            .filter(|r| {
+                r.pricing.active
+                    && r.pricing.effective_until.is_none()
+                    && !domain::RETIRED_PAYG_OPERATIONS.contains(&r.pricing.operation.as_str())
+            })
             .map(|r| r.pricing.clone())
             .collect())
     }

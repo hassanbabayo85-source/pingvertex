@@ -214,7 +214,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
                     <section class="card">
                         <div class="section-heading"><div><h2>"PAYG pricing"</h2><p class="muted">"Create a new immutable price version; historical versions cannot be edited."</p></div></div>
                         <div class="form-grid">
-                            <label>"Operation"<select prop:value=pricing_operation on:change=move |e| pricing_operation.set(event_target_value(&e))><option value="http_check.monitoring">"HTTP check"</option><option value="tcp_check.monitoring">"TCP check"</option><option value="dns_check.monitoring">"DNS check"</option><option value="api_flow_check.monitoring">"API flow"</option><option value="proxy_check.monitoring">"Proxy check"</option></select></label>
+                            <label>"Operation"<select prop:value=pricing_operation on:change=move |e| pricing_operation.set(event_target_value(&e))><option value="http_check.monitoring">"HTTP check"</option><option value="tcp_check.monitoring">"TCP check"</option><option value="dns_check.monitoring">"DNS check"</option><option value="api_flow_check.monitoring">"API flow"</option><option value="storage">"Storage write"</option><option value="network_egress">"Network egress"</option></select></label>
                             <label>"Unit price (micro-USD)"<input type="number" min="1" prop:value=pricing_units on:input=move |e| pricing_units.set(event_target_value(&e)) /></label>
                             <label>"Reason"<input placeholder="required change reason" prop:value=pricing_reason on:input=move |e| pricing_reason.set(event_target_value(&e)) /></label>
                             <button class="button button-secondary" on:click=move |_| {

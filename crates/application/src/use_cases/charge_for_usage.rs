@@ -32,6 +32,9 @@ pub struct ChargeForUsageResult {
 pub struct MeteredAttempt {
     pub attempted: bool,
     pub error: Option<String>,
+    /// Bytes observed leaving the remote HTTP/API target during this attempt.
+    /// The worker converts this to billable `network_egress` MB units.
+    pub egress_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -523,6 +526,7 @@ impl ChargeForUsageUseCase {
                     // execute the external operation again.
                     attempted: true,
                     error: None,
+                    egress_bytes: 0,
                 }),
             )
         })

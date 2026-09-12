@@ -155,6 +155,11 @@ impl PAYGPricingRepository for PostgresPAYGPricingRepository {
             r#"
             SELECT * FROM payg_pricing_configs
             WHERE active = true
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM payg_retired_operations retired
+                  WHERE retired.operation = payg_pricing_configs.operation
+              )
               AND effective_from <= now()
               AND (effective_until IS NULL OR effective_until > now())
             "#,

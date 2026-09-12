@@ -5,6 +5,11 @@ use std::str::FromStr;
 /// Minimum product-defined wallet top-up: $5 in micro-USD.
 pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000;
 
+/// PAYG network egress is billed in binary megabytes to match the existing
+/// bounded response-body safety limits and storage metering semantics.
+pub const PAYG_NETWORK_EGRESS_UNIT_BYTES: u64 = 1024 * 1024;
+pub const RETIRED_PAYG_OPERATIONS: &[&str] = &["proxy_check.monitoring"];
+
 /// Canonical server-owned PAYG operation identifiers. Runtime code derives
 /// these values; clients never submit prices or operation identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +24,6 @@ pub enum PaygOperation {
     DnsMonitoring,
     HeartbeatProcessing,
     ApiFlowMonitoring,
-    ProxyMonitoring,
     RumEvent,
     Sms,
     Storage,
@@ -38,7 +42,6 @@ impl PaygOperation {
             Self::DnsMonitoring => "dns_check.monitoring",
             Self::HeartbeatProcessing => "heartbeat_processing",
             Self::ApiFlowMonitoring => "api_flow_check.monitoring",
-            Self::ProxyMonitoring => "proxy_check.monitoring",
             Self::RumEvent => "rum_event",
             Self::Sms => "sms",
             Self::Storage => "storage",
@@ -59,7 +62,6 @@ impl PaygOperation {
         Self::DnsMonitoring,
         Self::HeartbeatProcessing,
         Self::ApiFlowMonitoring,
-        Self::ProxyMonitoring,
         Self::RumEvent,
         Self::Sms,
         Self::Storage,
@@ -110,7 +112,7 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_operation_set_matches_part1_price_book() {
-        assert_eq!(PaygOperation::ALL.len(), 15);
+        assert_eq!(PaygOperation::ALL.len(), 14);
         assert!(PaygOperation::is_canonical("http_check.one_time"));
         assert!(PaygOperation::is_canonical("http_check.monitoring"));
         assert!(PaygOperation::is_canonical("heartbeat_processing"));
