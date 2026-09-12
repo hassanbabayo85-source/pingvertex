@@ -8,7 +8,13 @@ pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000;
 /// PAYG network egress is billed in binary megabytes to match the existing
 /// bounded response-body safety limits and storage metering semantics.
 pub const PAYG_NETWORK_EGRESS_UNIT_BYTES: u64 = 1024 * 1024;
-pub const RETIRED_PAYG_OPERATIONS: &[&str] = &["proxy_check.monitoring"];
+pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
+    "proxy_check.monitoring",
+    "proxy_check",
+    "monitor_check",
+    "SMS",
+    "heartbeat_ping",
+];
 
 /// Canonical server-owned PAYG operation identifiers. Runtime code derives
 /// these values; clients never submit prices or operation identifiers.

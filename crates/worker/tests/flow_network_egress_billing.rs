@@ -13,8 +13,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use application::ports::{PAYGPricingRepository, WalletRepository};
 use application::MeterUsageUseCase;
+use application::ports::{PAYGPricingRepository, WalletRepository};
 use chrono::{Duration, Utc};
 use domain::entities::{ApiFlow, ApiFlowStep};
 use domain::shared::ids::{MonitorId, TenantId};
@@ -95,7 +95,9 @@ fn mock_resolver(mock_addr: SocketAddr) -> Box<DestinationResolverFn> {
     })
 }
 
-async fn funded_billing_setup(balance_units: i64) -> (Arc<InMemoryWalletRepository>, MeterUsageUseCase, Uuid) {
+async fn funded_billing_setup(
+    balance_units: i64,
+) -> (Arc<InMemoryWalletRepository>, MeterUsageUseCase, Uuid) {
     let tenant = Uuid::new_v4();
     let wallet = Arc::new(InMemoryWalletRepository::default());
     wallet.get_or_create(tenant, "USD").await.unwrap();
@@ -150,7 +152,11 @@ async fn flow_executor_reports_per_step_egress_bytes() {
     let resolver = mock_resolver(mock_addr);
     let result = execute_flow_with_resolver(&f, &client, &resolver).await;
 
-    assert!(result.passed, "both steps should pass; outcomes: {:?}", result.outcomes);
+    assert!(
+        result.passed,
+        "both steps should pass; outcomes: {:?}",
+        result.outcomes
+    );
     assert_eq!(result.outcomes.len(), 2);
     assert_eq!(result.outcomes[0].egress_bytes, 500);
     assert_eq!(result.outcomes[1].egress_bytes, 500);
