@@ -328,22 +328,22 @@ where
                 metrics::counter!("scheduler_rejected_backpressure_total").increment(1);
             }
             if free_capacity > 0 {
-                let one_time = self
+                let one_time_execs = self
                     .scheduling_repository
-                    .claim_one_time_checks(
+                    .claim_one_time_executions(
                         free_capacity as u32,
                         self.lease_owner,
                         self.lease_duration,
                         Utc::now(),
                     )
                     .await?;
-                if !one_time.is_empty() {
+                if !one_time_execs.is_empty() {
                     metrics::counter!("scheduler_claimed_total", "kind" => "one_time")
-                        .increment(one_time.len() as u64);
+                        .increment(one_time_execs.len() as u64);
                     metrics::counter!("checks_scheduled_total", "kind" => "one_time")
-                        .increment(one_time.len() as u64);
+                        .increment(one_time_execs.len() as u64);
                 }
-                for claim in one_time {
+                for exec_claim in one_time_execs {
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
                     let metering = self.metering.clone();
@@ -355,8 +355,24 @@ where
                     let lease_owner = self.lease_owner;
                     let tenant_repository = self.tenant_repository.clone();
                     tasks.spawn(async move {
-                        let monitor = claim.monitor;
+                        let execution = exec_claim.execution;
+                        let execution_pk = execution.id;
+                        let execution_dbid = execution.execution_id;
+                        let region_label = execution.region.clone();
+                        let _request = exec_claim.request;
+                        let mut monitor = exec_claim.monitor;
                         let monitor_id = monitor.id;
+                        let monitor_tenant_id = monitor.tenant_id;
+
+                        // Resolve the RegionCode for the billed region from the
+                        // monitor's own regions (the column is authoritative).
+                        let region_code = monitor
+                            .regions
+                            .iter()
+                            .find(|r| r.as_str() == region_label)
+                            .cloned()
+                            .or_else(|| monitor.regions.first().cloned());
+
                         let account_type = if let Some(tenant_repository) = tenant_repository {
                             match tenant_repository
                                 .find_by_id(domain::TenantId(monitor.tenant_id.0))
@@ -368,109 +384,165 @@ where
                                 Some(_) | None => {
                                     metrics::counter!("checks_skipped_total", "reason" => "tenant_inactive")
                                         .increment(1);
-                                    scheduling_repository
-                                        .complete_one_time_check(
-                                            claim.request.id,
+                                    if let Err(err) = scheduling_repository
+                                        .complete_one_time_execution(
+                                            execution_pk,
                                             lease_owner,
-                                            domain::OneTimeCheckRequest::FAILED,
+                                            domain::OneTimeCheckExecution::FAILED,
                                             Some("tenant is not active"),
+                                            false,
+                                            false,
+                                            0,
                                         )
-                                        .await?;
+                                        .await
+                                    {
+                                        error!(execution_id=%execution_pk, error=%err, "failed to finalize one-time execution (tenant inactive)");
+                                    }
                                     return Ok::<(), Box<dyn Error + Send + Sync>>(());
                                 }
                             }
                         } else {
                             None
                         };
-                        let monitor_tenant_id = monitor.tenant_id;
-                        let operation = domain::monitor_operation(monitor.kind, true).as_str().to_owned();
-                        let billing_request_id = format!("one-time:{}:{}", claim.request.id, claim.request.execution_id);
-                        // Saved for the separate network_egress billing step.
-                        // The metering closure below moves `monitor` by value,
-                        // so it is no longer reachable afterwards.
+
+                        // Narrow the monitor to the billed region for this
+                        // execution so its billing context is region-scoped.
+                        if let Some(rc) = &region_code {
+                            monitor.regions = vec![rc.clone()];
+                        }
+
+                        let operation = domain::monitor_operation(monitor.kind, true)
+                            .as_str()
+                            .to_owned();
+                        let billing_request_id =
+                            format!("one-time:{}:{}", execution_pk, execution_dbid);
                         let one_time_egress_monitor_id = monitor.id.0;
                         let one_time_egress_monitor_kind = monitor.kind;
-                        let one_time_egress_region = monitor.regions.first().cloned();
-                        let one_time_egress_execution_id = claim.request.execution_id;
+                        let one_time_egress_region = region_code.clone();
+                        let one_time_egress_execution_id = execution_dbid;
                         let one_time_egress_request_id = format!(
                             "one-time-egress:{}:{}",
-                            claim.request.id, one_time_egress_execution_id,
+                            execution_pk, execution_dbid,
                         );
-                        let result = if let Some(metering) = metering {
-                            match metering.execute_classified_attempt(
-                                MeterUsageInput { tenant_id: monitor.tenant_id.0, operation, units: 1, request_id: billing_request_id,
-                                    monitor_id: Some(monitor.id.0),
-                                    execution_id: Some(claim.request.execution_id),
-                                    pricing_context: Some(application::ports::PricingContext {
-                                        monitor_kind: Some(monitor.kind),
-                                        region: monitor.regions.first().cloned(),
-                                        quantity: 1,
-                                        account_type,
-                                    }),
-        },
-                                move || {
-                                    let executor = executor.clone();
-                                    let monitor = monitor.clone();
-                                    async move { execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error, egress_bytes: o.egress_bytes }) }
-                                },
-                            ).await {
-                                Ok((charge_result, attempt)) => {
-                                    if !attempt.attempted {
+
+                        let mut billable = false;
+                        let mut charge_units: i64 = 0;
+                        let result: Option<String> = if let Some(metering) = metering {
+                            {
+                                let executor = executor.clone();
+                                let monitor = monitor.clone();
+                                match metering
+                                    .execute_classified_attempt(
+                                        MeterUsageInput {
+                                            tenant_id: monitor.tenant_id.0,
+                                            operation,
+                                            units: 1,
+                                            request_id: billing_request_id,
+                                            monitor_id: Some(monitor.id.0),
+                                            execution_id: Some(execution_dbid),
+                                            pricing_context: Some(application::ports::PricingContext {
+                                                monitor_kind: Some(monitor.kind),
+                                                region: region_code.clone(),
+                                                quantity: 1,
+                                                account_type,
+                                            }),
+                                        },
+                                        move || {
+                                            let executor = executor.clone();
+                                            let monitor = monitor.clone();
+                                            async move {
+                                                execute_with_controls(
+                                                    executor.clone(),
+                                                    monitor.clone(),
+                                                    execution_limiter.clone(),
+                                                    execution_min_interval,
+                                                    execution_retry_limit,
+                                                    execution_retry_base,
+                                                    jitter,
+                                                )
+                                                .await
+                                                .map(|o| MeteredAttempt {
+                                                    attempted: o.attempted,
+                                                    error: o.error,
+                                                    egress_bytes: o.egress_bytes,
+                                                })
+                                            }
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok((charge_result, attempt)) => {
+                                        if !attempt.attempted {
+                                            metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
+                                                .increment(1);
+                                            Some("operation was not attempted".to_owned())
+                                        } else {
+                                            billable = true;
+                                            charge_units = charge_result.usage_event.charge_units;
+                                            if charge_result.transaction.is_some() {
+                                                metrics::counter!("checks_charged_total", "kind" => "one_time")
+                                                    .increment(1);
+                                            }
+                                            bill_network_egress(
+                                                metering.as_ref(),
+                                                monitor_tenant_id.0,
+                                                one_time_egress_monitor_id,
+                                                one_time_egress_execution_id,
+                                                one_time_egress_monitor_kind,
+                                                one_time_egress_region,
+                                                account_type,
+                                                attempt.egress_bytes,
+                                                one_time_egress_request_id,
+                                            )
+                                            .await;
+                                            attempt.error
+                                        }
+                                    }
+                                    Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
                                         metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
                                             .increment(1);
-                                        Some("operation was not attempted".to_owned())
-                                    } else if let Some(error) = attempt.error {
-                                        metrics::counter!("checks_failed_total", "kind" => "one_time")
+                                        Some(reason)
+                                    }
+                                    Err(application::ChargeForUsageError::InsufficientBalance) => {
+                                        metrics::counter!("checks_skipped_total", "reason" => "insufficient_balance")
                                             .increment(1);
-                                        Some(error)
-                                    } else {
-                                        if charge_result.transaction.is_some() {
-                                        metrics::counter!("checks_charged_total", "kind" => "one_time")
-                                            .increment(1);
+                                        if let Err(block_err) = scheduling_repository
+                                            .set_billing_block(
+                                                monitor_id,
+                                                monitor_tenant_id,
+                                                "Insufficient wallet balance",
+                                            )
+                                            .await
+                                        {
+                                            error!(monitor_id=%monitor_id.0, error=%block_err, "failed to persist PAYG billing block");
+                                        }
+                                        Some("PAYG balance is insufficient".to_owned())
                                     }
-                                    bill_network_egress(
-                                        metering.as_ref(),
-                                        monitor_tenant_id.0,
-                                        one_time_egress_monitor_id,
-                                        one_time_egress_execution_id,
-                                        one_time_egress_monitor_kind,
-                                        one_time_egress_region,
-                                        account_type,
-                                        attempt.egress_bytes,
-                                        one_time_egress_request_id,
-                                    )
-                                    .await;
-                                    None
-                                    }
-                                },
-                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
-                                    metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
-                                        .increment(1);
-                                    Some(reason)
-                                },
-                                Err(application::ChargeForUsageError::InsufficientBalance) => {
-                                    metrics::counter!("checks_skipped_total", "reason" => "insufficient_balance")
-                                        .increment(1);
-                                    if let Err(block_err) = scheduling_repository
-                                        .set_billing_block(
-                                            monitor_id,
-                                            monitor_tenant_id,
-                                            "Insufficient wallet balance",
-                                        )
-                                        .await
-                                    {
-                                        error!(monitor_id=%monitor_id.0, error=%block_err, "failed to persist PAYG billing block");
-                                    }
-                                    Some("PAYG balance is insufficient".to_owned())
+                                    Err(err) => Some(err.to_string()),
                                 }
-                                Err(err) => Some(err.to_string()),
                             }
                         } else {
                             Some("PAYG metering is not configured".to_owned())
                         };
-                        let status = if result.is_some() { domain::OneTimeCheckRequest::FAILED } else { domain::OneTimeCheckRequest::SUCCEEDED };
-                        if let Err(err) = scheduling_repository.complete_one_time_check(claim.request.id, lease_owner, status, result.as_deref()).await {
-                            error!(request_id=%claim.request.id, error=%err, "failed to finalize one-time check");
+
+                        let status = if result.is_some() {
+                            domain::OneTimeCheckExecution::FAILED
+                        } else {
+                            domain::OneTimeCheckExecution::SUCCEEDED
+                        };
+                        if let Err(err) = scheduling_repository
+                            .complete_one_time_execution(
+                                execution_pk,
+                                lease_owner,
+                                status,
+                                result.as_deref(),
+                                billable,
+                                billable,
+                                charge_units,
+                            )
+                            .await
+                        {
+                            error!(execution_id=%execution_pk, error=%err, "failed to finalize one-time execution");
                         }
                         Ok::<(), Box<dyn Error + Send + Sync>>(())
                     });

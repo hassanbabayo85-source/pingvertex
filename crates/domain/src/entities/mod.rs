@@ -26,7 +26,7 @@ pub use status_page::*;
 mod tenant;
 pub use tenant::{AccountType, Tenant, TenantStatus};
 pub mod one_time_check;
-pub use one_time_check::OneTimeCheckRequest;
+pub use one_time_check::{OneTimeCheckExecution, OneTimeCheckRequest};
 
 mod tenant_membership;
 pub use tenant_membership::TenantMembership;

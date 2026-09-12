@@ -1,4 +1,3 @@
-use application::ports::{PricingContext, resolve_price};
 use axum::{
     extract::{Extension, Json, State},
     http::StatusCode,
@@ -13,15 +12,57 @@ use crate::{error::ApiError, state::AppState};
 #[derive(Debug, Deserialize)]
 pub struct CreateOneTimeCheckRequest {
     pub monitor_id: Uuid,
+    /// Optional client-supplied idempotency key. Never interpreted as a
+    /// billing value. When omitted, the server generates one.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OneTimeCheckRegionResult {
+    pub region: String,
+    pub status: String,
+    pub billable: bool,
+    pub charge_units: i64,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct OneTimeCheckResponse {
+    pub id: String,
     pub request_id: String,
+    pub monitor_id: String,
     pub status: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub error: Option<String>,
+    pub regions: Vec<OneTimeCheckRegionResult>,
+}
+
+fn build_response(
+    request: domain::OneTimeCheckRequest,
+    executions: Vec<domain::OneTimeCheckExecution>,
+) -> OneTimeCheckResponse {
+    let regions = executions
+        .into_iter()
+        .map(|e| OneTimeCheckRegionResult {
+            region: e.region,
+            status: e.status,
+            billable: e.billable,
+            charge_units: e.charge_units,
+            error: e.error,
+        })
+        .collect();
+    OneTimeCheckResponse {
+        id: request.id.to_string(),
+        request_id: request.request_id,
+        monitor_id: request.monitor_id.to_string(),
+        status: request.status,
+        created_at: request.created_at,
+        completed_at: request.completed_at,
+        error: request.error,
+        regions,
+    }
 }
 
 pub async fn create_one_time_check(
@@ -46,12 +87,9 @@ pub async fn create_one_time_check(
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     if monitor.tenant_id != tenant_id {
-        // Do not reveal whether a monitor belonging to another tenant exists.
         return Err(ApiError::not_found("monitor not found"));
     }
 
-    // Disabled monitors must never produce monitoring executions or PAYG
-    // charges. Enforce this at the API boundary as well as in the scheduler.
     if !monitor.enabled {
         return Err(ApiError::conflict("monitor is disabled"));
     }
@@ -67,45 +105,35 @@ pub async fn create_one_time_check(
         return Err(ApiError::forbidden("tenant is suspended"));
     }
 
+    // Canonical one-time operations must be configured; price resolution for
+    // each regional execution happens inside the metering layer at run time.
     let operation = domain::monitor_operation(monitor.kind, true);
-    let pricing_context = PricingContext {
-        quantity: 1,
-        monitor_kind: Some(monitor.kind),
-        region: monitor.regions.first().cloned(),
-        account_type: Some(tenant.account_type),
-    };
-
-    let price = resolve_price(
-        state.payg_pricing_repository.as_ref(),
-        operation.as_str(),
-        &pricing_context,
-    )
-    .await
-    .map_err(|e| ApiError::internal_with_source("failed to resolve PAYG price", e))?;
-
-    if price.is_none() {
+    if !domain::PaygOperation::is_canonical(operation.as_str()) {
         return Err(ApiError::bad_request(
             "PAYG pricing is not configured for one-time checks",
         ));
     }
 
-    let request_id = Uuid::new_v4().to_string();
+    let request_id = payload
+        .idempotency_key
+        .filter(|k| !k.trim().is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let request = state
         .scheduling_repository
-        .enqueue_one_time_check(tenant_id, monitor_id, user.user_id(), &request_id)
+        .enqueue_one_time_check(
+            tenant_id,
+            monitor_id,
+            user.user_id(),
+            &request_id,
+            &monitor.regions,
+        )
         .await
         .map_err(|err| ApiError::internal_with_source("failed to enqueue one-time check", err))?;
 
     Ok((
         StatusCode::CREATED,
-        Json(OneTimeCheckResponse {
-            request_id: request.request_id,
-            status: request.status,
-            created_at: request.created_at,
-            completed_at: request.completed_at,
-            error: request.error,
-        }),
+        Json(build_response(request, Vec::new())),
     ))
 }
 
@@ -117,22 +145,26 @@ pub async fn get_one_time_check(
     user.require(Permission::ViewMonitor)
         .map_err(|_| ApiError::forbidden("you do not have permission to view one-time checks"))?;
 
+    let tenant_id = user.tenant_context().tenant_id();
+    // The monitor id placeholder is intentionally ignored by the
+    // tenant-scoped lookup below; the request_id itself is globally unique
+    // within the tenant.
     let request = state
         .scheduling_repository
         .get_one_time_check_by_request_id(
-            user.tenant_context().tenant_id(),
-            domain::shared::ids::MonitorId(Uuid::nil()), // Ignored by updated query
+            tenant_id,
+            domain::shared::ids::MonitorId(Uuid::nil()),
             &request_id,
         )
         .await
         .map_err(|err| ApiError::internal_with_source("failed to get one-time check", err))?
         .ok_or_else(|| ApiError::not_found("one-time check not found"))?;
 
-    Ok(Json(OneTimeCheckResponse {
-        request_id: request.request_id,
-        status: request.status,
-        created_at: request.created_at,
-        completed_at: request.completed_at,
-        error: request.error,
-    }))
+    let executions = state
+        .scheduling_repository
+        .get_one_time_check_executions(request.id)
+        .await
+        .map_err(|err| ApiError::internal_with_source("failed to load one-time executions", err))?;
+
+    Ok(Json(build_response(request, executions)))
 }

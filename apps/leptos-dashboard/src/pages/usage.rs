@@ -148,7 +148,7 @@ pub fn UsagePage() -> impl IntoView {
                     <label>
                         "Operation "
                         <input
-                            placeholder="proxy_check"
+                            placeholder="http_check.one_time"
                             maxlength="100"
                             prop:value=move || operation.get()
                             on:input=move |event| {
@@ -242,12 +242,20 @@ pub fn UsagePage() -> impl IntoView {
                     </div>
                 </div>
                 <div class="overview-cards">
-                    <div><span class="card-label">"Monitor checks"</span><span class="card-value">"monitor_check"</span></div>
-                    <div><span class="card-label">"Proxy checks"</span><span class="card-value">"proxy_check"</span></div>
+                    <div><span class="card-label">"HTTP one-time"</span><span class="card-value">"http_check.one_time"</span></div>
+                    <div><span class="card-label">"TCP one-time"</span><span class="card-value">"tcp_check.one_time"</span></div>
+                    <div><span class="card-label">"DNS one-time"</span><span class="card-value">"dns_check.one_time"</span></div>
+                    <div><span class="card-label">"API flow one-time"</span><span class="card-value">"api_flow_check.one_time"</span></div>
+                    <div><span class="card-label">"Proxy one-time"</span><span class="card-value">"proxy_check.one_time"</span></div>
+                    <div><span class="card-label">"HTTP monitoring"</span><span class="card-value">"http_check.monitoring"</span></div>
+                    <div><span class="card-label">"TCP monitoring"</span><span class="card-value">"tcp_check.monitoring"</span></div>
+                    <div><span class="card-label">"DNS monitoring"</span><span class="card-value">"dns_check.monitoring"</span></div>
+                    <div><span class="card-label">"API flow monitoring"</span><span class="card-value">"api_flow_check.monitoring"</span></div>
                     <div><span class="card-label">"SMS"</span><span class="card-value">"sms"</span></div>
                     <div><span class="card-label">"RUM"</span><span class="card-value">"rum_event"</span></div>
                     <div><span class="card-label">"Storage"</span><span class="card-value">"storage"</span></div>
-                    <div><span class="card-label">"Heartbeat"</span><span class="card-value">"heartbeat_ping"</span></div>
+                    <div><span class="card-label">"Network egress"</span><span class="card-value">"network_egress"</span></div>
+                    <div><span class="card-label">"Heartbeat"</span><span class="card-value">"heartbeat_processing"</span></div>
                 </div>
                 <p class="muted">"Monitor checks are billed once per actual billable attempt. Target failures, timeouts, DNS failures, and connection refusals are billable when the external attempt started; validation and internal pre-attempt failures are not billed. Proxy jobs are metered per proxy entry."</p>
             </section>

@@ -1,6 +1,8 @@
 use std::{error::Error, time::Duration};
 
-use application::ports::{ClaimedMonitor, MonitorRepository, SchedulingRepository};
+use application::ports::{
+    ClaimedMonitor, ClaimedOneTimeExecution, MonitorRepository, SchedulingRepository,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::shared::ids::MonitorId;
@@ -52,6 +54,49 @@ impl OneTimeRow {
         }
     }
 }
+
+#[derive(sqlx::FromRow)]
+struct OneTimeExecutionRow {
+    id: Uuid,
+    request_id: Uuid,
+    tenant_id: Uuid,
+    monitor_id: Uuid,
+    region: String,
+    execution_id: Uuid,
+    status: String,
+    lease_owner: Option<Uuid>,
+    lease_expires_at: Option<DateTime<Utc>>,
+    attempted: bool,
+    billable: bool,
+    charge_units: i64,
+    error: Option<String>,
+    created_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
+}
+impl OneTimeExecutionRow {
+    fn into_domain(self) -> domain::OneTimeCheckExecution {
+        domain::OneTimeCheckExecution {
+            id: self.id,
+            request_id: self.request_id,
+            tenant_id: self.tenant_id,
+            monitor_id: self.monitor_id,
+            region: self.region,
+            execution_id: self.execution_id,
+            status: self.status,
+            lease_owner: self.lease_owner,
+            lease_expires_at: self.lease_expires_at,
+            attempted: self.attempted,
+            billable: self.billable,
+            charge_units: self.charge_units,
+            error: self.error,
+            created_at: self.created_at,
+            started_at: self.started_at,
+            completed_at: self.completed_at,
+        }
+    }
+}
+
 impl PostgresSchedulingRepository {
     pub fn new(pool: PgPool) -> Self {
         Self {
@@ -234,7 +279,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
             WHERE m.enabled = true
               AND t.status = 'active'
               AND m.kind <> 'heartbeat'
-                  AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
+              AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
               AND m.lease_expires_at IS NULL
               AND m.next_due_at <= $1
               AND NOT EXISTS (
@@ -248,6 +293,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .await?;
         Ok(count.max(0) as u64)
     }
+
     async fn complete_claim(&self, monitor_id: MonitorId, lease_owner: Uuid) -> RepoResult<()> {
         self.complete_claim_with_spread(monitor_id, lease_owner, 0)
             .await
@@ -288,9 +334,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .execute(&self.pool)
         .await?;
 
-        // A zero-row update means this worker no longer owns the claim (for
-        // example, the lease expired and another worker reclaimed it). Do not
-        // clear or advance another worker's scheduling state.
         if result.rows_affected() == 0 {
             return Err("scheduler claim was lost before completion".into());
         }
@@ -319,8 +362,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
     }
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
-        // Recover only the current lease. Keep lease_execution_id intact so
-        // PAYG idempotency survives a worker crash and a subsequent reclaim.
         let result = sqlx::query(
             r#"
             UPDATE monitors
@@ -394,150 +435,259 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .await?;
         Ok(result.rows_affected() == 1)
     }
+
     async fn enqueue_one_time_check(
         &self,
         t: domain::shared::ids::TenantId,
         m: MonitorId,
         u: domain::shared::ids::UserId,
         r: &str,
+        regions: &[domain::RegionCode],
     ) -> RepoResult<domain::OneTimeCheckRequest> {
         let mut tx = self.pool.begin().await?;
 
-        if let Some(existing) = sqlx::query_as::<_, OneTimeRow>(
-            r#"SELECT id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at
-               FROM one_time_check_requests
-               WHERE tenant_id=$1 AND monitor_id=$2 AND request_id=$3"#,
-        )
-        .bind(t.0)
-        .bind(m.0)
-        .bind(r)
-        .fetch_optional(&mut *tx)
-        .await?
-        {
-            tx.commit().await?;
-            return Ok(existing.into_domain());
-        }
-
-        let row = sqlx::query_as::<_, OneTimeRow>(
-            r#"INSERT INTO one_time_check_requests
-                 (id,tenant_id,monitor_id,created_by,request_id,status,execution_id)
-               VALUES($1,$2,$3,$4,$5,'QUEUED',$6)
-               ON CONFLICT (tenant_id,request_id) DO NOTHING
-               RETURNING id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at"#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(t.0)
-        .bind(m.0)
-        .bind(u.0)
-        .bind(r)
-        .bind(Uuid::new_v4())
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(row) = row {
-            tx.commit().await?;
-            return Ok(row.into_domain());
-        }
-
-        let existing = sqlx::query_as::<_, OneTimeRow>(
+        let request_row = if let Some(existing) = sqlx::query_as::<_, OneTimeRow>(
             r#"SELECT id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at
                FROM one_time_check_requests
                WHERE tenant_id=$1 AND request_id=$2"#,
         )
         .bind(t.0)
         .bind(r)
-        .fetch_one(&mut *tx)
-        .await?;
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if existing.monitor_id != m.0 {
+                return Err("one-time idempotency key is already used for another monitor".into());
+            }
+            existing
+        } else {
+            sqlx::query_as::<_, OneTimeRow>(
+                r#"INSERT INTO one_time_check_requests
+                     (id,tenant_id,monitor_id,created_by,request_id,status,execution_id)
+                   VALUES($1,$2,$3,$4,$5,'QUEUED',$6)
+                   RETURNING id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(t.0)
+            .bind(m.0)
+            .bind(u.0)
+            .bind(r)
+            .bind(Uuid::new_v4())
+            .fetch_one(&mut *tx)
+            .await?
+        };
 
-        if existing.monitor_id != m.0 {
-            return Err("one-time idempotency key is already used for another monitor".into());
+        // Fan out one execution per region.
+        for region in regions {
+            sqlx::query(
+                r#"INSERT INTO one_time_check_executions
+                     (id, request_id, tenant_id, monitor_id, region, execution_id, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, 'QUEUED')
+                   ON CONFLICT (request_id, region) DO NOTHING"#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(request_row.id)
+            .bind(t.0)
+            .bind(m.0)
+            .bind(region.as_str())
+            .bind(Uuid::new_v4())
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
-        Ok(existing.into_domain())
+        Ok(request_row.into_domain())
     }
-    async fn claim_one_time_checks(
+
+    async fn claim_one_time_executions(
         &self,
         l: u32,
         o: Uuid,
         d: Duration,
         n: DateTime<Utc>,
-    ) -> RepoResult<Vec<application::ports::ClaimedOneTimeCheck>> {
+    ) -> RepoResult<Vec<ClaimedOneTimeExecution>> {
         let sec = d.as_secs() as i64;
-        let rows = sqlx::query_as::<_,OneTimeRow>(
+        let rows = sqlx::query_as::<_, OneTimeExecutionRow>(
             r#"
             WITH selected AS (
-                SELECT r.id
-                FROM one_time_check_requests r
+                SELECT e.id
+                FROM one_time_check_executions e
                 JOIN tenants t
-                  ON t.id = r.tenant_id
+                  ON t.id = e.tenant_id
                 JOIN monitors m
-                  ON m.id = r.monitor_id
-                 AND m.tenant_id = r.tenant_id
+                  ON m.id = e.monitor_id
+                 AND m.tenant_id = e.tenant_id
                 WHERE t.status = 'active'
                   AND m.enabled = true
                   AND (
-                      r.status = 'QUEUED'
-                      OR (r.status = 'RUNNING' AND r.lease_expires_at < $4)
+                      e.status = 'QUEUED'
+                      OR (e.status = 'RUNNING' AND e.lease_expires_at < $4)
                   )
-                ORDER BY r.created_at
-                FOR UPDATE OF r SKIP LOCKED 
+                ORDER BY e.created_at
+                FOR UPDATE OF e SKIP LOCKED
                 LIMIT $1
-            ) 
-            UPDATE one_time_check_requests r 
-            SET status='RUNNING',lease_owner=$2,lease_expires_at=$4+($3::bigint*interval '1 second'),started_at=COALESCE(started_at,$4) 
-            FROM selected 
-            WHERE r.id=selected.id 
-            RETURNING r.id,r.tenant_id,r.monitor_id,r.created_by,r.request_id,r.status,r.execution_id,r.lease_owner,r.lease_expires_at,r.error,r.created_at,r.started_at,r.completed_at
-            "#)
-            .bind(i64::from(l))
-            .bind(o)
-            .bind(sec)
-            .bind(n)
-            .fetch_all(&self.pool)
-            .await?;
+            )
+            UPDATE one_time_check_executions e
+            SET status = 'RUNNING',
+                lease_owner = $2,
+                lease_expires_at = $4 + ($3::bigint * interval '1 second'),
+                started_at = COALESCE(e.started_at, $4)
+            FROM selected
+            WHERE e.id = selected.id
+            RETURNING e.id, e.request_id, e.tenant_id, e.monitor_id, e.region,
+                      e.execution_id, e.status, e.lease_owner, e.lease_expires_at,
+                      e.attempted, e.billable, e.charge_units, e.error,
+                      e.created_at, e.started_at, e.completed_at
+            "#,
+        )
+        .bind(i64::from(l))
+        .bind(o)
+        .bind(sec)
+        .bind(n)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
-            if let Some(monitor) = self
+            let monitor = self
                 .monitor_repository
                 .find_by_id(MonitorId(row.monitor_id))
-                .await?
-            {
-                out.push(application::ports::ClaimedOneTimeCheck {
-                    request: row.into_domain(),
+                .await?;
+            let request = sqlx::query_as::<_, OneTimeRow>(
+                r#"SELECT id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at
+                   FROM one_time_check_requests WHERE id=$1"#,
+            )
+            .bind(row.request_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+            if let Some(monitor) = monitor {
+                out.push(ClaimedOneTimeExecution {
+                    execution: row.into_domain(),
+                    request: request.into_domain(),
                     monitor,
                 });
             }
         }
         Ok(out)
     }
-    async fn complete_one_time_check(
+
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_one_time_execution(
         &self,
-        r: Uuid,
-        o: Uuid,
-        s: &str,
-        e: Option<&str>,
+        execution_id: Uuid,
+        lease_owner: Uuid,
+        status: &str,
+        error: Option<&str>,
+        attempted: bool,
+        billable: bool,
+        charge_units: i64,
     ) -> RepoResult<()> {
         if !matches!(
-            s,
-            domain::OneTimeCheckRequest::SUCCEEDED | domain::OneTimeCheckRequest::FAILED
+            status,
+            domain::OneTimeCheckExecution::SUCCEEDED | domain::OneTimeCheckExecution::FAILED
         ) {
-            return Err("invalid one-time check terminal status".into());
+            return Err("invalid one-time execution terminal status".into());
         }
-        let n=sqlx::query(r#"UPDATE one_time_check_requests SET status=$3,error=$4,completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND lease_owner=$2 AND status='RUNNING'"#).bind(r).bind(o).bind(s).bind(e).execute(&self.pool).await?.rows_affected();
+
+        let mut tx = self.pool.begin().await?;
+
+        let n = sqlx::query(
+            r#"UPDATE one_time_check_executions
+               SET status=$3, error=$4, completed_at=now(),
+                   lease_owner=NULL, lease_expires_at=NULL,
+                   attempted=$5, billable=$6, charge_units=$7
+               WHERE id=$1 AND lease_owner=$2 AND status='RUNNING'"#,
+        )
+        .bind(execution_id)
+        .bind(lease_owner)
+        .bind(status)
+        .bind(error)
+        .bind(attempted)
+        .bind(billable)
+        .bind(charge_units)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
         if n != 1 {
-            return Err("one-time check claim was lost before completion".into());
+            return Err("one-time execution claim was lost before completion".into());
         }
+
+        let request_id: Uuid =
+            sqlx::query_scalar("SELECT request_id FROM one_time_check_executions WHERE id=$1")
+                .bind(execution_id)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE one_time_check_requests r
+            SET status = CASE
+                    WHEN EXISTS (SELECT 1 FROM one_time_check_executions e
+                                 WHERE e.request_id = r.id
+                                   AND e.status IN ('QUEUED','RUNNING'))
+                        THEN 'RUNNING'
+                    WHEN EXISTS (SELECT 1 FROM one_time_check_executions e
+                                 WHERE e.request_id = r.id
+                                   AND e.status = 'SUCCEEDED')
+                        THEN 'SUCCEEDED'
+                    ELSE 'FAILED'
+                END,
+                completed_at = CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM one_time_check_executions e
+                                     WHERE e.request_id = r.id
+                                       AND e.status IN ('QUEUED','RUNNING'))
+                        THEN now()
+                    ELSE r.completed_at
+                END
+            WHERE r.id = $1
+            "#,
+        )
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(())
     }
+
+    async fn get_one_time_check_executions(
+        &self,
+        request_id: Uuid,
+    ) -> RepoResult<Vec<domain::OneTimeCheckExecution>> {
+        let rows = sqlx::query_as::<_, OneTimeExecutionRow>(
+            r#"SELECT id, request_id, tenant_id, monitor_id, region, execution_id, status,
+                      lease_owner, lease_expires_at, attempted, billable, charge_units, error,
+                      created_at, started_at, completed_at
+               FROM one_time_check_executions
+               WHERE request_id = $1
+               ORDER BY region ASC"#,
+        )
+        .bind(request_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(OneTimeExecutionRow::into_domain)
+            .collect())
+    }
+
     async fn get_one_time_check(
         &self,
         t: domain::shared::ids::TenantId,
         m: MonitorId,
         r: Uuid,
     ) -> RepoResult<Option<domain::OneTimeCheckRequest>> {
-        let row=sqlx::query_as::<_,OneTimeRow>(r#"SELECT id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at FROM one_time_check_requests WHERE id=$1 AND tenant_id=$2 AND monitor_id=$3"#).bind(r).bind(t.0).bind(m.0).fetch_optional(&self.pool).await?;
+        let row = sqlx::query_as::<_, OneTimeRow>(
+            r#"SELECT id,tenant_id,monitor_id,created_by,request_id,status,execution_id,lease_owner,lease_expires_at,error,created_at,started_at,completed_at
+               FROM one_time_check_requests WHERE id=$1 AND tenant_id=$2 AND monitor_id=$3"#,
+        )
+        .bind(r)
+        .bind(t.0)
+        .bind(m.0)
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(row.map(OneTimeRow::into_domain))
     }
 
