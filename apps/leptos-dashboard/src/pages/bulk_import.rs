@@ -157,7 +157,7 @@ pub fn BulkImportPage() -> impl IntoView {
             <header class="page-header">
                 <div>
                     <span class="eyebrow">"MONITORS"</span>
-                    <h1>"Bulk import"</h1>
+                    <h1>"Create monitors"</h1>
                     <p class="muted">"Validate the CSV, review the estimate, then create monitors in background batches."</p>
                 </div>
             </header>
@@ -201,7 +201,7 @@ pub fn BulkImportPage() -> impl IntoView {
                         <div><strong>{value.valid_rows}</strong><span>"Valid"</span></div>
                         <div><strong>{value.invalid_rows}</strong><span>"Invalid"</span></div>
                         <div><strong>{value.duplicate_rows}</strong><span>"Duplicate"</span></div>
-                        <div><strong>{value.estimated_execution_quantity}</strong><span>"Estimated checks"</span></div>
+                        <div><strong>{value.estimated_execution_quantity}</strong><span>"Estimated usage"</span></div>
                         <div><strong>{format_units(value.estimated_payg_cost_units, &value.currency)}</strong><span>"Estimated cost"</span></div>
                     </div>
                     <div class="stack-form">

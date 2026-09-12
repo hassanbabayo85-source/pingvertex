@@ -21,6 +21,9 @@ pub struct ClaimedOneTimeCheck {
 pub struct ClaimedMonitor {
     pub monitor: Monitor,
     pub claimed_at: DateTime<Utc>,
+    /// The scheduler timestamp at which this monitor was due. Used only for
+    /// observability; billing identity continues to use `execution_id`.
+    pub scheduled_at: DateTime<Utc>,
     pub execution_id: Uuid,
 }
 impl Deref for ClaimedMonitor {

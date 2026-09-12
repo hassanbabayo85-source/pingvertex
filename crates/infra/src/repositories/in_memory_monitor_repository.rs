@@ -90,6 +90,19 @@ impl MonitorRepository for InMemoryMonitorRepository {
             .collect())
     }
 
+    async fn count_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .monitors
+            .read()
+            .unwrap()
+            .values()
+            .filter(|monitor| monitor.tenant_id == tenant_id)
+            .count() as u64)
+    }
+
     async fn delete_for_user(
         &self,
         id: MonitorId,

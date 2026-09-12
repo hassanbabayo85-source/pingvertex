@@ -40,6 +40,12 @@ pub trait BulkMonitorActionRepository: Send + Sync {
         tenant_id: Uuid,
     ) -> BulkMonitorActionRepoResult<Option<BulkMonitorActionJob>>;
 
+    /// Number of jobs waiting to be processed. Production repositories should
+    /// answer this with a database-side COUNT; it must never load job rows.
+    async fn queue_depth(&self) -> BulkMonitorActionRepoResult<u64> {
+        Ok(0)
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,
@@ -97,6 +103,11 @@ where
     ) -> BulkMonitorActionRepoResult<Option<BulkMonitorActionJob>> {
         (**self).find_for_tenant(job_id, tenant_id).await
     }
+
+    async fn queue_depth(&self) -> BulkMonitorActionRepoResult<u64> {
+        (**self).queue_depth().await
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,

@@ -50,6 +50,7 @@ fn cors_layer() -> CorsLayer {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
             axum::http::header::HeaderName::from_static("idempotency-key"),
+            axum::http::header::HeaderName::from_static("x-bulk-pricing-snapshot"),
         ])
 }
 

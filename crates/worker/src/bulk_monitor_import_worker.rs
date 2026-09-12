@@ -1,4 +1,8 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
@@ -101,6 +105,8 @@ impl BulkMonitorImportWorker {
     }
 
     async fn run_once(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let queue_depth = self.jobs.queue_depth().await?;
+        metrics::gauge!("payg_bulk_queue_depth").set(queue_depth as f64);
         let jobs = self
             .jobs
             .claim_jobs(
@@ -110,10 +116,13 @@ impl BulkMonitorImportWorker {
             )
             .await?;
 
-        metrics::gauge!("payg_bulk_queue_depth").set(jobs.len() as f64);
         for job in jobs {
             metrics::counter!("payg_bulk_jobs_claimed_total").increment(1);
+            let started = Instant::now();
             if let Err(error) = self.process_job(&job).await {
+                metrics::counter!("payg_bulk_import_failures_total").increment(1);
+                metrics::histogram!("payg_bulk_import_duration_seconds")
+                    .record(started.elapsed().as_secs_f64());
                 tracing::error!(
                     job_id=%job.id,
                     tenant_id=%job.tenant_id,
@@ -127,6 +136,9 @@ impl BulkMonitorImportWorker {
                         &bounded_error(&error.to_string()),
                     )
                     .await?;
+            } else {
+                metrics::histogram!("payg_bulk_import_duration_seconds")
+                    .record(started.elapsed().as_secs_f64());
             }
         }
         Ok(())
@@ -235,7 +247,7 @@ impl BulkMonitorImportWorker {
                 membership.role.has_permission(Permission::CreateMonitor)
             });
             let entitlement = self.resolve_entitlement_policy(tenant_id).await?;
-            let monitor_count = self.monitors.find_all_for_tenant(tenant_id).await?.len() as u32;
+            let monitor_count = self.monitors.count_for_tenant(tenant_id).await? as u32;
             let wallet_activated = self
                 .wallets
                 .find(tenant_id.0)

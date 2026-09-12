@@ -6,6 +6,27 @@ fn usd(u: i64) -> String {
     format!("${}.{:06}", u / 1_000_000, u.abs() % 1_000_000)
 }
 
+fn operation_label(operation: &str) -> String {
+    match operation {
+        "http_check.one_time" => "HTTP — one-time check".into(),
+        "tcp_check.one_time" => "TCP — one-time check".into(),
+        "dns_check.one_time" => "DNS — one-time check".into(),
+        "api_flow_check.one_time" => "API flow — one-time check".into(),
+        "proxy_check.one_time" => "Proxy — one-time check".into(),
+        "http_check.monitoring" => "HTTP — monitoring".into(),
+        "tcp_check.monitoring" => "TCP — monitoring".into(),
+        "dns_check.monitoring" => "DNS — monitoring".into(),
+        "api_flow_check.monitoring" => "API flow — monitoring".into(),
+        "proxy_check.monitoring" => "Proxy — monitoring".into(),
+        "heartbeat_processing" => "Heartbeat processing".into(),
+        "rum_event" => "RUM event".into(),
+        "sms" => "SMS".into(),
+        "storage" => "Storage".into(),
+        "network_egress" => "Network egress".into(),
+        _ => operation.to_owned(),
+    }
+}
+
 // Business limits are server-owned. Until the API response arrives, the
 // estimator stays in a loading/disabled state rather than guessing policy
 // values in the browser.
@@ -186,7 +207,7 @@ pub fn PricingPage() -> impl IntoView {
                 <div class="overview-cards">
                     {move || prices.get().into_iter().map(|p| view! {
                         <div>
-                            <span class="card-label">{p.operation}</span>
+                            <span class="card-label">{operation_label(&p.operation)}</span>
                             <span class="card-value">{usd(p.unit_price)}</span>
                             <span class="muted">{format!("per {} · v{}", p.unit_name, p.version)}</span>
                         </div>

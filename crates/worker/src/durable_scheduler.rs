@@ -43,10 +43,12 @@ async fn execute_with_controls<E: CheckExecutor>(
             tokio::time::sleep(wait_for).await;
         }
 
+        metrics::counter!("checks_executed_total", "kind" => domain::monitor_operation(monitor.kind, false).as_str()).increment(1);
         match executor.execute(&monitor).await {
             Ok(result) => {
-                metrics::histogram!("payg_scheduler_execution_latency_seconds")
-                    .record(started.elapsed().as_secs_f64());
+                let elapsed = started.elapsed().as_secs_f64();
+                metrics::histogram!("payg_scheduler_execution_latency_seconds").record(elapsed);
+                metrics::histogram!("monitor_execution_latency_seconds").record(elapsed);
                 return Ok(result);
             }
             Err(error) if attempt < retry_limit => {
@@ -66,8 +68,9 @@ async fn execute_with_controls<E: CheckExecutor>(
                 attempt += 1;
             }
             Err(error) => {
-                metrics::histogram!("payg_scheduler_execution_latency_seconds")
-                    .record(started.elapsed().as_secs_f64());
+                let elapsed = started.elapsed().as_secs_f64();
+                metrics::histogram!("payg_scheduler_execution_latency_seconds").record(elapsed);
+                metrics::histogram!("monitor_execution_latency_seconds").record(elapsed);
                 return Err(error);
             }
         }
@@ -277,10 +280,7 @@ where
         plan.min_check_interval_seconds = config.free_tier.interval_seconds;
         plan.history_retention_days = config.free_tier.retention_days;
 
-        let monitor_count = monitor_repository
-            .find_all_for_tenant(tenant_id)
-            .await?
-            .len() as u32;
+        let monitor_count = monitor_repository.count_for_tenant(tenant_id).await? as u32;
         Ok((monitor_count <= plan.max_monitors).then_some(plan))
     }
 
@@ -337,6 +337,8 @@ where
                 if !one_time.is_empty() {
                     metrics::counter!("scheduler_claimed_total", "kind" => "one_time")
                         .increment(one_time.len() as u64);
+                    metrics::counter!("checks_scheduled_total", "kind" => "one_time")
+                        .increment(one_time.len() as u64);
                 }
                 for claim in one_time {
                     let scheduling_repository = self.scheduling_repository.clone();
@@ -361,6 +363,8 @@ where
                                     Some(tenant.account_type)
                                 }
                                 Some(_) | None => {
+                                    metrics::counter!("checks_skipped_total", "reason" => "tenant_inactive")
+                                        .increment(1);
                                     scheduling_repository
                                         .complete_one_time_check(
                                             claim.request.id,
@@ -396,9 +400,31 @@ where
                                     async move { execute_with_controls(executor.clone(), monitor.clone(), execution_limiter.clone(), execution_min_interval, execution_retry_limit, execution_retry_base, jitter).await.map(|o| MeteredAttempt { attempted: o.attempted, error: o.error }) }
                                 },
                             ).await {
-                                Ok((_, attempt)) => if attempt.attempted { attempt.error } else { Some("operation was not attempted".to_owned()) },
-                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => Some(reason),
+                                Ok((charge_result, attempt)) => {
+                                    if !attempt.attempted {
+                                        metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
+                                            .increment(1);
+                                        Some("operation was not attempted".to_owned())
+                                    } else if let Some(error) = attempt.error {
+                                        metrics::counter!("checks_failed_total", "kind" => "one_time")
+                                            .increment(1);
+                                        Some(error)
+                                    } else {
+                                        if charge_result.transaction.is_some() {
+                                            metrics::counter!("checks_charged_total", "kind" => "one_time")
+                                                .increment(1);
+                                        }
+                                        None
+                                    }
+                                },
+                                Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
+                                    metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
+                                        .increment(1);
+                                    Some(reason)
+                                },
                                 Err(application::ChargeForUsageError::InsufficientBalance) => {
+                                    metrics::counter!("checks_skipped_total", "reason" => "insufficient_balance")
+                                        .increment(1);
                                     if let Err(block_err) = scheduling_repository
                                         .set_billing_block(
                                             monitor_id,
@@ -442,11 +468,18 @@ where
                 if !claimed.is_empty() {
                     metrics::counter!("scheduler_claimed_total", "kind" => "due_monitor")
                         .increment(claimed.len() as u64);
+                    metrics::counter!("checks_scheduled_total", "kind" => "monitor")
+                        .increment(claimed.len() as u64);
                 }
 
                 info!(count = claimed.len(), "claimed due monitors");
 
                 for claim in claimed {
+                    let lag = (claim.claimed_at - claim.scheduled_at)
+                        .to_std()
+                        .map(|duration| duration.as_secs_f64())
+                        .unwrap_or(0.0);
+                    metrics::histogram!("scheduler_lag_seconds").record(lag);
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
                     let metering = self.metering.clone();
@@ -473,6 +506,8 @@ where
                     {
                         metrics::counter!("scheduler_suspended_tenant_skips_total").increment(1);
                         metrics::counter!("payg_scheduler_suspended_tenant_skips_total")
+                            .increment(1);
+                        metrics::counter!("checks_skipped_total", "reason" => "tenant_inactive")
                             .increment(1);
                         scheduling_repository
                             .complete_claim_with_spread(
@@ -508,6 +543,8 @@ where
                                 metrics::counter!("scheduler_entitlement_skips_total").increment(1);
                                 metrics::counter!("payg_scheduler_entitlement_skips_total")
                                     .increment(1);
+                                metrics::counter!("checks_skipped_total", "reason" => "free_entitlement")
+                                    .increment(1);
                                 if let Err(err) = scheduling_repository
                                     .complete_claim_with_spread(
                                         monitor.id,
@@ -524,7 +561,9 @@ where
                                 }
                                 return Ok::<(), Box<dyn Error + Send + Sync>>(());
                             }
-                            execute_with_controls(
+                            metrics::counter!("checks_free_total", "kind" => domain::monitor_operation(monitor.kind, false).as_str())
+                                .increment(1);
+                            match execute_with_controls(
                                 executor.clone(),
                                 monitor.clone(),
                                 execution_limiter.clone(),
@@ -534,7 +573,16 @@ where
                                 jitter,
                             )
                             .await
-                            .map(|_| ())
+                            {
+                                Ok(outcome) => {
+                                    if outcome.error.is_some() {
+                                        metrics::counter!("checks_failed_total", "kind" => "monitor")
+                                            .increment(1);
+                                    }
+                                    Ok(())
+                                }
+                                Err(error) => Err(error),
+                            }
                         } else if let Some(metering) = metering {
                             match metering
                                 .execute_classified_attempt(
@@ -579,10 +627,18 @@ where
                                 )
                                 .await
                             {
-                                Ok(_) => Ok(()),
+                                Ok((charge_result, _)) => {
+                                    if charge_result.transaction.is_some() {
+                                        metrics::counter!("checks_charged_total", "kind" => "monitor")
+                                            .increment(1);
+                                    }
+                                    Ok(())
+                                },
                                 Err(application::ChargeForUsageError::OperationNotAttempted(
                                     reason,
                                 )) => {
+                                    metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
+                                        .increment(1);
                                     warn!(
                                         monitor_id = %monitor.id.0,
                                         reason = %reason,
@@ -597,6 +653,13 @@ where
                         };
 
                         if let Err(err) = &result {
+                            if matches!(err.downcast_ref::<application::ChargeForUsageError>(), Some(application::ChargeForUsageError::InsufficientBalance | application::ChargeForUsageError::SpendLimitExceeded)) {
+                                metrics::counter!("checks_skipped_total", "reason" => "billing_block")
+                                    .increment(1);
+                            } else {
+                                metrics::counter!("checks_failed_total", "kind" => "monitor")
+                                    .increment(1);
+                            }
                             warn!(
                                 monitor_id = %monitor.id.0,
                                 error = %err,

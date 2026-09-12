@@ -93,6 +93,15 @@ impl BulkMonitorActionRepository for PostgresBulkMonitorActionRepository {
         row.as_ref().map(Self::row_to_job).transpose()
     }
 
+    async fn queue_depth(&self) -> BulkMonitorActionRepoResult<u64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM monitor_bulk_action_jobs WHERE status='PENDING' OR (status='RUNNING' AND lease_expires_at <= now())",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,

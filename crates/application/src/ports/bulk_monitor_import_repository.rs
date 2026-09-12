@@ -30,6 +30,12 @@ pub trait BulkMonitorImportRepository: Send + Sync {
         idempotency_key: &str,
     ) -> BulkMonitorImportRepoResult<Option<(BulkMonitorImportJob, Option<String>, i32)>>;
 
+    /// Number of jobs currently ready/runnable. Implementations should use a
+    /// database-side COUNT so queue depth does not require loading job rows.
+    async fn queue_depth(&self) -> BulkMonitorImportRepoResult<u64> {
+        Ok(0)
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,
@@ -114,6 +120,10 @@ where
         (**self)
             .find_job_by_idempotency_key(tenant_id, idempotency_key)
             .await
+    }
+
+    async fn queue_depth(&self) -> BulkMonitorImportRepoResult<u64> {
+        (**self).queue_depth().await
     }
 
     async fn claim_jobs(

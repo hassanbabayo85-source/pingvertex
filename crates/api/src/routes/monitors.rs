@@ -52,9 +52,19 @@ pub fn router() -> Router<AppState> {
                 .expect("valid bulk import rate-limit configuration"),
         ));
 
+    let bulk_actions = Router::new()
+        .route("/monitors/bulk", post(bulk_monitor_action))
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(2)
+                .finish()
+                .expect("valid bulk monitor action rate-limit configuration"),
+        ));
+
     Router::new()
         .route("/monitors", post(create_monitor).get(list_monitors))
-        .route("/monitors/bulk", post(bulk_monitor_action))
+        .merge(bulk_actions)
         .route(
             "/monitors/bulk/jobs/{job_id}",
             get(get_bulk_monitor_action_job),
