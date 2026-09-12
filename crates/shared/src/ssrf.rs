@@ -525,6 +525,11 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_rejects_ipv4_loopback() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+
         let url = Url::parse("http://127.0.0.1:8080/status").unwrap();
 
         assert!(
@@ -535,6 +540,11 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_rejects_ipv6_loopback() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+
         let url = Url::parse("http://[::1]:8080/status").unwrap();
 
         assert!(
@@ -545,6 +555,11 @@ mod tests {
 
     #[tokio::test]
     async fn validate_destination_allows_public_ip() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("PINGVERTEX_SSRF_ALLOW_PRIVATE");
+        }
+
         let url = Url::parse("http://1.1.1.1").unwrap();
 
         assert!(
