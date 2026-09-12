@@ -82,6 +82,7 @@ pub fn MonitorDetailPage() -> impl IntoView {
     let notice = RwSignal::new(None::<String>);
     let action_busy = RwSignal::new(false);
     let one_time_busy = RwSignal::new(false);
+    let one_time_result = RwSignal::new(None::<monitoring::OneTimeCheckResponse>);
     let telemetry_in_flight = RwSignal::new(false);
     let show_delete_confirm = RwSignal::new(false);
     let channel_to_delete = RwSignal::new(None::<String>);
@@ -235,11 +236,33 @@ pub fn MonitorDetailPage() -> impl IntoView {
         }
         one_time_busy.set(true);
         error.set(None);
+        one_time_result.set(None);
         spawn_local(async move {
             match monitoring::run_one_time_check(&id).await {
-                Ok(_) => notice.set(Some(
-                    "One-time check queued; recurring schedule is unchanged.".into(),
-                )),
+                Ok(initial) => {
+                    let request_id = initial.request_id.clone();
+                    let monitor_id_for_poll = id.clone();
+                    notice.set(Some(
+                        "One-time check queued; recurring schedule is unchanged.".into(),
+                    ));
+                    // Poll until the request reaches a terminal state.
+                    for _ in 0..40u32 {
+                        gloo_timers::future::TimeoutFuture::new(750).await;
+                        match monitoring::get_one_time_check(&monitor_id_for_poll, &request_id)
+                            .await
+                        {
+                            Ok(state) => {
+                                let terminal =
+                                    state.status == "SUCCEEDED" || state.status == "FAILED";
+                                one_time_result.set(Some(state));
+                                if terminal {
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
                 Err(e) => error.set(Some(e)),
             }
             one_time_busy.set(false);
@@ -469,6 +492,64 @@ pub fn MonitorDetailPage() -> impl IntoView {
                         })}
                         {move || notice.get().map(|n| view! {
                             <div class="alert alert-success" role="status" aria-live="polite">{n}</div>
+                        })}
+
+                        {move || one_time_result.get().map(|r| {
+                            let region_rows: Vec<_> = r.regions.iter().map(|reg| {
+                                let status_class = if reg.status == "SUCCEEDED" {
+                                    "status-badge status-up"
+                                } else if reg.status == "FAILED" {
+                                    "status-badge status-down"
+                                } else {
+                                    "status-badge"
+                                };
+                                let billable_label = if reg.billable { "billable" } else { "released" };
+                                let charge = format!("{}.{:06}", reg.charge_units / 1_000_000, (reg.charge_units % 1_000_000).abs());
+                                view! {
+                                    <tr>
+                                        <td><code>{reg.region.clone()}</code></td>
+                                        <td><span class=status_class>{reg.status.clone()}</span></td>
+                                        <td>{billable_label}</td>
+                                        <td>{format!("${charge}")}</td>
+                                        <td>{reg.error.clone().unwrap_or_default()}</td>
+                                    </tr>
+                                }
+                            }).collect_view();
+                            let billed_count = r.regions.iter().filter(|x| x.billable).count();
+                            let released_count = r.regions.iter().filter(|x| !x.billable).count();
+                            view! {
+                                <section class="card">
+                                    <div class="section-heading">
+                                        <div>
+                                            <h2>"One-Time Check"</h2>
+                                            <p class="muted">
+                                                {format!(
+                                                    "Request {} · {} · {} region(s) · {} billed · {} released",
+                                                    r.request_id.clone(),
+                                                    r.status.clone(),
+                                                    r.regions.len(),
+                                                    billed_count,
+                                                    released_count,
+                                                )}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="table-shell">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>"Region"</th>
+                                                    <th>"Status"</th>
+                                                    <th>"Billing"</th>
+                                                    <th>"Charge"</th>
+                                                    <th>"Error"</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>{region_rows}</tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            }
                         })}
 
                         {move || if show_delete_confirm.get() {

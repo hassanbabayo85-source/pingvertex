@@ -218,26 +218,37 @@ impl SchedulingRepository for NoopSchedulingRepository {
         _: MonitorId,
         _: domain::shared::ids::UserId,
         _: &str,
+        _: &[domain::RegionCode],
     ) -> RepoResult<domain::OneTimeCheckRequest> {
         Err("scheduling repository is not configured".into())
     }
-    async fn claim_one_time_checks(
+    async fn claim_one_time_executions(
         &self,
         _: u32,
         _: uuid::Uuid,
         _: std::time::Duration,
         _: DateTime<Utc>,
-    ) -> RepoResult<Vec<application::ports::ClaimedOneTimeCheck>> {
+    ) -> RepoResult<Vec<application::ports::ClaimedOneTimeExecution>> {
         Ok(vec![])
     }
-    async fn complete_one_time_check(
+    #[allow(clippy::too_many_arguments)]
+    async fn complete_one_time_execution(
         &self,
         _: uuid::Uuid,
         _: uuid::Uuid,
         _: &str,
         _: Option<&str>,
+        _: bool,
+        _: bool,
+        _: i64,
     ) -> RepoResult<()> {
         Ok(())
+    }
+    async fn get_one_time_check_executions(
+        &self,
+        _: uuid::Uuid,
+    ) -> RepoResult<Vec<domain::OneTimeCheckExecution>> {
+        Ok(vec![])
     }
     async fn get_one_time_check(
         &self,

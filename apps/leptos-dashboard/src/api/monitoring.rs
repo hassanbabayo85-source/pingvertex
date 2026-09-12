@@ -446,24 +446,50 @@ pub async fn acknowledge_incident(incident_id: &str) -> Result<(), String> {
         .map_err(to_string_err)
 }
 
-#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct OneTimeCheckRegionResult {
+    pub region: String,
+    pub status: String,
+    pub billable: bool,
+    pub charge_units: i64,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Default)]
+#[serde(default)]
 pub struct OneTimeCheckResponse {
     pub id: String,
     pub request_id: String,
+    pub monitor_id: String,
     pub status: String,
+    pub created_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub error: Option<String>,
+    pub regions: Vec<OneTimeCheckRegionResult>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, Default)]
+pub struct CreateOneTimeCheckPayload {
+    pub monitor_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
 pub async fn run_one_time_check(id: &str) -> Result<OneTimeCheckResponse, String> {
     client::post_json(
         &format!("/monitors/{id}/checks/one-time"),
-        &serde_json::json!({}),
+        &serde_json::json!({ "monitor_id": id }),
     )
     .await
     .map_err(|e| e.to_string())
 }
+
 pub async fn get_one_time_check(
     monitor_id: &str,
     request_id: &str,
 ) -> Result<OneTimeCheckResponse, String> {
+    let _ = monitor_id;
     client::get_json(&format!(
         "/monitors/{monitor_id}/checks/one-time/{request_id}"
     ))
