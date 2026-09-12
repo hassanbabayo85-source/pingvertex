@@ -163,10 +163,10 @@ impl PostgresSchedulingRepository {
                 lease_execution_id = COALESCE(m.lease_execution_id, gen_random_uuid())
             FROM selected
             WHERE m.id = selected.id
-            RETURNING m.id, m.lease_claimed_at, m.lease_execution_id
+            RETURNING m.id, m.lease_claimed_at, m.next_due_at, m.lease_execution_id
         "#;
 
-        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, Uuid)>(query)
+        let claimed_rows = sqlx::query_as::<_, (Uuid, DateTime<Utc>, DateTime<Utc>, Uuid)>(query)
             .bind(limit_i64)
             .bind(lease_owner)
             .bind(lease_seconds)
@@ -177,11 +177,12 @@ impl PostgresSchedulingRepository {
             .await?;
 
         let mut monitors = Vec::with_capacity(claimed_rows.len());
-        for (id, claimed_at, execution_id) in claimed_rows {
+        for (id, claimed_at, scheduled_at, execution_id) in claimed_rows {
             if let Some(monitor) = self.monitor_repository.find_by_id(MonitorId(id)).await? {
                 monitors.push(ClaimedMonitor {
                     monitor,
                     claimed_at,
+                    scheduled_at,
                     execution_id,
                 });
             }

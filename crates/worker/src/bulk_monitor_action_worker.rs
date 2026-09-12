@@ -1,4 +1,8 @@
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use application::ports::{
     AuditLogEntryRepository, BulkMonitorActionJob, BulkMonitorActionRepository, MonitorRepository,
@@ -44,6 +48,8 @@ impl BulkMonitorActionWorker {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = sleep(self.poll_interval) => {}
             }
+            let queue_depth = self.jobs.queue_depth().await?;
+            metrics::gauge!("payg_bulk_action_queue_depth").set(queue_depth as f64);
             let jobs = self
                 .jobs
                 .claim_jobs(
@@ -53,9 +59,19 @@ impl BulkMonitorActionWorker {
                 )
                 .await?;
             for job in jobs {
+                let started = Instant::now();
                 if let Err(err) = self.process(worker_id, job.clone()).await {
+                    metrics::counter!("payg_bulk_action_failures_total", "action" => job.action.clone())
+                        .increment(1);
+                    metrics::histogram!("payg_bulk_action_duration_seconds")
+                        .record(started.elapsed().as_secs_f64());
                     error!(job_id=%job.id, error=%err, "bulk monitor action failed");
                     let _ = self.jobs.fail(job.id, worker_id, &err.to_string()).await;
+                } else {
+                    metrics::counter!("payg_bulk_action_completed_total", "action" => job.action.clone())
+                        .increment(1);
+                    metrics::histogram!("payg_bulk_action_duration_seconds")
+                        .record(started.elapsed().as_secs_f64());
                 }
             }
         }

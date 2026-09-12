@@ -98,6 +98,13 @@ pub trait MonitorRepository: Send + Sync {
         unimplemented!()
     }
 
+    /// Tenant-scoped count for entitlement/bulk decisions. Production
+    /// repositories should implement this as a database-side COUNT and must
+    /// not materialize monitor aggregates.
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        Ok(self.find_all_for_tenant(tenant_id).await?.len() as u64)
+    }
+
     /// Read-only, tenant-scoped snapshot used by bulk-import preview.
     /// Implementations may override this to avoid loading assertions or
     /// reconstructing full monitor aggregates.
@@ -288,6 +295,10 @@ where
     }
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_tenant(tenant_id).await
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        (**self).count_for_tenant(tenant_id).await
     }
 
     async fn bulk_import_snapshot_for_tenant(

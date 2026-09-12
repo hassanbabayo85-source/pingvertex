@@ -109,6 +109,33 @@ groups:
           summary: "PAYG billing failures exceed threshold"
           description: "More than 10 PAYG charges failed to reserve or capture in the last 5 minutes."
 
+      - alert: BillingCaptureFailureRate
+        expr: increase(billing_capture_failures_total[10m]) / clamp_min(increase(billing_captures_total[10m]) + increase(billing_capture_failures_total[10m]), 1) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PAYG wallet capture failure rate is high"
+          description: "More than 1% of wallet capture attempts failed in the last 10 minutes."
+
+      - alert: DuplicateChargeRate
+        expr: increase(duplicate_charge_total[10m]) / clamp_min(increase(billing_captures_total[10m]) + increase(duplicate_charge_total[10m]), 1) > 0.001
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Duplicate PAYG charge rate is abnormal"
+          description: "More than 0.1% of recent billing requests were detected as duplicate charge attempts."
+
+      - alert: WalletReservationConflictRate
+        expr: increase(wallet_reservation_conflict_total[10m]) / clamp_min(increase(wallet_reservations_created_total[10m]) + increase(wallet_reservation_conflict_total[10m]), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PAYG reservation conflicts are elevated"
+          description: "More than 5% of recent reservation requests encountered an existing in-flight reservation."
+
       - alert: PaygPricingResolutionFailure
         expr: increase(payg_pricing_resolution_error_total[5m]) > 0
         for: 2m
@@ -131,6 +158,15 @@ groups:
       # Queue growth
       # ------------------------------------------------------------------
 
+      - alert: BulkImportFailureRate
+        expr: increase(payg_bulk_import_failures_total[15m]) / clamp_min(increase(payg_bulk_jobs_claimed_total[15m]), 1) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bulk monitor import failures are elevated"
+          description: "More than 10% of claimed bulk-import jobs encountered a transient worker failure."
+
       - alert: BulkQueueGrowth
         expr: payg_bulk_queue_depth > 1000
         for: 10m
@@ -152,6 +188,24 @@ groups:
       # ------------------------------------------------------------------
       # Scheduler
       # ------------------------------------------------------------------
+
+      - alert: SchedulerLag
+        expr: histogram_quantile(0.95, sum(rate(scheduler_lag_seconds_bucket[5m])) by (le)) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler lag is elevated"
+          description: "The 95th percentile scheduler lag has exceeded 30 seconds for 5 minutes."
+
+      - alert: MonitorExecutionLatency
+        expr: histogram_quantile(0.95, sum(rate(monitor_execution_latency_seconds_bucket[5m])) by (le)) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Monitor execution latency is elevated"
+          description: "The 95th percentile monitor execution latency has exceeded 10 seconds for 5 minutes."
 
       - alert: SchedulerRetryStorm
         expr: increase(payg_scheduler_retry_total[5m]) > 100

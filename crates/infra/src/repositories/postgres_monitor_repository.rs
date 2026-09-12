@@ -618,6 +618,14 @@ impl MonitorRepository for PostgresMonitorRepository {
         Ok(monitors)
     }
 
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM monitors WHERE tenant_id = $1")
+            .bind(tenant_id.0)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn bulk_import_snapshot_for_tenant(
         &self,
         tenant_id: TenantId,

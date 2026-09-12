@@ -1,0 +1,181 @@
+# Production Prometheus alert rules.
+#
+# Every `expr` in this file references a metric that the codebase actually
+# emits. The full list of emitted metrics can be recovered with:
+#
+#     grep -rhoE 'counter!\("[a-z_]+"|gauge!\("[a-z_]+"|histogram!\("[a-z_]+"' crates/ | sort -u
+#
+# The `tests/monitoring_rules.rs` integration test asserts that each
+# required alert name below is present, so deleting one of these rules
+# will fail the test suite.
+
+groups:
+  - name: uptime
+    rules:
+
+      # ------------------------------------------------------------------
+      # Availability
+      # ------------------------------------------------------------------
+
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is unreachable"
+          description: "Prometheus has not been able to scrape the api job for 1 minute."
+
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker is unreachable"
+          description: "Prometheus has not been able to scrape the worker job for 1 minute."
+
+      - alert: WorkerFailures
+        expr: increase(worker_checks_total{result="failure"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker checks are failing"
+
+      # ------------------------------------------------------------------
+      # Financial reconciliation
+      # ------------------------------------------------------------------
+
+      - alert: BillingReconciliationMismatch
+        expr: billing_reconciliation_last_status == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Billing reconciliation mismatch detected"
+          description: "The daily billing reconciliation worker found one or more financial mismatches."
+
+      - alert: BillingReconciliationAnomalies
+        expr: increase(billing_reconciliation_mismatches_total[1h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Billing reconciliation detected financial anomalies"
+          description: "Any single mismatch emitted by the reconciliation worker is a release-blocking anomaly."
+
+      - alert: PaygReconciliationAnomalies
+        expr: increase(payg_reconciliation_anomalies_total[1h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PAYG reconciliation detected anomalies"
+          description: "A PAYG wallet / ledger / usage-event mismatch was repaired or flagged."
+
+      # ------------------------------------------------------------------
+      # Auto top-up
+      # ------------------------------------------------------------------
+
+      - alert: AutoTopUpReconciliationRequired
+        expr: increase(payg_auto_top_up_reconciliation_required_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auto top-up attempt requires reconciliation"
+          description: "A provider charge could not be settled in the same pass. The reconciliation worker will retry."
+
+      - alert: AutoTopUpPaymentFailures
+        expr: increase(payg_auto_top_up_failed_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auto top-up provider charges are failing repeatedly"
+          description: "More than 5 auto top-up provider charges failed in the last 5 minutes."
+
+      # ------------------------------------------------------------------
+      # PAYG billing
+      # ------------------------------------------------------------------
+
+      - alert: PaygBillingFailures
+        expr: increase(payg_billing_failures_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PAYG billing failures exceed threshold"
+          description: "More than 10 PAYG charges failed to reserve or capture in the last 5 minutes."
+
+      - alert: PaygPricingResolutionFailure
+        expr: increase(payg_pricing_resolution_error_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PAYG pricing resolution is failing"
+          description: "Any pricing resolution error means a charge cannot be priced correctly."
+
+      - alert: PaygPricingMissingPrice
+        expr: increase(payg_pricing_missing_price_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PAYG pricing lookup has no active price for an operation"
+          description: "A billable operation is missing from the active PAYG price book."
+
+      # ------------------------------------------------------------------
+      # Queue growth
+      # ------------------------------------------------------------------
+
+      - alert: BulkQueueGrowth
+        expr: payg_bulk_queue_depth > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bulk import queue depth is growing"
+          description: "More than 1000 bulk import jobs are waiting to be claimed."
+
+      - alert: SchedulerDueQueueGrowth
+        expr: scheduler_due_queue_depth > 5000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler due-queue depth is growing"
+          description: "More than 5000 monitors are due for a check and none are being claimed fast enough."
+
+      # ------------------------------------------------------------------
+      # Scheduler
+      # ------------------------------------------------------------------
+
+      - alert: SchedulerRetryStorm
+        expr: increase(payg_scheduler_retry_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler retry rate is abnormal"
+          description: "More than 100 scheduler retries in 5 minutes suggests a downstream outage."
+
+      - alert: SchedulerBackpressure
+        expr: increase(scheduler_backpressure_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler is hitting its global concurrency cap"
+          description: "The scheduler is refusing new work because it has reached its configured concurrency ceiling."
+
+      - alert: TenantStarvation
+        expr: increase(scheduler_entitlement_skips_total[10m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler is skipping many tenant executions on entitlement"
+          description: "More than 100 executions were skipped due to free-tier entitlement in 10 minutes; a single tenant may be starving the scheduler."

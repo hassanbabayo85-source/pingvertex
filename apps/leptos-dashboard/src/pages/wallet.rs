@@ -195,7 +195,11 @@ pub fn WalletPage() -> impl IntoView {
 
             {move||wallet.get().map(|w|view!{<section class="card">
                 <div class="section-heading"><div><h2>"Wallet status"</h2><p class="muted">"PAYG stops safely at zero; thresholds only control warnings and automation."</p></div><strong>{w.status.clone()}</strong></div>
-                <div class="overview-cards"><div><span class="card-label">"Balance"</span><span class="card-value">{usd(w.balance_units)}</span></div><div><span class="card-label">"Low"</span><span class="card-value">{usd(w.low_balance_threshold_units)}</span></div><div><span class="card-label">"Critical"</span><span class="card-value">{usd(w.critical_balance_threshold_units)}</span></div></div>
+                <div class="overview-cards">
+                    <div><span class="card-label">"Available"</span><span class="card-value">{usd(w.available_units)}</span></div>
+                    <div><span class="card-label">"Reserved"</span><span class="card-value">{usd(w.reserved_units)}</span></div>
+                    <div><span class="card-label">"Balance"</span><span class="card-value">{usd(w.balance_units)}</span></div>
+                </div>
                 {move || {
                     if w.status == "WARNING" {
                         view! {

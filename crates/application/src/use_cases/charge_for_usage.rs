@@ -133,7 +133,8 @@ impl ChargeForUsageUseCase {
             .units
             .checked_mul(pricing.unit_price)
             .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
-        self.wallet_repository
+        let outcome = self
+            .wallet_repository
             .reserve(
                 input.tenant_id,
                 amount,
@@ -151,7 +152,11 @@ impl ChargeForUsageUseCase {
                     ChargeForUsageError::SpendLimitExceeded
                 }
                 _ => ChargeForUsageError::Repository(e),
-            })
+            })?;
+        if outcome.created {
+            counter!("wallet_reservations_created_total").increment(1);
+        }
+        Ok(outcome)
     }
 
     pub async fn find_usage_event(
@@ -217,6 +222,7 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(ChargeForUsageError::Repository)?
         {
+            counter!("duplicate_charge_total", "operation" => input.operation.clone()).increment(1);
             return Ok(ChargeForUsageResult {
                 usage_event: event,
                 transaction: None,
@@ -249,6 +255,7 @@ impl ChargeForUsageUseCase {
                     transaction: None,
                 });
             }
+            counter!("wallet_reservation_conflict_total").increment(1);
             return Err(ChargeForUsageError::ReservationInProgress);
         }
         let reserved_unit_price =
@@ -285,6 +292,7 @@ impl ChargeForUsageUseCase {
                 .release(reservation.id)
                 .await
                 .map_err(ChargeForUsageError::Repository)?;
+            counter!("wallet_reservations_released_total").increment(1);
             self.audit_transition(
                 &input,
                 "wallet_reservation_released",
@@ -313,9 +321,11 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
+                counter!("billing_capture_failures_total").increment(1);
                 ChargeForUsageError::CaptureFailed(e)
             })?;
         counter!("payg_wallet_capture_success_total").increment(1);
+        counter!("billing_captures_total").increment(1);
         let event = self
             .usage_event_repository
             .create(&event)
@@ -348,6 +358,7 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(ChargeForUsageError::Repository)?
         {
+            counter!("duplicate_charge_total", "operation" => input.operation.clone()).increment(1);
             return Ok(ChargeForUsageResult {
                 usage_event: event,
                 transaction: None,
@@ -416,6 +427,7 @@ impl ChargeForUsageUseCase {
             })?;
         counter!("payg_wallet_reserve_success_total").increment(1);
         if reservation.created {
+            counter!("wallet_reservations_created_total").increment(1);
             self.audit_transition(&input, "wallet_reservation_created", reservation.reservation.id, serde_json::json!({"amount_units": reservation.reservation.amount_units, "operation": input.operation, "request_id": input.request_id})).await?;
         }
         if !reservation.created && reservation.reservation.status != CreditReservation::PENDING {
@@ -431,6 +443,7 @@ impl ChargeForUsageUseCase {
                     transaction: None,
                 });
             }
+            counter!("wallet_reservation_conflict_total").increment(1);
             return Err(ChargeForUsageError::ReservationInProgress);
         }
         let operation_result = operation().await;
@@ -463,9 +476,11 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
+                counter!("billing_capture_failures_total").increment(1);
                 ChargeForUsageError::CaptureFailed(e)
             })?;
         counter!("payg_wallet_capture_success_total").increment(1);
+        counter!("billing_captures_total").increment(1);
         let event = self
             .usage_event_repository
             .create(&event)
@@ -597,6 +612,7 @@ impl ChargeForUsageUseCase {
             })?;
         counter!("payg_wallet_reserve_success_total").increment(1);
         if reservation.created {
+            counter!("wallet_reservations_created_total").increment(1);
             self.audit_transition(&input, "wallet_reservation_created", reservation.reservation.id, serde_json::json!({"amount_units": reservation.reservation.amount_units, "operation": input.operation, "request_id": input.request_id})).await?;
         }
         if !reservation.created {
@@ -619,6 +635,7 @@ impl ChargeForUsageUseCase {
             // operation twice for the same durable execution identity. If the
             // owner crashed, the reservation expiry worker will make the request
             // reusable and the scheduler can retry it.
+            counter!("wallet_reservation_conflict_total").increment(1);
             return Err(ChargeForUsageError::ReservationInProgress);
         }
         let (attempt, output) = match operation().await {
@@ -628,6 +645,7 @@ impl ChargeForUsageUseCase {
                     .release(reservation.reservation.id)
                     .await
                     .map_err(ChargeForUsageError::Repository)?;
+                counter!("wallet_reservations_released_total").increment(1);
                 self.audit_transition(
                     &input,
                     "wallet_reservation_released",
@@ -643,6 +661,7 @@ impl ChargeForUsageUseCase {
                 .release(reservation.reservation.id)
                 .await
                 .map_err(ChargeForUsageError::Repository)?;
+            counter!("wallet_reservations_released_total").increment(1);
             return Err(ChargeForUsageError::OperationNotAttempted(
                 attempt
                     .error
@@ -678,9 +697,11 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
+                counter!("billing_capture_failures_total").increment(1);
                 ChargeForUsageError::CaptureFailed(e)
             })?;
         counter!("payg_wallet_capture_success_total").increment(1);
+        counter!("billing_captures_total").increment(1);
         let event = self
             .usage_event_repository
             .create(&event)
@@ -723,6 +744,7 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(ChargeForUsageError::Repository)?
         {
+            counter!("duplicate_charge_total", "operation" => input.operation.clone()).increment(1);
             return Ok(ChargeForUsageResult {
                 usage_event: event,
                 transaction: None,
@@ -797,6 +819,7 @@ impl ChargeForUsageUseCase {
             })?;
         counter!("payg_wallet_reserve_success_total").increment(1);
         if reservation_outcome.created {
+            counter!("wallet_reservations_created_total").increment(1);
             self.audit_transition(&input, "wallet_reservation_created", reservation_outcome.reservation.id, serde_json::json!({"amount_units": reservation_outcome.reservation.amount_units, "operation": input.operation, "request_id": input.request_id})).await?;
         }
 
@@ -805,6 +828,8 @@ impl ChargeForUsageUseCase {
             // reservation. Strict API callers wait; durable workers may resume
             // the same reservation with the recoverable variant below.
             if reservation_outcome.reservation.status == CreditReservation::CAPTURED {
+                counter!("duplicate_charge_total", "operation" => input.operation.clone())
+                    .increment(1);
                 let event = self
                     .recover_captured_event(
                         &input,
@@ -840,6 +865,7 @@ impl ChargeForUsageUseCase {
         if let Err(err) = operation().await {
             let error_message = err.to_string();
             let _ = self.wallet_repository.release(reservation.id).await;
+            counter!("wallet_reservations_released_total").increment(1);
             self.audit_transition(
                 &input,
                 "wallet_reservation_released",
@@ -883,6 +909,7 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
+                counter!("billing_capture_failures_total").increment(1);
                 ChargeForUsageError::CaptureFailed(e)
             })?;
         // Postgres has already persisted these rows atomically with the debit.
@@ -894,6 +921,7 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(ChargeForUsageError::Repository)?;
         counter!("payg_billing_success_total", "operation" => input.operation.clone()).increment(1);
+        counter!("billing_captures_total").increment(1);
         histogram!("payg_billing_latency_seconds").record(started.elapsed().as_secs_f64());
         Ok(ChargeForUsageResult {
             usage_event: event,
@@ -1042,8 +1070,10 @@ impl ChargeForUsageUseCase {
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
+                counter!("billing_capture_failures_total").increment(1);
                 ChargeForUsageError::CaptureFailed(e)
             })?;
+        counter!("billing_captures_total").increment(1);
         self.usage_event_repository
             .create(&event)
             .await

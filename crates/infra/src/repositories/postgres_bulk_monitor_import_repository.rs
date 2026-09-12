@@ -229,6 +229,15 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         Ok(Some((row.into_domain()?, source_sha256, forecast_days)))
     }
 
+    async fn queue_depth(&self) -> BulkMonitorImportRepoResult<u64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM monitor_bulk_import_jobs WHERE status IN ('READY','RUNNING')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn claim_jobs(
         &self,
         worker_id: Uuid,

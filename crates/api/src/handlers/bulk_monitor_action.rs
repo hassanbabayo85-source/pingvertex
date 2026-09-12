@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{error::ApiError, state::AppState};
+use metrics::counter;
 
 const MAX_SELECTED_MONITORS: usize = 500;
 const MAX_AUDIT_REASON_LEN: usize = 500;
@@ -20,7 +21,11 @@ const MAX_AUDIT_REASON_LEN: usize = 500;
 pub enum BulkMonitorAction {
     Enable,
     Disable,
+    /// Product semantics: pause is a user-requested disable. Billing blocks
+    /// remain distinct and are represented by `billing_blocked`.
     Pause,
+    /// Product semantics: resume is a user-requested enable. It never clears
+    /// a durable billing block.
     Resume,
 }
 
@@ -138,6 +143,8 @@ pub async fn bulk_monitor_action(
         BulkMonitorAction::Pause => "pause",
         BulkMonitorAction::Resume => "resume",
     };
+    counter!("payg_bulk_action_requests_total", "action" => action).increment(1);
+
     let repo = state
         .bulk_monitor_action_repository
         .as_ref()
