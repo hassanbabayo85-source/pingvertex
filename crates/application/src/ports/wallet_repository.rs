@@ -96,6 +96,15 @@ pub trait WalletRepository: Send + Sync {
         Ok(None)
     }
 
+    /// Extends a still-pending reservation for the owning tenant/request.
+    /// Terminal reservations must never be resurrected.
+    async fn renew_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> WalletRepoResult<bool>;
+
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()>;
     async fn find_top_up_session(
         &self,
@@ -514,5 +523,15 @@ where
         limit: u32,
     ) -> WalletRepoResult<Vec<WalletNotification>> {
         (**self).list_balance_notifications(tenant_id, limit).await
+    }
+    async fn renew_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> WalletRepoResult<bool> {
+        (**self)
+            .renew_reservation_by_request(tenant_id, request_id, expires_at)
+            .await
     }
 }

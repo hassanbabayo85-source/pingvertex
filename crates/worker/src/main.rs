@@ -22,9 +22,10 @@ use infra::{
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
-    AutoTopUpWorker, BulkMonitorImportWorker, CustomDomainVerificationWorker, EscalationWorker,
-    HeartbeatSweeper, IncidentEvaluator, IncidentManager, MultiCheckExecutor, OutboxWorker,
-    ProxyCheckWorker, RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
+    AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
+    CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
+    IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
+    RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
     TenantNotificationRateLimiter, WalletExpirationWorker, WalletNotificationEmailWorker,
     init_rustls_crypto_provider, metrics,
 };
@@ -126,6 +127,20 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_audit_log_repository(financial_audit_repository.clone())
         .with_tenant_repository(tenant_repository.clone()),
     );
+    let bulk_action_worker = BulkMonitorActionWorker::new(
+        Arc::new(infra::PostgresBulkMonitorActionRepository::new(
+            pool.clone(),
+        )),
+        monitor_repository.clone(),
+        Arc::new(PostgresAuditLogEntryRepository::new(pool.clone())),
+    );
+    let bulk_action_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = bulk_action_worker.run_forever(bulk_action_cancel).await {
+            tracing::error!(error=%err, "bulk monitor action worker stopped unexpectedly");
+        }
+    });
+
     let bulk_import_worker = BulkMonitorImportWorker::new(
         Arc::new(PostgresBulkMonitorImportRepository::new(pool.clone())),
         monitor_repository.clone(),
@@ -369,6 +384,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 worker_config.scheduler_due_claim_limit_per_tenant,
             )
             .with_deterministic_spread(worker_config.scheduler_deterministic_spread_seconds)
+            .with_heartbeat_interval(Duration::from_secs(
+                worker_config.heartbeat_interval_seconds,
+            ))
             .run() => {
                 result?;
             }

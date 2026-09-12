@@ -4,6 +4,7 @@ use crate::components::filter_bar::FilterBar;
 use crate::components::polling;
 use crate::components::search_input::SearchInput;
 use crate::components::status_badge::StatusBadge;
+use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
@@ -172,23 +173,37 @@ pub fn MonitorsPage() -> impl IntoView {
                                         ids.clone(),
                                         all_now,
                                     ).await {
-                                        Ok(_result) => {
-                                            monitors.update(|list| {
-                                                if all_now {
-                                                    for monitor in list.iter_mut() {
-                                                        monitor.enabled = enabled_now;
-                                                    }
-                                                } else {
-                                                    for monitor in list.iter_mut() {
-                                                        if ids.iter().any(|id| id == &monitor.id) {
-                                                            monitor.enabled = enabled_now;
+                                        Ok(result) => {
+                                            let mut job = result;
+                                            let mut completed = matches!(job.status.as_str(), "COMPLETED");
+                                            for _ in 0..120 {
+                                                if completed || matches!(job.status.as_str(), "FAILED") { break; }
+                                                TimeoutFuture::new(500).await;
+                                                match monitoring::fetch_bulk_monitor_action_job(&job.job_id).await {
+                                                    Ok(next) => { job = next; completed = job.status == "COMPLETED"; }
+                                                    Err(e) => { action_error.set(Some(e)); break; }
+                                                }
+                                            }
+                                            if completed {
+                                                monitors.update(|list| {
+                                                    if all_now {
+                                                        for monitor in list.iter_mut() { monitor.enabled = enabled_now; }
+                                                    } else {
+                                                        for monitor in list.iter_mut() {
+                                                            if ids.iter().any(|id| id == &monitor.id) { monitor.enabled = enabled_now; }
                                                         }
                                                     }
-                                                }
-                                            });
-                                            selected_ids.set(Vec::new());
-                                            pending_bulk.set(None);
-                                            action_error.set(None);
+                                                });
+                                                selected_ids.set(Vec::new());
+                                                pending_bulk.set(None);
+                                                action_error.set(None);
+                                            } else if job.status == "FAILED" {
+                                                pending_bulk.set(None);
+                                                action_error.set(Some("Bulk monitor action failed on the server.".to_owned()));
+                                            } else {
+                                                pending_bulk.set(None);
+                                                action_error.set(Some("Bulk monitor action is still processing. Refresh shortly.".to_owned()));
+                                            }
                                         }
                                         Err(e) => {
                                             pending_bulk.set(None);

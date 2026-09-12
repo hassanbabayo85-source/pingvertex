@@ -236,6 +236,37 @@ impl WalletRepository for PostgresWalletRepository {
         Ok(rows.into_iter().map(TxRow::into_domain).collect())
     }
 
+    async fn renew_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> WalletRepoResult<bool> {
+        if request_id.trim().is_empty() {
+            return Err("request_id is required".into());
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE credit_reservations r
+            SET expires_at = $3,
+                updated_at = now()
+            FROM user_wallets w
+            WHERE r.wallet_id = w.id
+              AND w.tenant_id = $1
+              AND r.request_id = $2
+              AND r.status = 'PENDING'
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(request_id)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
     async fn find_reservation_by_request(
         &self,
         tenant_id: Uuid,

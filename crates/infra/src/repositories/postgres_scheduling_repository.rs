@@ -62,6 +62,19 @@ impl PostgresSchedulingRepository {
 }
 
 impl PostgresSchedulingRepository {
+    pub async fn renew_lease(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        extend_by: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        <Self as SchedulingRepository>::renew_lease(self, monitor_id, lease_owner, extend_by, now)
+            .await
+    }
+}
+
+impl PostgresSchedulingRepository {
     async fn claim_due_monitors_inner(
         &self,
         limit: u32,
@@ -321,6 +334,36 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn renew_lease(
+        &self,
+        monitor_id: MonitorId,
+        lease_owner: Uuid,
+        extend_by: Duration,
+        now: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        let extend_seconds = i64::try_from(extend_by.as_secs()).unwrap_or(i64::MAX);
+
+        let result = sqlx::query(
+            r#"
+            UPDATE monitors
+            SET lease_expires_at = $3 + ($4 * interval '1 second'),
+                updated_at = now()
+            WHERE id = $1
+              AND lease_owner = $2
+              AND lease_expires_at IS NOT NULL
+              AND lease_expires_at > $3
+            "#,
+        )
+        .bind(monitor_id.0)
+        .bind(lease_owner)
+        .bind(now)
+        .bind(extend_seconds)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
     }
 
     async fn set_billing_block(

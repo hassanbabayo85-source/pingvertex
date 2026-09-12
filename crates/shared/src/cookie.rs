@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn defaults_to_secure_when_environment_unset() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.blocking_lock();
         unsafe {
             std::env::remove_var("ENVIRONMENT");
         }
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn disables_secure_for_recognized_dev_environments() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.blocking_lock();
         for value in ["development", "dev", "test", "local", "DEVELOPMENT"] {
             unsafe {
                 std::env::set_var("ENVIRONMENT", value);
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn stays_secure_for_unrecognized_environment_value() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.blocking_lock();
         unsafe {
             std::env::set_var("ENVIRONMENT", "staging");
         }

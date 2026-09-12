@@ -135,6 +135,7 @@ pub struct DurableScheduler<R, E> {
     max_concurrency_per_tenant: usize,
     due_claim_limit_per_tenant: usize,
     deterministic_spread_seconds: u64,
+    heartbeat_interval: Duration,
 }
 
 impl<R, E> DurableScheduler<R, E>
@@ -193,6 +194,7 @@ where
             max_concurrency_per_tenant: 4,
             due_claim_limit_per_tenant: 4,
             deterministic_spread_seconds: 5,
+            heartbeat_interval: (lease_duration / 3).max(Duration::from_secs(5)),
         }
     }
 
@@ -236,6 +238,14 @@ where
 
     pub fn with_deterministic_spread(mut self, spread_seconds: u64) -> Self {
         self.deterministic_spread_seconds = spread_seconds.min(300);
+        self
+    }
+
+    pub fn with_heartbeat_interval(mut self, heartbeat_interval: Duration) -> Self {
+        let max_interval = self.lease_duration / 2;
+        self.heartbeat_interval = heartbeat_interval
+            .max(Duration::from_secs(1))
+            .min(max_interval.max(Duration::from_secs(1)));
         self
     }
 

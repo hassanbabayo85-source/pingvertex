@@ -23,8 +23,8 @@ use infra::{
     PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
     PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
     PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
-    PostgresBulkMonitorImportRepository, PostgresCheckRepository,
-    PostgresCheckoutSessionRepository, PostgresDashboardRepository,
+    PostgresBulkMonitorActionRepository, PostgresBulkMonitorImportRepository,
+    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
@@ -211,6 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
     .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
     .with_platform_admin_repositories(platform_user_repository.clone(), platform_tenant_repository)
+    .with_bulk_monitor_action_repository(PostgresBulkMonitorActionRepository::new(pool.clone()))
     .with_bulk_monitor_import_repository(PostgresBulkMonitorImportRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))

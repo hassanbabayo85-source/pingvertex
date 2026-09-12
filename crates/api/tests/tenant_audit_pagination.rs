@@ -121,7 +121,7 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
 
     let Json(filtered_page) = tenant_audit(
         State(state.clone()),
-        Extension(auth.clone()),
+        Extension(auth),
         Query(AuditQuery {
             cursor: None,
             limit: Some(100),

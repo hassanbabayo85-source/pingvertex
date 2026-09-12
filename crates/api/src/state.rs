@@ -47,6 +47,8 @@ fn new_heartbeat_rate_limiter() -> HeartbeatRateLimiter {
 pub struct AppState {
     pub monitor_repository: Arc<dyn MonitorRepository>,
     pub bulk_monitor_import_repository: Option<Arc<dyn BulkMonitorImportRepository>>,
+    pub bulk_monitor_action_repository:
+        Option<Arc<dyn application::ports::BulkMonitorActionRepository>>,
     pub check_repository: Arc<dyn CheckRepository>,
     pub diagnostic_report_repository: Arc<dyn DiagnosticReportRepository>,
     pub incident_repository: Arc<dyn IncidentRepository>,
@@ -166,6 +168,16 @@ struct NoopSchedulingRepository;
 
 #[async_trait]
 impl SchedulingRepository for NoopSchedulingRepository {
+    async fn renew_lease(
+        &self,
+        _monitor_id: domain::MonitorId,
+        _lease_owner: uuid::Uuid,
+        _extend_by: std::time::Duration,
+        _now: chrono::DateTime<chrono::Utc>,
+    ) -> application::ports::RepoResult<bool> {
+        Ok(false)
+    }
+
     async fn claim_due_monitors(
         &self,
         _limit: u32,
@@ -1045,6 +1057,15 @@ impl WalletRepository for NoopWalletRepository {
     ) -> RepoResult<Vec<domain::WalletTransaction>> {
         Ok(vec![])
     }
+    async fn renew_reservation_by_request(
+        &self,
+        _tenant_id: uuid::Uuid,
+        _request_id: &str,
+        _expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> application::ports::WalletRepoResult<bool> {
+        Ok(false)
+    }
+
     async fn reserve(
         &self,
         _tenant_id: uuid::Uuid,
@@ -1383,6 +1404,7 @@ impl AppState {
         Self {
             monitor_repository: Arc::new(monitor_repository),
             bulk_monitor_import_repository: None,
+            bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),
             incident_repository: Arc::new(incident_repository),
@@ -1483,6 +1505,7 @@ impl AppState {
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
             bulk_monitor_import_repository: None,
+            bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
             diagnostic_report_repository: Arc::new(diagnostic_report_repository),
             incident_repository: Arc::new(incident_repository),
@@ -1544,6 +1567,14 @@ impl AppState {
     {
         self.platform_user_repository = Arc::new(users);
         self.platform_tenant_repository = Arc::new(tenants);
+        self
+    }
+
+    pub fn with_bulk_monitor_action_repository<R>(mut self, repository: R) -> Self
+    where
+        R: application::ports::BulkMonitorActionRepository + 'static,
+    {
+        self.bulk_monitor_action_repository = Some(Arc::new(repository));
         self
     }
 

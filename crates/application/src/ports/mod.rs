@@ -217,7 +217,12 @@ pub mod payment_repository;
 pub use payment_repository::{PaymentRepoResult, PaymentRepository};
 
 // PAYG Part 3 — durable CSV bulk import.
+pub mod bulk_monitor_action_repository;
 pub mod bulk_monitor_import_repository;
 pub use bulk_monitor_import_repository::{
     BulkMonitorImportRepoResult, BulkMonitorImportRepository,
+};
+
+pub use bulk_monitor_action_repository::{
+    BulkMonitorActionJob, BulkMonitorActionRepoResult, BulkMonitorActionRepository,
 };

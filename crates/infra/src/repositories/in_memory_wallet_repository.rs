@@ -247,6 +247,36 @@ impl WalletRepository for InMemoryWalletRepository {
         })
     }
 
+    async fn renew_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> WalletRepoResult<bool> {
+        let mut g = self.inner.lock().unwrap();
+
+        let Some((_, _, reservations)) = g.get_mut(&tenant_id) else {
+            return Ok(false);
+        };
+
+        let Some(reservation) = reservations
+            .values_mut()
+            .find(|r| r.request_id == request_id)
+        else {
+            return Ok(false);
+        };
+
+        if reservation.status != CreditReservation::PENDING || reservation.expires_at >= expires_at
+        {
+            return Ok(false);
+        }
+
+        reservation.expires_at = expires_at;
+        reservation.updated_at = Utc::now();
+
+        Ok(true)
+    }
+
     async fn capture(
         &self,
         reservation_id: Uuid,

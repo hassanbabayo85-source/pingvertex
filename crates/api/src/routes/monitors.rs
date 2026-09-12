@@ -13,10 +13,10 @@ use crate::{
         },
         bulk_monitor_action, confirm_bulk_monitor_import, create_escalation_policy,
         create_maintenance_window, create_monitor, create_one_time_check, delete_monitor,
-        disable_monitor, enable_monitor, get_bulk_monitor_import_job, get_incident, get_monitor,
-        get_one_time_check, list_incidents, list_monitor_checks, list_monitors,
-        pause_bulk_monitor_import, preview_bulk_monitor_import, resume_bulk_monitor_import,
-        update_monitor,
+        disable_monitor, enable_monitor, get_bulk_monitor_action_job, get_bulk_monitor_import_job,
+        get_incident, get_monitor, get_one_time_check, list_incidents, list_monitor_checks,
+        list_monitors, pause_bulk_monitor_import, preview_bulk_monitor_import,
+        resume_bulk_monitor_import, update_monitor,
     },
     state::AppState,
 };
@@ -55,6 +55,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/monitors", post(create_monitor).get(list_monitors))
         .route("/monitors/bulk", post(bulk_monitor_action))
+        .route(
+            "/monitors/bulk/jobs/{job_id}",
+            get(get_bulk_monitor_action_job),
+        )
         .route(
             "/monitors/{id}",
             get(get_monitor).put(update_monitor).delete(delete_monitor),

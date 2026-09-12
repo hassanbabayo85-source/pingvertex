@@ -79,5 +79,7 @@ pub use wallet_notification_email_worker::WalletNotificationEmailWorker;
 pub mod reconciliation_worker;
 pub use reconciliation_worker::ReconciliationWorker;
 
-pub mod bulk_monitor_import_worker;
+pub mod bulk_monitor_action_worker;
+mod bulk_monitor_import_worker;
+pub use bulk_monitor_action_worker::BulkMonitorActionWorker;
 pub use bulk_monitor_import_worker::BulkMonitorImportWorker;

@@ -86,7 +86,7 @@ async fn claim_checks(
                 &agent_id,
                 &agent_region.0,
                 agent_claim_limit(),
-                Duration::from_secs(120),
+                Duration::from_secs(420),
                 Utc::now(),
                 max_concurrency_per_tenant(),
                 due_claim_limit_per_tenant(),
@@ -115,20 +115,21 @@ async fn claim_checks(
             let plan = if let Some(plan) = plan_cache.get(&monitor.tenant_id.0) {
                 *plan
             } else {
-                let plan = application::use_cases::ResolveEntitlementsUseCase::new(
-                    state.subscription_repository.clone(),
-                )
-                .with_pricing_config_repository(state.pricing_config_repository.clone())
-                .execute(application::queries::ResolveEntitlements {
-                    tenant_id: monitor.tenant_id,
-                })
-                .await
-                .map_err(|err| {
-                    ApiError::internal_with_source(
-                        "failed to resolve agent scheduler entitlement",
-                        err,
-                    )
-                })?;
+                let config = state
+                    .pricing_config_repository
+                    .find_active_config()
+                    .await
+                    .map_err(|err| {
+                        ApiError::internal_with_source(
+                            "failed to load PAYG pricing config for agent scheduler",
+                            err,
+                        )
+                    })?
+                    .ok_or_else(|| ApiError::internal("active PAYG pricing config is missing"))?;
+                let mut plan = domain::Plan::for_tier(domain::enums::PlanTier::Free);
+                plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+                plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+                plan.history_retention_days = config.free_tier.retention_days;
                 plan_cache.insert(monitor.tenant_id.0, plan);
                 plan
             };

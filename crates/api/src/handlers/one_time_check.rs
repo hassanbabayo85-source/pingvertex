@@ -52,7 +52,7 @@ pub async fn create_one_time_check(
 
     // Disabled monitors must never produce monitoring executions or PAYG
     // charges. Enforce this at the API boundary as well as in the scheduler.
-    if monitor.enabled == false {
+    if !monitor.enabled {
         return Err(ApiError::conflict("monitor is disabled"));
     }
 
