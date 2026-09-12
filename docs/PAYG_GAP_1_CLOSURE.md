@@ -41,13 +41,31 @@ double-charge.
 
 ## Tests
 
-`crates/worker/tests/network_egress_billing.rs`:
+### `crates/worker/tests/network_egress_billing.rs` (HTTP path)
 
 - `zero_bytes_is_a_no_op`
 - `one_byte_charges_one_unit`
 - `one_mib_charges_one_unit`
 - `one_mib_plus_one_byte_charges_two_units`
 - `retry_with_same_request_id_does_not_double_charge`
+
+### `crates/worker/tests/flow_network_egress_billing.rs` (API flow path)
+
+- `flow_executor_reports_per_step_egress_bytes`:
+  drives `execute_flow_with_resolver` against a local mock HTTP
+  server and asserts each step's `egress_bytes` matches the actual
+  response body length, then confirms the summed total converts to
+  the expected 1 MiB unit count via `network_egress_units`.
+- `flow_egress_charge_matches_measured_bytes`:
+  feeds the summed egress to `bill_network_egress` with
+  `MonitorKind::Flow` and asserts the wallet is debited the exact
+  1 MiB × 100 micro-USD expected amount.
+- `zero_byte_flow_charges_nothing`:
+  empty response body → 0 egress → `bill_network_egress` is a no-op.
+- `insufficient_balance_is_a_logged_no_op`:
+  wallet with 50 micro-USD, egress of exactly 1 MiB (= 100 micro-USD
+  charge). `bill_network_egress` must not panic and must leave the
+  wallet at its original balance.
 
 ## Regression suites (all green)
 
