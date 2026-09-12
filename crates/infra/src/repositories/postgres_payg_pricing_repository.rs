@@ -151,9 +151,19 @@ impl PAYGPricingRepository for PostgresPAYGPricingRepository {
     }
 
     async fn list_active(&self) -> PaygPricingRepoResult<Vec<PAYGPricing>> {
+        // DISTINCT ON (operation) collapses the historical pricing
+        // seed migrations (0079, 0087) that inserted an early version of
+        // an operation and were later followed by a newer version (0091,
+        // 0093) that never marked the earlier one inactive. Because
+        // `payg_pricing_configs` is append-only (immutability trigger),
+        // the historical rows cannot be updated or removed; the query
+        // therefore picks the newest still-in-window version per
+        // operation so the pricing API never advertises the same
+        // operation twice with two different historical versions.
         let rows = sqlx::query_as::<_, PricingRow>(
             r#"
-            SELECT * FROM payg_pricing_configs
+            SELECT DISTINCT ON (operation) *
+            FROM payg_pricing_configs
             WHERE active = true
               AND NOT EXISTS (
                   SELECT 1
@@ -162,6 +172,7 @@ impl PAYGPricingRepository for PostgresPAYGPricingRepository {
               )
               AND effective_from <= now()
               AND (effective_until IS NULL OR effective_until > now())
+            ORDER BY operation, version DESC, effective_from DESC
             "#,
         )
         .fetch_all(&self.pool)
