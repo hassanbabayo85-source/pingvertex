@@ -56,6 +56,9 @@ pub mod request_password_reset;
 pub mod resend_verification;
 pub mod reset_password;
 pub mod reset_password_support;
+/// **LEGACY.** No production caller; kept for subscription tests and
+/// migration work. See the `ResolveEntitlementsUseCase` doc comment.
+#[doc(hidden)]
 pub mod resolve_entitlements;
 pub mod revoke_invitation;
 pub mod send_test_notification;
