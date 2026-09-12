@@ -1,4 +1,3 @@
-use std::env;
 use std::sync::Arc;
 
 use application::ports::{IncidentRepository, MonitorRepository};
@@ -6,7 +5,7 @@ use domain::shared::ids::{MonitorId, TenantId, UserId};
 use domain::{CheckInterval, ExpectedStatus, HttpMethod, MonitorBuilder, MonitorName, Timeout};
 use infra::{
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository, NoopNotificationService,
-    PostgresIncidentRepository, PostgresMonitorRepository, UuidIdGenerator, create_pool,
+    PostgresIncidentRepository, PostgresMonitorRepository, UuidIdGenerator,
 };
 use sqlx::{PgPool, query};
 use uuid::Uuid;
@@ -18,25 +17,14 @@ use worker::{IncidentEvaluator, IncidentManager};
 /// `IncidentManager::open_if_needed` + the database's partial unique
 /// index) still produces exactly one open incident — never a duplicate.
 ///
-/// Self-contained Postgres test harness (drop schema, re-run migrations)
-/// mirroring `crates/infra/tests/common/mod.rs`, since worker crate
-/// tests don't currently share that helper module across crates.
-async fn setup_pool() -> PgPool {
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+/// Uses the shared exclusive integration-test harness so schema setup and
+/// test-data reset are serialized across test binaries.
+async fn setup_pool_exclusive() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor".to_string()
     });
 
-    let pool = create_pool(&database_url).await.unwrap();
-
-    query("DROP SCHEMA IF EXISTS public CASCADE")
-        .execute(&pool)
-        .await
-        .unwrap();
-    query("CREATE SCHEMA public").execute(&pool).await.unwrap();
-
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
-
-    pool
+    infra::test_support::setup_pool_exclusive(&database_url).await
 }
 
 async fn insert_user(pool: &PgPool, user_id: UserId) -> TenantId {
@@ -90,7 +78,7 @@ async fn insert_user(pool: &PgPool, user_id: UserId) -> TenantId {
 
 #[tokio::test]
 async fn concurrent_failures_open_exactly_one_incident() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
 
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());

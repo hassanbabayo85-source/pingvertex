@@ -4,6 +4,21 @@ use crate::ports::{
 use domain::MonitorKind;
 use std::{error::Error, fmt, sync::Arc};
 
+/// Fallback minimum check interval (in seconds) for non-Flow monitor kinds
+/// when no `MonitorIntervalPolicyRepository` is configured. Exposed publicly
+/// so the API can surface the same value the preview use case enforces.
+pub const MIN_INTERVAL_SECONDS_HTTP_TCP_DNS: u32 = 30;
+
+/// Fallback minimum check interval (in seconds) for Flow monitor kinds
+/// when no `MonitorIntervalPolicyRepository` is configured.
+pub const MIN_INTERVAL_SECONDS_FLOW: u32 = 60;
+
+/// Maximum number of regions the preview endpoint accepts per monitor.
+pub const MAX_PREVIEW_REGIONS: u32 = 32;
+
+/// Maximum forecast horizon (days) the preview endpoint accepts.
+pub const MAX_PREVIEW_FORECAST_DAYS: u32 = 3650;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaygPreviewInput {
     /// Server-owned tenant account type. The preview must use the same
@@ -88,12 +103,12 @@ impl CalculatePaygPreviewUseCase {
                 "monitors must be greater than zero",
             ));
         }
-        if input.regions == 0 || input.regions > 32 {
+        if input.regions == 0 || input.regions > MAX_PREVIEW_REGIONS {
             return Err(PaygPreviewError::Invalid(
                 "regions must be between 1 and 32",
             ));
         }
-        if input.forecast_days == 0 || input.forecast_days > 3650 {
+        if input.forecast_days == 0 || input.forecast_days > MAX_PREVIEW_FORECAST_DAYS {
             return Err(PaygPreviewError::Invalid(
                 "forecast_days must be between 1 and 3650",
             ));
@@ -105,8 +120,8 @@ impl CalculatePaygPreviewUseCase {
                 .map_err(PaygPreviewError::Repository)?
         } else {
             match input.kind {
-                MonitorKind::Flow => 60,
-                _ => 30,
+                MonitorKind::Flow => MIN_INTERVAL_SECONDS_FLOW,
+                _ => MIN_INTERVAL_SECONDS_HTTP_TCP_DNS,
             }
         };
         if input.interval_seconds < min_interval || input.interval_seconds > 86_400 {
@@ -133,7 +148,9 @@ impl CalculatePaygPreviewUseCase {
                 // a per-region PricingContext instead.
                 region: None,
                 monitor_kind: Some(input.kind),
-                quantity: input.monitors.saturating_mul(u64::from(input.regions)),
+                // Runtime billing resolves one price per execution; forecast
+                // volume is multiplied separately below.
+                quantity: 1,
             },
         )
         .await

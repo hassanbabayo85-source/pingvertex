@@ -1,0 +1,459 @@
+use std::error::Error;
+use std::sync::Arc;
+
+use application::ports::monitor_repository::QuotaCheckOutcome;
+use application::ports::{
+    EncryptedProxyCredentials, ProxyCheckJobRepository, ProxyCredentialCipher,
+    ProxyResultStatusFilter,
+};
+use async_trait::async_trait;
+use domain::entities::{ProxyCheckJob, ProxyEntry};
+use domain::enums::{ProxyCheckJobStatus, ProxyScheme};
+use domain::shared::ids::{ProxyCheckJobId, ProxyEntryId, TenantId, UserId};
+use domain::value_objects::ProxyHost;
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
+use uuid::Uuid;
+
+type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+fn job_status_to_db(status: &ProxyCheckJobStatus) -> &'static str {
+    match status {
+        ProxyCheckJobStatus::Pending => "pending",
+        ProxyCheckJobStatus::Running => "running",
+        ProxyCheckJobStatus::Completed => "completed",
+        ProxyCheckJobStatus::Failed => "failed",
+        ProxyCheckJobStatus::Canceled => "canceled",
+    }
+}
+
+fn job_status_from_db(value: &str) -> RepoResult<ProxyCheckJobStatus> {
+    match value {
+        "pending" => Ok(ProxyCheckJobStatus::Pending),
+        "running" => Ok(ProxyCheckJobStatus::Running),
+        "completed" => Ok(ProxyCheckJobStatus::Completed),
+        "failed" => Ok(ProxyCheckJobStatus::Failed),
+        "canceled" => Ok(ProxyCheckJobStatus::Canceled),
+        other => Err(format!("unsupported proxy check job status in database: {other}").into()),
+    }
+}
+
+fn proxy_scheme_to_db(scheme: &ProxyScheme) -> &'static str {
+    match scheme {
+        ProxyScheme::Http => "http",
+        ProxyScheme::Https => "https",
+        ProxyScheme::Socks5 => "socks5",
+    }
+}
+fn proxy_scheme_from_db(value: &str) -> RepoResult<ProxyScheme> {
+    match value {
+        "http" => Ok(ProxyScheme::Http),
+        "https" => Ok(ProxyScheme::Https),
+        "socks5" => Ok(ProxyScheme::Socks5),
+        other => Err(format!("unsupported proxy scheme in database: {other}").into()),
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ProxyCheckJobRow {
+    id: Uuid,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    status: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+    heartbeat_at: Option<chrono::DateTime<chrono::Utc>>,
+    worker_id: Option<String>,
+    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    canceled_at: Option<chrono::DateTime<chrono::Utc>>,
+    failed_at: Option<chrono::DateTime<chrono::Utc>>,
+    failure_reason: Option<String>,
+    retry_count: i32,
+    total_count: i32,
+    checked_count: i32,
+    successful_count: i32,
+    failed_count: i32,
+}
+
+impl ProxyCheckJobRow {
+    fn into_domain(self) -> RepoResult<ProxyCheckJob> {
+        Ok(ProxyCheckJob::from_persisted(
+            ProxyCheckJobId(self.id),
+            UserId(self.user_id),
+            TenantId(self.tenant_id),
+            job_status_from_db(&self.status)?,
+            self.created_at,
+            self.started_at,
+            self.heartbeat_at,
+            self.worker_id,
+            self.completed_at,
+            self.canceled_at,
+            self.failed_at,
+            self.failure_reason,
+            self.retry_count.try_into()?,
+            self.total_count.try_into()?,
+            self.checked_count.try_into()?,
+            self.successful_count.try_into()?,
+            self.failed_count.try_into()?,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ProxyEntryRow {
+    id: Uuid,
+    job_id: Uuid,
+    host: String,
+    port: i32,
+    scheme: String,
+    encrypted_credentials: Option<Vec<u8>>,
+    result_json: Option<serde_json::Value>,
+}
+
+impl ProxyEntryRow {
+    fn into_domain(self, cipher: &Arc<dyn ProxyCredentialCipher>) -> RepoResult<ProxyEntry> {
+        let host = ProxyHost::new(self.host)?;
+        let port: u16 = self.port.try_into()?;
+        let scheme = proxy_scheme_from_db(&self.scheme)?;
+        let credentials = match self.encrypted_credentials {
+            Some(bytes) => Some(cipher.decrypt(&EncryptedProxyCredentials::from(bytes))?),
+            None => None,
+        };
+        let result = self.result_json.map(serde_json::from_value).transpose()?;
+        Ok(ProxyEntry::from_persisted(
+            ProxyEntryId(self.id),
+            ProxyCheckJobId(self.job_id),
+            host,
+            port,
+            scheme,
+            credentials,
+            result,
+        ))
+    }
+}
+
+pub struct PostgresProxyCheckJobRepository {
+    pool: PgPool,
+    cipher: Arc<dyn ProxyCredentialCipher>,
+}
+impl PostgresProxyCheckJobRepository {
+    pub fn new(pool: PgPool, cipher: Arc<dyn ProxyCredentialCipher>) -> Self {
+        Self { pool, cipher }
+    }
+
+    async fn insert_job_and_entries(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+    ) -> RepoResult<()> {
+        sqlx::query(
+            r#"INSERT INTO proxy_check_jobs
+               (id,user_id,tenant_id,status,created_at,started_at,heartbeat_at,worker_id,completed_at,canceled_at,failed_at,failure_reason,retry_count,total_count,checked_count,successful_count,failed_count)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)"#,
+        )
+        .bind(job.id().0).bind(job.user_id().0).bind(job.tenant_id().0)
+        .bind(job_status_to_db(&job.status())).bind(job.created_at()).bind(job.started_at())
+        .bind(job.heartbeat_at()).bind(job.worker_id()).bind(job.completed_at()).bind(job.canceled_at())
+        .bind(job.failed_at()).bind(job.failure_reason()).bind(job.retry_count() as i32)
+        .bind(job.total_count() as i32).bind(job.checked_count() as i32)
+        .bind(job.successful_count() as i32).bind(job.failed_count() as i32)
+        .execute(&mut **tx).await?;
+
+        for entry in entries {
+            let encrypted_credentials = match entry.credentials() {
+                Some(credentials) => Some(self.cipher.encrypt(credentials)?.as_bytes().to_vec()),
+                None => None,
+            };
+            let result_json = entry.result().map(serde_json::to_value).transpose()?;
+            sqlx::query(
+                r#"INSERT INTO proxy_entries
+                   (id,job_id,host,port,scheme,encrypted_credentials,result_json)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)"#,
+            )
+            .bind(entry.id().0)
+            .bind(entry.job_id().0)
+            .bind(entry.host().as_str())
+            .bind(i32::from(entry.port()))
+            .bind(proxy_scheme_to_db(entry.scheme()))
+            .bind(encrypted_credentials)
+            .bind(result_json)
+            .execute(&mut **tx)
+            .await?;
+        }
+        Ok(())
+    }
+}
+impl std::fmt::Debug for PostgresProxyCheckJobRepository {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PostgresProxyCheckJobRepository").finish()
+    }
+}
+impl Clone for PostgresProxyCheckJobRepository {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            cipher: Arc::clone(&self.cipher),
+        }
+    }
+}
+
+const JOB_COLUMNS: &str = "id,user_id,tenant_id,status,created_at,started_at,heartbeat_at,worker_id,completed_at,canceled_at,failed_at,failure_reason,retry_count,total_count,checked_count,successful_count,failed_count";
+
+#[async_trait]
+impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
+    async fn save_job(&self, job: &ProxyCheckJob, entries: &[ProxyEntry]) -> RepoResult<()> {
+        let mut tx = self.pool.begin().await?;
+        self.insert_job_and_entries(&mut tx, job, entries).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn save_job_if_within_quota(
+        &self,
+        job: &ProxyCheckJob,
+        entries: &[ProxyEntry],
+        user_id: UserId,
+        tenant_id: TenantId,
+        limit: usize,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        if job.tenant_id() != tenant_id || job.user_id() != user_id {
+            return Err("proxy job ownership mismatch".into());
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("proxy_check_jobs:{}:{}", tenant_id.0, user_id.0))
+            .execute(&mut *tx)
+            .await?;
+        let current_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM proxy_check_jobs WHERE tenant_id=$1 AND user_id=$2 AND created_at >= date_trunc('day',now())"
+        ).bind(tenant_id.0).bind(user_id.0).fetch_one(&mut *tx).await?;
+        if current_count as usize >= limit {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+        self.insert_job_and_entries(&mut tx, job, entries).await?;
+        tx.commit().await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
+
+    async fn try_mark_running(&self, id: ProxyCheckJobId, worker_id: &str) -> RepoResult<bool> {
+        let row: Option<Uuid> = sqlx::query_scalar(
+            "UPDATE proxy_check_jobs SET status='running', started_at=COALESCE(started_at,now()), heartbeat_at=now(), worker_id=$2, completed_at=NULL, canceled_at=NULL, failed_at=NULL, failure_reason=NULL WHERE id=$1 AND status='pending' RETURNING id"
+        ).bind(id.0).bind(worker_id).fetch_optional(&self.pool).await?;
+        Ok(row.is_some())
+    }
+
+    async fn heartbeat(&self, id: ProxyCheckJobId, worker_id: &str) -> RepoResult<bool> {
+        let rows = sqlx::query(
+            "UPDATE proxy_check_jobs SET heartbeat_at=now() WHERE id=$1 AND status='running' AND worker_id=$2"
+        ).bind(id.0).bind(worker_id).execute(&self.pool).await?.rows_affected();
+        Ok(rows == 1)
+    }
+
+    async fn recover_stale_jobs(
+        &self,
+        stale_before: chrono::DateTime<chrono::Utc>,
+        max_retries: u32,
+    ) -> RepoResult<u64> {
+        let max: i32 = max_retries.try_into()?;
+        let result = sqlx::query(
+            r#"UPDATE proxy_check_jobs
+               SET status = CASE WHEN retry_count + 1 >= $2 THEN 'failed' ELSE 'pending' END,
+                   retry_count = retry_count + 1,
+                   failed_at = CASE WHEN retry_count + 1 >= $2 THEN now() ELSE NULL END,
+                   failure_reason = CASE WHEN retry_count + 1 >= $2 THEN 'stale proxy check job exceeded retry limit' ELSE NULL END,
+                   heartbeat_at = NULL, worker_id = NULL,
+                   completed_at = NULL
+               WHERE status='running' AND heartbeat_at IS NOT NULL AND heartbeat_at < $1"#,
+        ).bind(stale_before).bind(max).execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn update_job(&self, job: &ProxyCheckJob) -> RepoResult<()> {
+        let result = sqlx::query(
+            r#"UPDATE proxy_check_jobs SET
+                 status=$1, started_at=$2, heartbeat_at=$3, worker_id=$4,
+                 completed_at=$5, canceled_at=$6, failed_at=$7, failure_reason=$8,
+                 retry_count=$9, checked_count=$10, successful_count=$11, failed_count=$12
+               WHERE id=$13 AND tenant_id=$14"#,
+        )
+        .bind(job_status_to_db(&job.status()))
+        .bind(job.started_at())
+        .bind(job.heartbeat_at())
+        .bind(job.worker_id())
+        .bind(job.completed_at())
+        .bind(job.canceled_at())
+        .bind(job.failed_at())
+        .bind(job.failure_reason())
+        .bind(job.retry_count() as i32)
+        .bind(job.checked_count() as i32)
+        .bind(job.successful_count() as i32)
+        .bind(job.failed_count() as i32)
+        .bind(job.id().0)
+        .bind(job.tenant_id().0)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err("proxy check job update affected no rows".into());
+        }
+        Ok(())
+    }
+
+    async fn find_job_by_id(
+        &self,
+        id: ProxyCheckJobId,
+        tenant_id: TenantId,
+    ) -> RepoResult<Option<ProxyCheckJob>> {
+        let row = sqlx::query_as::<_, ProxyCheckJobRow>(&format!(
+            "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE id=$1 AND tenant_id=$2"
+        ))
+        .bind(id.0)
+        .bind(tenant_id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(ProxyCheckJobRow::into_domain).transpose()
+    }
+
+    async fn find_jobs_by_user_id(
+        &self,
+        user_id: UserId,
+        tenant_id: TenantId,
+    ) -> RepoResult<Vec<ProxyCheckJob>> {
+        let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
+            &format!("SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE user_id=$1 AND tenant_id=$2 ORDER BY created_at DESC")
+        ).bind(user_id.0).bind(tenant_id.0).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect()
+    }
+
+    async fn find_jobs_by_tenant_id(&self, tenant_id: TenantId) -> RepoResult<Vec<ProxyCheckJob>> {
+        let rows = sqlx::query_as::<_, ProxyCheckJobRow>(&format!(
+            "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE tenant_id=$1 ORDER BY created_at DESC"
+        ))
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect()
+    }
+
+    async fn update_entry(&self, entry: &ProxyEntry, tenant_id: TenantId) -> RepoResult<()> {
+        let result_json = entry.result().map(serde_json::to_value).transpose()?;
+        let result = sqlx::query(
+            "UPDATE proxy_entries pe SET result_json=$1 FROM proxy_check_jobs j WHERE pe.id=$2 AND pe.job_id=j.id AND j.tenant_id=$3 AND pe.job_id=$4"
+        ).bind(result_json).bind(entry.id().0).bind(tenant_id.0).bind(entry.job_id().0)
+        .execute(&self.pool).await?;
+        if result.rows_affected() != 1 {
+            return Err("proxy entry update affected no rows".into());
+        }
+        Ok(())
+    }
+
+    async fn find_entries_by_job_id(
+        &self,
+        job_id: ProxyCheckJobId,
+        tenant_id: TenantId,
+    ) -> RepoResult<Vec<ProxyEntry>> {
+        let rows = sqlx::query_as::<_, ProxyEntryRow>(
+            "SELECT pe.id,pe.job_id,pe.host,pe.port,pe.scheme,pe.encrypted_credentials,pe.result_json FROM proxy_entries pe INNER JOIN proxy_check_jobs j ON j.id=pe.job_id WHERE pe.job_id=$1 AND j.tenant_id=$2 ORDER BY pe.id"
+        ).bind(job_id.0).bind(tenant_id.0).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(|row| row.into_domain(&self.cipher))
+            .collect()
+    }
+
+    async fn list_entries(
+        &self,
+        job_id: ProxyCheckJobId,
+        tenant_id: TenantId,
+        offset: u32,
+        limit: u32,
+        status: Option<ProxyResultStatusFilter>,
+        scheme: Option<ProxyScheme>,
+        working_only: bool,
+    ) -> RepoResult<(Vec<ProxyEntry>, u32)> {
+        let scheme = scheme.map(|s| proxy_scheme_to_db(&s).to_string());
+        let status_sql = match status {
+            Some(ProxyResultStatusFilter::Working) => " AND pe.result_json->>'reachable'='true'",
+            Some(ProxyResultStatusFilter::Failed) => " AND pe.result_json->>'reachable'='false'",
+            None => "",
+        };
+        let working_sql = if working_only {
+            " AND pe.result_json->>'reachable'='true'"
+        } else {
+            ""
+        };
+        let scheme_sql = if scheme.is_some() {
+            " AND pe.scheme=$3"
+        } else {
+            ""
+        };
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM proxy_entries pe INNER JOIN proxy_check_jobs j ON j.id=pe.job_id WHERE pe.job_id=$1 AND j.tenant_id=$2{status_sql}{working_sql}{scheme_sql}"
+        );
+        let total: i64 = if let Some(ref scheme) = scheme {
+            sqlx::query_scalar(&count_sql)
+                .bind(job_id.0)
+                .bind(tenant_id.0)
+                .bind(scheme)
+                .fetch_one(&self.pool)
+                .await?
+        } else {
+            sqlx::query_scalar(&count_sql)
+                .bind(job_id.0)
+                .bind(tenant_id.0)
+                .fetch_one(&self.pool)
+                .await?
+        };
+        let data_scheme_sql = if scheme.is_some() {
+            " AND pe.scheme=$5"
+        } else {
+            ""
+        };
+        let data_sql = format!(
+            "SELECT pe.id,pe.job_id,pe.host,pe.port,pe.scheme,pe.encrypted_credentials,pe.result_json FROM proxy_entries pe INNER JOIN proxy_check_jobs j ON j.id=pe.job_id WHERE pe.job_id=$1 AND j.tenant_id=$2{status_sql}{working_sql}{data_scheme_sql} ORDER BY pe.id OFFSET $3 LIMIT $4"
+        );
+        let rows = if let Some(ref scheme) = scheme {
+            sqlx::query_as::<_, ProxyEntryRow>(&data_sql)
+                .bind(job_id.0)
+                .bind(tenant_id.0)
+                .bind(offset as i64)
+                .bind(limit as i64)
+                .bind(scheme)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            sqlx::query_as::<_, ProxyEntryRow>(&data_sql)
+                .bind(job_id.0)
+                .bind(tenant_id.0)
+                .bind(offset as i64)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+        };
+        Ok((
+            rows.into_iter()
+                .map(|r| r.into_domain(&self.cipher))
+                .collect::<RepoResult<Vec<_>>>()?,
+            total.try_into()?,
+        ))
+    }
+
+    async fn cancel_job(&self, id: ProxyCheckJobId, tenant_id: TenantId) -> RepoResult<bool> {
+        let result = sqlx::query(
+            "UPDATE proxy_check_jobs SET status='canceled', canceled_at=now(), heartbeat_at=NULL, worker_id=NULL, completed_at=NULL, failed_at=NULL, failure_reason=NULL WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','running')"
+        ).bind(id.0).bind(tenant_id.0).execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>> {
+        let limit: i64 = limit.try_into()?;
+        let rows = sqlx::query_as::<_, ProxyCheckJobRow>(
+            &format!("SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE status='pending' ORDER BY created_at ASC LIMIT $1")
+        ).bind(limit).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect()
+    }
+}

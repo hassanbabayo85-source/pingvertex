@@ -1,0 +1,69 @@
+[package]
+name = "worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rand = "0.9"
+application = { path = "../application" }
+domain = { path = "../domain" }
+infra = { path = "../infra" }
+shared = { path = "../shared" }
+
+tokio.workspace = true
+tokio-util = "0.7"
+uuid.workspace = true
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+ipnet = "2"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "charset",
+    "json",
+    "gzip",
+    "brotli",
+    "zstd",
+] }
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+axum = "0.8.9"
+
+# Sababbin dependencies don tantancewar assertion
+serde_json = "1.0"
+chrono = { workspace = true }
+regex = "1"
+
+# Percent-encoding for API flow placeholder resolution
+# (placeholder_resolver.rs), pinned to match the version already used by
+# domain/shared so the workspace does not end up with two `url` majors.
+url = "2.5.8"
+
+# TLS certificate inspection (SSL expiry monitoring). Versions pinned to
+# match the rustls stack reqwest's "rustls-tls" feature already pulls in,
+# so we don't end up with two separate rustls major versions in the tree.
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-native-certs = "0.8"
+x509-parser = "0.16"
+async-trait.workspace = true
+hickory-resolver = "0.26.1"
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "chrono", "uuid", "migrate"] }
+
+# Proxy-Authorization header generation for proxy check protocol verification.
+base64 = "0.22"
+
+[dev-dependencies]
+async-trait = { workspace = true }
+dotenvy = "0.15"
+rcgen = "0.14.10"
+time = "0.3"
+# Used by crates/worker/src/config.rs's env-var-mutating unit tests, same
+# as crates/infra already uses for its own env-var-mutating tests
+# (S3Config, SmtpConfig).
+serial_test = "3.1"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }

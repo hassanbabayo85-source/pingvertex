@@ -2,14 +2,14 @@ mod common;
 
 use application::ports::incident_repository::IncidentRepository;
 use application::ports::monitor_repository::MonitorRepository;
-use common::{sample_incident, sample_monitor, setup_pool};
+use common::{sample_incident, sample_monitor, setup_pool_exclusive};
 use infra::{PostgresIncidentRepository, PostgresMonitorRepository};
 use serial_test::serial;
 
 #[serial]
 #[tokio::test]
 async fn save_and_find_by_id_round_trips_incident() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
@@ -39,7 +39,7 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
     // biyun open ne (resolved_at = None) ga wannan monitor guda. Sabon
     // partial unique index din ya kamata ya toshe na biyu (ta hanyar ON
     // CONFLICT DO NOTHING) maimakon ya jefar da error ko ya ƙirƙiri kwafi.
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
@@ -85,7 +85,7 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
 #[serial]
 #[tokio::test]
 async fn find_open_by_monitor_returns_only_unresolved_incident() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
@@ -112,7 +112,7 @@ async fn find_open_by_monitor_returns_only_unresolved_incident() {
 #[serial]
 #[tokio::test]
 async fn update_persists_resolution() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
 
@@ -138,7 +138,7 @@ async fn update_persists_resolution() {
 #[serial]
 #[tokio::test]
 async fn list_by_monitor_returns_incidents_for_monitor() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
 

@@ -225,6 +225,15 @@ pub trait MonitorRepository: Send + Sync {
         Ok(0)
     }
 
+    /// Clears only balance-exhaustion blocks after a wallet top-up. Spend-limit
+    /// blocks must remain until the configured limit is actually available.
+    async fn clear_balance_billing_blocks_for_tenant(
+        &self,
+        _tenant_id: TenantId,
+    ) -> RepoResult<u64> {
+        Ok(0)
+    }
+
     /// Returns billing-block reasons for the tenant in one query, avoiding
     /// N+1 lookups in the monitor list UI.
     async fn billing_blocks_for_tenant(
@@ -350,6 +359,15 @@ where
 
     async fn clear_billing_blocks_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
         (**self).clear_billing_blocks_for_tenant(tenant_id).await
+    }
+
+    async fn clear_balance_billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<u64> {
+        (**self)
+            .clear_balance_billing_blocks_for_tenant(tenant_id)
+            .await
     }
 
     async fn billing_blocks_for_tenant(

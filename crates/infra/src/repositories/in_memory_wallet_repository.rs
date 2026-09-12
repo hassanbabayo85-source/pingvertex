@@ -432,6 +432,13 @@ impl WalletRepository for InMemoryWalletRepository {
         }) {
             return Err("provider checkout already belongs to another tenant".into());
         }
+        if g.values().any(|x| {
+            x.tenant_id == session.tenant_id
+                && x.idempotency_key == session.idempotency_key
+                && x.provider_checkout_id != session.provider_checkout_id
+        }) {
+            return Err("top-up idempotency key already belongs to another checkout".into());
+        }
         g.insert(session.provider_checkout_id.clone(), session.clone());
         Ok(())
     }
@@ -447,6 +454,20 @@ impl WalletRepository for InMemoryWalletRepository {
             .unwrap()
             .get(provider_checkout_id)
             .filter(|x| x.tenant_id == tenant_id)
+            .cloned())
+    }
+
+    async fn find_top_up_session_by_idempotency(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        Ok(self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .find(|x| x.tenant_id == tenant_id && x.idempotency_key == idempotency_key)
             .cloned())
     }
 

@@ -3,7 +3,8 @@ use super::charge_for_usage::{
     MeteredAttempt,
 };
 use crate::ports::{
-    PAYGPricingRepository, PricingContext, TenantRepository, UsageEventRepository, WalletRepository,
+    PAYGPricingRepository, PricingContext, ReservationOutcome, TenantRepository,
+    UsageEventRepository, WalletRepository,
 };
 use std::collections::HashMap;
 use std::fmt;
@@ -121,6 +122,30 @@ impl MeterUsageUseCase {
                 },
                 operation,
             )
+            .await
+    }
+
+    pub async fn reserve_for_execution(
+        &self,
+        input: MeterUsageInput,
+    ) -> Result<ReservationOutcome, ChargeForUsageError> {
+        let pricing_context = self
+            .enrich_pricing_context(
+                input.tenant_id,
+                input.pricing_context.clone(),
+                input.units.max(0) as u64,
+            )
+            .await;
+        self.charge
+            .reserve_for_execution(ChargeForUsageInput {
+                tenant_id: input.tenant_id,
+                operation: input.operation,
+                units: input.units,
+                request_id: input.request_id,
+                monitor_id: input.monitor_id,
+                execution_id: input.execution_id,
+                pricing_context,
+            })
             .await
     }
 

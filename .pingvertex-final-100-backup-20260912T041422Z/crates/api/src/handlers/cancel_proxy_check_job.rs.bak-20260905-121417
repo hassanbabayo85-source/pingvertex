@@ -1,0 +1,22 @@
+use axum::{extract::{Extension, Path, State}, Json};
+use application::use_cases::{CancelProxyCheckJobUseCase, GetProxyCheckJobUseCase};
+use domain::shared::types::AuthenticatedUser;
+use crate::{error::ApiError, handlers::proxy_check_types::ProxyCheckJobHttpResponse, state::AppState, validation::parse_proxy_check_job_id};
+
+pub async fn cancel_proxy_check_job(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<String>,
+) -> Result<Json<ProxyCheckJobHttpResponse>, ApiError> {
+    let id = parse_proxy_check_job_id(&id)?;
+    let cancel = CancelProxyCheckJobUseCase::new(state.proxy_check_job_repository.clone());
+    if !cancel.execute(id, user).await.map_err(|e| ApiError::internal_with_source("failed to cancel proxy check job", e))? {
+        return Err(ApiError::conflict("proxy check job cannot be canceled"));
+    }
+    let get = GetProxyCheckJobUseCase::new(state.proxy_check_job_repository.clone());
+    let job = get.execute(id, user).await
+        .map_err(|e| ApiError::internal_with_source("failed to fetch canceled proxy check job", e))?
+        .map(|(j, _)| j)
+        .ok_or_else(|| ApiError::not_found("proxy check job not found"))?;
+    Ok(Json(ProxyCheckJobHttpResponse::from(job)))
+}

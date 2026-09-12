@@ -46,18 +46,28 @@ pub async fn create_one_time_check(
         .ok_or_else(|| ApiError::not_found("monitor not found"))?;
 
     if monitor.tenant_id != tenant_id {
+        // Do not reveal whether a monitor belonging to another tenant exists.
         return Err(ApiError::not_found("monitor not found"));
     }
 
-    let operation = domain::monitor_operation(monitor.kind, true);
+    // Disabled monitors must never produce monitoring executions or PAYG
+    // charges. Enforce this at the API boundary as well as in the scheduler.
+    if monitor.enabled == false {
+        return Err(ApiError::conflict("monitor is disabled"));
+    }
+
     let tenant = state
         .platform_tenant_repository
         .find_by_id(tenant_id)
         .await
-        .map_err(|err| {
-            ApiError::internal_with_source("failed to load tenant pricing context", err)
-        })?
+        .map_err(|err| ApiError::internal_with_source("failed to load tenant status", err))?
         .ok_or_else(|| ApiError::not_found("tenant not found"))?;
+
+    if tenant.status != domain::TenantStatus::Active {
+        return Err(ApiError::forbidden("tenant is suspended"));
+    }
+
+    let operation = domain::monitor_operation(monitor.kind, true);
     let pricing_context = PricingContext {
         quantity: 1,
         monitor_kind: Some(monitor.kind),

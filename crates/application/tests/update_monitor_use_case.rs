@@ -148,3 +148,10 @@ async fn cannot_update_monitor_owned_by_another_user() {
 
     assert!(result.is_none());
 }
+
+#[test]
+fn enable_use_case_delegates_scheduler_state_to_repository() {
+    let source = include_str!("../src/use_cases/update_monitor_enabled.rs");
+    assert!(source.contains("set_enabled_for_tenant"));
+    assert!(!source.contains("self.repository.save(&monitor)"));
+}

@@ -103,19 +103,17 @@ pub trait WalletRepository: Send + Sync {
         provider_checkout_id: &str,
     ) -> WalletRepoResult<Option<WalletTopUpSession>>;
 
+    async fn find_top_up_session_by_idempotency(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        let _ = (tenant_id, idempotency_key);
+        Ok(None)
+    }
+
     /// Looks up a top-up session by provider identity alone, without a
-    /// pre-known tenant id. Used by provider webhooks (e.g. Paystack's
-    /// `charge.success`) where the payload only carries the provider's
-    /// reference and never the internal tenant id.
-    ///
-    /// `(provider, provider_checkout_id)` is globally unique per the
-    /// `uq_wallet_topup_provider_checkout` constraint added in migration
-    /// 0081, so a single lookup suffices and no tenant can collide with
-    /// another's session.
-    ///
-    /// Default returns `Ok(None)`, matching the "test/development harness
-    /// does not implement this" convention used by the other optional
-    /// methods on this trait.
+    /// pre-known tenant id. Used by provider webhooks.
     async fn find_top_up_session_global(
         &self,
         provider: &str,
@@ -363,6 +361,16 @@ where
     ) -> WalletRepoResult<Option<WalletTopUpSession>> {
         (**self)
             .find_top_up_session(tenant_id, provider_checkout_id)
+            .await
+    }
+
+    async fn find_top_up_session_by_idempotency(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        (**self)
+            .find_top_up_session_by_idempotency(tenant_id, idempotency_key)
             .await
     }
     async fn complete_top_up_session(

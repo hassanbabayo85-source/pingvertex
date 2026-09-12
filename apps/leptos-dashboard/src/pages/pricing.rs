@@ -6,10 +6,15 @@ fn usd(u: i64) -> String {
     format!("${}.{:06}", u / 1_000_000, u.abs() % 1_000_000)
 }
 
+// Business limits are server-owned. Until the API response arrives, the
+// estimator stays in a loading/disabled state rather than guessing policy
+// values in the browser.
+
 #[component]
 pub fn PricingPage() -> impl IntoView {
     let prices = RwSignal::new(Vec::<billing::PaygPricing>::new());
     let free_tier = RwSignal::new(None::<billing::FreeTier>);
+    let preview_limits = RwSignal::new(None::<billing::PreviewLimits>);
     let error = RwSignal::new(None::<String>);
 
     let monitors = RwSignal::new("100".to_string());
@@ -20,12 +25,25 @@ pub fn PricingPage() -> impl IntoView {
     let preview = RwSignal::new(None::<billing::PaygPreview>);
     let preview_error = RwSignal::new(None::<String>);
 
+    let max_regions = move || preview_limits.get().map(|l| l.max_regions);
+    let max_forecast_days = move || preview_limits.get().map(|l| l.max_forecast_days);
+    let min_interval_for_kind = move || {
+        preview_limits.get().map(|l| match kind.get().as_str() {
+            "tcp" => l.min_interval_seconds_tcp,
+            "dns" => l.min_interval_seconds_dns,
+            "heartbeat" => l.min_interval_seconds_heartbeat,
+            "flow" => l.min_interval_seconds_flow,
+            _ => l.min_interval_seconds_http,
+        })
+    };
+
     Effect::new(move |_| {
         spawn_local(async move {
             match billing::payg_pricing().await {
                 Ok(page) => {
                     prices.set(page.prices);
                     free_tier.set(Some(page.free_tier));
+                    preview_limits.set(Some(page.preview_limits));
                 }
                 Err(e) => error.set(Some(e.to_string())),
             }
@@ -44,11 +62,25 @@ pub fn PricingPage() -> impl IntoView {
             preview.set(None);
             return;
         };
-        if monitors == 0 || interval_seconds < 30 || regions == 0 || forecast_days == 0 {
+        let kind_value = kind.get();
+        let (Some(min_interval), Some(max_regions), Some(max_forecast_days)) =
+            (min_interval_for_kind(), max_regions(), max_forecast_days())
+        else {
+            preview.set(None);
+            preview_error.set(Some("Loading server pricing limits…".into()));
+            return;
+        };
+        if monitors == 0
+            || interval_seconds < min_interval
+            || interval_seconds > 86_400
+            || regions == 0
+            || regions > max_regions
+            || forecast_days == 0
+            || forecast_days > max_forecast_days
+        {
             preview.set(None);
             return;
         }
-        let kind_value = kind.get();
 
         spawn_local(async move {
             match billing::payg_preview(&billing::PaygPreviewRequest {
@@ -95,17 +127,28 @@ pub fn PricingPage() -> impl IntoView {
                     </label>
                     <label>
                         "Check interval (seconds)"
-                        <input type="number" min="30" prop:value=interval
+                        <input
+                            type="number"
+                            prop:min=move || min_interval_for_kind().unwrap_or(1).to_string()
+                            prop:value=interval
                             on:input=move |e| interval.set(event_target_value(&e))/>
                     </label>
                     <label>
                         "Regions"
-                        <input type="number" min="1" max="32" prop:value=regions
+                        <input
+                            type="number"
+                            min="1"
+                            prop:max=move || max_regions().unwrap_or(u32::MAX).to_string()
+                            prop:value=regions
                             on:input=move |e| regions.set(event_target_value(&e))/>
                     </label>
                     <label>
                         "Forecast days"
-                        <input type="number" min="1" max="3650" prop:value=forecast_days
+                        <input
+                            type="number"
+                            min="1"
+                            prop:max=move || max_forecast_days().unwrap_or(u32::MAX).to_string()
+                            prop:value=forecast_days
                             on:input=move |e| forecast_days.set(event_target_value(&e))/>
                     </label>
                     <label>

@@ -31,8 +31,10 @@ async fn test_same_context_same_result() {
 async fn test_account_type_resolution() {
     let repo = InMemoryPAYGPricingRepository::new();
 
-    let mut ctx_ind = PricingRuleContext::default();
-    ctx_ind.account_type = Some(AccountType::Individual);
+    let ctx_ind = PricingRuleContext {
+        account_type: Some(AccountType::Individual),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -44,8 +46,10 @@ async fn test_account_type_resolution() {
     .await
     .unwrap();
 
-    let mut ctx_comp = PricingRuleContext::default();
-    ctx_comp.account_type = Some(AccountType::Company);
+    let ctx_comp = PricingRuleContext {
+        account_type: Some(AccountType::Company),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -89,14 +93,18 @@ async fn test_account_type_resolution() {
 async fn test_region_resolution() {
     let repo = InMemoryPAYGPricingRepository::new();
 
-    let mut ctx_a = PricingRuleContext::default();
-    ctx_a.region = Some(RegionCode::new("us-east").unwrap());
+    let ctx_a = PricingRuleContext {
+        region: Some(RegionCode::new("us-east").unwrap()),
+        ..Default::default()
+    };
     repo.create_version_with_context("http_check.one_time", "unit", 10, "USD", Utc::now(), &ctx_a)
         .await
         .unwrap();
 
-    let mut ctx_b = PricingRuleContext::default();
-    ctx_b.region = Some(RegionCode::new("eu-west").unwrap());
+    let ctx_b = PricingRuleContext {
+        region: Some(RegionCode::new("eu-west").unwrap()),
+        ..Default::default()
+    };
     repo.create_version_with_context("http_check.one_time", "unit", 20, "USD", Utc::now(), &ctx_b)
         .await
         .unwrap();
@@ -133,8 +141,10 @@ async fn test_region_resolution() {
 async fn test_monitor_kind_resolution() {
     let repo = InMemoryPAYGPricingRepository::new();
 
-    let mut ctx_http = PricingRuleContext::default();
-    ctx_http.monitor_kind = Some(MonitorKind::Http);
+    let ctx_http = PricingRuleContext {
+        monitor_kind: Some(MonitorKind::Http),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -146,8 +156,10 @@ async fn test_monitor_kind_resolution() {
     .await
     .unwrap();
 
-    let mut ctx_tcp = PricingRuleContext::default();
-    ctx_tcp.monitor_kind = Some(MonitorKind::Tcp);
+    let ctx_tcp = PricingRuleContext {
+        monitor_kind: Some(MonitorKind::Tcp),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -191,8 +203,10 @@ async fn test_monitor_kind_resolution() {
 async fn test_quantity_tier_resolution() {
     let repo = InMemoryPAYGPricingRepository::new();
 
-    let mut ctx_tier1 = PricingRuleContext::default();
-    ctx_tier1.max_quantity = Some(100);
+    let ctx_tier1 = PricingRuleContext {
+        max_quantity: Some(100),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -204,8 +218,10 @@ async fn test_quantity_tier_resolution() {
     .await
     .unwrap();
 
-    let mut ctx_tier2 = PricingRuleContext::default();
-    ctx_tier2.min_quantity = Some(101);
+    let ctx_tier2 = PricingRuleContext {
+        min_quantity: Some(101),
+        ..Default::default()
+    };
     repo.create_version_with_context(
         "http_check.one_time",
         "unit",
@@ -275,14 +291,18 @@ async fn test_missing_price_fails_safely() {
 async fn test_ambiguous_price_fails_safely() {
     let repo = InMemoryPAYGPricingRepository::new();
 
-    let mut ctx1 = PricingRuleContext::default();
-    ctx1.account_type = Some(AccountType::Individual);
+    let ctx1 = PricingRuleContext {
+        account_type: Some(AccountType::Individual),
+        ..Default::default()
+    };
     repo.create_version_with_context("http_check.one_time", "unit", 10, "USD", Utc::now(), &ctx1)
         .await
         .unwrap();
 
-    let mut ctx2 = PricingRuleContext::default();
-    ctx2.region = Some(RegionCode::new("us-east").unwrap());
+    let ctx2 = PricingRuleContext {
+        region: Some(RegionCode::new("us-east").unwrap()),
+        ..Default::default()
+    };
     repo.create_version_with_context("http_check.one_time", "unit", 20, "USD", Utc::now(), &ctx2)
         .await
         .unwrap();

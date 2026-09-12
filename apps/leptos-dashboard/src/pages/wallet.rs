@@ -33,6 +33,9 @@ pub fn WalletPage() -> impl IntoView {
     let critical_threshold = RwSignal::new(1_i64);
     let refund_payment_id = RwSignal::new(String::new());
     let refund_amount = RwSignal::new(0_i64);
+    // Reuse the same checkout idempotency key after a transient network
+    // failure, preventing a manual retry from creating a second payment.
+    let pending_top_up_key = RwSignal::new(None::<String>);
 
     let reload = move || {
         spawn_local(async move {
@@ -247,7 +250,10 @@ pub fn WalletPage() -> impl IntoView {
                                                 type="button"
                                                 class=selected
                                                 disabled=move || loading.get()
-                                                on:click=move |_| amount.set(v)
+                                                on:click=move |_| {
+                                                    amount.set(v);
+                                                    pending_top_up_key.set(None);
+                                                }
                                             >
                                                 {format!("${v}")}
                                             </button>
@@ -269,6 +275,7 @@ pub fn WalletPage() -> impl IntoView {
                             on:input=move |e| {
                                 if let Ok(v) = event_target_value(&e).parse::<i64>() {
                                     amount.set(v.max(5));
+                                    pending_top_up_key.set(None);
                                 }
                             }
                             disabled=move || loading.get()
@@ -289,15 +296,28 @@ pub fn WalletPage() -> impl IntoView {
                                 error.set(None);
 
                                 let a = amount.get().max(5) * 1_000_000;
+                                let idempotency_key = pending_top_up_key.get().unwrap_or_else(|| {
+                                    let key = format!(
+                                        "wallet-checkout-{}-{}",
+                                        js_sys::Date::now() as u64,
+                                        js_sys::Math::random()
+                                    );
+                                    pending_top_up_key.set(Some(key.clone()));
+                                    key
+                                });
 
                                 spawn_local(async move {
-                                    match wallet::top_up(&wallet::TopUpRequest {
-                                        amount_units: a,
-                                        payment_method: None,
-                                    })
+                                    match wallet::top_up(
+                                        &wallet::TopUpRequest {
+                                            amount_units: a,
+                                            payment_method: None,
+                                        },
+                                        &idempotency_key,
+                                    )
                                     .await
                                     {
                                         Ok(v) => {
+                                            pending_top_up_key.set(None);
                                             if let Some(w) = web_sys::window() {
                                                 let _ = w.location().set_href(&v.checkout_url);
                                             } else {

@@ -173,6 +173,7 @@ dependencies = [
  "shared",
  "tokio",
  "totp-rs",
+ "tracing",
  "uuid",
 ]
 

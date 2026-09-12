@@ -25,6 +25,7 @@ pub struct ProcessBillingWebhookUseCase<I, A, S> {
     payment_repository: Option<std::sync::Arc<dyn PaymentRepository>>,
     financial_audit_repository:
         Option<std::sync::Arc<dyn crate::ports::FinancialAuditLogRepository>>,
+    monitor_repository: Option<std::sync::Arc<dyn crate::ports::MonitorRepository>>,
 }
 
 impl<I, A, S> ProcessBillingWebhookUseCase<I, A, S>
@@ -46,6 +47,7 @@ where
             wallet_repository: None,
             payment_repository: None,
             financial_audit_repository: None,
+            monitor_repository: None,
         }
     }
 
@@ -63,6 +65,14 @@ where
 
     pub fn with_payment_repository(mut self, r: std::sync::Arc<dyn PaymentRepository>) -> Self {
         self.payment_repository = Some(r);
+        self
+    }
+
+    pub fn with_monitor_repository(
+        mut self,
+        repository: std::sync::Arc<dyn crate::ports::MonitorRepository>,
+    ) -> Self {
+        self.monitor_repository = Some(repository);
         self
     }
 
@@ -202,6 +212,14 @@ where
                 )
                 .await
                 .map_err(BillingWebhookError::Other)?;
+            if let Some(monitors) = &self.monitor_repository {
+                if let Err(error) = monitors
+                    .clear_balance_billing_blocks_for_tenant(domain::TenantId(command.tenant_id.0))
+                    .await
+                {
+                    tracing::warn!(error=%error, tenant_id=%command.tenant_id.0, "wallet credited but billing blocks could not be cleared");
+                }
+            }
             if let Some(audit) = &self.financial_audit_repository {
                 audit
                     .create(&domain::FinancialAuditLogEntry::new(

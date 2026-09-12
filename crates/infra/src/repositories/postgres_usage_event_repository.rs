@@ -99,16 +99,16 @@ impl UsageEventRepository for PostgresUsageEventRepository {
              AND ($4::text IS NULL OR operation=$4) AND ($5::text IS NULL OR status=$5)
              ORDER BY created_at DESC LIMIT $6"
         ).bind(tenant_id).bind(from).bind(to).bind(operation).bind(status).bind(limit.clamp(1,500) as i64).fetch_all(&self.pool).await?;
-        let today_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('day', now()) AND created_at < date_trunc('day', now()) + interval '1 day' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
-        let month_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
-        let month_spend: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(charge_units),0) FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
+        let today_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed), 0)::BIGINT FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('day', now()) AND created_at < date_trunc('day', now()) + interval '1 day' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
+        let month_usage: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(units_billed), 0)::BIGINT FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
+        let month_spend: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(charge_units), 0)::BIGINT FROM api_usage_events WHERE tenant_id=$1 AND created_at >= date_trunc('month', now()) AND created_at < date_trunc('month', now()) + interval '1 month' AND status='CAPTURED'").bind(tenant_id).fetch_one(&self.pool).await?;
         #[derive(sqlx::FromRow)]
         struct D {
             day: String,
             usage_units: i64,
             spend_units: i64,
         }
-        let daily = sqlx::query_as::<_, D>("SELECT to_char(created_at::date,'YYYY-MM-DD') day, COALESCE(SUM(units_billed),0) usage_units, COALESCE(SUM(charge_units),0) spend_units FROM api_usage_events WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3 AND status='CAPTURED' GROUP BY created_at::date ORDER BY created_at::date").bind(tenant_id).bind(from).bind(to).fetch_all(&self.pool).await?
+        let daily = sqlx::query_as::<_, D>("SELECT to_char(created_at::date,'YYYY-MM-DD') day, COALESCE(SUM(units_billed), 0)::BIGINT usage_units, COALESCE(SUM(charge_units), 0)::BIGINT spend_units FROM api_usage_events WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3 AND status='CAPTURED' GROUP BY created_at::date ORDER BY created_at::date").bind(tenant_id).bind(from).bind(to).fetch_all(&self.pool).await?
             .into_iter().map(|r| UsageDailyPoint { day:r.day, usage_units:r.usage_units, spend_units:r.spend_units }).collect();
         #[derive(sqlx::FromRow)]
         struct O {
@@ -116,7 +116,7 @@ impl UsageEventRepository for PostgresUsageEventRepository {
             usage_units: i64,
             spend_units: i64,
         }
-        let by_operation = sqlx::query_as::<_, O>("SELECT operation, COALESCE(SUM(units_billed),0) usage_units, COALESCE(SUM(charge_units),0) spend_units FROM api_usage_events WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3 AND status='CAPTURED' GROUP BY operation ORDER BY spend_units DESC").bind(tenant_id).bind(from).bind(to).fetch_all(&self.pool).await?
+        let by_operation = sqlx::query_as::<_, O>("SELECT operation, COALESCE(SUM(units_billed), 0)::BIGINT usage_units, COALESCE(SUM(charge_units), 0)::BIGINT spend_units FROM api_usage_events WHERE tenant_id=$1 AND created_at >= $2 AND created_at < $3 AND status='CAPTURED' GROUP BY operation ORDER BY spend_units DESC").bind(tenant_id).bind(from).bind(to).fetch_all(&self.pool).await?
             .into_iter().map(|r| UsageOperationPoint { operation:r.operation, usage_units:r.usage_units, spend_units:r.spend_units }).collect();
         Ok(UsageReport {
             today_usage_units: today_usage,

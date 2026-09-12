@@ -12,9 +12,7 @@
 //! so the admin audit endpoint could not narrow the financial stream by
 //! actor even though the generic stream was already filterable that way.
 
-use application::ports::{
-    FinancialAuditLogFilter, FinancialAuditLogRepository,
-};
+use application::ports::{FinancialAuditLogFilter, FinancialAuditLogRepository};
 use domain::FinancialAuditLogEntry;
 use infra::repositories::in_memory_financial_audit_log_repository::InMemoryFinancialAuditLogRepository;
 use serde_json::json;
@@ -69,9 +67,7 @@ async fn list_page_admin_filters_financial_audit_by_actor() {
         "exactly the two entries written by user A must be returned"
     );
     assert!(
-        page.entries
-            .iter()
-            .all(|e| e.actor == user_a.to_string()),
+        page.entries.iter().all(|e| e.actor == user_a.to_string()),
         "every returned entry must have user A as its actor"
     );
 
@@ -109,7 +105,12 @@ async fn list_page_admin_filters_financial_audit_by_actor() {
 
     // No actor filter → all four entries.
     let page_all = repo
-        .list_page_admin(Some(tenant_id), &FinancialAuditLogFilter::default(), None, 100)
+        .list_page_admin(
+            Some(tenant_id),
+            &FinancialAuditLogFilter::default(),
+            None,
+            100,
+        )
         .await
         .unwrap();
     assert_eq!(page_all.entries.len(), 4);

@@ -58,13 +58,18 @@ where
             return Ok(None);
         }
 
-        if command.enabled {
-            monitor.enable();
-        } else {
-            monitor.disable();
-        }
+        // Scheduler state belongs to infrastructure. Delegate the transition
+        // so Postgres can deterministically stagger a disabled -> enabled
+        // monitor instead of executing it immediately with an old due time.
+        self.repository
+            .set_enabled_for_tenant(tenant_id, Some(&[command.id]), command.enabled)
+            .await?;
 
-        self.repository.save(&monitor).await?;
+        monitor = self
+            .repository
+            .find_by_id(command.id)
+            .await?
+            .ok_or("monitor disappeared after enable-state update")?;
 
         let entry = AuditLogEntry {
             id: AuditLogEntryId::new(),

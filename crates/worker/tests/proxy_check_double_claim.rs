@@ -6,7 +6,7 @@ use domain::shared::ids::{ProxyCheckJobId, TenantId, UserId};
 use infra::{AesGcmProxyCredentialCipher, PostgresProxyCheckJobRepository, create_pool};
 use sqlx::{PgPool, query};
 
-async fn setup_pool() -> PgPool {
+async fn setup_pool_exclusive() -> PgPool {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor".to_string()
     });
@@ -70,7 +70,7 @@ async fn insert_user_and_tenant(pool: &PgPool) -> (UserId, TenantId) {
 
 #[tokio::test]
 async fn concurrent_proxy_job_claims_only_one_wins() {
-    let pool = setup_pool().await;
+    let pool = setup_pool_exclusive().await;
     let (user_id, tenant_id) = insert_user_and_tenant(&pool).await;
 
     let repo = PostgresProxyCheckJobRepository::new(

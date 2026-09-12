@@ -121,6 +121,7 @@ pub async fn tenant_audit(
             &application::ports::FinancialAuditLogFilter {
                 action: query.action.clone(),
                 resource_id: query.target.clone(),
+                actor: query.actor.map(|actor| actor.to_string()),
                 from: query.from,
                 to: query.to,
                 ..Default::default()

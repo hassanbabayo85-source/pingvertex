@@ -125,15 +125,9 @@ pub fn MonitorFormPage() -> impl IntoView {
             payg_preview.set(None);
             return;
         };
-        let min_interval = if kind_value == "flow" { 60 } else { 30 };
-        if interval_value < min_interval
-            || interval_value > 86_400
-            || forecast_value == 0
-            || regions_value == 0
-        {
-            payg_preview.set(None);
-            return;
-        }
+        // The preview endpoint is authoritative for interval/region/forecast
+        // validation. The browser deliberately does not duplicate business
+        // policy constants here, so UI validation cannot drift from the API.
         let kind_for_request = kind_value.clone();
         spawn_local(async move {
             match billing::payg_preview(&billing::PaygPreviewRequest {

@@ -210,7 +210,7 @@ impl WalletRepository for PostgresWalletRepository {
         .fetch_optional(&self.pool)
         .await?
         .ok_or("wallet not found")?;
-        let reserved: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(amount_units),0) FROM credit_reservations WHERE wallet_id=(SELECT id FROM user_wallets WHERE tenant_id=$1 AND currency=$2) AND status='PENDING' AND expires_at>now()")
+        let reserved: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(amount_units), 0)::BIGINT FROM credit_reservations WHERE wallet_id=(SELECT id FROM user_wallets WHERE tenant_id=$1 AND currency=$2) AND status='PENDING' AND expires_at>now()")
             .bind(tenant_id).bind(currency).fetch_one(&self.pool).await?;
         Ok(domain::WalletBalanceSummary {
             balance_units: balance,
@@ -770,32 +770,6 @@ impl WalletRepository for PostgresWalletRepository {
                 .await?;
         }
 
-        // Funding is the durable resume transition. Only monitors that were
-        // explicitly blocked by PAYG billing are resumed; user-disabled
-        // monitors remain disabled. Scheduler staggering prevents a large
-        // tenant from producing a thundering herd after top-up.
-        if should_resume_blocked_monitors && new_balance > 0 {
-            sqlx::query(
-                r#"
-                UPDATE monitors m
-                SET next_due_at = now()
-                    + ((abs(hashtextextended(m.id::text, 0)) % 60) * interval '1 second'),
-                    updated_at = now()
-                WHERE m.tenant_id = $1
-                  AND EXISTS (
-                      SELECT 1 FROM monitor_billing_blocks b
-                      WHERE b.monitor_id = m.id
-                  )
-                "#,
-            )
-            .bind(tenant_id)
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query("DELETE FROM monitor_billing_blocks WHERE tenant_id = $1")
-                .bind(tenant_id)
-                .execute(&mut *tx)
-                .await?;
-        }
         let q = format!(
             "INSERT INTO wallet_transactions
              (id,tenant_id,wallet_id,transaction_type,amount_units,balance_after_units,idempotency_key,description)
@@ -1196,7 +1170,7 @@ impl WalletRepository for PostgresWalletRepository {
             tx.commit().await?;
             return Ok(row.into_domain());
         }
-        let reserved:i64=sqlx::query_scalar("SELECT COALESCE(SUM(amount_units),0) FROM credit_reservations WHERE wallet_id=$1 AND status='PENDING' AND expires_at>now()").bind(wallet.id).fetch_one(&mut *tx).await?;
+        let reserved:i64=sqlx::query_scalar("SELECT COALESCE(SUM(amount_units), 0)::BIGINT FROM credit_reservations WHERE wallet_id=$1 AND status='PENDING' AND expires_at>now()").bind(wallet.id).fetch_one(&mut *tx).await?;
         let new_balance = wallet
             .balance_units
             .checked_add(delta_units)
@@ -1213,11 +1187,11 @@ impl WalletRepository for PostgresWalletRepository {
     async fn create_top_up_session(&self, session: &WalletTopUpSession) -> WalletRepoResult<()> {
         sqlx::query(
             "INSERT INTO wallet_top_up_sessions
-             (id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)"
+             (id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)"
         )
         .bind(session.id).bind(session.tenant_id).bind(&session.provider)
-        .bind(&session.provider_checkout_id).bind(&session.provider_payment_id)
+        .bind(&session.provider_checkout_id).bind(&session.checkout_url).bind(&session.idempotency_key).bind(&session.provider_payment_id)
         .bind(session.amount_units).bind(session.refunded_amount_units).bind(&session.currency).bind(&session.status)
         .execute(&self.pool).await?;
         Ok(())
@@ -1234,6 +1208,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: Uuid,
             provider: String,
             provider_checkout_id: String,
+            checkout_url: String,
+            idempotency_key: String,
             provider_payment_id: Option<String>,
             amount_units: i64,
             refunded_amount_units: i64,
@@ -1243,7 +1219,7 @@ impl WalletRepository for PostgresWalletRepository {
             updated_at: DateTime<Utc>,
         }
         let r = sqlx::query_as::<_,WalletRepoRow1>(
-            "SELECT id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
+            "SELECT id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
              FROM wallet_top_up_sessions WHERE tenant_id=$1 AND provider_checkout_id=$2"
         ).bind(tenant_id).bind(provider_checkout_id).fetch_optional(&self.pool).await?;
         Ok(r.map(|x| WalletTopUpSession {
@@ -1251,6 +1227,49 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: x.tenant_id,
             provider: x.provider,
             provider_checkout_id: x.provider_checkout_id,
+            checkout_url: x.checkout_url,
+            idempotency_key: x.idempotency_key,
+            provider_payment_id: x.provider_payment_id,
+            amount_units: x.amount_units,
+            refunded_amount_units: x.refunded_amount_units,
+            currency: x.currency,
+            status: x.status,
+            created_at: x.created_at,
+            updated_at: x.updated_at,
+        }))
+    }
+
+    async fn find_top_up_session_by_idempotency(
+        &self,
+        tenant_id: Uuid,
+        idempotency_key: &str,
+    ) -> WalletRepoResult<Option<WalletTopUpSession>> {
+        #[derive(sqlx::FromRow)]
+        struct IdempotencyRow {
+            id: Uuid,
+            tenant_id: Uuid,
+            provider: String,
+            provider_checkout_id: String,
+            checkout_url: String,
+            idempotency_key: String,
+            provider_payment_id: Option<String>,
+            amount_units: i64,
+            refunded_amount_units: i64,
+            currency: String,
+            status: String,
+            created_at: DateTime<Utc>,
+            updated_at: DateTime<Utc>,
+        }
+        let row = sqlx::query_as::<_, IdempotencyRow>(
+            "SELECT id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at FROM wallet_top_up_sessions WHERE tenant_id=$1 AND idempotency_key=$2"
+        ).bind(tenant_id).bind(idempotency_key).fetch_optional(&self.pool).await?;
+        Ok(row.map(|x| WalletTopUpSession {
+            id: x.id,
+            tenant_id: x.tenant_id,
+            provider: x.provider,
+            provider_checkout_id: x.provider_checkout_id,
+            checkout_url: x.checkout_url,
+            idempotency_key: x.idempotency_key,
             provider_payment_id: x.provider_payment_id,
             amount_units: x.amount_units,
             refunded_amount_units: x.refunded_amount_units,
@@ -1272,6 +1291,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: Uuid,
             provider: String,
             provider_checkout_id: String,
+            checkout_url: String,
+            idempotency_key: String,
             provider_payment_id: Option<String>,
             amount_units: i64,
             refunded_amount_units: i64,
@@ -1281,7 +1302,7 @@ impl WalletRepository for PostgresWalletRepository {
             updated_at: DateTime<Utc>,
         }
         let r = sqlx::query_as::<_,WalletRepoRowGlobal>(
-            "SELECT id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
+            "SELECT id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
              FROM wallet_top_up_sessions WHERE provider=$1 AND provider_checkout_id=$2"
         ).bind(provider).bind(provider_checkout_id).fetch_optional(&self.pool).await?;
         Ok(r.map(|x| WalletTopUpSession {
@@ -1289,6 +1310,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: x.tenant_id,
             provider: x.provider,
             provider_checkout_id: x.provider_checkout_id,
+            checkout_url: x.checkout_url,
+            idempotency_key: x.idempotency_key,
             provider_payment_id: x.provider_payment_id,
             amount_units: x.amount_units,
             refunded_amount_units: x.refunded_amount_units,
@@ -1346,6 +1369,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: Uuid,
             provider: String,
             provider_checkout_id: String,
+            checkout_url: String,
+            idempotency_key: String,
             provider_payment_id: Option<String>,
             amount_units: i64,
             refunded_amount_units: i64,
@@ -1355,7 +1380,7 @@ impl WalletRepository for PostgresWalletRepository {
             updated_at: DateTime<Utc>,
         }
         let r=sqlx::query_as::<_,WalletRepoRow2>(
-            "SELECT id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
+            "SELECT id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
              FROM wallet_top_up_sessions WHERE tenant_id=$1 AND provider_checkout_id=$2 FOR UPDATE"
         ).bind(tenant_id).bind(provider_checkout_id).fetch_optional(&mut *tx).await?;
         let Some(r) = r else {
@@ -1369,6 +1394,8 @@ impl WalletRepository for PostgresWalletRepository {
                 tenant_id: r.tenant_id,
                 provider: r.provider,
                 provider_checkout_id: r.provider_checkout_id,
+                checkout_url: r.checkout_url,
+                idempotency_key: r.idempotency_key,
                 provider_payment_id: r.provider_payment_id,
                 amount_units: r.amount_units,
                 refunded_amount_units: r.refunded_amount_units,
@@ -1397,6 +1424,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: Uuid,
             provider: String,
             provider_checkout_id: String,
+            checkout_url: String,
+            idempotency_key: String,
             provider_payment_id: Option<String>,
             amount_units: i64,
             refunded_amount_units: i64,
@@ -1406,7 +1435,7 @@ impl WalletRepository for PostgresWalletRepository {
             updated_at: DateTime<Utc>,
         }
         let r=sqlx::query_as::<_,WalletRepoRow3>(
-            "SELECT id,tenant_id,provider,provider_checkout_id,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
+            "SELECT id,tenant_id,provider,provider_checkout_id,checkout_url,idempotency_key,provider_payment_id,amount_units,refunded_amount_units,currency,status,created_at,updated_at
              FROM wallet_top_up_sessions
              WHERE tenant_id=$1 AND provider_payment_id=$2 AND status='COMPLETED' AND (amount_units-refunded_amount_units)>=$3
              LIMIT 1"
@@ -1416,6 +1445,8 @@ impl WalletRepository for PostgresWalletRepository {
             tenant_id: x.tenant_id,
             provider: x.provider,
             provider_checkout_id: x.provider_checkout_id,
+            checkout_url: x.checkout_url,
+            idempotency_key: x.idempotency_key,
             provider_payment_id: x.provider_payment_id,
             amount_units: x.amount_units,
             refunded_amount_units: x.refunded_amount_units,

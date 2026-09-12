@@ -171,6 +171,8 @@ pub struct WalletTopUpSession {
     pub tenant_id: Uuid,
     pub provider: String,
     pub provider_checkout_id: String,
+    pub checkout_url: String,
+    pub idempotency_key: String,
     pub provider_payment_id: Option<String>,
     pub amount_units: i64,
     pub refunded_amount_units: i64,

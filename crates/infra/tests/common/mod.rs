@@ -5,60 +5,39 @@ use domain::{
     Check, CheckInterval, CheckStatus, ErrorType, ExpectedStatus, HttpMethod, Incident, Monitor,
     MonitorBuilder, MonitorName, RegionCode, Timeout, Url,
 };
-use infra::create_pool;
 use sqlx::{PgPool, query};
 use uuid::Uuid;
 
 #[allow(dead_code)]
 pub async fn setup_pool() -> PgPool {
-    // Load DATABASE_URL (and any other vars) from `.env.test` — NEVER
-    // `.env` — so integration tests always run against the isolated test
-    // database (`uptime_monitor_test`) rather than truncating whatever
-    // database the developer's `.env` happens to point at. Falls back to
-    // plain `.env` only if `.env.test` doesn't exist, purely so a
-    // from-scratch checkout without `.env.test` still boots (with a
-    // loud warning), never as a silent default for a normal dev machine.
     if dotenvy::from_filename(".env.test").is_err() {
-        eprintln!(
-            "WARNING: .env.test not found; falling back to .env for test DATABASE_URL. \
-             This risks truncating your development database — create .env.test from \
-             .env.e2e.example or copy .env with a different DATABASE_URL pointing at \
-             uptime_monitor_test."
-        );
         dotenvy::dotenv().ok();
     }
-
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres@localhost:5432/uptime_monitor".to_string());
 
-    let pool = create_pool(&database_url).await.unwrap();
-
+    // Each test binary uses its own schema (see test_support.rs). This
+    // makes concurrent test binaries safe: they share one PostgreSQL
+    // database but write to disjoint schemas.
+    let pool = infra::test_support::setup_pool(&database_url)
+        .await
+        .expect("setup test pool");
     println!("CARGO_MANIFEST_DIR = {}", env!("CARGO_MANIFEST_DIR"));
-
-    // Integration tests must start from a schema produced by the currently
-    // compiled migration set. This avoids SQLx checksum/version drift when a
-    // historical migration has been repaired and a stale test database or
-    // incremental build still contains the previous checksum. Never reuse
-    // application/test data across integration-test runs.
-    reset_database(&pool).await;
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
-
-    clear_tables(&pool).await;
-
     pool
 }
 
+/// Like `setup_pool`, but acquires an exclusive session-scoped advisory
+/// lock that is held for the lifetime of the returned guard. Use this in
+/// tests that assert on global database state (`find_all()`, `COUNT(*)`)
+/// — otherwise a concurrently running test in another binary can add or
+/// remove rows mid-assertion.
 #[allow(dead_code)]
-async fn reset_database(pool: &PgPool) {
-    query("DROP SCHEMA IF EXISTS public CASCADE")
-        .execute(pool)
-        .await
-        .unwrap();
-
-    query("CREATE SCHEMA IF NOT EXISTS public")
-        .execute(pool)
-        .await
-        .unwrap();
+pub async fn setup_pool_exclusive() -> (sqlx::PgPool, infra::test_support::ExclusiveTestGuard) {
+    if dotenvy::from_filename(".env.test").is_err() {
+        dotenvy::dotenv().ok();
+    }
+    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    infra::test_support::setup_pool_exclusive(&url).await
 }
 
 #[allow(dead_code)]
@@ -106,6 +85,27 @@ pub async fn insert_tenant_for_user(pool: &PgPool, user_id: UserId) -> TenantId 
     let tenant_id = TenantId::new();
     let name = format!("Tenant {}", user_id.0);
 
+    // tenants.owner_user_id has a FK to users(id) (migration 0027), so
+    // the owning user row MUST exist before the tenant row is inserted.
+    // Tests that call `insert_tenant_for_user` directly (without first
+    // calling `insert_user`) would otherwise hit
+    // `tenants_owner_user_id_fkey` violations. Making this helper
+    // idempotently ensure the user exists keeps both call sites — direct
+    // callers and `insert_user` — safe.
+    let user_email = format!("{}@example.test", user_id.0);
+    query(
+        r#"
+    INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
+    VALUES ($1, $2, 'not-a-real-hash', 'Test User', NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING
+    "#,
+    )
+    .bind(user_id.0)
+    .bind(user_email)
+    .execute(pool)
+    .await
+    .unwrap();
+
     query(
         r#"
     INSERT INTO tenants (id, name, owner_user_id, created_at)
@@ -138,21 +138,9 @@ pub async fn insert_tenant_for_user(pool: &PgPool, user_id: UserId) -> TenantId 
 
 #[allow(dead_code)]
 pub async fn insert_user(pool: &PgPool, user_id: UserId) -> TenantId {
-    let email = format!("{}@example.test", user_id.0);
-
-    query(
-        r#"
-    INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
-    VALUES ($1, $2, 'not-a-real-hash', 'Test User', NOW(), NOW())
-    ON CONFLICT (id) DO NOTHING
-    "#,
-    )
-    .bind(user_id.0)
-    .bind(email)
-    .execute(pool)
-    .await
-    .unwrap();
-
+    // insert_tenant_for_user already ensures the owning users row exists
+    // (it is required by tenants.owner_user_id's FK), so this is now a
+    // thin alias kept for call-site clarity.
     insert_tenant_for_user(pool, user_id).await
 }
 

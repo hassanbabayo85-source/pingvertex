@@ -1,6 +1,6 @@
 use crate::ports::{
-    FinancialAuditLogRepository, PAYGPricingRepository, PricingContext, UsageEventRepository,
-    WalletRepository, resolve_price,
+    FinancialAuditLogRepository, PAYGPricingRepository, PricingContext, ReservationOutcome,
+    UsageEventRepository, WalletRepository, resolve_price,
 };
 use chrono::{Duration, Utc};
 use domain::{CreditReservation, UsageEvent, WalletTransaction};
@@ -106,6 +106,52 @@ impl ChargeForUsageUseCase {
     pub fn with_audit_log_repository(mut self, repo: Arc<dyn FinancialAuditLogRepository>) -> Self {
         self.audit_log_repository = Some(repo);
         self
+    }
+
+    pub async fn reserve_for_execution(
+        &self,
+        input: ChargeForUsageInput,
+    ) -> Result<ReservationOutcome, ChargeForUsageError> {
+        validate_input(&input)?;
+        let pricing = resolve_price(
+            self.pricing_repository.as_ref(),
+            &input.operation,
+            &PricingContext {
+                quantity: input.units.max(0) as u64,
+                ..input.pricing_context.clone().unwrap_or_default()
+            },
+        )
+        .await
+        .map_err(ChargeForUsageError::Repository)?
+        .ok_or(ChargeForUsageError::NoPricing)?;
+        if pricing.unit_price <= 0 {
+            return Err(ChargeForUsageError::InvalidPricing(
+                "active PAYG unit price must be positive",
+            ));
+        }
+        let amount = input
+            .units
+            .checked_mul(pricing.unit_price)
+            .ok_or(ChargeForUsageError::InvalidPricing("PAYG charge overflow"))?;
+        self.wallet_repository
+            .reserve(
+                input.tenant_id,
+                amount,
+                &input.operation,
+                pricing.unit_price,
+                pricing.version,
+                &pricing.currency,
+                &input.request_id,
+                Utc::now() + Duration::seconds(180),
+            )
+            .await
+            .map_err(|e| match e.to_string().as_str() {
+                "insufficient wallet balance" => ChargeForUsageError::InsufficientBalance,
+                "wallet daily spend limit exceeded" | "wallet monthly spend limit exceeded" => {
+                    ChargeForUsageError::SpendLimitExceeded
+                }
+                _ => ChargeForUsageError::Repository(e),
+            })
     }
 
     pub async fn find_usage_event(

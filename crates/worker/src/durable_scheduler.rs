@@ -7,16 +7,13 @@ use std::{
 use rand::{Rng, rng};
 
 use application::ports::{
-    MonitorRepository, PricingConfigRepository, SchedulingRepository, SubscriptionRepository,
-    TenantRepository, WalletRepository,
+    MonitorRepository, PricingConfigRepository, SchedulingRepository, TenantRepository,
+    WalletRepository,
 };
 use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
 use chrono::Utc;
-use domain::{
-    Monitor, TenantStatus,
-    enums::{PlanTier, SubscriptionStatus},
-};
+use domain::{Monitor, TenantStatus, enums::PlanTier};
 use tokio::{sync::Mutex, task::JoinSet};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -98,9 +95,9 @@ impl CheckExecution {
     }
 }
 
-/// Executes the actual network check for a claimed monitor. B17 ships a
-/// stub implementation; B18/B19 will replace it with the real HTTP/TCP/
-/// DNS/heartbeat check logic and persistence.
+/// Executes a claimed monitor through the configured check executor.
+/// The production executor dispatches to the monitor's HTTP/TCP/DNS/Flow/
+/// heartbeat implementation and persists the resulting check outcome.
 #[async_trait]
 pub trait CheckExecutor: Send + Sync + Clone + 'static {
     async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution>;
@@ -115,23 +112,6 @@ where
 {
     async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         (**self).execute(monitor).await
-    }
-}
-
-/// B17 placeholder executor. Logs and succeeds without doing any check
-/// work, satisfying the durable scheduler contract without stepping on
-/// B18/B19's scope.
-#[derive(Clone)]
-pub struct StubCheckExecutor;
-
-#[async_trait]
-impl CheckExecutor for StubCheckExecutor {
-    async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
-        info!(
-            monitor_id = %monitor.id.0,
-            "B17 placeholder check executor: not performing real check yet"
-        );
-        Ok(CheckExecution::success(false))
     }
 }
 
@@ -151,7 +131,6 @@ pub struct DurableScheduler<R, E> {
     tenant_repository: Option<Arc<dyn TenantRepository>>,
     monitor_repository: Option<Arc<dyn MonitorRepository>>,
     wallet_repository: Option<Arc<dyn WalletRepository>>,
-    subscription_repository: Option<Arc<dyn SubscriptionRepository>>,
     pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
     max_concurrency_per_tenant: usize,
     due_claim_limit_per_tenant: usize,
@@ -210,7 +189,6 @@ where
             tenant_repository: None,
             monitor_repository: None,
             wallet_repository: None,
-            subscription_repository: None,
             pricing_config_repository: None,
             max_concurrency_per_tenant: 4,
             due_claim_limit_per_tenant: 4,
@@ -229,11 +207,9 @@ where
     pub fn with_tenant_repository(
         mut self,
         tenant_repository: Arc<dyn TenantRepository>,
-        subscription_repository: Arc<dyn SubscriptionRepository>,
         pricing_config_repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         self.tenant_repository = Some(tenant_repository);
-        self.subscription_repository = Some(subscription_repository);
         self.pricing_config_repository = Some(pricing_config_repository);
         self
     }
@@ -267,48 +243,13 @@ where
         &self,
         tenant_id: domain::TenantId,
     ) -> Result<Option<domain::Plan>> {
-        let (
-            Some(monitor_repository),
-            Some(wallet_repository),
-            Some(subscription_repository),
-            Some(pricing_config_repository),
-        ) = (
+        let (Some(monitor_repository), Some(wallet_repository), Some(pricing_config_repository)) = (
             &self.monitor_repository,
             &self.wallet_repository,
-            &self.subscription_repository,
             &self.pricing_config_repository,
-        )
-        else {
+        ) else {
             return Ok(None);
         };
-
-        let plan = application::use_cases::ResolveEntitlementsUseCase::new(
-            subscription_repository.clone(),
-        )
-        .with_pricing_config_repository(pricing_config_repository.clone())
-        .execute(application::queries::ResolveEntitlements { tenant_id })
-        .await?;
-
-        let tier = if let Some(override_tier) = subscription_repository
-            .find_test_plan_override(tenant_id)
-            .await?
-        {
-            override_tier
-        } else {
-            match subscription_repository.find_by_tenant_id(tenant_id).await? {
-                Some(subscription) => match subscription.status {
-                    SubscriptionStatus::Expired | SubscriptionStatus::Canceled => PlanTier::Free,
-                    SubscriptionStatus::Trialing
-                    | SubscriptionStatus::Active
-                    | SubscriptionStatus::PastDue => subscription.plan_tier,
-                },
-                None => PlanTier::Free,
-            }
-        };
-
-        if tier != PlanTier::Free {
-            return Ok(None);
-        }
 
         let wallet_activated = wallet_repository
             .find(tenant_id.0)
@@ -318,11 +259,18 @@ where
             return Ok(None);
         }
 
+        let Some(config) = pricing_config_repository.find_active_config().await? else {
+            return Ok(None);
+        };
+        let mut plan = domain::Plan::for_tier(PlanTier::Free);
+        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
+        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
+        plan.history_retention_days = config.free_tier.retention_days;
+
         let monitor_count = monitor_repository
             .find_all_for_tenant(tenant_id)
             .await?
             .len() as u32;
-
         Ok((monitor_count <= plan.max_monitors).then_some(plan))
     }
 
@@ -364,6 +312,7 @@ where
             if free_capacity == 0 {
                 metrics::counter!("scheduler_backpressure_total", "reason" => "global")
                     .increment(1);
+                metrics::counter!("scheduler_rejected_backpressure_total").increment(1);
             }
             if free_capacity > 0 {
                 let one_time = self
@@ -375,6 +324,10 @@ where
                         Utc::now(),
                     )
                     .await?;
+                if !one_time.is_empty() {
+                    metrics::counter!("scheduler_claimed_total", "kind" => "one_time")
+                        .increment(one_time.len() as u64);
+                }
                 for claim in one_time {
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
@@ -475,6 +428,11 @@ where
                         self.due_claim_limit_per_tenant,
                     )
                     .await?;
+
+                if !claimed.is_empty() {
+                    metrics::counter!("scheduler_claimed_total", "kind" => "due_monitor")
+                        .increment(claimed.len() as u64);
+                }
 
                 info!(count = claimed.len(), "claimed due monitors");
 

@@ -43,6 +43,7 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn load_env_test() {
     for candidate in &["../../.env.test", ".env.test", "../.env.test"] {
         if std::path::Path::new(candidate).exists() {
@@ -52,43 +53,26 @@ fn load_env_test() {
     }
 }
 
-async fn pool_or_skip() -> Option<PgPool> {
-    load_env_test();
-    let url = match std::env::var("DATABASE_URL") {
-        Ok(u) => u,
-        Err(_) => {
-            eprintln!(
-                "SKIP: DATABASE_URL not set (see .env.test); skipping wallet concurrency test."
-            );
-            return None;
-        }
-    };
-    match PgPool::connect(&url).await {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!(
-                "SKIP: cannot connect to test Postgres ({e}); skipping wallet concurrency test."
-            );
-            None
-        }
-    }
+async fn pool_or_skip() -> Option<(sqlx::PgPool, infra::test_support::ExclusiveTestGuard)> {
+    let url = std::env::var("DATABASE_URL").ok()?;
+    Some(infra::test_support::setup_pool_exclusive(&url).await)
 }
 
-/// Creates a fresh user + tenant + wallet, funds it with `initial_balance`
-/// (0 for none). Returns the tenant id and a shared repository handle.
+/// Creates a fresh user + tenant + wallet, optionally seeded with an
+/// initial balance. Mirrors `setup_tenant_and_wallet` in
+/// `crates/worker/tests/payg_part3_auto_topup_load.rs`.
 async fn setup_wallet(
     pool: &PgPool,
     initial_balance: i64,
 ) -> (Uuid, Arc<PostgresWalletRepository>) {
     let user_id = UserId::new();
-
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
-         VALUES ($1, $2, 'not-a-real-hash', 'Concurrency Test', NOW(), NOW())
+         VALUES ($1, $2, 'not-a-real-hash', 'Wallet Concurrency Test', NOW(), NOW())
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(user_id.0)
-    .bind(format!("{}@concurrency.test", user_id.0))
+    .bind(format!("{}@wallet-concurrency.test", user_id.0))
     .execute(pool)
     .await
     .expect("insert test user");
@@ -96,7 +80,7 @@ async fn setup_wallet(
     let tenant_repo = PostgresTenantRepository::new(pool.clone());
     let tenant = domain::Tenant::new(
         TenantId::new(),
-        format!("Concurrency Test {}", user_id.0),
+        format!("Wallet Concurrency Test {}", user_id.0),
         user_id,
     )
     .expect("construct tenant");
@@ -115,22 +99,18 @@ async fn setup_wallet(
                 initial_balance,
                 WalletTransactionType::TopUp,
                 &format!("seed-{}", Uuid::new_v4()),
-                Some("initial balance for concurrency test"),
+                Some("seed"),
             )
             .await
-            .expect("seed wallet balance");
+            .expect("seed balance");
     }
 
     (tenant.id.0, wallet_repo)
 }
 
-// ===========================================================================
-// Test 1 — concurrent credits with DISTINCT idempotency keys
-// ===========================================================================
-
 #[tokio::test]
 async fn concurrent_credits_with_distinct_keys_all_apply() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_wallet(&pool, 0).await;
@@ -181,7 +161,7 @@ async fn concurrent_credits_with_distinct_keys_all_apply() {
 
 #[tokio::test]
 async fn concurrent_credits_with_same_idempotency_key_apply_once() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_wallet(&pool, 0).await;
@@ -238,7 +218,7 @@ async fn concurrent_credits_with_same_idempotency_key_apply_once() {
 
 #[tokio::test]
 async fn concurrent_reservations_cannot_overspend() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     // Balance covers exactly one reservation of the same amount.
@@ -298,7 +278,7 @@ async fn concurrent_reservations_cannot_overspend() {
 
 #[tokio::test]
 async fn same_request_id_concurrent_reservation_and_capture_is_idempotent() {
-    let Some(pool) = pool_or_skip().await else {
+    let Some((pool, _guard)) = pool_or_skip().await else {
         return;
     };
     let (tenant_id, wallet) = setup_wallet(&pool, 1_000).await;

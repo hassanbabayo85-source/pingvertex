@@ -3,7 +3,7 @@ mod common;
 use application::ports::check_repository::{CheckFilters, CheckRepository};
 use application::ports::monitor_repository::MonitorRepository;
 use chrono::{DateTime, Duration, Utc};
-use common::{sample_check, sample_monitor, setup_pool};
+use common::{sample_check, sample_monitor, setup_pool_exclusive};
 use domain::{CheckStatus, ErrorType};
 use infra::{PostgresCheckRepository, PostgresMonitorRepository};
 use serial_test::serial;
@@ -11,7 +11,7 @@ use serial_test::serial;
 #[serial]
 #[tokio::test]
 async fn save_and_find_by_id_round_trips_check() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -39,7 +39,7 @@ async fn save_and_find_by_id_round_trips_check() {
 #[serial]
 #[tokio::test]
 async fn list_by_monitor_returns_only_matching_checks() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -66,7 +66,7 @@ async fn list_by_monitor_returns_only_matching_checks() {
 #[serial]
 #[tokio::test]
 async fn delete_by_monitor_removes_all_checks_for_monitor() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -109,7 +109,7 @@ async fn delete_by_monitor_removes_all_checks_for_monitor() {
 #[serial]
 #[tokio::test]
 async fn list_checks_filtered_pagination_and_filters_are_correct() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -208,7 +208,7 @@ async fn list_checks_filtered_pagination_and_filters_are_correct() {
 #[serial]
 #[tokio::test]
 async fn list_checks_filtered_query_plan_uses_index() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -267,7 +267,7 @@ async fn list_checks_filtered_query_plan_uses_index() {
 #[serial]
 #[tokio::test]
 async fn save_batch_persists_all_checks_in_one_call() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -295,7 +295,7 @@ async fn save_batch_persists_all_checks_in_one_call() {
 #[serial]
 #[tokio::test]
 async fn save_batch_persists_more_rows_than_a_single_chunk() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 
@@ -341,7 +341,7 @@ async fn benchmark_save_batch_vs_individual_saves() {
 
     const N: usize = 500;
 
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let check_repository = PostgresCheckRepository::new(pool.clone());
 

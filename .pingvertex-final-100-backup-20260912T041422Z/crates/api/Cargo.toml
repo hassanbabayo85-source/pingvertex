@@ -1,0 +1,50 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+application = { path = "../application" }
+domain = { path = "../domain" }
+infra = { path = "../infra" }
+shared = { path = "../shared" }
+
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+chrono = { workspace = true }
+uuid = { workspace = true }
+dotenvy = "0.15"
+rust_decimal = { version = "1.42.1", default-features = false, features = ["serde"] }
+
+jsonwebtoken = "9"
+headers = "0.4"
+axum-extra = { version = "0.10", features = ["typed-header", "cookie"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tower-http = { version = "0.7", features = ["trace", "cors"] }
+
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+tower_governor = "0.8.0"
+async-trait = "0.1"
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+axum-server-mtls = "0.1.2"
+rustls = "0.23.43"
+rustls-pki-types = "1.15.1"
+anyhow.workspace = true
+
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+async-trait = "0.1"
+rcgen = "0.14.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "json"] }

@@ -144,10 +144,27 @@ pub struct FreeTier {
     pub retention_days: u32,
 }
 
+/// Server-owned preview limits. The frontend MUST read these from the API
+/// rather than hardcoding `30`, `32`, or `3650`.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PreviewLimits {
+    pub max_regions: u32,
+    pub max_forecast_days: u32,
+    pub min_interval_seconds_http: u32,
+    pub min_interval_seconds_tcp: u32,
+    pub min_interval_seconds_dns: u32,
+    pub min_interval_seconds_heartbeat: u32,
+    pub min_interval_seconds_flow: u32,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct PaygPricingPage {
     pub prices: Vec<PaygPricing>,
     pub free_tier: FreeTier,
+    /// Minimum wallet top-up in micro-USD. Server-owned (see
+    /// `domain::MIN_PAYG_TOP_UP_UNITS`); the UI must not hardcode "$5".
+    pub payg_min_top_up_units: i64,
+    pub preview_limits: PreviewLimits,
 }
 
 pub async fn payg_pricing() -> Result<PaygPricingPage, ApiError> {

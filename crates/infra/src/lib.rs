@@ -32,3 +32,5 @@ pub mod billing_config;
 pub use billing_config::{BillingConfig, BillingConfigError};
 pub use services::DisabledBillingProvider;
 pub use services::{FakeBillingProvider, PaystackBillingProvider};
+
+pub mod test_support;

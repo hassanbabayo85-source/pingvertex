@@ -1,7 +1,4 @@
-use std::{
-    env,
-    sync::{Arc, LazyLock, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use application::ports::{
     EscalationPolicyRepository, IncidentRepository, MaintenanceWindowRepository, MonitorRepository,
@@ -19,44 +16,18 @@ use domain::{
 };
 use infra::{
     InMemoryEscalationPolicyRepository, InMemoryMaintenanceWindowRepository,
-    PostgresIncidentRepository, PostgresMonitorRepository, UuidIdGenerator, create_pool,
+    PostgresIncidentRepository, PostgresMonitorRepository, UuidIdGenerator,
 };
 use sqlx::{PgPool, query};
 use uuid::Uuid;
 use worker::{EscalationWorker, IncidentManager};
 
-/// Both tests in this file call `setup_pool()`, which does a
-/// `DROP SCHEMA public CASCADE` + `CREATE SCHEMA public` + re-run
-/// migrations against the SAME `DATABASE_URL`. Cargo runs tests within a
-/// single test binary concurrently by default, so without this lock the
-/// two tests race on the schema itself (one test's `DROP SCHEMA` can run
-/// while the other is mid-`CREATE SCHEMA`, or both `CREATE SCHEMA` at
-/// once — the actual failure observed: `"schema \"public\" already
-/// exists"`). This mutex serializes each test's full body (setup through
-/// assertions) so only one test touches the schema at a time; it does
-/// NOT affect the concurrency being tested INSIDE each test (the 20
-/// `tokio::spawn` tasks within a single test still run fully
-/// concurrently against each other).
-static TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
-
-/// Self-contained Postgres test harness (drop schema, re-run migrations),
-/// mirroring `crates/worker/tests/incident_evaluator_concurrency.rs`.
-async fn setup_pool() -> PgPool {
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+async fn setup_pool_exclusive() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor".to_string()
     });
 
-    let pool = create_pool(&database_url).await.unwrap();
-
-    query("DROP SCHEMA IF EXISTS public CASCADE")
-        .execute(&pool)
-        .await
-        .unwrap();
-    query("CREATE SCHEMA public").execute(&pool).await.unwrap();
-
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
-
-    pool
+    infra::test_support::setup_pool_exclusive(&database_url).await
 }
 
 async fn insert_user(pool: &PgPool, user_id: UserId) -> TenantId {
@@ -214,9 +185,7 @@ fn sample_channel(monitor: &domain::Monitor) -> NotificationChannel {
 /// and B25's outbox `claim_next`.
 #[tokio::test]
 async fn concurrent_sweeps_do_not_double_fire_escalation_step() {
-    let _guard = TEST_LOCK.lock().await;
-
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
 
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
@@ -302,9 +271,7 @@ async fn concurrent_sweeps_do_not_double_fire_escalation_step() {
 /// single-threaded call.
 #[tokio::test]
 async fn concurrent_opens_during_maintenance_never_notify() {
-    let _guard = TEST_LOCK.lock().await;
-
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
 
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());

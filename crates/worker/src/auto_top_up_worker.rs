@@ -1,6 +1,6 @@
 use application::ports::{
-    FinancialAuditLogRepository, PaymentProvider, PaymentVerification, WalletRepository,
-    WalletTopUpRequest,
+    FinancialAuditLogRepository, MonitorRepository, PaymentProvider, PaymentVerification,
+    WalletRepository, WalletTopUpRequest,
 };
 use chrono::Utc;
 use domain::AutoTopUpAttempt;
@@ -12,6 +12,7 @@ pub struct AutoTopUpWorker {
     provider: Arc<dyn PaymentProvider>,
     interval: Duration,
     financial_audit: Option<Arc<dyn FinancialAuditLogRepository>>,
+    monitor_repository: Option<Arc<dyn MonitorRepository>>,
 }
 
 impl AutoTopUpWorker {
@@ -25,7 +26,13 @@ impl AutoTopUpWorker {
             provider,
             interval,
             financial_audit: None,
+            monitor_repository: None,
         }
+    }
+
+    pub fn with_monitor_repository(mut self, repository: Arc<dyn MonitorRepository>) -> Self {
+        self.monitor_repository = Some(repository);
+        self
     }
 
     pub fn with_financial_audit_repository(
@@ -109,6 +116,13 @@ impl AutoTopUpWorker {
                         .await
                     {
                         Ok(_) => {
+                            if let Some(monitors) = &self.monitor_repository {
+                                let _ = monitors
+                                    .clear_balance_billing_blocks_for_tenant(domain::TenantId(
+                                        attempt.tenant_id,
+                                    ))
+                                    .await;
+                            }
                             metrics::counter!("payg_auto_top_up_reconciliation_success_total")
                                 .increment(1);
                             self.wallet
@@ -232,6 +246,9 @@ impl AutoTopUpWorker {
                                     let key = format!("auto-topup-provider:{provider_payment_id}");
                                     match self.wallet.credit(candidate.tenant_id, amount_units, domain::WalletTransactionType::TopUp, &key, Some("Automatic wallet top-up")).await {
                                         Ok(_) => {
+                                            if let Some(monitors) = &self.monitor_repository {
+                                                let _ = monitors.clear_balance_billing_blocks_for_tenant(domain::TenantId(candidate.tenant_id)).await;
+                                            }
                                             metrics::counter!("payg_auto_top_up_paid_total").increment(1);
                                             self.audit(candidate.tenant_id, "auto_top_up_success", &provider_payment_id, serde_json::json!({"amount_units": amount_units, "currency": currency.clone()})).await;
                                             self.wallet.record_auto_top_up_attempt(&AutoTopUpAttempt {

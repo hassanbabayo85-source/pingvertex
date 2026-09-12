@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("pingvertex-theme");
+          const dark = saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (_) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com https://appleid.cdn-apple.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://accounts.google.com https://appleid.apple.com; frame-src https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'">
+    <title>PingVertex</title>
+    <link data-trunk rel="css" href="style.css">
+    <link data-trunk rel="rust" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js" async defer></script>
+    <script>
+    (() => {
+      let config = {
+        google: '',
+        apple: '',
+        appleRedirect: ''
+      };
+
+      let googleReady = false;
+      let appleReady = false;
+      let listenersInstalled = false;
+
+      const errorNode = () =>
+        document.getElementById('oauth-error');
+
+      const setError = (message = '') => {
+        const el = errorNode();
+        if (el) el.textContent = message;
+      };
+
+      const finish = async (provider, idToken) => {
+        if (!idToken || typeof idToken !== 'string') {
+          throw new Error(
+            'Identity provider returned no ID token.'
+          );
+        }
+
+        setError('');
+
+        const response = await fetch(
+          `/api/auth/oauth/${provider}`,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              id_token: idToken
+            })
+          }
+        );
+
+        if (!response.ok) {
+          let message =
+            'Sign in failed. Please try again.';
+
+          try {
+            const body = await response.json();
+
+            if (
+              body &&
+              typeof body.message === 'string'
+            ) {
+              message = body.message;
+            } else if (
+              body &&
+              typeof body.error === 'string'
+            ) {
+              message = body.error;
+            }
+          } catch (_) {}
+
+          throw new Error(message);
+        }
+
+        window.location.assign('/');
+      };
+
+      const installAppleListeners = () => {
+        if (listenersInstalled) return;
+
+        listenersInstalled = true;
+
+        document.addEventListener(
+          'AppleIDSignInOnSuccess',
+          event => {
+            const token =
+              event?.detail?.authorization?.id_token;
+
+            finish('apple', token)
+              .catch(err => setError(err.message));
+          }
+        );
+
+        document.addEventListener(
+          'AppleIDSignInOnFailure',
+          () => {
+            setError(
+              'Apple sign in was cancelled or failed.'
+            );
+          }
+        );
+      };
+
+      const boot = () => {
+        if (
+          config.google &&
+          window.google?.accounts?.id &&
+          !googleReady
+        ) {
+          window.google.accounts.id.initialize({
+            client_id: config.google,
+
+            callback: response => {
+              finish(
+                'google',
+                response.credential
+              ).catch(err => {
+                setError(err.message);
+              });
+            },
+
+            auto_select: false,
+            cancel_on_tap_outside: true
+          });
+
+          googleReady = true;
+        }
+
+        if (
+          config.apple &&
+          config.appleRedirect &&
+          window.AppleID?.auth &&
+          !appleReady
+        ) {
+          installAppleListeners();
+
+          const random =
+            new Uint8Array(24);
+
+          crypto.getRandomValues(random);
+
+          const state = Array.from(
+            random,
+            b => b.toString(16).padStart(2, '0')
+          ).join('');
+
+          window.AppleID.auth.init({
+            clientId: config.apple,
+            scope: 'name email',
+            redirectURI: config.appleRedirect,
+            state,
+            usePopup: true
+          });
+
+          appleReady = true;
+        }
+
+        if (
+          (config.google && !googleReady) ||
+          (
+            config.apple &&
+            config.appleRedirect &&
+            !appleReady
+          )
+        ) {
+          window.setTimeout(boot, 200);
+        }
+      };
+
+      window.PingVertexOAuth = {
+
+        init(
+          googleClientId,
+          appleClientId,
+          appleRedirectUri
+        ) {
+          config = {
+            google:
+              (googleClientId || '').trim(),
+
+            apple:
+              (appleClientId || '').trim(),
+
+            appleRedirect:
+              (appleRedirectUri || '').trim()
+          };
+
+          googleReady = false;
+          appleReady = false;
+
+          boot();
+        },
+
+        google() {
+          setError('');
+
+          if (!config.google) {
+            setError(
+              'Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID to the frontend build environment.'
+            );
+            return;
+          }
+
+          if (
+            !window.google?.accounts?.id
+          ) {
+            setError(
+              'Google sign-in is still loading. Please try again.'
+            );
+            return;
+          }
+
+          window.google.accounts.id.prompt();
+        },
+
+        apple() {
+          setError('');
+
+          if (
+            !config.apple ||
+            !config.appleRedirect
+          ) {
+            setError(
+              'Apple sign-in is not configured yet. Add APPLE_CLIENT_ID and APPLE_REDIRECT_URI to the frontend build environment.'
+            );
+            return;
+          }
+
+          if (
+            !window.AppleID?.auth
+          ) {
+            setError(
+              'Apple sign-in is still loading. Please try again.'
+            );
+            return;
+          }
+
+          installAppleListeners();
+
+          window.AppleID.auth.signIn();
+        }
+      };
+
+      boot();
+    })();
+    </script>
+</head>
+<body></body>
+</html>

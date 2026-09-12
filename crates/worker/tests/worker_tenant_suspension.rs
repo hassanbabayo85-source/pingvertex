@@ -24,26 +24,20 @@ async fn insert_test_user(pool: &PgPool, user_id: UserId) {
     .unwrap();
 }
 
-async fn get_pool() -> PgPool {
+async fn get_pool() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgres://postgres:postgres@localhost:5432/uptime_monitor_test".to_string()
     });
 
-    let pool = PgPool::connect(&database_url)
-        .await
-        .expect("Failed to connect to db");
-
-    sqlx::migrate!("../../migrations")
-        .run(&pool)
-        .await
-        .unwrap_or_default();
-
-    pool
+    // `setup_pool_exclusive` already runs migrations against this binary's private
+    // schema; the extra `sqlx::migrate!` here is redundant and (more
+    // importantly) would try to migrate the shared `public` schema.
+    infra::test_support::setup_pool_exclusive(&database_url).await
 }
 
 #[tokio::test]
 async fn scheduler_claims_active_tenant_monitor() {
-    let pool = get_pool().await;
+    let (pool, _guard) = get_pool().await;
     let tenant_repo = PostgresTenantRepository::new(pool.clone());
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let sched_repo = PostgresSchedulingRepository::new(pool.clone());
@@ -80,7 +74,7 @@ async fn scheduler_claims_active_tenant_monitor() {
 
 #[tokio::test]
 async fn scheduler_ignores_suspended_tenant_monitor() {
-    let pool = get_pool().await;
+    let (pool, _guard) = get_pool().await;
     let tenant_repo = PostgresTenantRepository::new(pool.clone());
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let sched_repo = PostgresSchedulingRepository::new(pool.clone());

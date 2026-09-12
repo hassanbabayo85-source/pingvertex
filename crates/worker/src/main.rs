@@ -134,7 +134,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         wallet_repository.clone(),
         Arc::new(PostgresMonitorIntervalPolicyRepository::new(pool.clone())),
         tenant_repository.clone(),
-        subscription_repository.clone(),
         pricing_config_repository.clone(),
     );
     let bulk_import_cancel = cancel_token.clone();
@@ -149,6 +148,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         billing_provider,
         Duration::from_secs(300),
     )
+    .with_monitor_repository(monitor_repository.clone())
     .with_financial_audit_repository(financial_audit_repository.clone());
     let auto_top_up_cancel = cancel_token.clone();
     tokio::spawn(async move {
@@ -256,8 +256,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let reconciliation_worker =
-        ReconciliationWorker::new(pool.clone(), Duration::from_secs(24 * 60 * 60));
+    let reconciliation_worker = ReconciliationWorker::new(pool.clone(), Duration::from_secs(300))
+        .with_payg_metering(metering.clone());
     let reconciliation_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = reconciliation_worker
@@ -358,7 +358,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .with_metering(metering.clone())
     .with_tenant_repository(
                 tenant_repository.clone(),
-                subscription_repository.clone(),
                 pricing_config_repository.clone(),
             )
             .with_entitlement_repositories(

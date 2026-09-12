@@ -60,10 +60,7 @@ pub trait FinancialAuditLogRepository: Send + Sync {
                     .resource_id
                     .as_deref()
                     .is_none_or(|v| entry.resource_id.as_deref() == Some(v))
-                && filter
-                    .actor
-                    .as_deref()
-                    .is_none_or(|v| entry.actor == v)
+                && filter.actor.as_deref().is_none_or(|v| entry.actor == v)
                 && filter.from.is_none_or(|v| entry.created_at >= v)
                 && filter.to.is_none_or(|v| entry.created_at < v)
                 && cursor.is_none_or(|c| {

@@ -1074,6 +1074,16 @@ impl MonitorRepository for PostgresMonitorRepository {
         Ok(result.rows_affected())
     }
 
+    async fn clear_balance_billing_blocks_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> RepoResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM monitor_billing_blocks WHERE tenant_id=$1 AND reason='Insufficient wallet balance'"
+        ).bind(tenant_id.0).execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     async fn billing_blocks_for_tenant(
         &self,
         tenant_id: TenantId,

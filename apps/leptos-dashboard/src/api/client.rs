@@ -152,6 +152,24 @@ pub async fn post_json<T: DeserializeOwned, B: Serialize>(
     handle_response(resp).await
 }
 
+pub async fn post_json_with_header<T: DeserializeOwned, B: Serialize>(
+    path: &str,
+    body: &B,
+    header_name: &str,
+    header_value: &str,
+) -> Result<T, ApiError> {
+    let url = format!("{API_BASE}{path}");
+    let resp = Request::post(&url)
+        .header("Content-Type", "application/json")
+        .header(header_name, header_value)
+        .credentials(RequestCredentials::Include)
+        .json(body)
+        .map_err(|e| ApiError::Validation(e.to_string()))?
+        .send()
+        .await?;
+    handle_response(resp).await
+}
+
 pub async fn put_json<T: DeserializeOwned, B: Serialize>(
     path: &str,
     body: &B,

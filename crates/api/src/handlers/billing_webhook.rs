@@ -113,6 +113,7 @@ pub async fn billing_webhook(
     )
     .with_addon_repository(state.add_on_subscription_repository.clone())
     .with_wallet_repository(state.wallet_repository.clone())
+    .with_monitor_repository(state.monitor_repository.clone())
     .with_payment_repository(state.payment_repository.clone())
     .with_financial_audit_repository(state.financial_audit_log_repository.clone());
 

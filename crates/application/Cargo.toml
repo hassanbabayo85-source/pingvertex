@@ -17,6 +17,7 @@ uuid.workspace = true
 chrono.workspace = true
 rust_decimal = { version = "1.42.1", default-features = false, features = ["serde"] }
 metrics = "0.24.6"
+tracing = "0.1"
 
 totp-rs = { version = "5", features = ["otpauth", "gen_secret"] }
 base64 = "0.22"

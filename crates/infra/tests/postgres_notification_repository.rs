@@ -2,7 +2,7 @@ mod common;
 
 use application::ports::monitor_repository::MonitorRepository;
 use application::ports::notification_channel_repository::NotificationChannelRepository;
-use common::{insert_user, sample_monitor_with_user, setup_pool};
+use common::{insert_user, sample_monitor_with_user, setup_pool_exclusive};
 use domain::entities::{CreateEmailChannel, CreateWebhookChannel, NotificationChannel};
 use domain::shared::ids::{NotificationChannelId, UserId};
 use domain::value_objects::{Email, Url};
@@ -13,7 +13,7 @@ use uuid::Uuid;
 #[serial]
 #[tokio::test]
 async fn create_and_find_by_id_for_user_round_trips_email_channel() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -45,7 +45,7 @@ async fn create_and_find_by_id_for_user_round_trips_email_channel() {
 #[serial]
 #[tokio::test]
 async fn create_webhook_channel_round_trips_with_signing_secret() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -76,7 +76,7 @@ async fn create_webhook_channel_round_trips_with_signing_secret() {
 #[serial]
 #[tokio::test]
 async fn find_by_id_for_user_returns_none_for_wrong_user() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -114,7 +114,7 @@ async fn find_by_id_for_user_returns_none_for_wrong_user() {
 #[serial]
 #[tokio::test]
 async fn list_by_monitor_for_user_returns_none_when_monitor_not_owned() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -137,7 +137,7 @@ async fn list_by_monitor_for_user_returns_none_when_monitor_not_owned() {
 #[serial]
 #[tokio::test]
 async fn list_by_monitor_for_user_returns_only_the_owners_channels() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -174,7 +174,7 @@ async fn list_by_monitor_for_user_returns_only_the_owners_channels() {
 #[serial]
 #[tokio::test]
 async fn delete_for_user_removes_channel_only_for_owner() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -223,7 +223,7 @@ async fn delete_for_user_removes_channel_only_for_owner() {
 #[serial]
 #[tokio::test]
 async fn delete_for_user_on_nonexistent_channel_returns_false() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
     let user_id = UserId(Uuid::new_v4());
@@ -240,7 +240,7 @@ async fn delete_for_user_on_nonexistent_channel_returns_false() {
 #[serial]
 #[tokio::test]
 async fn deleting_monitor_cascades_to_notification_channels() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 
@@ -268,7 +268,7 @@ async fn deleting_monitor_cascades_to_notification_channels() {
 #[serial]
 #[tokio::test]
 async fn list_enabled_by_monitor_returns_channels_without_ownership_check() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repo = PostgresMonitorRepository::new(pool.clone());
     let repo = PostgresNotificationChannelRepository::new(pool.clone());
 

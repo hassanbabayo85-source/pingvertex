@@ -9,7 +9,7 @@ use uuid::Uuid;
 #[tokio::test]
 #[ignore = "requires PostgreSQL via DATABASE_URL"]
 async fn successful_payment_cannot_be_downgraded_by_failed_retry() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresPaymentRepository::new(pool.clone());
 
     let tenant_id = Uuid::new_v4();
@@ -73,7 +73,7 @@ async fn successful_payment_cannot_be_downgraded_by_failed_retry() {
 #[tokio::test]
 #[ignore = "requires PostgreSQL via DATABASE_URL"]
 async fn failed_payment_can_be_upgraded_to_successful() {
-    let pool = common::setup_pool().await;
+    let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresPaymentRepository::new(pool.clone());
 
     let tenant_id = Uuid::new_v4();

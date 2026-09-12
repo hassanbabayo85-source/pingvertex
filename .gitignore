@@ -64,3 +64,5 @@ geoip.tar.gz
 erro
 *.bak.*
 *.bak
+.attic/
+uptime-monitor*.txt

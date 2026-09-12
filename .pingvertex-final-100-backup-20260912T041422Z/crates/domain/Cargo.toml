@@ -1,0 +1,18 @@
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+shared = { path = "../shared" }
+
+serde.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+url = "2.5.8"
+serde_json = "1.0.151"
+rust_decimal = { version = "1.42.1", default-features = false, features = ["serde"] }

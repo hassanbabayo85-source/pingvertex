@@ -29,12 +29,10 @@ use infra::repositories::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
-async fn setup_pool() -> PgPool {
+async fn setup_pool_exclusive() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for this ignored test");
-    PgPool::connect(&database_url)
-        .await
-        .expect("failed to connect to test database")
+    infra::test_support::setup_pool_exclusive(&database_url).await
 }
 
 async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscription) {
@@ -80,7 +78,7 @@ async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscriptio
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn compare_and_set_rejects_stale_plan_and_rolls_back_period_changes() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let (tenant_id, subscription) = create_tenant_and_subscription(&pool).await;
 
     let transaction = PostgresSubscriptionUsageTransaction::new(pool.clone());
@@ -174,7 +172,7 @@ async fn compare_and_set_rejects_stale_plan_and_rolls_back_period_changes() {
 #[tokio::test]
 #[ignore]
 async fn change_usage_closes_previous_period_opens_new_one_and_updates_subscription() {
-    let pool = setup_pool().await;
+    let (pool, _guard) = setup_pool_exclusive().await;
     let (_tenant_id, mut subscription) = create_tenant_and_subscription(&pool).await;
 
     let usage_period_repository = PostgresSubscriptionUsagePeriodRepository::new(pool.clone());
