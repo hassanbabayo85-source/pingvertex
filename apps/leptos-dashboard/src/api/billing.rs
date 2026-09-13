@@ -232,3 +232,24 @@ pub struct Invoice {
 pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
     client::get_json("/billing/invoices").await
 }
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Allowance {
+    pub cycle_started_at: String,
+    pub cycle_ends_at: String,
+    pub sms_limit: i32,
+    pub sms_used: i32,
+    pub sms_remaining: i32,
+    pub voice_limit: i32,
+    pub voice_used: i32,
+    pub phone_numbers_limit: i32,
+    pub phone_numbers_used: i32,
+    pub enabled_monitors: u64,
+}
+
+pub async fn allowance() -> Result<Allowance, String> {
+    client::get_json::<Allowance>("/billing/allowance")
+        .await
+        .map_err(|e| e.to_string())
+}
+

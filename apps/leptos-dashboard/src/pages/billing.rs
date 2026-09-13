@@ -13,6 +13,7 @@ pub fn BillingPage() -> impl IntoView {
     let p = RwSignal::new(Vec::<billing::PaygPricing>::new());
     let ft = RwSignal::new(None::<billing::FreeTier>);
     let min_top_up = RwSignal::new(None::<i64>);
+    let allowance = RwSignal::new(None::<billing::Allowance>);
     let e = RwSignal::new(None::<String>);
 
     Effect::new(move |_| {
@@ -27,6 +28,10 @@ pub fn BillingPage() -> impl IntoView {
                     ft.set(Some(page.free_tier));
                     min_top_up.set(Some(page.payg_min_top_up_units));
                 }
+                Err(x) => e.set(Some(x.to_string())),
+            }
+            match billing::allowance().await {
+                Ok(a) => allowance.set(Some(a)),
                 Err(x) => e.set(Some(x.to_string())),
             }
         })
@@ -66,6 +71,34 @@ pub fn BillingPage() -> impl IntoView {
                             </span>
                         </div>
                     </div>
+                </section>
+            })}
+            {move || allowance.get().map(|a| view! {
+                <section class="card">
+                    <div class="section-heading">
+                        <div>
+                            <h2>"Fair-use alert allowance"</h2>
+                            <p class="muted">{format!(
+                                "Free SMS alerts included with your plan. Cycle ends {}.",
+                                a.cycle_ends_at,
+                            )}</p>
+                        </div>
+                    </div>
+                    <div class="overview-cards">
+                        <div>
+                            <span class="card-label">"SMS used"</span>
+                            <span class="card-value">{format!("{} / {}", a.sms_used, a.sms_limit)}</span>
+                        </div>
+                        <div>
+                            <span class="card-label">"SMS remaining"</span>
+                            <span class="card-value">{a.sms_remaining.to_string()}</span>
+                        </div>
+                        <div>
+                            <span class="card-label">"Based on"</span>
+                            <span class="card-value">{format!("{} enabled monitors", a.enabled_monitors)}</span>
+                        </div>
+                    </div>
+                    <p class="muted">"Once the free allowance is used, SMS falls back to paid SMS credits in your wallet, then to email if the wallet cannot pay."</p>
                 </section>
             })}
             <section class="card">

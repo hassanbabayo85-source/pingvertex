@@ -105,6 +105,16 @@ pub trait MonitorRepository: Send + Sync {
         Ok(self.find_all_for_tenant(tenant_id).await?.len() as u64)
     }
 
+    /// Count only *enabled* monitors for a tenant. This is what the
+    /// fair-use alert allowance formula is based on: a disabled monitor
+    /// consumes no SMS and must not contribute to the allowance.
+    ///
+    /// Default falls back to the total count, which is safe but
+    /// over-generous; Postgres overrides this with `AND enabled = true`.
+    async fn count_enabled_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        self.count_for_tenant(tenant_id).await
+    }
+
     /// Read-only, tenant-scoped snapshot used by bulk-import preview.
     /// Implementations may override this to avoid loading assertions or
     /// reconstructing full monitor aggregates.

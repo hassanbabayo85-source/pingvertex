@@ -16,8 +16,8 @@ use application::ports::{
     RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SchedulingRepository,
     SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
     SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
-    SupportTicketRepository, TenantRepository, UsageEventRepository, UserRepository,
-    WalletRepository,
+    SupportTicketRepository, TenantAlertAllowanceRepository, TenantRepository,
+    UsageEventRepository, UserRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -113,6 +113,7 @@ pub struct AppState {
     pub rate_limiter: Arc<dyn RateLimiter>,
     pub wallet_repository: Arc<dyn WalletRepository>,
     pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
+    pub tenant_alert_allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
     pub subscription_plan_change_repository:
@@ -1244,6 +1245,52 @@ impl WalletRepository for NoopWalletRepository {
     }
 }
 
+/// Default `TenantAlertAllowanceRepository`. Returns a zeroed allowance for
+/// the current cycle — the fair-use path is only wired in production via
+/// `with_tenant_alert_allowance_repository`. A zeroed response is safe:
+/// the SMS dispatcher falls through to the wallet and then to email, and
+/// the dashboard renders `0 / 0`.
+#[derive(Clone, Default)]
+struct NoopTenantAlertAllowanceRepository;
+
+#[async_trait]
+impl TenantAlertAllowanceRepository for NoopTenantAlertAllowanceRepository {
+    async fn current_cycle(
+        &self,
+        tenant_id: TenantId,
+        _enabled_monitor_count: u64,
+        now: DateTime<Utc>,
+    ) -> RepoResult<domain::entities::TenantAlertAllowance> {
+        let end = now + chrono::Duration::days(30);
+        Ok(domain::entities::TenantAlertAllowance {
+            tenant_id,
+            cycle_started_at: now,
+            cycle_ends_at: end,
+            sms_limit: 0,
+            sms_used: 0,
+            voice_limit: 0,
+            voice_used: 0,
+            phone_numbers_limit: 0,
+            phone_numbers_used: 0,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    async fn try_consume_sms(
+        &self,
+        _tenant_id: TenantId,
+        _now: DateTime<Utc>,
+    ) -> RepoResult<bool> {
+        Ok(false)
+    }
+
+    async fn find(&self, _tenant_id: TenantId) -> RepoResult<Option<domain::entities::TenantAlertAllowance>> {
+        Ok(None)
+    }
+}
+
+
 #[derive(Clone, Default)]
 struct NoopMonitorIntervalPolicyRepository;
 #[async_trait]
@@ -1463,6 +1510,7 @@ impl AppState {
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
@@ -1564,6 +1612,7 @@ impl AppState {
             rate_limiter: Arc::new(NoopRateLimiter),
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
+            tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             payg_metering: None,
@@ -1808,6 +1857,14 @@ impl AppState {
         R: PAYGPricingRepository + 'static,
     {
         self.payg_pricing_repository = Arc::new(repository);
+        self
+    }
+
+    pub fn with_tenant_alert_allowance_repository<R>(mut self, repository: R) -> Self
+    where
+        R: TenantAlertAllowanceRepository + 'static,
+    {
+        self.tenant_alert_allowance_repository = Arc::new(repository);
         self
     }
 

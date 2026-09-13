@@ -28,6 +28,9 @@ pub use tenant::{AccountType, Tenant, TenantStatus};
 pub mod one_time_check;
 pub use one_time_check::{OneTimeCheckExecution, OneTimeCheckRequest};
 
+pub mod tenant_alert_allowance;
+pub use tenant_alert_allowance::TenantAlertAllowance;
+
 mod tenant_membership;
 pub use tenant_membership::TenantMembership;
 
