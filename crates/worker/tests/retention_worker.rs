@@ -2,15 +2,20 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use application::ports::{HistoryRetentionRepository, TenantRepository, WalletRepository};
+use application::ports::{
+    HistoryRetentionRepository, TenantRepository, TenantRetentionSettingsRepository,
+    WalletRepository,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use domain::{
     Check, CheckStatus, ErrorType, RegionCode, Tenant,
+    entities::{RetentionSource, TenantRetentionSettings},
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
-use infra::{InMemoryTenantRetentionSettingsRepository, 
-    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository, InMemoryTenantRepository,
+use infra::{
+    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository,
+    InMemoryTenantRepository, InMemoryTenantRetentionSettingsRepository,
     InMemoryWalletRepository,
 };
 use uuid::Uuid;
