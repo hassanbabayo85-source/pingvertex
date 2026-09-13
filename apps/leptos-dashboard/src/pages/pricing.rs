@@ -17,6 +17,7 @@ fn operation_label(operation: &str) -> String {
         "tcp_check.monitoring" => "TCP — monitoring".into(),
         "dns_check.monitoring" => "DNS — monitoring".into(),
         "api_flow_check.monitoring" => "API flow — monitoring".into(),
+        "proxy_check.monitoring" => "Proxy — monitoring".into(),
         "heartbeat_processing" => "Heartbeat processing".into(),
         "rum_event" => "RUM event".into(),
         "sms" => "SMS".into(),

@@ -8,8 +8,13 @@ pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000;
 /// PAYG network egress is billed in binary megabytes to match the existing
 /// bounded response-body safety limits and storage metering semantics.
 pub const PAYG_NETWORK_EGRESS_UNIT_BYTES: u64 = 1024 * 1024;
+
+/// Non-canonical historical operations that must never be billed at
+/// runtime. This list is a Rust-side mirror of the row set in
+/// `payg_retired_operations`, kept here so tests can assert the
+/// retirement set is explicit and so new code never accidentally
+/// re-introduces one of these strings.
 pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
-    "proxy_check.monitoring",
     "proxy_check",
     "monitor_check",
     "SMS",
@@ -18,6 +23,10 @@ pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
 
 /// Canonical server-owned PAYG operation identifiers. Runtime code derives
 /// these values; clients never submit prices or operation identifiers.
+///
+/// One-time and monitoring variants are always distinct: `*_check.one_time`
+/// is billed once per Test Now request (per region), `*_check.monitoring`
+/// is billed per scheduled recurring execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaygOperation {
     HttpOneTime,
@@ -30,6 +39,7 @@ pub enum PaygOperation {
     DnsMonitoring,
     HeartbeatProcessing,
     ApiFlowMonitoring,
+    ProxyMonitoring,
     RumEvent,
     Sms,
     Storage,
@@ -48,6 +58,7 @@ impl PaygOperation {
             Self::DnsMonitoring => "dns_check.monitoring",
             Self::HeartbeatProcessing => "heartbeat_processing",
             Self::ApiFlowMonitoring => "api_flow_check.monitoring",
+            Self::ProxyMonitoring => "proxy_check.monitoring",
             Self::RumEvent => "rum_event",
             Self::Sms => "sms",
             Self::Storage => "storage",
@@ -68,6 +79,7 @@ impl PaygOperation {
         Self::DnsMonitoring,
         Self::HeartbeatProcessing,
         Self::ApiFlowMonitoring,
+        Self::ProxyMonitoring,
         Self::RumEvent,
         Self::Sms,
         Self::Storage,
@@ -118,9 +130,11 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_operation_set_matches_part1_price_book() {
-        assert_eq!(PaygOperation::ALL.len(), 14);
+        assert_eq!(PaygOperation::ALL.len(), 15);
         assert!(PaygOperation::is_canonical("http_check.one_time"));
         assert!(PaygOperation::is_canonical("http_check.monitoring"));
+        assert!(PaygOperation::is_canonical("proxy_check.one_time"));
+        assert!(PaygOperation::is_canonical("proxy_check.monitoring"));
         assert!(PaygOperation::is_canonical("heartbeat_processing"));
         assert!(PaygOperation::is_canonical("network_egress"));
         assert!(!PaygOperation::is_canonical("monitor_check"));
@@ -146,6 +160,14 @@ mod tests {
         assert_ne!(
             monitor_operation(MonitorKind::Http, false).as_str(),
             monitor_operation(MonitorKind::Http, true).as_str()
+        );
+    }
+
+    #[test]
+    fn proxy_one_time_and_monitoring_are_distinct() {
+        assert_ne!(
+            PaygOperation::ProxyOneTime.as_str(),
+            PaygOperation::ProxyMonitoring.as_str()
         );
     }
 }
