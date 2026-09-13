@@ -184,7 +184,7 @@ async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
         .await
         .unwrap();
     wallet
-        .capture(reservation.reservation.id, None, &[])
+        .capture(reservation.reservation.id, None, &[], None)
         .await
         .unwrap();
 

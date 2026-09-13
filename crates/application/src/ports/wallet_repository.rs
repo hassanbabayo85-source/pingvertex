@@ -62,6 +62,7 @@ pub trait WalletRepository: Send + Sync {
         reservation_id: Uuid,
         usage_event: Option<&domain::UsageEvent>,
         audit_entries: &[domain::FinancialAuditLogEntry],
+        actual_charge_units: Option<i64>,
     ) -> WalletRepoResult<WalletTransaction>;
 
     /// Releases a pending reservation without charging the wallet.
@@ -313,9 +314,10 @@ where
         reservation_id: Uuid,
         usage_event: Option<&domain::UsageEvent>,
         audit_entries: &[domain::FinancialAuditLogEntry],
+        actual_charge_units: Option<i64>,
     ) -> WalletRepoResult<WalletTransaction> {
         (**self)
-            .capture(reservation_id, usage_event, audit_entries)
+            .capture(reservation_id, usage_event, audit_entries, actual_charge_units)
             .await
     }
     async fn release(&self, reservation_id: Uuid) -> WalletRepoResult<()> {

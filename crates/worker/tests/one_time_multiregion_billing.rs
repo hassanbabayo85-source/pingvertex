@@ -108,8 +108,7 @@ async fn three_regional_executions_charge_three_times() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0,
-                })
+                    egress_bytes: 0, actual_units: None,})
             })
             .await
             .unwrap();
@@ -144,8 +143,7 @@ async fn same_execution_id_retry_charges_once() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: true,
                 error: None,
-                egress_bytes: 0,
-            })
+                egress_bytes: 0, actual_units: None,})
         })
         .await
         .unwrap();
@@ -163,8 +161,7 @@ async fn same_execution_id_retry_charges_once() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: true,
                 error: None,
-                egress_bytes: 0,
-            })
+                egress_bytes: 0, actual_units: None,})
         })
         .await
         .unwrap();
@@ -199,8 +196,7 @@ async fn pre_attempt_failure_releases_reservation_without_charging() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: false,
                 error: Some("SSRF rejected before request start".into()),
-                egress_bytes: 0,
-            })
+                egress_bytes: 0, actual_units: None,})
         })
         .await
         .unwrap_err();
@@ -237,8 +233,7 @@ async fn insufficient_balance_on_one_region_does_not_block_other_regions() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0,
-                })
+                    egress_bytes: 0, actual_units: None,})
             })
             .await;
         match outcome {
@@ -279,8 +274,7 @@ async fn regional_billing_uses_region_scoped_pricing() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0,
-                })
+                    egress_bytes: 0, actual_units: None,})
             },
         )
         .await
@@ -299,8 +293,7 @@ async fn regional_billing_uses_region_scoped_pricing() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0,
-                })
+                    egress_bytes: 0, actual_units: None,})
             },
         )
         .await

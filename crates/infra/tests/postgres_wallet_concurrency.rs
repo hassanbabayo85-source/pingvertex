@@ -329,11 +329,11 @@ async fn same_request_id_concurrent_reservation_and_capture_is_idempotent() {
     // Two sequential captures on the same reservation must be idempotent:
     // both must return the same transaction and debit the wallet once.
     let tx1 = wallet
-        .capture(reservation_id, None, &[])
+        .capture(reservation_id, None, &[], None)
         .await
         .expect("first capture");
     let tx2 = wallet
-        .capture(reservation_id, None, &[])
+        .capture(reservation_id, None, &[], None)
         .await
         .expect("second capture");
     assert_eq!(

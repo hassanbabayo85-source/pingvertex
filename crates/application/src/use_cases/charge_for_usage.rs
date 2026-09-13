@@ -35,6 +35,13 @@ pub struct MeteredAttempt {
     /// Bytes observed leaving the remote HTTP/API target during this attempt.
     /// The worker converts this to billable `network_egress` MB units.
     pub egress_bytes: u64,
+    /// Number of billable units actually consumed by this attempt when it
+    /// differs from the reserved `ChargeForUsageInput::units`. Flow checks
+    /// report `Some(steps_executed)` so the wallet is billed only for the
+    /// steps that actually ran and the remainder of the reservation is
+    /// released in the same capture transaction. `None` means "capture the
+    /// full reserved amount".
+    pub actual_units: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -320,7 +327,7 @@ impl ChargeForUsageUseCase {
         let audits = self.build_payg_audits(&input, &event);
         let transaction = self
             .wallet_repository
-            .capture(reservation.id, Some(&event), &audits)
+            .capture(reservation.id, Some(&event), &audits, None)
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
@@ -475,7 +482,7 @@ impl ChargeForUsageUseCase {
         let audits = self.build_payg_audits(&input, &event);
         let transaction = self
             .wallet_repository
-            .capture(reservation.reservation.id, Some(&event), &audits)
+            .capture(reservation.reservation.id, Some(&event), &audits, None)
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
@@ -527,6 +534,7 @@ impl ChargeForUsageUseCase {
                     attempted: true,
                     error: None,
                     egress_bytes: 0,
+                actual_units: None,
                 }),
             )
         })
@@ -685,11 +693,26 @@ impl ChargeForUsageUseCase {
             .currency
             .as_deref()
             .unwrap_or(&pricing.currency);
+        let (units_billed, actual_charge_units) = match attempt.actual_units {
+            Some(actual_units) => {
+                let charge = actual_units
+                    .checked_mul(reserved_unit_price)
+                    .ok_or(ChargeForUsageError::InvalidPricing("actual charge overflow"))?;
+                if charge <= 0 || charge > reservation.reservation.amount_units {
+                    return Err(ChargeForUsageError::InvalidPricing(
+                        "actual charge must be in (0, reserved amount]",
+                    ));
+                }
+                (actual_units, Some(charge))
+            }
+            None => (input.units, None),
+        };
+
         let event = self.build_event(
             &input,
-            input.units,
+            units_billed,
             reserved_unit_price,
-            reservation.reservation.amount_units,
+            actual_charge_units.unwrap_or(reservation.reservation.amount_units),
             reserved_pricing_version,
             reserved_currency,
             "CAPTURED",
@@ -697,7 +720,12 @@ impl ChargeForUsageUseCase {
         let audits = self.build_payg_audits(&input, &event);
         let transaction = self
             .wallet_repository
-            .capture(reservation.reservation.id, Some(&event), &audits)
+            .capture(
+                reservation.reservation.id,
+                Some(&event),
+                &audits,
+                actual_charge_units,
+            )
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
@@ -909,7 +937,7 @@ impl ChargeForUsageUseCase {
         let audits = self.build_payg_audits(&input, &event);
         let transaction = self
             .wallet_repository
-            .capture(reservation.id, Some(&event), &audits)
+            .capture(reservation.id, Some(&event), &audits, None)
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);
@@ -1070,7 +1098,7 @@ impl ChargeForUsageUseCase {
         );
         let audits = self.build_payg_audits(input, &event);
         self.wallet_repository
-            .capture(reservation_id, Some(&event), &audits)
+            .capture(reservation_id, Some(&event), &audits, None)
             .await
             .map_err(|e| {
                 counter!("payg_billing_failures_total", "reason" => "capture").increment(1);

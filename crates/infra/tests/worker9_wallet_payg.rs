@@ -455,7 +455,7 @@ async fn wallet_activation_is_sticky_and_does_not_fall_back_to_free() {
         .await
         .unwrap();
     wallet
-        .capture(reservation.reservation.id, None, &[])
+        .capture(reservation.reservation.id, None, &[], None)
         .await
         .unwrap();
 

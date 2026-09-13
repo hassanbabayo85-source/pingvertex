@@ -132,7 +132,7 @@ fn validate_usage_for_reservation(
     if event.tenant_id != tenant_id
         || event.request_id != reservation.request_id
         || event.operation != reservation.operation
-        || event.charge_units != reservation.amount_units
+        || event.charge_units > reservation.amount_units
         || event.charge_units <= 0
         || event.units_requested <= 0
         || event.units_billed <= 0
@@ -506,6 +506,7 @@ impl WalletRepository for PostgresWalletRepository {
         reservation_id: Uuid,
         usage_event: Option<&domain::UsageEvent>,
         audit_entries: &[domain::FinancialAuditLogEntry],
+        actual_charge_units: Option<i64>,
     ) -> WalletRepoResult<WalletTransaction> {
         let mut tx = self.pool.begin().await?;
         let r = sqlx::query_as::<_, ReservationRow>(
@@ -556,6 +557,21 @@ impl WalletRepository for PostgresWalletRepository {
             return Err("reservation is not capturable".into());
         }
 
+        // GAP 3 Kashi B: allow partial capture. When `actual_charge_units`
+        // is Some(n) with 0 < n <= reserved amount, debit only `n` and
+        // release the remainder in the same transaction.
+        let capture_amount = match actual_charge_units {
+            Some(actual) => {
+                if actual <= 0 || actual > r.amount_units {
+                    return Err(
+                        "actual_charge_units must be in (0, reservation.amount_units]".into(),
+                    );
+                }
+                actual
+            }
+            None => r.amount_units,
+        };
+
         let wallet = sqlx::query_as::<_, WalletRow>(
             "SELECT id,tenant_id,currency,balance_units,payg_activated_at,created_at,updated_at
              FROM user_wallets WHERE id=$1 FOR UPDATE",
@@ -565,13 +581,13 @@ impl WalletRepository for PostgresWalletRepository {
         .await?;
         let new_balance = wallet
             .balance_units
-            .checked_sub(r.amount_units)
+            .checked_sub(capture_amount)
             .ok_or("insufficient wallet balance")?;
 
         // Promotional credits are part of the wallet balance, but they expire.
         // Consume the oldest active promotional credits first so expiration can
         // never claw back cash that was already purchased.
-        let mut promo_remaining = r.amount_units;
+        let mut promo_remaining = capture_amount;
         let promo_rows = sqlx::query_as::<_, (Uuid, i64)>(
             "SELECT id, remaining_amount_units
              FROM promotional_credits
@@ -631,7 +647,7 @@ impl WalletRepository for PostgresWalletRepository {
             .bind(Uuid::new_v4())
             .bind(wallet.tenant_id)
             .bind(wallet.id)
-            .bind(-r.amount_units)
+            .bind(-capture_amount)
             .bind(new_balance)
             .bind(&idem)
             .bind(r.id.to_string())

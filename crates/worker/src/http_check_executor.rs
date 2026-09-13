@@ -121,6 +121,7 @@ impl crate::durable_scheduler::CheckExecutor for HttpCheckExecutor {
             attempted: outcome.attempted,
             error: None,
             egress_bytes: outcome.egress_bytes,
+            steps_executed: None,
         })
     }
 }

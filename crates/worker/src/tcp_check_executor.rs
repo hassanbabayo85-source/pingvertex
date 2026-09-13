@@ -111,6 +111,7 @@ impl crate::durable_scheduler::CheckExecutor for TcpCheckExecutor {
             attempted: outcome.attempted,
             error: None,
             egress_bytes: 0,
+            steps_executed: None,
         })
     }
 }

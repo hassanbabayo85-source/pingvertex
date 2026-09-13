@@ -82,6 +82,11 @@ pub struct CheckExecution {
     pub attempted: bool,
     pub error: Option<String>,
     pub egress_bytes: u64,
+    /// GAP 3 Kashi B: for Flow monitors, the number of steps whose HTTP
+    /// request actually started. `None` for non-flow kinds. The scheduler
+    /// forwards this to `MeteredAttempt::actual_units` so a flow check is
+    /// billed for the steps it actually ran, not for the reserved maximum.
+    pub steps_executed: Option<i64>,
 }
 
 impl CheckExecution {
@@ -90,6 +95,7 @@ impl CheckExecution {
             attempted,
             error: None,
             egress_bytes: 0,
+            steps_executed: None,
         }
     }
     pub fn failed(attempted: bool, error: impl Into<String>) -> Self {
@@ -97,6 +103,7 @@ impl CheckExecution {
             attempted,
             error: Some(error.into()),
             egress_bytes: 0,
+            steps_executed: None,
         }
     }
 }
@@ -436,7 +443,11 @@ where
                                         MeterUsageInput {
                                             tenant_id: monitor.tenant_id.0,
                                             operation,
-                                            units: 1,
+                                            units: if matches!(monitor.kind, domain::MonitorKind::Flow) {
+                                                domain::entities::api_flow::MAX_STEPS as i64
+                                            } else {
+                                                1
+                                            },
                                             request_id: billing_request_id,
                                             monitor_id: Some(monitor.id.0),
                                             execution_id: Some(execution_dbid),
@@ -465,6 +476,7 @@ where
                                                     attempted: o.attempted,
                                                     error: o.error,
                                                     egress_bytes: o.egress_bytes,
+                                                    actual_units: o.steps_executed,
                                                 })
                                             }
                                         },
@@ -689,7 +701,11 @@ where
                                         operation: domain::monitor_operation(monitor.kind, false)
                                             .as_str()
                                             .to_owned(),
-                                        units: 1,
+                                        units: if matches!(monitor.kind, domain::MonitorKind::Flow) {
+                                            domain::entities::api_flow::MAX_STEPS as i64
+                                        } else {
+                                            1
+                                        },
                                         request_id: request_id.clone(),
                                         monitor_id: Some(monitor.id.0),
                                         execution_id: Some(claim.execution_id),
@@ -719,6 +735,7 @@ where
                                                     attempted: outcome.attempted,
                                                     error: outcome.error,
                                                     egress_bytes: outcome.egress_bytes,
+                                                    actual_units: outcome.steps_executed,
                                                 },
                                             )
                                         }

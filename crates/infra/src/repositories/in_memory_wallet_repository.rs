@@ -282,6 +282,7 @@ impl WalletRepository for InMemoryWalletRepository {
         reservation_id: Uuid,
         usage_event: Option<&domain::UsageEvent>,
         _audit_entries: &[domain::FinancialAuditLogEntry],
+        actual_charge_units: Option<i64>,
     ) -> WalletRepoResult<WalletTransaction> {
         let mut g = self.inner.lock().unwrap();
         for (wallet, txs, reservations) in g.values_mut() {
@@ -296,11 +297,25 @@ impl WalletRepository for InMemoryWalletRepository {
                 if r.status != CreditReservation::PENDING || r.expires_at <= Utc::now() {
                     return Err("reservation is not capturable".into());
                 }
-                if wallet.balance_units < r.amount_units {
+                // GAP 3 Kashi B: partial capture. Debit `actual_charge_units`
+                // when provided, otherwise the full reserved amount.
+                let capture_amount = match actual_charge_units {
+                    Some(actual) => {
+                        if actual <= 0 || actual > r.amount_units {
+                            return Err(
+                                "actual_charge_units must be in (0, reservation.amount_units]"
+                                    .into(),
+                            );
+                        }
+                        actual
+                    }
+                    None => r.amount_units,
+                };
+                if wallet.balance_units < capture_amount {
                     return Err("insufficient wallet balance".into());
                 }
 
-                let amount = r.amount_units;
+                let amount = capture_amount;
                 let tenant_id = wallet.tenant_id;
                 let operation = r.operation.clone();
                 wallet.balance_units -= amount;

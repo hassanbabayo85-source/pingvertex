@@ -382,7 +382,7 @@ async fn free_entitlement_is_not_restored_after_payg_activation_and_exhaustion()
         .await
         .unwrap();
     wallet
-        .capture(reservation.reservation.id, None, &[])
+        .capture(reservation.reservation.id, None, &[], None)
         .await
         .unwrap();
 
