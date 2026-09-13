@@ -14,6 +14,7 @@ pub fn BillingPage() -> impl IntoView {
     let ft = RwSignal::new(None::<billing::FreeTier>);
     let min_top_up = RwSignal::new(None::<i64>);
     let allowance = RwSignal::new(None::<billing::Allowance>);
+    let summary = RwSignal::new(None::<billing::BillingSummary>);
     let e = RwSignal::new(None::<String>);
 
     Effect::new(move |_| {
@@ -32,6 +33,10 @@ pub fn BillingPage() -> impl IntoView {
             }
             match billing::allowance().await {
                 Ok(a) => allowance.set(Some(a)),
+                Err(x) => e.set(Some(x.to_string())),
+            }
+            match billing::summary().await {
+                Ok(s) => summary.set(Some(s)),
                 Err(x) => e.set(Some(x.to_string())),
             }
         })
@@ -113,6 +118,44 @@ pub fn BillingPage() -> impl IntoView {
                     <p class="muted">"Once the free allowance is used, SMS falls back to paid SMS credits in your wallet, then to email if the wallet cannot pay."</p>
                     <p class="muted">"History retention controls how long check results are kept. It is applied per-tenant by the retention worker."</p>
                 </section>
+            })}
+            {move || summary.get().map(|s| {
+                let total_line = format!("Total: {} {}", s.add_ons_total, s.currency);
+                let rows: Vec<_> = s.active_add_ons.iter().map(|a| {
+                    let label = match (a.addon_type.as_str(), a.tier.as_deref()) {
+                        ("retention", Some(t)) => format!("Extended retention ({t} days)"),
+                        ("retention", None) => "Extended retention".to_string(),
+                        ("sms", _) => format!("SMS credits × {}", a.quantity),
+                        ("enterprise", _) => format!("Enterprise SLA × {}", a.quantity),
+                        (other, _) => other.to_string(),
+                    };
+                    let value = format!("{} {}", a.total_price, a.currency);
+                    view! {
+                        <div>
+                            <span class="card-label">{label}</span>
+                            <span class="card-value">{value}</span>
+                        </div>
+                    }
+                }).collect_view();
+                view! {
+                    <section class="card">
+                        <div class="section-heading">
+                            <div>
+                                <h2>"Add-ons"</h2>
+                                <p class="muted">
+                                    "Add-ons are billed separately from the wallet. Extended retention replaces your tenant's default history retention."
+                                </p>
+                            </div>
+                            <a class="btn btn-primary" href="/billing/addons">"Manage add-ons"</a>
+                        </div>
+                        {if s.active_add_ons.is_empty() {
+                            view! { <p class="muted">"No active add-ons."</p> }.into_any()
+                        } else {
+                            view! { <div class="overview-cards">{rows}</div> }.into_any()
+                        }}
+                        <p class="muted">{total_line}</p>
+                    </section>
+                }
             })}
             <section class="card">
                 <h2>"Price book"</h2>

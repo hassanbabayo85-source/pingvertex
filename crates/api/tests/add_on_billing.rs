@@ -137,7 +137,7 @@ async fn create_sms_add_on_without_subscription() {
 
     let Json(resp) = create_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CreateAddOnRequest {
             addon_type: "sms".into(),
             quantity: 100,
@@ -185,7 +185,7 @@ async fn create_enterprise_sla_add_on() {
 
     let Json(resp) = create_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CreateAddOnRequest {
             addon_type: "enterprise".into(),
             quantity: 2,
@@ -210,7 +210,7 @@ async fn create_extended_retention_add_on_90() {
 
     let Json(resp) = create_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CreateAddOnRequest {
             addon_type: "retention".into(),
             quantity: 1,
@@ -235,7 +235,7 @@ async fn verify_extended_retention_updates_settings() {
 
     let Json(created) = create_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CreateAddOnRequest {
             addon_type: "retention".into(),
             quantity: 1,
@@ -255,7 +255,7 @@ async fn verify_extended_retention_updates_settings() {
 
     let Json(body) = verify_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(VerifyAddOnRequest {
             checkout_session_id: session_id,
         }),
@@ -293,7 +293,7 @@ async fn cancel_extended_retention_reverts_to_default() {
 
     let Json(created) = create_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CreateAddOnRequest {
             addon_type: "retention".into(),
             quantity: 1,
@@ -312,7 +312,7 @@ async fn cancel_extended_retention_reverts_to_default() {
         .unwrap();
     let _ = verify_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(VerifyAddOnRequest {
             checkout_session_id: session_id,
         }),
@@ -326,7 +326,7 @@ async fn cancel_extended_retention_reverts_to_default() {
 
     let Json(canceled) = cancel_add_on(
         State(fx.state.clone()),
-        Extension(fx.user.clone()),
+        Extension(fx.user),
         Json(CancelAddOnRequest {
             addon_subscription_id: created.id.parse().unwrap(),
         }),
@@ -378,7 +378,7 @@ async fn billing_summary_shows_wallet_and_addons() {
         .await
         .unwrap();
 
-    let Json(summary) = billing_summary(State(fx.state.clone()), Extension(fx.user.clone()))
+    let Json(summary) = billing_summary(State(fx.state.clone()), Extension(fx.user))
         .await
         .expect("billing summary must succeed");
 

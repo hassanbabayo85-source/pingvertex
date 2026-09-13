@@ -13,6 +13,15 @@ pub struct AddOn {
     pub total_price: String,
     pub currency: String,
     pub status: String,
+    /// Present on `POST /billing/addons` responses (a checkout session
+    /// was just created). Absent on `GET /billing/summary` rows.
+    #[serde(default)]
+    pub checkout_session_id: Option<String>,
+    /// Provider checkout URL the buyer must visit to pay. Only set on
+    /// the create response. Surfaced in the Add-ons page so the buyer
+    /// can complete payment.
+    #[serde(default)]
+    pub checkout_url: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Subscription {
@@ -43,14 +52,18 @@ pub struct Plan {
     pub currency: String,
 }
 
+/// PAYG billing summary: wallet balance + active add-ons.
+///
+/// This replaces the subscription-era "base price + add-ons" shape. In
+/// PAYG there is no base subscription price — the wallet is funded by
+/// top-ups, and add-ons are separately purchased line items.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct BillingSummary {
-    pub base_price: String,
-    pub add_ons: Vec<AddOn>,
+    pub wallet_balance_units: i64,
+    pub wallet_currency: String,
+    pub active_add_ons: Vec<AddOn>,
     pub add_ons_total: String,
-    pub total: String,
     pub currency: String,
-    pub pricing_version: u32,
 }
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Quote {
