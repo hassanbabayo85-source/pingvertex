@@ -326,26 +326,25 @@ pub async fn collect_rum_event(
         pricing_context: None,
     };
 
-    if let Some(metering) = &metering {
-        if let Err(err) = metering
+    if let Some(metering) = &metering
+        && let Err(err) = metering
             .reserve_for_execution(metering_input.clone())
             .await
-        {
-            return match err {
-                application::use_cases::ChargeForUsageError::InsufficientBalance
-                | application::use_cases::ChargeForUsageError::SpendLimitExceeded => (
-                    StatusCode::PAYMENT_REQUIRED,
-                    Json(json!({ "status": "insufficient_balance" })),
-                ),
-                other => {
-                    warn!(error = %other, "RUM beacon rejected by PAYG reservation");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "status": "error" })),
-                    )
-                }
-            };
-        }
+    {
+        return match err {
+            application::use_cases::ChargeForUsageError::InsufficientBalance
+            | application::use_cases::ChargeForUsageError::SpendLimitExceeded => (
+                StatusCode::PAYMENT_REQUIRED,
+                Json(json!({ "status": "insufficient_balance" })),
+            ),
+            other => {
+                warn!(error = %other, "RUM beacon rejected by PAYG reservation");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "status": "error" })),
+                )
+            }
+        };
     }
 
     let outcome = match use_case
@@ -389,17 +388,16 @@ pub async fn collect_rum_event(
     };
 
     // Capture on new session, release on extended.
-    if let Some(metering) = &metering {
-        if let Err(err) = metering
+    if let Some(metering) = &metering
+        && let Err(err) = metering
             .finalize_reserved_attempt(metering_input.clone(), outcome.session_created)
             .await
-        {
-            warn!(error = %err, "RUM session billing finalization failed");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "status": "error" })),
-            );
-        }
+    {
+        warn!(error = %err, "RUM session billing finalization failed");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "status": "error" })),
+        );
     }
 
     (StatusCode::ACCEPTED, Json(json!({ "status": "ok" })))
