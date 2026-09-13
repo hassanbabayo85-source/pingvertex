@@ -97,8 +97,21 @@ pub fn BillingPage() -> impl IntoView {
                             <span class="card-label">"Based on"</span>
                             <span class="card-value">{format!("{} enabled monitors", a.enabled_monitors)}</span>
                         </div>
+                        <div>
+                            <span class="card-label">"History retention"</span>
+                            <span class="card-value">{format!("{} days", a.retention_days)}</span>
+                        </div>
+                        <div>
+                            <span class="card-label">"Retention source"</span>
+                            <span class="card-value">{a.retention_source.clone()}</span>
+                        </div>
+                        <div>
+                            <span class="card-label">"Max retention"</span>
+                            <span class="card-value">{format!("{} days", a.max_retention_days)}</span>
+                        </div>
                     </div>
                     <p class="muted">"Once the free allowance is used, SMS falls back to paid SMS credits in your wallet, then to email if the wallet cannot pay."</p>
+                    <p class="muted">"History retention controls how long check results are kept. It is applied per-tenant by the retention worker."</p>
                 </section>
             })}
             <section class="card">

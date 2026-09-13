@@ -207,6 +207,10 @@ pub use subscription_plan_change_repository::{
 };
 pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletRepository};
 pub mod tenant_alert_allowance_repository;
+pub mod tenant_retention_settings_repository;
+pub use tenant_retention_settings_repository::{
+    RepoResult as TenantRetentionRepoResult, TenantRetentionSettingsRepository,
+};
 pub use tenant_alert_allowance_repository::{
     RepoResult as AlertAllowanceRepoResult, TenantAlertAllowanceRepository,
 };

@@ -37,6 +37,7 @@ use infra::{
     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
     PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
     PostgresTenantAlertAllowanceRepository, PostgresTenantInvitationRepository,
+    PostgresTenantRetentionSettingsRepository,
     PostgresTenantMembershipRepository,
     PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
     RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
@@ -243,6 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_wallet_repository(wallet_repository)
     .with_payg_pricing_repository(payg_pricing_repository)
     .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(pool.clone()))
+    .with_tenant_retention_settings_repository(PostgresTenantRetentionSettingsRepository::new(pool.clone()))
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))

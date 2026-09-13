@@ -31,6 +31,9 @@ pub use one_time_check::{OneTimeCheckExecution, OneTimeCheckRequest};
 pub mod tenant_alert_allowance;
 pub use tenant_alert_allowance::TenantAlertAllowance;
 
+pub mod tenant_retention_settings;
+pub use tenant_retention_settings::{RetentionSource, TenantRetentionSettings};
+
 mod tenant_membership;
 pub use tenant_membership::TenantMembership;
 

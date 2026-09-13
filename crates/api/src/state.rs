@@ -17,7 +17,7 @@ use application::ports::{
     SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
     SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
     SupportTicketRepository, TenantAlertAllowanceRepository, TenantRepository,
-    UsageEventRepository, UserRepository, WalletRepository,
+    TenantRetentionSettingsRepository, UsageEventRepository, UserRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -114,6 +114,7 @@ pub struct AppState {
     pub wallet_repository: Arc<dyn WalletRepository>,
     pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
     pub tenant_alert_allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
+    pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
     pub subscription_plan_change_repository:
@@ -1290,6 +1291,40 @@ impl TenantAlertAllowanceRepository for NoopTenantAlertAllowanceRepository {
     }
 }
 
+/// Default `TenantRetentionSettingsRepository`. Returns `None` for `get`
+/// and the pricing-config default for `effective_retention`. Safe: it
+/// falls back to the same 30-day default the SQL migration seeds, so
+/// nothing changes when the fair-use retention repository is not wired.
+#[derive(Clone, Default)]
+struct NoopTenantRetentionSettingsRepository;
+
+#[async_trait]
+impl TenantRetentionSettingsRepository for NoopTenantRetentionSettingsRepository {
+    async fn get(
+        &self,
+        _tenant_id: TenantId,
+    ) -> RepoResult<Option<domain::entities::TenantRetentionSettings>> {
+        Ok(None)
+    }
+
+    async fn upsert(
+        &self,
+        _settings: &domain::entities::TenantRetentionSettings,
+    ) -> RepoResult<()> {
+        Ok(())
+    }
+
+    async fn effective_retention(
+        &self,
+        _tenant_id: TenantId,
+        default_retention_days: u32,
+        max_retention_days: u32,
+    ) -> RepoResult<u32> {
+        Ok(default_retention_days.min(max_retention_days).max(1))
+    }
+}
+
+
 
 #[derive(Clone, Default)]
 struct NoopMonitorIntervalPolicyRepository;
@@ -1511,6 +1546,7 @@ impl AppState {
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
+            tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
@@ -1613,6 +1649,7 @@ impl AppState {
             wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
+            tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             payg_metering: None,
@@ -1865,6 +1902,14 @@ impl AppState {
         R: TenantAlertAllowanceRepository + 'static,
     {
         self.tenant_alert_allowance_repository = Arc::new(repository);
+        self
+    }
+
+    pub fn with_tenant_retention_settings_repository<R>(mut self, repository: R) -> Self
+    where
+        R: TenantRetentionSettingsRepository + 'static,
+    {
+        self.tenant_retention_settings_repository = Arc::new(repository);
         self
     }
 

@@ -17,6 +17,7 @@ use infra::{
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
     PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
+    PostgresTenantRetentionSettingsRepository,
     PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
@@ -320,6 +321,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
+    let retention_settings_repository =
+        Arc::new(PostgresTenantRetentionSettingsRepository::new(pool.clone()));
     let retention_worker = RetentionWorker::new(
         tenant_repository.clone(),
         history_retention_repository,
@@ -328,6 +331,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,
         wallet_repository.clone(),
+        retention_settings_repository,
     );
     let retention_cancel = cancel_token.clone();
     tokio::spawn(async move {

@@ -9,7 +9,7 @@ use domain::{
     Check, CheckStatus, ErrorType, RegionCode, Tenant,
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
-use infra::{
+use infra::{InMemoryTenantRetentionSettingsRepository, 
     InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository, InMemoryTenantRepository,
     InMemoryWalletRepository,
 };
@@ -85,6 +85,7 @@ async fn retention_deletes_older_than_cutoff_per_payg_entitlement() {
         Duration::from_secs(3600),
         2,
         wallet_repo,
+        Arc::new(InMemoryTenantRetentionSettingsRepository::new()),
     );
 
     let summary = worker.run_sweep().await.unwrap();
@@ -162,6 +163,7 @@ async fn running_twice_is_idempotent() {
         Duration::from_secs(3600),
         2,
         wallet_repo,
+        Arc::new(InMemoryTenantRetentionSettingsRepository::new()),
     );
 
     let first = worker.run_sweep().await.unwrap();
@@ -248,6 +250,7 @@ async fn bounded_concurrency_never_exceeds_configured_limit() {
         Duration::from_secs(3600),
         MAX_CONCURRENT_TENANTS,
         wallet_repo,
+        Arc::new(InMemoryTenantRetentionSettingsRepository::new()),
     );
 
     let summary = worker.run_sweep().await.unwrap();
@@ -268,3 +271,64 @@ async fn bounded_concurrency_never_exceeds_configured_limit() {
          only observed {max_observed} — sweep may have regressed to fully sequential"
     );
 }
+
+#[tokio::test]
+async fn legacy_retention_is_preserved_for_non_payg_tenants() {
+    // Blueprint: a pre-PAYG tenant with a `subscriptions.retention_days`
+    // of 3650 must keep that value after the migration, so the retention
+    // worker does not delete their history on the first sweep.
+    //
+    // We simulate the migration by pre-seeding `tenant_retention_settings`
+    // with `source = Legacy` BEFORE running the worker.
+    let tenant_repo = Arc::new(InMemoryTenantRepository::new());
+    let wallet_repo = Arc::new(InMemoryWalletRepository::default());
+    let history_repo = Arc::new(InMemoryHistoryRetentionRepository::new());
+    let retention_repo = Arc::new(InMemoryTenantRetentionSettingsRepository::new());
+
+    let legacy_tenant = tenant("Legacy Tenant");
+    tenant_repo.create(&legacy_tenant).await.unwrap();
+
+    // Wallet exists but PAYG is NOT activated.
+    wallet_repo
+        .get_or_create(legacy_tenant.id.0, "USD")
+        .await
+        .unwrap();
+
+    retention_repo
+        .upsert(&TenantRetentionSettings::new(
+            legacy_tenant.id,
+            3650,
+            RetentionSource::Legacy,
+        ))
+        .await
+        .unwrap();
+
+    // A check from 200 days ago would be deleted under free-tier
+    // retention (2 days) but preserved under legacy retention (3650).
+    history_repo.seed_check(
+        sample_check_older_than_days(200),
+        legacy_tenant.id,
+    );
+
+    let worker = RetentionWorker::new(
+        tenant_repo,
+        history_repo.clone(),
+        Arc::new(
+            InMemoryPricingConfigRepository::new()
+                .with_config(domain::pricing::PricingConfig::default_config()),
+        ),
+        DEFAULT_BATCH_SIZE,
+        Duration::from_secs(3600),
+        2,
+        wallet_repo,
+        retention_repo,
+    );
+
+    let summary = worker.run_sweep().await.unwrap();
+    assert_eq!(summary.tenants_processed, 1);
+    assert_eq!(
+        summary.checks_deleted, 0,
+        "legacy 3650-day retention must not delete a 200-day-old check"
+    );
+}
+

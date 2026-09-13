@@ -4,9 +4,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use application::ports::{
-    HistoryRetentionRepository, PricingConfigRepository, TenantRepository, WalletRepository,
+    HistoryRetentionRepository, PricingConfigRepository, TenantRepository,
+    TenantRetentionSettingsRepository, WalletRepository,
 };
 use chrono::{Duration as ChronoDuration, Utc};
+use domain::entities::RetentionSource;
 use tokio::{sync::Semaphore, task::JoinSet, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -34,6 +36,7 @@ where
     interval: Duration,
     max_concurrent_tenants: usize,
     wallet_repository: Arc<dyn WalletRepository>,
+    retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
 }
 
 impl<T, H, P> RetentionWorker<T, H, P>
@@ -42,6 +45,7 @@ where
     H: HistoryRetentionRepository + 'static,
     P: PricingConfigRepository + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tenant_repository: Arc<T>,
         history_repository: Arc<H>,
@@ -50,6 +54,7 @@ where
         interval: Duration,
         max_concurrent_tenants: usize,
         wallet_repository: Arc<dyn WalletRepository>,
+        retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     ) -> Self {
         Self {
             tenant_repository,
@@ -59,6 +64,7 @@ where
             interval,
             max_concurrent_tenants,
             wallet_repository,
+            retention_settings_repository,
         }
     }
 
@@ -77,6 +83,7 @@ where
             let history_repository = self.history_repository.clone();
             let pricing_repository = self.pricing_repository.clone();
             let wallet_repository = self.wallet_repository.clone();
+            let retention_settings_repository = self.retention_settings_repository.clone();
             let batch_size = self.batch_size;
             let checks_deleted = checks_deleted.clone();
 
@@ -109,10 +116,47 @@ where
                             return;
                         }
                     };
+
+                    // GAP 3 Kashi C: per-tenant retention.
+                    //
+                    // PAYG-activated tenants use their effective retention,
+                    // which is the tenant's own row if set, or the pricing
+                    // config's `default_retention_days` (30) otherwise.
+                    //
+                    // Non-PAYG tenants with a `legacy` (migrated from a
+                    // subscription) or `addon` row keep that retention, so
+                    // the migration does not delete their history on the
+                    // first sweep. All other non-PAYG tenants get the
+                    // pricing config's free-tier retention (2 days).
                     if wallet.payg_activated_at.is_some() {
-                        config.max_retention_days
+                        match retention_settings_repository
+                            .effective_retention(
+                                tenant.id,
+                                config.default_retention_days,
+                                config.max_retention_days,
+                            )
+                            .await
+                        {
+                            Ok(days) => days,
+                            Err(err) => {
+                                error!(
+                                    tenant_id = ?tenant.id,
+                                    error = %err,
+                                    "failed to resolve effective retention; falling back to default"
+                                );
+                                config.default_retention_days
+                            }
+                        }
                     } else {
-                        config.free_tier.retention_days
+                        match retention_settings_repository.get(tenant.id).await {
+                            Ok(Some(s))
+                                if s.source == RetentionSource::Legacy
+                                    || s.source == RetentionSource::Addon =>
+                            {
+                                s.retention_days.min(config.max_retention_days).max(1)
+                            }
+                            _ => config.free_tier.retention_days,
+                        }
                     }
                 };
                 let cutoff = Utc::now() - ChronoDuration::days(retention_days as i64);

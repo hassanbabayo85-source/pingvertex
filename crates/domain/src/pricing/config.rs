@@ -17,6 +17,10 @@ pub struct PricingConfig {
     pub min_interval_seconds: u32,
     pub max_monitors: u64,
     pub max_retention_days: u32,
+    /// Default per-tenant retention, applied when a tenant has no
+    /// explicit `tenant_retention_settings` row. Distinct from
+    /// `max_retention_days`, which is the hard upper bound.
+    pub default_retention_days: u32,
     pub min_paid_monthly_price: Decimal,
     pub free_tier: FreeTierDefaults,
     pub currency: String,
@@ -50,6 +54,7 @@ impl PricingConfig {
             min_interval_seconds: 5,
             max_monitors: 10000,
             max_retention_days: 3650,
+            default_retention_days: 30,
             min_paid_monthly_price: Decimal::new(300, 2), // $3.00
             free_tier: FreeTierDefaults {
                 monitors: 10,

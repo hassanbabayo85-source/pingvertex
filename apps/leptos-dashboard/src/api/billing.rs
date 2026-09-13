@@ -124,6 +124,10 @@ pub struct FreeTier {
     pub max_monitors: u32,
     pub min_check_interval_seconds: u32,
     pub retention_days: u32,
+    #[serde(default)]
+    pub max_retention_days: u32,
+    #[serde(default)]
+    pub default_retention_days: u32,
 }
 
 /// Server-owned preview limits. The frontend MUST read these from the API
@@ -233,7 +237,8 @@ pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
     client::get_json("/billing/invoices").await
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(default)]
 pub struct Allowance {
     pub cycle_started_at: String,
     pub cycle_ends_at: String,
@@ -245,6 +250,10 @@ pub struct Allowance {
     pub phone_numbers_limit: i32,
     pub phone_numbers_used: i32,
     pub enabled_monitors: u64,
+    pub retention_days: u32,
+    pub max_retention_days: u32,
+    pub default_retention_days: u32,
+    pub retention_source: String,
 }
 
 pub async fn allowance() -> Result<Allowance, String> {

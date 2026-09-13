@@ -28,6 +28,11 @@ pub struct FreeTierResponse {
     pub max_monitors: u32,
     pub min_check_interval_seconds: u32,
     pub retention_days: u32,
+    /// GAP 3 Kashi C: hard upper bound for per-tenant retention.
+    pub max_retention_days: u32,
+    /// GAP 3 Kashi C: default retention for PAYG tenants that have no
+    /// explicit `tenant_retention_settings` row (30).
+    pub default_retention_days: u32,
 }
 
 /// Server-owned limits the frontend uses to bound its client-side
@@ -117,6 +122,8 @@ pub async fn payg_pricing(
             max_monitors: config.free_tier.monitors.min(u32::MAX as u64) as u32,
             min_check_interval_seconds: config.free_tier.interval_seconds,
             retention_days: config.free_tier.retention_days,
+            max_retention_days: config.max_retention_days,
+            default_retention_days: config.default_retention_days,
         },
         payg_min_top_up_units: domain::MIN_PAYG_TOP_UP_UNITS,
         preview_limits: PreviewLimitsResponse {
