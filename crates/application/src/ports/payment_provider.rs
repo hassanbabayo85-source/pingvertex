@@ -36,7 +36,9 @@ pub enum PaymentVerification {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckoutRequest {
     pub tenant_id: TenantId,
-    pub plan_tier: PlanTier,
+    /// The subscription tier this checkout is for, when it is a
+    /// subscription checkout. `None` for add-on purchases.
+    pub plan_tier: Option<PlanTier>,
     pub amount_minor: i64,
     pub currency: String,
     pub customer_email: Option<String>,

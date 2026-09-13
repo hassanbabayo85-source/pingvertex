@@ -49,7 +49,10 @@ impl PaymentProvider for TestBillingProvider {
         request: &CheckoutRequest,
     ) -> Result<CheckoutDetails, Box<dyn std::error::Error + Send + Sync>> {
         Ok(CheckoutDetails {
-            provider_checkout_id: format!("plan-change-{}", request.plan_tier.as_str()),
+            provider_checkout_id: format!(
+                "plan-change-{}",
+                request.plan_tier.as_ref().map(|t| t.as_str()).unwrap_or("addon")
+            ),
             checkout_url: "https://checkout.test.invalid/plan-change".to_owned(),
         })
     }

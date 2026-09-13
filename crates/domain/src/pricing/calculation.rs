@@ -140,6 +140,42 @@ pub fn calculate_period_cost(
     Ok((quote.monthly_price * fraction).round_dp(2))
 }
 
+/// GAP Add-on Restoration (A3): price of extended retention.
+///
+/// Returns the difference in raw storage cost between `extended_days`
+/// and the default 30-day window, using the same `compute_storage`
+/// formula the base pricing uses. The caller multiplies this by the
+/// active `markup_multiplier` and the configured per-GB cost.
+///
+/// `interval_seconds` is the same `interval` used elsewhere in
+/// `compute_storage`; the caller passes `config.free_tier.interval_seconds`
+/// (300) so the calculation is deterministic and stable across all
+/// tenants.
+pub fn compute_storage_delta(
+    monitors: u64,
+    interval_seconds: u32,
+    extended_days: u32,
+    config: &PricingConfig,
+) -> Decimal {
+    let extended = compute_storage(
+        PricingInput {
+            monitors,
+            interval_seconds,
+            retention_days: extended_days,
+        },
+        config,
+    );
+    let baseline = compute_storage(
+        PricingInput {
+            monitors,
+            interval_seconds,
+            retention_days: config.default_retention_days,
+        },
+        config,
+    );
+    (extended.base - baseline.base).max(Decimal::ZERO)
+}
+
 fn compute_storage(input: PricingInput, config: &PricingConfig) -> StorageCost {
     let hot_days = input.retention_days.min(30) as u64;
     let warm_days = input.retention_days.saturating_sub(30).min(60) as u64;

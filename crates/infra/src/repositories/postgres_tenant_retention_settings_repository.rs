@@ -90,6 +90,14 @@ impl TenantRetentionSettingsRepository for PostgresTenantRetentionSettingsReposi
         Ok(())
     }
 
+    async fn delete(&self, tenant_id: TenantId) -> RepoResult<()> {
+        sqlx::query("DELETE FROM tenant_retention_settings WHERE tenant_id = $1")
+            .bind(tenant_id.0)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn effective_retention(
         &self,
         tenant_id: TenantId,

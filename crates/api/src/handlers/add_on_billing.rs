@@ -1,18 +1,17 @@
 use crate::{error::ApiError, state::AppState};
 use application::{
     ports::AddOnSubscriptionRepository,
-    use_cases::{
-        add_on_subscription::CreateAddOnSubscriptionUseCase,
-        calculate_pricing_quote::CalculatePricingQuoteUseCase,
-    },
+    use_cases::add_on_subscription::CreateAddOnSubscriptionUseCase,
 };
 use axum::{
     Json,
     extract::{Extension, State},
 };
-use domain::pricing::{PricingConfig, PricingInput};
+use domain::pricing::PricingConfig;
 use domain::shared::types::{AuthenticatedUser, Permission};
-use domain::{AddOnStatus, AddOnType, Plan};
+use domain::entities::RetentionTier;
+use domain::pricing::compute_storage_delta;
+use domain::{AddOnStatus, AddOnType};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
@@ -37,14 +36,18 @@ pub struct AddOnResponse {
     pub checkout_session_id: Option<String>,
     pub checkout_url: Option<String>,
 }
+/// PAYG billing summary: wallet balance + active add-ons.
+///
+/// This replaces the old subscription-era "base price + add-ons" shape.
+/// The PAYG runtime has no base subscription price — the wallet is
+/// funded by top-ups, and add-ons are separately purchased line items.
 #[derive(Debug, Serialize)]
 pub struct BillingSummaryResponse {
-    pub base_price: String,
-    pub add_ons: Vec<AddOnResponse>,
+    pub wallet_balance_units: i64,
+    pub wallet_currency: String,
+    pub active_add_ons: Vec<AddOnResponse>,
     pub add_ons_total: String,
-    pub total: String,
     pub currency: String,
-    pub pricing_version: u32,
 }
 
 fn require_manage_billing(user: &AuthenticatedUser) -> Result<(), ApiError> {
@@ -81,16 +84,11 @@ fn sms_unit_price(
     ))
 }
 
-#[allow(unreachable_code, unused_variables)]
 pub async fn create_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<CreateAddOnRequest>,
 ) -> Result<Json<AddOnResponse>, ApiError> {
-    return Err(ApiError::gone(
-        "subscription add-ons are retired; use PAYG billing",
-    ));
-
     require_manage_billing(&user)?;
     let addon_type = parse_type(&req.addon_type)?;
     if req.quantity == 0 {
@@ -118,30 +116,36 @@ pub async fn create_add_on(
                 })?;
             sms_unit_price(provider_price, &provider_currency, &config)?
         }
-        AddOnType::Rum => {
-            return Err(ApiError::bad_request(
-                "RUM ingestion is not present in this codebase; RUM billing was not invented",
-            ));
+        AddOnType::ExtendedRetention => {
+            let tier_str = req.tier.as_deref().ok_or_else(|| {
+                ApiError::bad_request("tier is required for extended retention (90, 180, or 365)")
+            })?;
+            let tier: RetentionTier = tier_str
+                .parse()
+                .map_err(|_| ApiError::bad_request("tier must be 90, 180, or 365"))?;
+            if req.quantity != 1 {
+                return Err(ApiError::bad_request(
+                    "extended retention is a tier, not a quantity; quantity must be 1",
+                ));
+            }
+            let tenant_id = user.tenant_context().tenant_id();
+            let monitors = state
+                .monitor_repository
+                .count_enabled_for_tenant(tenant_id)
+                .await
+                .map_err(|e| ApiError::internal_with_source("failed to count monitors", e))?;
+            let interval_seconds = config.free_tier.interval_seconds;
+            let delta_base = compute_storage_delta(
+                monitors,
+                interval_seconds,
+                tier.days(),
+                &config,
+            );
+            let price = delta_base * config.markup_multiplier;
+            (price, config.currency.clone())
         }
     };
     let tenant_id = user.tenant_context().tenant_id();
-    let sub = state
-        .subscription_repository
-        .find_by_tenant_id(tenant_id)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to load subscription", e))?;
-    let plan_tier = sub
-        .as_ref()
-        .filter(|s| {
-            matches!(
-                s.status,
-                domain::SubscriptionStatus::Active | domain::SubscriptionStatus::Trialing
-            )
-        })
-        .map(|s| s.plan_tier)
-        .ok_or_else(|| {
-            ApiError::conflict("an active subscription is required before purchasing an add-on")
-        })?;
     let uc = CreateAddOnSubscriptionUseCase::new(state.add_on_subscription_repository.clone());
     let mut addon = uc
         .execute(
@@ -163,7 +167,7 @@ pub async fn create_add_on(
         .payment_provider
         .create_checkout(&application::ports::CheckoutRequest {
             tenant_id,
-            plan_tier,
+            plan_tier: None,
             amount_minor,
             currency: addon.currency.clone(),
             customer_email: Some(
@@ -192,7 +196,7 @@ pub async fn create_add_on(
     let mut session = domain::CheckoutSession::new_pending(
         domain::CheckoutSessionId::new(),
         tenant_id,
-        plan_tier,
+        None,
         state.payment_provider.provider_name().into(),
     );
     session.attach_provider_checkout_id(checkout.provider_checkout_id);
@@ -218,62 +222,27 @@ pub async fn create_add_on(
     }))
 }
 
-#[allow(unreachable_code, unused_variables)]
 pub async fn billing_summary(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Result<Json<BillingSummaryResponse>, ApiError> {
-    return Err(ApiError::gone(
-        "subscription billing summary is retired; use wallet and usage reporting",
-    ));
-
     user.require(Permission::ViewBilling)
         .map_err(|_| ApiError::forbidden("billing access is not permitted"))?;
+
     let tenant_id = user.tenant_context().tenant_id();
-    let config = state
-        .pricing_config_repository
-        .find_active_config()
+
+    let balance = state
+        .wallet_repository
+        .get_balance_summary(tenant_id.0, "USD")
         .await
-        .map_err(|e| ApiError::internal_with_source("failed to fetch active pricing config", e))?
-        .ok_or_else(|| ApiError::internal("no active pricing config found"))?;
-    let sub = state
-        .subscription_repository
-        .find_by_tenant_id(tenant_id)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to fetch subscription", e))?;
-    let (monitors, interval, retention) = match sub.as_ref().filter(|s| {
-        matches!(
-            s.status,
-            domain::SubscriptionStatus::Active | domain::SubscriptionStatus::Trialing
-        )
-    }) {
-        Some(s) => (
-            s.monitors
-                .unwrap_or_else(|| Plan::for_tier(s.plan_tier).max_monitors as u64),
-            s.interval_seconds
-                .unwrap_or_else(|| Plan::for_tier(s.plan_tier).min_check_interval_seconds),
-            s.retention_days
-                .unwrap_or_else(|| Plan::for_tier(s.plan_tier).history_retention_days),
-        ),
-        None => (
-            config.free_tier.monitors,
-            config.free_tier.interval_seconds,
-            config.free_tier.retention_days,
-        ),
-    };
-    let base = CalculatePricingQuoteUseCase::new(state.pricing_config_repository.clone())
-        .execute(PricingInput {
-            monitors,
-            interval_seconds: interval,
-            retention_days: retention,
-        })
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to calculate base billing price", e))?;
+        .map_err(|e| ApiError::internal_with_source("failed to load wallet balance", e))?;
+
     let addons = state
         .add_on_subscription_repository
         .list_active_by_tenant(tenant_id)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to fetch add-ons", e))?;
+
     let mut addon_total = Decimal::ZERO;
     let mut out = Vec::with_capacity(addons.len());
     for a in addons {
@@ -292,14 +261,13 @@ pub async fn billing_summary(
             checkout_url: None,
         });
     }
-    let total = base.monthly_price + addon_total;
+
     Ok(Json(BillingSummaryResponse {
-        base_price: base.monthly_price.to_string(),
-        add_ons: out,
+        wallet_balance_units: balance.balance_units,
+        wallet_currency: "USD".to_string(),
+        active_add_ons: out,
         add_ons_total: addon_total.to_string(),
-        total: total.to_string(),
-        currency: base.currency,
-        pricing_version: base.pricing_version,
+        currency: "USD".to_string(),
     }))
 }
 
@@ -338,8 +306,12 @@ mod tests {
     }
 
     #[test]
-    fn rum_is_explicitly_rejected_by_request_path() {
-        assert!(parse_type("rum").is_ok());
+    fn retention_is_a_recognized_add_on_type() {
+        assert!(parse_type("retention").is_ok());
+        assert!(
+            parse_type("rum").is_err(),
+            "rum was removed from AddOnType in GAP 3 Kashi E follow-up"
+        );
     }
 }
 
@@ -351,16 +323,11 @@ pub struct VerifyAddOnRequest {
 pub struct CancelAddOnRequest {
     pub addon_subscription_id: uuid::Uuid,
 }
-#[allow(unreachable_code, unused_variables)]
 pub async fn verify_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<VerifyAddOnRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    return Err(ApiError::gone(
-        "subscription add-ons are retired; use PAYG billing",
-    ));
-
     require_manage_billing(&user)?;
     let uc = application::use_cases::VerifyAddOnCheckoutUseCase::new(
         state.checkout_session_repository.clone(),
@@ -391,35 +358,117 @@ pub async fn verify_add_on(
             .map_err(|e| {
                 ApiError::internal_with_source("failed to write financial audit log", e)
             })?;
+
+        // GAP Add-on Restoration (A4): apply the purchased add-on.
+        //
+        // For ExtendedRetention, upsert the tenant's retention row with
+        // `source = Addon` so the retention worker honors it. The
+        // repository's priority-aware upsert means a lower-priority
+        // writer cannot clobber this row.
+        //
+        // For SmsCredits and EnterpriseSla the add-on is recorded as
+        // Active in `addon_subscriptions`; the runtime paths that consume
+        // them (fair-use allowance / SLA response time) are outside this
+        // change. There is no extra state to write here.
+        let tenant_id = user.tenant_context().tenant_id();
+        let addon = state
+            .add_on_subscription_repository
+            .find_by_id(domain::AddOnSubscriptionId(id))
+            .await
+            .map_err(|e| {
+                ApiError::internal_with_source("failed to reload add-on after payment", e)
+            })?;
+        if let Some(addon) = addon {
+            if addon.addon_type == domain::AddOnType::ExtendedRetention {
+                let tier_str = addon.tier.as_deref().ok_or_else(|| {
+                    ApiError::internal("extended-retention add-on has no tier")
+                })?;
+                let tier: RetentionTier = tier_str
+                    .parse()
+                    .map_err(|_| ApiError::internal("add-on has invalid retention tier"))?;
+
+                let settings = domain::entities::TenantRetentionSettings::new(
+                    tenant_id,
+                    tier.days(),
+                    domain::entities::RetentionSource::Addon,
+                );
+                state
+                    .tenant_retention_settings_repository
+                    .upsert(&settings)
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal_with_source(
+                            "failed to apply extended retention after payment",
+                            e,
+                        )
+                    })?;
+
+                let _ = state
+                    .financial_audit_log_repository
+                    .create(&domain::FinancialAuditLogEntry::new(
+                        user.user_id().0.to_string(),
+                        Some(tenant_id.0),
+                        "retention_settings_changed",
+                        "tenant_retention_settings",
+                        Some(tenant_id.0.to_string()),
+                        serde_json::json!({
+                            "source": "addon",
+                            "tier_days": tier.days(),
+                            "addon_subscription_id": id.to_string(),
+                        }),
+                    ))
+                    .await;
+            }
+        }
     }
     Ok(Json(
         serde_json::json!({"addon_subscription_id":id,"status":status.as_str()}),
     ))
 }
-#[allow(unreachable_code, unused_variables)]
 pub async fn cancel_add_on(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(req): Json<CancelAddOnRequest>,
 ) -> Result<Json<AddOnResponse>, ApiError> {
-    return Err(ApiError::gone(
-        "subscription add-ons are retired; use PAYG billing",
-    ));
-
     require_manage_billing(&user)?;
+    let tenant_id = user.tenant_context().tenant_id();
     let uc = CreateAddOnSubscriptionUseCase::new(state.add_on_subscription_repository.clone());
     let a = uc
         .cancel(
             domain::AddOnSubscriptionId(req.addon_subscription_id),
-            user.tenant_context().tenant_id(),
+            tenant_id,
         )
         .await
         .map_err(|e| ApiError::internal_with_source("failed to cancel add-on", e))?;
+
+    // GAP Add-on Restoration (A6, Option A): revert ExtendedRetention to
+    // the pricing config's default retention so the retention worker
+    // stops honoring the (now-cancelled) add-on tier.
+    //
+    // We DELETE the custom row rather than upserting a `Default` row:
+    // `upsert` is priority-aware by contract and would silently discard a
+    // `Default` write while an `Addon` row exists. With the row gone,
+    // `effective_retention` naturally falls back to
+    // `pricing_config.default_retention_days` — the same outcome, without
+    // violating the priority rule.
+    if a.addon_type == domain::AddOnType::ExtendedRetention {
+        state
+            .tenant_retention_settings_repository
+            .delete(tenant_id)
+            .await
+            .map_err(|e| {
+                ApiError::internal_with_source(
+                    "failed to revert retention after add-on cancellation",
+                    e,
+                )
+            })?;
+    }
+
     state
         .financial_audit_log_repository
         .create(&domain::FinancialAuditLogEntry::new(
             user.user_id().0.to_string(),
-            Some(user.tenant_context().tenant_id().0),
+            Some(tenant_id.0),
             "subscription_canceled",
             "addon_subscription",
             Some(a.id.0.to_string()),

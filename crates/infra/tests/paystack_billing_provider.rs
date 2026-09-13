@@ -79,7 +79,7 @@ async fn create_checkout_requires_email_before_any_network_call() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: None,
@@ -102,7 +102,7 @@ async fn create_checkout_rejects_blank_email() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("   ".to_owned()),
@@ -137,7 +137,7 @@ async fn create_checkout_posts_expected_request_and_reads_response() {
     let details = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -180,7 +180,7 @@ async fn create_checkout_propagates_status_false_as_error() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -209,7 +209,7 @@ async fn create_checkout_propagates_http_5xx_message() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -238,7 +238,7 @@ async fn create_checkout_rejects_missing_data_payload() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -757,7 +757,7 @@ async fn create_checkout_rejects_malformed_json_response() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -778,7 +778,7 @@ async fn create_checkout_propagates_network_error() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),
@@ -808,7 +808,7 @@ async fn create_checkout_timeout_is_bounded() {
     let err = provider
         .create_checkout(&CheckoutRequest {
             tenant_id: tenant(),
-            plan_tier: PlanTier::Free,
+            plan_tier: Some(PlanTier::Free),
             amount_minor: 500,
             currency: "USD".to_owned(),
             customer_email: Some("alice@example.com".to_owned()),

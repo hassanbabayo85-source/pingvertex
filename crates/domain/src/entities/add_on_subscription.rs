@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 pub enum AddOnType {
     SmsCredits,
     EnterpriseSla,
-    Rum,
+    ExtendedRetention,
 }
 impl AddOnType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::SmsCredits => "sms",
             Self::EnterpriseSla => "enterprise",
-            Self::Rum => "rum",
+            Self::ExtendedRetention => "retention",
         }
     }
 }
@@ -24,11 +24,57 @@ impl std::str::FromStr for AddOnType {
         match v {
             "sms" => Ok(Self::SmsCredits),
             "enterprise" => Ok(Self::EnterpriseSla),
-            "rum" => Ok(Self::Rum),
+            "retention" => Ok(Self::ExtendedRetention),
             x => Err(format!("unknown add-on type: {x}")),
         }
     }
 }
+
+/// Extended-retention tier for `AddOnType::ExtendedRetention`.
+///
+/// Retention is a *tier* (a service level), not a consumable quantity:
+/// `AddOnSubscription.quantity` is always 1 for this add-on, and
+/// `AddOnSubscription.tier` carries the tier as `"90" | "180" | "365"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetentionTier {
+    D90,
+    D180,
+    D365,
+}
+
+impl RetentionTier {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::D90 => "90",
+            Self::D180 => "180",
+            Self::D365 => "365",
+        }
+    }
+
+    pub const fn days(self) -> u32 {
+        match self {
+            Self::D90 => 90,
+            Self::D180 => 180,
+            Self::D365 => 365,
+        }
+    }
+}
+
+impl std::str::FromStr for RetentionTier {
+    type Err = String;
+    fn from_str(v: &str) -> Result<Self, Self::Err> {
+        match v {
+            "90" => Ok(Self::D90),
+            "180" => Ok(Self::D180),
+            "365" => Ok(Self::D365),
+            x => Err(format!(
+                "unknown retention tier: {x}; expected 90, 180, or 365"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AddOnStatus {

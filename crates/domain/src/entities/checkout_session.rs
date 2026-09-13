@@ -16,7 +16,11 @@ use uuid::Uuid;
 pub struct CheckoutSession {
     pub id: CheckoutSessionId,
     pub tenant_id: TenantId,
-    pub plan_tier: PlanTier,
+    /// The subscription tier this session is for, when the session is
+    /// a subscription checkout. `None` for add-on purchases (SMS
+    /// credits, Enterprise SLA, extended retention), which have no plan
+    /// tier.
+    pub plan_tier: Option<PlanTier>,
     pub status: CheckoutStatus,
     /// Opaque checkout identifier returned by the payment provider.
     pub provider: String,
@@ -33,7 +37,7 @@ impl CheckoutSession {
     pub fn new_pending(
         id: CheckoutSessionId,
         tenant_id: TenantId,
-        plan_tier: PlanTier,
+        plan_tier: Option<PlanTier>,
         provider: String,
     ) -> Self {
         let now = Utc::now();
