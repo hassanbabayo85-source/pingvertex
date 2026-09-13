@@ -86,6 +86,7 @@ async fn payg_pricing_reflects_db_configured_free_tier() {
         max_monitors,
         min_check_interval_seconds,
         retention_days,
+        ..
     } = free_tier;
 
     assert_eq!(
