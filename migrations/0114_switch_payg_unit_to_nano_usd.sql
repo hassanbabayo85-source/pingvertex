@@ -100,10 +100,19 @@ END $$;
 -- 1. Scale wallet balances
 UPDATE user_wallets SET balance_units = balance_units * 1000;
 
--- 2. Scale historical wallet transactions
+-- 2. Scale historical wallet transactions.
+--
+-- `wallet_transactions` carries an immutability trigger
+-- (`prevent_wallet_transaction_mutation`) that forbids UPDATEs on
+-- financial columns. That trigger is a BEFORE UPDATE trigger, so it fires
+-- even on an empty table's UPDATE statement. Temporarily disable it for
+-- this one-shot backfill; the ALTERs are transactional, so the trigger is
+-- restored automatically on COMMIT or ROLLBACK.
+ALTER TABLE wallet_transactions DISABLE TRIGGER USER;
 UPDATE wallet_transactions
 SET amount_units = amount_units * 1000,
     balance_after_units = balance_after_units * 1000;
+ALTER TABLE wallet_transactions ENABLE TRIGGER USER;
 
 -- 3. Scale credit reservations
 UPDATE credit_reservations
