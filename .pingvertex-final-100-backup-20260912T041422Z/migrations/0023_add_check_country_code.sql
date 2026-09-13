@@ -1,1 +1,0 @@
-ALTER TABLE checks ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);
