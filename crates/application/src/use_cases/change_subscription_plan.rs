@@ -131,7 +131,7 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                 .provider
                 .create_checkout(&CheckoutRequest {
                     tenant_id: tenant,
-                    plan_tier: new_plan,
+                    plan_tier: Some(new_plan),
                     amount_minor: cents,
                     currency: cfg.currency.clone(),
                     customer_email: None,
@@ -141,7 +141,7 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             let mut s = CheckoutSession::new_pending(
                 domain::CheckoutSessionId::new(),
                 tenant,
-                new_plan,
+                Some(new_plan),
                 self.provider.provider_name().into(),
             );
             s.attach_provider_checkout_id(co.provider_checkout_id);

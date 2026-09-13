@@ -34,7 +34,7 @@ where
             .payment_provider
             .create_checkout(&CheckoutRequest {
                 tenant_id: command.tenant_id,
-                plan_tier: command.plan_tier,
+                plan_tier: Some(command.plan_tier),
                 amount_minor: 0,
                 currency: "USD".to_owned(),
                 customer_email: None,
@@ -43,7 +43,7 @@ where
         let mut session = CheckoutSession::new_pending(
             CheckoutSessionId::new(),
             command.tenant_id,
-            command.plan_tier,
+            Some(command.plan_tier),
             self.payment_provider.provider_name().to_owned(),
         );
         session.attach_provider_checkout_id(checkout.provider_checkout_id.clone());
@@ -76,7 +76,7 @@ where
             .payment_provider
             .create_checkout(&CheckoutRequest {
                 tenant_id: command.tenant_id,
-                plan_tier: command.plan_tier,
+                plan_tier: Some(command.plan_tier),
                 amount_minor,
                 currency: currency.clone(),
                 customer_email: None,
@@ -85,7 +85,7 @@ where
         let mut session = CheckoutSession::new_pending(
             CheckoutSessionId::new(),
             command.tenant_id,
-            command.plan_tier,
+            Some(command.plan_tier),
             self.payment_provider.provider_name().to_owned(),
         );
         session.attach_provider_checkout_id(checkout.provider_checkout_id.clone());

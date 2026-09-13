@@ -27,7 +27,7 @@ impl PostgresCheckoutSessionRepository {
 struct CheckoutSessionRow {
     id: Uuid,
     tenant_id: Uuid,
-    plan_tier: String,
+    plan_tier: Option<String>,
     status: String,
     provider: String,
     provider_checkout_id: Option<String>,
@@ -44,7 +44,7 @@ impl CheckoutSessionRow {
         Self {
             id: session.id.0,
             tenant_id: session.tenant_id.0,
-            plan_tier: session.plan_tier.as_str().to_owned(),
+            plan_tier: session.plan_tier.as_ref().map(|t| t.as_str().to_owned()),
             status: session.status.as_str().to_owned(),
             provider: session.provider.clone(),
             provider_checkout_id: session.provider_checkout_id.clone(),
@@ -58,10 +58,13 @@ impl CheckoutSessionRow {
     }
 
     fn into_domain(self) -> Result<CheckoutSession, Box<dyn Error + Send + Sync>> {
-        let plan_tier: PlanTier = self
-            .plan_tier
-            .parse()
-            .map_err(|err: domain::DomainError| Box::new(err) as Box<dyn Error + Send + Sync>)?;
+        let plan_tier: Option<PlanTier> = match self.plan_tier.as_deref() {
+            Some(s) => Some(
+                s.parse()
+                    .map_err(|err: domain::DomainError| Box::new(err) as Box<dyn Error + Send + Sync>)?,
+            ),
+            None => None,
+        };
         let status: CheckoutStatus = self
             .status
             .parse()

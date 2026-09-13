@@ -70,7 +70,12 @@ where
 
         match verification {
             PaymentVerification::Paid { .. } => {
-                self.activate_subscription(session.tenant_id, session.plan_tier)
+                let plan_tier = session.plan_tier.ok_or_else(|| {
+                    BillingError::Invalid(
+                        "subscription checkout session is missing a plan tier".into(),
+                    )
+                })?;
+                self.activate_subscription(session.tenant_id, plan_tier)
                     .await?;
 
                 let mut updated = session.clone();

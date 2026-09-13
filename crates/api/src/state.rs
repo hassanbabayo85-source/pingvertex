@@ -1321,6 +1321,10 @@ impl TenantRetentionSettingsRepository for NoopTenantRetentionSettingsRepository
         Ok(())
     }
 
+    async fn delete(&self, _tenant_id: TenantId) -> RepoResult<()> {
+        Ok(())
+    }
+
     async fn effective_retention(
         &self,
         _tenant_id: TenantId,

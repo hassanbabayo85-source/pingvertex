@@ -37,6 +37,12 @@ impl TenantRetentionSettingsRepository for InMemoryTenantRetentionSettingsReposi
         Ok(())
     }
 
+    async fn delete(&self, tenant_id: TenantId) -> RepoResult<()> {
+        let mut guard = self.inner.lock().unwrap();
+        guard.remove(&tenant_id);
+        Ok(())
+    }
+
     async fn effective_retention(
         &self,
         tenant_id: TenantId,

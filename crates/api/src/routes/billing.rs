@@ -31,6 +31,19 @@ pub fn router() -> Router<AppState> {
             "/billing/usage/summary",
             get(crate::handlers::wallet::usage_report),
         )
+        // GAP Add-on Restoration: PAYG add-ons (SMS credits, Enterprise
+        // SLA, extended retention). Bought via `PaymentProvider`
+        // checkout, not from the wallet — see `add_on_billing`.
+        .route("/billing/addons", post(crate::handlers::create_add_on))
+        .route(
+            "/billing/addons/verify",
+            post(crate::handlers::verify_add_on),
+        )
+        .route(
+            "/billing/addons/cancel",
+            post(crate::handlers::cancel_add_on),
+        )
+        .route("/billing/summary", get(crate::handlers::billing_summary))
 }
 
 /// Unauthenticated billing webhook routes.

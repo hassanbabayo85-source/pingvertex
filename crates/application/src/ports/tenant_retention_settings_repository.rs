@@ -20,6 +20,16 @@ pub trait TenantRetentionSettingsRepository: Send + Sync {
     /// call is for a `Default`), the existing value is preserved.
     async fn upsert(&self, settings: &TenantRetentionSettings) -> RepoResult<()>;
 
+    /// Remove the tenant's custom retention row, if any.
+    ///
+    /// After deletion, `effective_retention` falls back to the pricing
+    /// configuration's `default_retention_days`. This is the correct
+    /// semantics for cancelling an `ExtendedRetention` add-on: the add-on
+    /// no longer applies, so the tenant reverts to the default — rather
+    /// than writing a `Default`-priority row, which the priority-aware
+    /// `upsert` would discard while an `Addon` row is still present.
+    async fn delete(&self, tenant_id: TenantId) -> RepoResult<()>;
+
     /// The retention the retention worker should apply for `tenant_id`.
     ///
     ///   * If the tenant has a row whose `retention_days` is within
@@ -45,6 +55,10 @@ where
 
     async fn upsert(&self, settings: &TenantRetentionSettings) -> RepoResult<()> {
         (**self).upsert(settings).await
+    }
+
+    async fn delete(&self, tenant_id: TenantId) -> RepoResult<()> {
+        (**self).delete(tenant_id).await
     }
 
     async fn effective_retention(

@@ -81,6 +81,7 @@ pub(crate) fn billing_error_to_api_error(err: BillingError) -> ApiError {
         BillingError::FreePlanNotAllowed => {
             ApiError::bad_request("free plan does not require checkout")
         }
+        BillingError::Invalid(msg) => ApiError::conflict(msg),
         BillingError::Provider(err) => {
             ApiError::internal_with_source("billing provider error", err)
         }

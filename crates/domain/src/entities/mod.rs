@@ -122,7 +122,7 @@ pub use support_message::{CreateSupportMessage, SupportMessage};
 pub use support_ticket::{CreateSupportTicket, SupportTicket};
 
 mod add_on_subscription;
-pub use add_on_subscription::{AddOnStatus, AddOnSubscription, AddOnType};
+pub use add_on_subscription::{AddOnStatus, AddOnSubscription, AddOnType, RetentionTier};
 
 // RUM (Real User Monitoring):
 mod rum_site;
