@@ -1,87 +1,94 @@
-# Environment / secrets
+# ===== Environment / secrets =====
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*
+*secret*
+!crates/**/secret_cipher.rs
+!crates/**/proxy_credentials.rs
+!**/proxy_credentials.rs
+certs/
+.metrics_token
 
-# Rust
+# ===== Rust =====
 /target/
 **/target/
 
-# Node / Next.js
+# ===== Node / Next.js (idan akwai) =====
 node_modules/
 .next/
 out/
 dist/
 
-# Logs
+# ===== Logs / debug scratch =====
 *.log
+errors.txt
+build-errors.txt
+clippy-output.txt
+test-output.txt
+cors.txt
+cookies*.txt
+uptime-monitor*.txt
 
-# OS / editor
+# ===== OS / editor =====
 .DS_Store
+.Trashes
+Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 
-# Temporary/local files
+# ===== Temporary / local files =====
 *.swp
 *.swo
 *.tmp
 *.temp
+*~
+*.orig
+*.rej
 .cache/
-
-# Local test / generated files
-coverage/
 tmp/
+coverage/
 
-# Local/generated data
-cors.txt
-cookies*.txt
-
-# Development command outputs
-build-errors.txt
-clippy-output.txt
-test-output.txt
-
-# mTLS certificates (private keys must never be committed)
-certs/
-
-# GeoIP database (proprietary MaxMind data — requires license, must never be committed)
+# ===== GeoIP (proprietary MaxMind data) =====
 data/geoip/
 *.mmdb
-*.zip
-# XML audit and status files
-sashi-*.xml
-# Build artifacts and logs
-/target/
-/erro
-# Generated SBOM files (optional — remove if you want to commit them)
-*.cdx.json
-.metrics_token
-.env.test
-node_modules/
-target/
 geoip.tar.gz
-.architecture-security-backup-*/
-erro
-*.bak.*
-*.bak
-.attic/
-uptime-monitor*.txt
 
-# PAYG migration backups — local only, never commit
+# ===== Audit / status XML =====
+sashi-*.xml
+
+# ===== SBOM files (auto-generated — remove this line if you want to commit them) =====
+*.cdx.json
+
+# ===== Archives =====
+*.zip
+*.tar.gz
+
+# ===== Backup / temp source files (asalin dalilin cleanup ɗin da muka yi) =====
+*.bak
+*.bak-*
+*.bak_*
+*.before-*
+*.before_*
+.attic/
+.architecture-security-backup-*/
+
+# ===== PAYG migration backups — local only, never commit =====
 .payg-*-backup-*/
 .payg-*-backup-*/*.patch
 .payg-part5-*/
 .payg-part5-*.patch
 .pingvertex-*-backup-*/
 .pingvertex-repair*/
+
+# ===== Python =====
 __pycache__/
-*.bak
-*.bak-*
-*.bak_*
-*.before-*
-*.bak
-*.bak-*
-*.bak_*
-*.before-*
-errors.txt
+*.pyc
+
+# ===== Stray files da suka taɓa fitowa =====
 get_constraint.sql
