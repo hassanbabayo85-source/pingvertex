@@ -160,7 +160,7 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
     let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
     for (op, price) in [
         ("sms", 1000),
-        ("rum_event", 1),
+        ("rum_session", 1),
         ("network_egress", 100),
         ("heartbeat_processing", 2),
     ] {
@@ -178,7 +178,7 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
 
     let cases = [
         ("sms", 1, 1000),
-        ("rum_event", 1, 1),
+        ("rum_session", 1, 1),
         ("network_egress", 1, 100),
         ("heartbeat_processing", 1, 2),
     ];
