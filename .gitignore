@@ -79,3 +79,7 @@ __pycache__/
 *.bak-*
 *.bak_*
 *.before-*
+*.bak
+*.bak-*
+*.bak_*
+*.before-*
