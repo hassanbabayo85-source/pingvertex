@@ -83,3 +83,5 @@ __pycache__/
 *.bak-*
 *.bak_*
 *.before-*
+errors.txt
+get_constraint.sql
