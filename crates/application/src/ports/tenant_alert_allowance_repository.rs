@@ -30,11 +30,7 @@ pub trait TenantAlertAllowanceRepository: Send + Sync {
     /// Atomically increments `sms_used` if `sms_used < sms_limit` for the
     /// tenant's current cycle. Returns `true` when the allowance was
     /// consumed, `false` when it was already exhausted.
-    async fn try_consume_sms(
-        &self,
-        tenant_id: TenantId,
-        now: DateTime<Utc>,
-    ) -> RepoResult<bool>;
+    async fn try_consume_sms(&self, tenant_id: TenantId, now: DateTime<Utc>) -> RepoResult<bool>;
 
     /// Read-only lookup. Returns `None` if the tenant has never had an
     /// allowance row created.
@@ -57,11 +53,7 @@ where
             .await
     }
 
-    async fn try_consume_sms(
-        &self,
-        tenant_id: TenantId,
-        now: DateTime<Utc>,
-    ) -> RepoResult<bool> {
+    async fn try_consume_sms(&self, tenant_id: TenantId, now: DateTime<Utc>) -> RepoResult<bool> {
         (**self).try_consume_sms(tenant_id, now).await
     }
 

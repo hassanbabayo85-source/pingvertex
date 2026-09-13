@@ -23,9 +23,8 @@ use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryNotificationOutboxRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository,
-    InMemoryTenantRepository, InMemoryTenantRetentionSettingsRepository,
-    InMemoryWalletRepository,
+    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemoryTenantRepository,
+    InMemoryTenantRetentionSettingsRepository, InMemoryWalletRepository,
 };
 use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, OutboxWorker,

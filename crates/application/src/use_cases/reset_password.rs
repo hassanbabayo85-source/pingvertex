@@ -8,21 +8,13 @@ use crate::{
         reset_password_support::reset_password_token_prefix,
         session_invalidation::{
             SESSION_INVALIDATION_TTL_SECONDS, session_invalidated_at_cache_key,
+            session_revocation_timestamp,
         },
     },
 };
 
 use domain::PasswordHash;
 
-/// Password policy, deliberately duplicated from (rather than imported
-/// out of) `register_user.rs`'s identical, already-built
-/// `validate_password`: that function is private to a different,
-/// already-completed worker's file, and this worker's SCOPE DISCIPLINE
-/// rule is to not modify another worker's already-built module just to
-/// extract a one-line-saving shared helper. See HANDOVER.md "Deviations
-/// from prompt". If the two ever need to diverge (e.g. a stricter reset
-/// policy), that's a deliberate product decision for a future worker,
-/// not an accident of code reuse.
 const MIN_PASSWORD_LENGTH: usize = 12;
 const MAX_PASSWORD_LENGTH: usize = 128;
 
@@ -51,7 +43,6 @@ fn validate_password(password: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Error returned by `ResetPasswordUseCase`.
 #[derive(Debug)]
 pub enum ResetPasswordError {
     InvalidOrExpiredToken,
@@ -71,21 +62,6 @@ impl std::fmt::Display for ResetPasswordError {
 
 impl Error for ResetPasswordError {}
 
-/// Redeems a raw password-reset token and sets a new password.
-///
-/// The raw token is looked up by its prefix, then the full token is
-/// re-verified against the stored Argon2id hash before being accepted
-/// (identical pattern to `VerifyEmailUseCase`). On success:
-///   1. a "session invalidated before now" marker is written to
-///      `PendingAuthCache` (Redis) so `jwt_auth` starts rejecting every
-///      session JWT that was issued before this moment;
-///   2. the user's password hash is replaced;
-///   3. the token is marked used and every other unused reset token for
-///      the account is deleted.
-///
-/// The Redis write is security-critical: if it fails, the password reset
-/// fails before the password is changed, preventing a fail-open window
-/// where an old session could remain usable.
 pub struct ResetPasswordUseCase<R, U, H, C> {
     token_repository: R,
     user_repository: U,
@@ -145,15 +121,30 @@ where
             return Err(ResetPasswordError::InvalidOrExpiredToken);
         }
 
+        let mut user = self
+            .user_repository
+            .find_by_id(&token.user_id)
+            .await
+            .map_err(ResetPasswordError::Internal)?
+            .ok_or(ResetPasswordError::InvalidOrExpiredToken)?;
+
         let now = Utc::now();
 
-        // SEC (race fix): atomically claim single-use status BEFORE any
-        // side effect (session invalidation, password change) happens.
-        // Two concurrent requests can both reach this point having
-        // passed the read-only checks above for the SAME token; only one
-        // of them can win this atomic `UPDATE ... WHERE used_at IS NULL`.
-        // The loser fails closed as InvalidOrExpiredToken instead of
-        // proceeding to also change the password.
+        // STEP 1 — session invalidation FIRST (fail-closed).
+        // Uses session_revocation_timestamp(now) = now + 1 so a JWT
+        // minted in the same Unix second as this reset (iat == now)
+        // is still rejected by jwt_auth's `iat < invalidated_at` check.
+        // If Redis is down, we abort BEFORE any state change.
+        self.pending_auth_cache
+            .set(
+                &session_invalidated_at_cache_key(token.user_id),
+                &session_revocation_timestamp(now.timestamp()).to_string(),
+                SESSION_INVALIDATION_TTL_SECONDS,
+            )
+            .await
+            .map_err(ResetPasswordError::Internal)?;
+
+        // STEP 2 — atomic single-use claim of the token.
         let claimed = self
             .token_repository
             .try_consume(token.id, now)
@@ -164,13 +155,6 @@ where
             return Err(ResetPasswordError::InvalidOrExpiredToken);
         }
 
-        let mut user = self
-            .user_repository
-            .find_by_id(&token.user_id)
-            .await
-            .map_err(ResetPasswordError::Internal)?
-            .ok_or(ResetPasswordError::InvalidOrExpiredToken)?;
-
         let hashed = self
             .password_hasher
             .hash(&new_password)
@@ -180,29 +164,17 @@ where
         let password_hash =
             PasswordHash::new(hashed).map_err(|e| ResetPasswordError::Internal(Box::new(e)))?;
 
-        // SEC: session invalidation is a mandatory security precondition.
-        // Do this BEFORE changing the durable password so a Redis outage
-        // cannot leave the old session valid after a successful reset.
-        self.pending_auth_cache
-            .set(
-                &session_invalidated_at_cache_key(token.user_id),
-                &now.timestamp().to_string(),
-                SESSION_INVALIDATION_TTL_SECONDS,
-            )
-            .await
-            .map_err(ResetPasswordError::Internal)?;
-
         user.set_password_hash(password_hash, now);
 
-        self.user_repository
-            .update(&user)
-            .await
-            .map_err(ResetPasswordError::Internal)?;
+        // STEP 3 — persist the password change. If the durable write
+        // fails, roll the token claim back via release_consumed so the
+        // user is NOT stranded with a consumed-but-unredeemed token.
+        if let Err(err) = self.user_repository.update(&user).await {
+            let _ = self.token_repository.release_consumed(token.id).await;
+            return Err(ResetPasswordError::Internal(err));
+        }
 
-        // This token was already atomically claimed via `try_consume`
-        // above. Now drop any OTHER unused reset tokens for the account
-        // so an older, still-unexpired link can't also be redeemed
-        // afterward.
+        // STEP 4 — drop every other unused reset token for the account.
         self.token_repository
             .delete_unused_for_user(token.user_id)
             .await

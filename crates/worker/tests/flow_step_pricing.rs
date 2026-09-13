@@ -227,7 +227,10 @@ async fn flow_retry_does_not_double_charge() {
 
     // On replay the outer wrapper returns the default `MeteredAttempt`
     // (the `panic!()` above already proved the closure was not called).
-    assert!(attempt.actual_units.is_none(), "replay must not report actual_units");
+    assert!(
+        attempt.actual_units.is_none(),
+        "replay must not report actual_units"
+    );
     assert!(attempt.attempted, "replay default is attempted=true");
 
     let after_second = wallet.get_or_create(tenant, "USD").await.unwrap();

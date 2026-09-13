@@ -46,7 +46,11 @@ impl PaymentProvider for TestBillingProvider {
         Ok(CheckoutDetails {
             provider_checkout_id: format!(
                 "test-{}",
-                request.plan_tier.as_ref().map(|t| t.as_str()).unwrap_or("addon")
+                request
+                    .plan_tier
+                    .as_ref()
+                    .map(|t| t.as_str())
+                    .unwrap_or("addon")
             ),
             checkout_url: "https://checkout.test.invalid".to_owned(),
         })

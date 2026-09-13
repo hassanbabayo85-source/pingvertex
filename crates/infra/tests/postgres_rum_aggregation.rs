@@ -171,12 +171,11 @@ async fn aggregates_before_deleting() {
     assert_eq!(s, 1);
 
     // Raw rows gone.
-    let pv_left: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
-            .bind(site_id.0)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let pv_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
+        .bind(site_id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(pv_left, 0);
 }
 
@@ -232,18 +231,16 @@ async fn retention_does_not_touch_other_sites() {
         .unwrap();
 
     // Site A is empty; site B is untouched.
-    let a_left: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
-            .bind(site_a.0)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let b_left: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
-            .bind(site_b.0)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let a_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
+        .bind(site_a.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let b_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rum_page_views WHERE site_id = $1")
+        .bind(site_b.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(a_left, 0);
     assert_eq!(b_left, 1);
 }

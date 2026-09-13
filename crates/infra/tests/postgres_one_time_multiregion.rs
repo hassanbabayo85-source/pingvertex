@@ -5,7 +5,7 @@
 use application::ports::{MonitorRepository, SchedulingRepository, TenantRepository};
 use domain::shared::ids::{MonitorId, TenantId, UserId};
 use domain::value_objects::{CheckInterval, ExpectedStatus, MonitorName, RegionCode, Timeout};
-use domain::{Monitor, MonitorKind, MonitorBuilder};
+use domain::{Monitor, MonitorBuilder, MonitorKind};
 use infra::repositories::postgres_monitor_repository::PostgresMonitorRepository;
 use infra::repositories::postgres_scheduling_repository::PostgresSchedulingRepository;
 use infra::repositories::postgres_tenant_repository::PostgresTenantRepository;
@@ -43,11 +43,7 @@ async fn insert_test_user(pool: &PgPool, user_id: UserId) {
     .unwrap();
 }
 
-fn build_http_monitor(
-    user_id: UserId,
-    tenant_id: TenantId,
-    regions: &[&str],
-) -> Monitor {
+fn build_http_monitor(user_id: UserId, tenant_id: TenantId, regions: &[&str]) -> Monitor {
     let mut monitor = MonitorBuilder::new(MonitorId::new(), user_id, tenant_id)
         .name(MonitorName::new("GAP1 Multi-region").unwrap())
         .target("https://example.com".into())
@@ -64,10 +60,7 @@ fn build_http_monitor(
     monitor
 }
 
-async fn seed_tenant_and_monitor(
-    pool: &PgPool,
-    regions: &[&str],
-) -> (TenantId, UserId, MonitorId) {
+async fn seed_tenant_and_monitor(pool: &PgPool, regions: &[&str]) -> (TenantId, UserId, MonitorId) {
     let user_id = UserId::new();
     insert_test_user(pool, user_id).await;
 
@@ -86,11 +79,8 @@ async fn seed_tenant_and_monitor(
 #[serial_test::serial]
 async fn enqueue_one_time_fans_out_one_execution_per_region() {
     let (pool, _guard) = get_pool().await;
-    let (tenant_id, user_id, monitor_id) = seed_tenant_and_monitor(
-        &pool,
-        &["us-east", "eu-west", "af-west"],
-    )
-    .await;
+    let (tenant_id, user_id, monitor_id) =
+        seed_tenant_and_monitor(&pool, &["us-east", "eu-west", "af-west"]).await;
 
     let sched = PostgresSchedulingRepository::new(pool.clone());
     let request_id = format!("gap1-fanout-{}", Uuid::new_v4());
@@ -133,11 +123,8 @@ async fn enqueue_one_time_fans_out_one_execution_per_region() {
 #[serial_test::serial]
 async fn enqueue_one_time_is_idempotent_on_request_key() {
     let (pool, _guard) = get_pool().await;
-    let (tenant_id, user_id, monitor_id) = seed_tenant_and_monitor(
-        &pool,
-        &["us-east", "eu-west"],
-    )
-    .await;
+    let (tenant_id, user_id, monitor_id) =
+        seed_tenant_and_monitor(&pool, &["us-east", "eu-west"]).await;
 
     let sched = PostgresSchedulingRepository::new(pool.clone());
     let request_id = format!("gap1-idem-{}", Uuid::new_v4());
@@ -156,12 +143,12 @@ async fn enqueue_one_time_is_idempotent_on_request_key() {
         .await
         .unwrap();
 
-    assert_eq!(first.id, second.id, "same idempotency key → same parent request");
+    assert_eq!(
+        first.id, second.id,
+        "same idempotency key → same parent request"
+    );
 
-    let executions = sched
-        .get_one_time_check_executions(first.id)
-        .await
-        .unwrap();
+    let executions = sched.get_one_time_check_executions(first.id).await.unwrap();
     assert_eq!(
         executions.len(),
         2,
@@ -190,13 +177,7 @@ async fn enqueue_one_time_rejects_same_key_for_other_monitor() {
         .unwrap();
 
     let err = sched
-        .enqueue_one_time_check(
-            tenant_id,
-            other_monitor.id,
-            user_id,
-            &request_id,
-            &regions,
-        )
+        .enqueue_one_time_check(tenant_id, other_monitor.id, user_id, &request_id, &regions)
         .await
         .unwrap_err();
     assert!(
@@ -209,11 +190,8 @@ async fn enqueue_one_time_rejects_same_key_for_other_monitor() {
 #[serial_test::serial]
 async fn complete_executions_rolls_up_parent_status() {
     let (pool, _guard) = get_pool().await;
-    let (tenant_id, user_id, monitor_id) = seed_tenant_and_monitor(
-        &pool,
-        &["us-east", "eu-west"],
-    )
-    .await;
+    let (tenant_id, user_id, monitor_id) =
+        seed_tenant_and_monitor(&pool, &["us-east", "eu-west"]).await;
 
     let sched = PostgresSchedulingRepository::new(pool.clone());
     let request_id = format!("gap1-rollup-{}", Uuid::new_v4());
@@ -288,11 +266,8 @@ async fn complete_executions_rolls_up_parent_status() {
 #[serial_test::serial]
 async fn one_time_enqueue_does_not_touch_recurring_scheduler_state() {
     let (pool, _guard) = get_pool().await;
-    let (tenant_id, user_id, monitor_id) = seed_tenant_and_monitor(
-        &pool,
-        &["us-east", "eu-west"],
-    )
-    .await;
+    let (tenant_id, user_id, monitor_id) =
+        seed_tenant_and_monitor(&pool, &["us-east", "eu-west"]).await;
 
     // Snapshot the recurring scheduling columns before the one-time call.
     let before: MonitorSchedulerSnapshot = sqlx::query_as(

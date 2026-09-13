@@ -7,10 +7,10 @@ use axum::{
     Json,
     extract::{Extension, State},
 };
-use domain::pricing::PricingConfig;
-use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::entities::RetentionTier;
+use domain::pricing::PricingConfig;
 use domain::pricing::compute_storage_delta;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{AddOnStatus, AddOnType};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
@@ -135,12 +135,8 @@ pub async fn create_add_on(
                 .await
                 .map_err(|e| ApiError::internal_with_source("failed to count monitors", e))?;
             let interval_seconds = config.free_tier.interval_seconds;
-            let delta_base = compute_storage_delta(
-                monitors,
-                interval_seconds,
-                tier.days(),
-                &config,
-            );
+            let delta_base =
+                compute_storage_delta(monitors, interval_seconds, tier.days(), &config);
             let price = delta_base * config.markup_multiplier;
             (price, config.currency.clone())
         }
@@ -382,9 +378,10 @@ pub async fn verify_add_on(
             && addon.addon_type == domain::AddOnType::ExtendedRetention
         {
             {
-                let tier_str = addon.tier.as_deref().ok_or_else(|| {
-                    ApiError::internal("extended-retention add-on has no tier")
-                })?;
+                let tier_str = addon
+                    .tier
+                    .as_deref()
+                    .ok_or_else(|| ApiError::internal("extended-retention add-on has no tier"))?;
                 let tier: RetentionTier = tier_str
                     .parse()
                     .map_err(|_| ApiError::internal("add-on has invalid retention tier"))?;

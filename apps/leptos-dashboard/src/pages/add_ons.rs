@@ -5,11 +5,8 @@ use leptos::task::spawn_local;
 
 /// Retention tiers exposed by the add-on UI. Kept in sync with the
 /// server's `RetentionTier` enum: `"90" | "180" | "365"`.
-const RETENTION_TIERS: &[(&str, &str)] = &[
-    ("90", "90 days"),
-    ("180", "180 days"),
-    ("365", "365 days"),
-];
+const RETENTION_TIERS: &[(&str, &str)] =
+    &[("90", "90 days"), ("180", "180 days"), ("365", "365 days")];
 
 #[component]
 pub fn AddOnsPage() -> impl IntoView {

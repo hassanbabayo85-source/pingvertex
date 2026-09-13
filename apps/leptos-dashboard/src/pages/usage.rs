@@ -7,7 +7,11 @@ fn usd(u: i64) -> String {
     let sign = if u < 0 { "-" } else { "" };
     let a = u.unsigned_abs();
 
-    format!("{sign}${}.{:02}", a / 1_000_000_000, (a % 1_000_000_000) / 10_000_000)
+    format!(
+        "{sign}${}.{:02}",
+        a / 1_000_000_000,
+        (a % 1_000_000_000) / 10_000_000
+    )
 }
 
 fn date_start(v: &str) -> String {

@@ -108,7 +108,9 @@ async fn three_regional_executions_charge_three_times() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0, actual_units: None,})
+                    egress_bytes: 0,
+                    actual_units: None,
+                })
             })
             .await
             .unwrap();
@@ -117,7 +119,11 @@ async fn three_regional_executions_charge_three_times() {
 
     assert_eq!(charged, 3);
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         1000 - (3 * 2),
         "three independent regional executions → three debits"
     );
@@ -143,13 +149,19 @@ async fn same_execution_id_retry_charges_once() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: true,
                 error: None,
-                egress_bytes: 0, actual_units: None,})
+                egress_bytes: 0,
+                actual_units: None,
+            })
         })
         .await
         .unwrap();
     assert!(first.transaction.is_some(), "first call must debit wallet");
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         95
     );
 
@@ -161,19 +173,31 @@ async fn same_execution_id_retry_charges_once() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: true,
                 error: None,
-                egress_bytes: 0, actual_units: None,})
+                egress_bytes: 0,
+                actual_units: None,
+            })
         })
         .await
         .unwrap();
 
-    assert!(second.transaction.is_none(), "replay must not produce a new debit");
+    assert!(
+        second.transaction.is_none(),
+        "replay must not produce a new debit"
+    );
     // A kan replay, `execute_classified_attempt` yana mayar da MeteredAttempt
     // na wucin gadi { attempted: true, .. } domin an riga an gama aikin
     // a baya — panic! da ke cikin closure shi ne ainihin shaidar cewa
     // ba a sake kiran closure ɗin ba.
-    assert!(attempt.attempted, "replay must report the original attempt as attempted");
+    assert!(
+        attempt.attempted,
+        "replay must report the original attempt as attempted"
+    );
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         95,
         "retrying one regional execution must not double-charge"
     );
@@ -196,7 +220,9 @@ async fn pre_attempt_failure_releases_reservation_without_charging() {
             Ok::<_, std::convert::Infallible>(MeteredAttempt {
                 attempted: false,
                 error: Some("SSRF rejected before request start".into()),
-                egress_bytes: 0, actual_units: None,})
+                egress_bytes: 0,
+                actual_units: None,
+            })
         })
         .await
         .unwrap_err();
@@ -206,7 +232,11 @@ async fn pre_attempt_failure_releases_reservation_without_charging() {
         "expected OperationNotAttempted, got {err:?}"
     );
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         100,
         "a released reservation must leave the wallet untouched"
     );
@@ -233,7 +263,9 @@ async fn insufficient_balance_on_one_region_does_not_block_other_regions() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0, actual_units: None,})
+                    egress_bytes: 0,
+                    actual_units: None,
+                })
             })
             .await;
         match outcome {
@@ -243,10 +275,20 @@ async fn insufficient_balance_on_one_region_does_not_block_other_regions() {
         }
     }
 
-    assert_eq!(successes, 2, "two regions must be able to reserve + capture");
-    assert_eq!(insufficient, 1, "the third region must fail with InsufficientBalance");
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        successes, 2,
+        "two regions must be able to reserve + capture"
+    );
+    assert_eq!(
+        insufficient, 1,
+        "the third region must fail with InsufficientBalance"
+    );
+    assert_eq!(
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         0,
         "the third region's reservation must have been released, not silently captured"
     );
@@ -274,13 +316,19 @@ async fn regional_billing_uses_region_scoped_pricing() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0, actual_units: None,})
+                    egress_bytes: 0,
+                    actual_units: None,
+                })
             },
         )
         .await
         .unwrap();
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         950,
         "us-east must be billed at the region-specific price (50)"
     );
@@ -293,13 +341,19 @@ async fn regional_billing_uses_region_scoped_pricing() {
                 Ok::<_, std::convert::Infallible>(MeteredAttempt {
                     attempted: true,
                     error: None,
-                    egress_bytes: 0, actual_units: None,})
+                    egress_bytes: 0,
+                    actual_units: None,
+                })
             },
         )
         .await
         .unwrap();
     assert_eq!(
-        wallet.get_or_create(tenant, "USD").await.unwrap().balance_units,
+        wallet
+            .get_or_create(tenant, "USD")
+            .await
+            .unwrap()
+            .balance_units,
         949,
         "eu-west must fall back to the generic price (1)"
     );

@@ -124,11 +124,7 @@ impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
         // started. `attempted = true` on a step means the request was sent
         // (even if it later failed or timed out); SSRF-blocked steps have
         // `attempted = false` and consume no network resources.
-        let steps_executed = result
-            .outcomes
-            .iter()
-            .filter(|o| o.attempted)
-            .count() as i64;
+        let steps_executed = result.outcomes.iter().filter(|o| o.attempted).count() as i64;
 
         Ok(CheckExecution {
             attempted,

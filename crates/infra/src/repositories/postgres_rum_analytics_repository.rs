@@ -384,7 +384,8 @@ impl RumAnalyticsRepository for PostgresRumAnalyticsRepository {
         };
 
         let raw = if raw_range.start < raw_range.end {
-            self.overview_raw_only(tenant_id, site_id, raw_range).await?
+            self.overview_raw_only(tenant_id, site_id, raw_range)
+                .await?
         } else {
             // No raw-window rows in range — return an empty overview whose
             // shape matches what overview_raw_only would return.
@@ -675,9 +676,7 @@ impl RumAnalyticsRepository for PostgresRumAnalyticsRepository {
     ) -> RepoResult<SessionStats> {
         let cutoff = Self::cutoff_day();
         if range.start.date_naive() >= cutoff {
-            return self
-                .session_stats_raw_only(tenant_id, site_id, range)
-                .await;
+            return self.session_stats_raw_only(tenant_id, site_id, range).await;
         }
 
         let cutoff_midnight = cutoff

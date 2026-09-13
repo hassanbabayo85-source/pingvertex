@@ -147,9 +147,7 @@ pub use billing_webhook_idempotency_repository::BillingWebhookIdempotencyReposit
 
 // B17 — Durable Scheduler:
 pub mod scheduling_repository;
-pub use scheduling_repository::{
-    ClaimedMonitor, ClaimedOneTimeExecution, SchedulingRepository,
-};
+pub use scheduling_repository::{ClaimedMonitor, ClaimedOneTimeExecution, SchedulingRepository};
 
 // B20 — Agent Execution & mTLS:
 pub mod agent_lease_repository;
@@ -210,11 +208,11 @@ pub use subscription_plan_change_repository::{
 pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletRepository};
 pub mod tenant_alert_allowance_repository;
 pub mod tenant_retention_settings_repository;
-pub use tenant_retention_settings_repository::{
-    RepoResult as TenantRetentionRepoResult, TenantRetentionSettingsRepository,
-};
 pub use tenant_alert_allowance_repository::{
     RepoResult as AlertAllowanceRepoResult, TenantAlertAllowanceRepository,
+};
+pub use tenant_retention_settings_repository::{
+    RepoResult as TenantRetentionRepoResult, TenantRetentionSettingsRepository,
 };
 
 pub mod payg_pricing_repository;

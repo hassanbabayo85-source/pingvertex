@@ -90,10 +90,7 @@ fn build_state(
     .with_payment_provider(FakeBillingProvider)
     .with_sms_provider_pricing(TestSmsPricing)
     .with_financial_audit_log_repository(InMemoryFinancialAuditLogRepository::new())
-    .with_platform_admin_repositories(
-        common::NoopUserRepository,
-        InMemoryTenantRepository::new(),
-    )
+    .with_platform_admin_repositories(common::NoopUserRepository, InMemoryTenantRepository::new())
 }
 
 struct Fixture {

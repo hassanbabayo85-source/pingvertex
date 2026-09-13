@@ -67,4 +67,11 @@ impl ResetPasswordTokenRepository for InMemoryResetPasswordTokenRepository {
             Ok(false)
         }
     }
+
+    async fn release_consumed(&self, id: ResetPasswordTokenId) -> RepoResult<()> {
+        if let Some(token) = self.tokens.lock().unwrap().iter_mut().find(|t| t.id == id) {
+            token.used_at = None;
+        }
+        Ok(())
+    }
 }

@@ -142,7 +142,10 @@ async fn capture_partial_amount_releases_difference() {
         .await
         .unwrap();
 
-    assert_eq!(tx.amount_units, -3_000, "partial capture debits only actual");
+    assert_eq!(
+        tx.amount_units, -3_000,
+        "partial capture debits only actual"
+    );
     let w = wallet.get_or_create(tenant, "USD").await.unwrap();
     assert_eq!(
         w.balance_units, 97_000,

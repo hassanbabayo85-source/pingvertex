@@ -107,7 +107,10 @@ async fn beacon_within_window_extends_session() {
         .unwrap();
 
     assert!(!second.created, "beacon within window must NOT be billable");
-    assert_eq!(second.session.id, first.session.id, "same session row reused");
+    assert_eq!(
+        second.session.id, first.session.id,
+        "same session row reused"
+    );
     assert!(second.session.last_seen_at > first.session.last_seen_at);
 }
 

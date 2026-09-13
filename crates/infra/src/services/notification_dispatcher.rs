@@ -182,7 +182,12 @@ impl NotificationService for NotificationDispatcher {
         let request_id = if matches!(event, NotificationEvent::Test(_)) {
             format!("test:{}:{}:{}", channel.id.0, kind, uuid::Uuid::new_v4())
         } else {
-            format!("notification:{}:{}:{}", channel.id.0, kind, uuid::Uuid::new_v4())
+            format!(
+                "notification:{}:{}:{}",
+                channel.id.0,
+                kind,
+                uuid::Uuid::new_v4()
+            )
         };
         self.notify_with_request_id(channel, event, &request_id)
             .await

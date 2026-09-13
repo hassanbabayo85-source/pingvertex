@@ -10,9 +10,7 @@
 //! render an out-of-date allowance. With it, every tenant's row is at
 //! most one tick old.
 
-use application::ports::{
-    MonitorRepository, TenantAlertAllowanceRepository, TenantRepository,
-};
+use application::ports::{MonitorRepository, TenantAlertAllowanceRepository, TenantRepository};
 use chrono::Utc;
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -91,11 +89,7 @@ impl AllowanceResetWorker {
         }
 
         if refreshed > 0 || failed > 0 {
-            info!(
-                refreshed,
-                failed,
-                "allowance reset sweep completed"
-            );
+            info!(refreshed, failed, "allowance reset sweep completed");
         }
         Ok(())
     }

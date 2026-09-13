@@ -317,7 +317,12 @@ where
         actual_charge_units: Option<i64>,
     ) -> WalletRepoResult<WalletTransaction> {
         (**self)
-            .capture(reservation_id, usage_event, audit_entries, actual_charge_units)
+            .capture(
+                reservation_id,
+                usage_event,
+                audit_entries,
+                actual_charge_units,
+            )
             .await
     }
     async fn release(&self, reservation_id: Uuid) -> WalletRepoResult<()> {

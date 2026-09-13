@@ -137,7 +137,8 @@ where
             .map_err(IngestRumEventError::Other)?
             .ok_or(IngestRumEventError::UnknownSite)?;
 
-        self.execute_for_site(request, country_code, site, session_id).await
+        self.execute_for_site(request, country_code, site, session_id)
+            .await
     }
 
     /// Same ingestion path after the caller has already resolved the site.
@@ -270,9 +271,7 @@ mod tests {
     use domain::shared::ids::{RumSiteId, TenantId};
 
     use super::*;
-    use crate::ports::rum_event_repository::{
-        RepoResult as EventRepoResult, UpsertedRumSession,
-    };
+    use crate::ports::rum_event_repository::{RepoResult as EventRepoResult, UpsertedRumSession};
     use crate::ports::rum_site_repository::RepoResult as SiteRepoResult;
 
     #[derive(Default)]
@@ -418,7 +417,11 @@ mod tests {
         );
 
         let err = use_case
-            .execute(sample_request("rum_does_not_exist"), None, RumSessionId::new())
+            .execute(
+                sample_request("rum_does_not_exist"),
+                None,
+                RumSessionId::new(),
+            )
             .await
             .unwrap_err();
 
@@ -481,7 +484,10 @@ mod tests {
             })
             .collect();
 
-        let err = use_case.execute(request, None, RumSessionId::new()).await.unwrap_err();
+        let err = use_case
+            .execute(request, None, RumSessionId::new())
+            .await
+            .unwrap_err();
         assert!(matches!(err, IngestRumEventError::TooManyJsErrors));
     }
 
@@ -504,7 +510,10 @@ mod tests {
         // Query string on the path must be rejected by the domain layer.
         request.page_view.as_mut().unwrap().path = "/pricing?token=secret".to_string();
 
-        let err = use_case.execute(request, None, RumSessionId::new()).await.unwrap_err();
+        let err = use_case
+            .execute(request, None, RumSessionId::new())
+            .await
+            .unwrap_err();
         assert!(matches!(err, IngestRumEventError::Validation(_)));
     }
 }

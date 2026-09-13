@@ -6,7 +6,11 @@ fn usd(units: i64) -> String {
     // Unit is nano-USD (1 = $10^-9).
     let sign = if units < 0 { "-" } else { "" };
     let a = units.unsigned_abs();
-    format!("{sign}${}.{:02}", a / 1_000_000_000, (a % 1_000_000_000) / 10_000_000)
+    format!(
+        "{sign}${}.{:02}",
+        a / 1_000_000_000,
+        (a % 1_000_000_000) / 10_000_000
+    )
 }
 
 #[component]

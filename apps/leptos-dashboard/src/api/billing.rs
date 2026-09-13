@@ -274,4 +274,3 @@ pub async fn allowance() -> Result<Allowance, String> {
         .await
         .map_err(|e| e.to_string())
 }
-
