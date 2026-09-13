@@ -106,14 +106,7 @@ pub async fn payg_pricing(
             .into_iter()
             .map(|p| PAYGPricingResponse {
                 operation: p.operation.clone(),
-                // Storage is intentionally a one-time write charge. The
-                // historical v3 row says MB/month, but immutable pricing rows
-                // cannot be edited; normalize the customer-facing unit here.
-                unit_name: if p.operation == "storage" {
-                    "MB".to_owned()
-                } else {
-                    p.unit_name
-                },
+                unit_name: p.unit_name,
                 unit_price: p.unit_price,
                 currency: p.currency,
                 version: p.version,

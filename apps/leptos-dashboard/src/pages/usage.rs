@@ -3,10 +3,11 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 fn usd(u: i64) -> String {
+    // Unit is nano-USD (1 = $10^-9).
     let sign = if u < 0 { "-" } else { "" };
     let a = u.unsigned_abs();
 
-    format!("{sign}${}.{:02}", a / 1_000_000, (a % 1_000_000) / 10_000)
+    format!("{sign}${}.{:02}", a / 1_000_000_000, (a % 1_000_000_000) / 10_000_000)
 }
 
 fn date_start(v: &str) -> String {
@@ -253,7 +254,6 @@ pub fn UsagePage() -> impl IntoView {
                     <div><span class="card-label">"API flow monitoring"</span><span class="card-value">"api_flow_check.monitoring"</span></div>
                     <div><span class="card-label">"SMS"</span><span class="card-value">"sms"</span></div>
                     <div><span class="card-label">"RUM"</span><span class="card-value">"rum_event"</span></div>
-                    <div><span class="card-label">"Storage"</span><span class="card-value">"storage"</span></div>
                     <div><span class="card-label">"Network egress"</span><span class="card-value">"network_egress"</span></div>
                     <div><span class="card-label">"Heartbeat"</span><span class="card-value">"heartbeat_processing"</span></div>
                 </div>

@@ -3,7 +3,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 fn usd(u: i64) -> String {
-    format!("${}.{:06}", u / 1_000_000, u.abs() % 1_000_000)
+    // Unit is nano-USD (1 = $10^-9).
+    format!("${}.{:06}", u / 1_000_000_000, (u.abs() % 1_000_000_000) / 1_000)
 }
 
 #[component]

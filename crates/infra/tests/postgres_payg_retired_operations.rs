@@ -126,11 +126,11 @@ async fn list_active_exposes_proxy_monitoring_and_excludes_retired() {
 }
 
 #[test]
-fn canonical_operation_set_is_fifteen() {
+fn canonical_operation_set_is_fourteen() {
     assert_eq!(
         PaygOperation::ALL.len(),
-        15,
-        "canonical operation set must be 15 entries after GAP 2"
+        14,
+        "canonical operation set must be 14 entries after GAP 3 (storage retired)"
     );
     assert!(
         PaygOperation::is_canonical("proxy_check.monitoring"),
@@ -143,5 +143,9 @@ fn canonical_operation_set_is_fifteen() {
     assert!(
         !PaygOperation::is_canonical("monitor_check"),
         "monitor_check must remain non-canonical"
+    );
+    assert!(
+        !PaygOperation::is_canonical("storage"),
+        "storage must be non-canonical after GAP 3"
     );
 }

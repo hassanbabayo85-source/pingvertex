@@ -42,14 +42,12 @@ pub async fn upload_status_page_logo(
         .await
         .map_err(|_| ApiError::bad_request("invalid or too large logo upload"))?;
 
-    let mut use_case = UploadStatusPageLogoUseCase::new(
+    // GAP 3: logo upload is free — no PAYG metering.
+    let use_case = UploadStatusPageLogoUseCase::new(
         state.status_page_repository.clone(),
         state.logo_storage.clone(),
         state.audit_log_entry_repository.clone(),
     );
-    if let Some(metering) = &state.payg_metering {
-        use_case = use_case.with_metering(metering.clone());
-    }
 
     let request_id = headers
         .get("idempotency-key")
@@ -77,10 +75,6 @@ pub async fn upload_status_page_logo(
             UploadStatusPageLogoError::Forbidden => {
                 ApiError::forbidden("you do not have permission to update status pages")
             }
-            UploadStatusPageLogoError::InsufficientBalance => ApiError::payment_required(
-                "PAYG balance is insufficient",
-                "PAYG_INSUFFICIENT_BALANCE",
-            ),
             UploadStatusPageLogoError::InvalidLogo(domain_err) => {
                 ApiError::bad_request(domain_err.to_string())
             }
