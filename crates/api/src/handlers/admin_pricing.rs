@@ -332,6 +332,7 @@ pub async fn create_pricing_config(
         min_interval_seconds: payload.min_interval_seconds,
         max_monitors: payload.max_monitors,
         max_retention_days: payload.max_retention_days,
+        default_retention_days: payload.default_retention_days,
         min_paid_monthly_price: payload.min_paid_monthly_price,
         free_tier: FreeTierDefaults {
             monitors: payload.free_tier.monitors,

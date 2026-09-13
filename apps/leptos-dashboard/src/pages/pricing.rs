@@ -220,11 +220,14 @@ pub fn PricingPage() -> impl IntoView {
                 {move || match free_tier.get() {
                     Some(ft) => view! {
                         <p class="muted">{format!(
-                            "Up to {} monitors at a {} second minimum interval, with {} days of history retention. \
-                             A funded wallet unlocks PAYG capacity without a product monitor-count ceiling.",
+                            "Up to {} monitors at a {} second minimum interval, with {} days of free-tier history retention. \
+                             A funded wallet unlocks PAYG capacity without a product monitor-count ceiling; \
+                             PAYG tenants default to {} days of history retention, with a hard ceiling of {} days.",
                             ft.max_monitors,
                             ft.min_check_interval_seconds,
                             ft.retention_days,
+                            ft.default_retention_days,
+                            ft.max_retention_days,
                         )}</p>
                     }.into_any(),
                     None => view! {

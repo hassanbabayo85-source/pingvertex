@@ -63,6 +63,7 @@ struct PricingConfigRow {
     min_interval_seconds: i32,
     max_monitors: i64,
     max_retention_days: i32,
+    default_retention_days: i32,
     min_paid_monthly_price: Decimal,
     free_monitors: i64,
     free_interval_seconds: i32,
@@ -91,6 +92,7 @@ impl PricingConfigRow {
             min_interval_seconds: self.min_interval_seconds as u32,
             max_monitors: self.max_monitors as u64,
             max_retention_days: self.max_retention_days as u32,
+            default_retention_days: self.default_retention_days as u32,
             min_paid_monthly_price: self.min_paid_monthly_price,
             free_tier: FreeTierDefaults {
                 monitors: self.free_monitors as u64,
@@ -142,7 +144,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         let row = sqlx::query_as::<_, PricingConfigRow>(
             "SELECT id, version, currency, cost_per_check, effective_storage_bytes_per_check, \
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
-             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
+             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, default_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
              avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \
@@ -159,7 +161,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         let row = sqlx::query_as::<_, PricingConfigRow>(
             "SELECT id, version, currency, cost_per_check, effective_storage_bytes_per_check, \
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
-             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
+             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, default_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
              avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \
@@ -189,10 +191,10 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
             "INSERT INTO pricing_configs (id, version, currency, cost_per_check, \
              effective_storage_bytes_per_check, cost_per_gb_hot, cost_per_gb_warm, \
              cost_per_gb_cold, backup_multiplier, markup_multiplier, min_interval_seconds, \
-             max_monitors, max_retention_days, min_paid_monthly_price, free_monitors, \
+             max_monitors, max_retention_days, default_retention_days, min_paid_monthly_price, free_monitors, \
              free_interval_seconds, free_retention_days, avg_billable_network_bytes_per_check, \
              cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, effective_at, created_by) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
         )
         .bind(Uuid::new_v4())
         .bind(config.version as i32)
@@ -207,6 +209,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         .bind(config.min_interval_seconds as i32)
         .bind(config.max_monitors as i64)
         .bind(config.max_retention_days as i32)
+        .bind(config.default_retention_days as i32)
         .bind(config.min_paid_monthly_price)
         .bind(config.free_tier.monitors as i64)
         .bind(config.free_tier.interval_seconds as i32)
@@ -245,7 +248,7 @@ impl PricingConfigRepository for PostgresPricingConfigRepository {
         let rows = sqlx::query_as::<_, PricingConfigRow>(
             "SELECT id, version, currency, cost_per_check, effective_storage_bytes_per_check, \
              cost_per_gb_hot, cost_per_gb_warm, cost_per_gb_cold, backup_multiplier, \
-             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, \
+             markup_multiplier, min_interval_seconds, max_monitors, max_retention_days, default_retention_days, \
              min_paid_monthly_price, free_monitors, free_interval_seconds, free_retention_days, \
              avg_billable_network_bytes_per_check, cost_per_gb_egress, cost_safety_buffer, sms_markup_multiplier, enterprise_sla_monthly_price, \
              created_at, effective_at, created_by \

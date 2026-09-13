@@ -23,7 +23,8 @@ use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryNotificationOutboxRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemoryTenantRepository,
+    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository,
+    InMemoryTenantRepository, InMemoryTenantRetentionSettingsRepository,
     InMemoryWalletRepository,
 };
 use worker::{
@@ -237,6 +238,7 @@ async fn retention_worker_stops_gracefully_on_cancellation() {
         Duration::from_millis(10),
         2,
         Arc::new(InMemoryWalletRepository::default()),
+        Arc::new(InMemoryTenantRetentionSettingsRepository::new()),
     );
 
     let token = CancellationToken::new();

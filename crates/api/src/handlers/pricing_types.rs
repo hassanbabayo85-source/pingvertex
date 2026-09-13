@@ -128,6 +128,8 @@ pub struct CreatePricingConfigRequest {
     pub min_interval_seconds: u32,
     pub max_monitors: u64,
     pub max_retention_days: u32,
+    #[serde(default = "default_default_retention_days")]
+    pub default_retention_days: u32,
     pub min_paid_monthly_price: Decimal,
     pub free_tier: FreeTierDefaultsRequest,
     pub currency: String,
@@ -162,6 +164,8 @@ pub struct PricingConfigResponse {
     pub min_interval_seconds: u32,
     pub max_monitors: u64,
     pub max_retention_days: u32,
+    #[serde(default = "default_default_retention_days")]
+    pub default_retention_days: u32,
     pub min_paid_monthly_price: String,
     pub free_tier: FreeTierDefaultsResponse,
     pub currency: String,
@@ -196,6 +200,7 @@ impl From<PricingConfig> for PricingConfigResponse {
             min_interval_seconds: config.min_interval_seconds,
             max_monitors: config.max_monitors,
             max_retention_days: config.max_retention_days,
+            default_retention_days: config.default_retention_days,
             min_paid_monthly_price: decimal_to_string(config.min_paid_monthly_price),
             free_tier: FreeTierDefaultsResponse {
                 monitors: config.free_tier.monitors,
@@ -240,3 +245,11 @@ impl From<PricingAuditLogEntry> for PricingAuditLogResponse {
         }
     }
 }
+
+/// Serde default for `default_retention_days`. Existing admin clients that
+/// do not send this field get 30, matching `PricingConfig::default_config()`
+/// and the `pricing_configs.default_retention_days` column default.
+fn default_default_retention_days() -> u32 {
+    30
+}
+
