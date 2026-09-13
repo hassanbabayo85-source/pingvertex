@@ -15,13 +15,14 @@ use infra::{
     PostgresMonitorRepository, PostgresNotificationChannelRepository,
     PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
-    PostgresStatusPageRepository, PostgresTenantMembershipRepository, PostgresTenantRepository,
+    PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
+    PostgresTenantMembershipRepository, PostgresTenantRepository,
     PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
-    AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
+    AllowanceResetWorker, AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
@@ -180,10 +181,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     ));
 
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
-    let notification_service = Arc::new(NotificationDispatcher::from_env_with_metering(
-        secret_cipher,
-        metering.clone(),
-    ));
+    let allowance_repository =
+        Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
+    let notification_service = Arc::new(
+        NotificationDispatcher::from_env_with_metering(secret_cipher, metering.clone())
+            .with_alert_allowance(
+                allowance_repository.clone(),
+                monitor_repository.clone(),
+                notification_channel_repository.clone(),
+            ),
+    );
     let wallet_email_worker = WalletNotificationEmailWorker::new(
         wallet_repository.clone(),
         notification_channel_repository.clone(),
@@ -196,6 +203,26 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             tracing::error!(error=%err, "wallet notification email worker stopped unexpectedly");
         }
     });
+
+    // GAP 3 Kashi D: monthly fair-use allowance reset sweep. Runs hourly
+    // by default; the lazy reset in `current_cycle` is the primary path,
+    // this worker is a backstop so the dashboard view never drifts.
+    let allowance_reset_worker = AllowanceResetWorker::new(
+        tenant_repository.clone(),
+        monitor_repository.clone(),
+        allowance_repository.clone(),
+        Duration::from_secs(3600),
+    );
+    let allowance_reset_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = allowance_reset_worker
+            .run_forever(allowance_reset_cancel)
+            .await
+        {
+            tracing::error!(error=%err, "allowance reset worker stopped unexpectedly");
+        }
+    });
+
     let api_flow_repository = Arc::new(PostgresApiFlowRepository::new(pool.clone()));
 
     let notification_outbox_repository =

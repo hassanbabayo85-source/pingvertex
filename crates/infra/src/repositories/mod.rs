@@ -195,8 +195,12 @@ pub use in_memory_wallet_repository::InMemoryWalletRepository;
 pub use postgres_wallet_repository::PostgresWalletRepository;
 
 pub mod in_memory_payg_pricing_repository;
+pub mod in_memory_tenant_alert_allowance_repository;
+pub use in_memory_tenant_alert_allowance_repository::InMemoryTenantAlertAllowanceRepository;
 pub mod in_memory_usage_event_repository;
 pub mod postgres_payg_pricing_repository;
+pub mod postgres_tenant_alert_allowance_repository;
+pub use postgres_tenant_alert_allowance_repository::PostgresTenantAlertAllowanceRepository;
 pub mod postgres_usage_event_repository;
 pub use in_memory_payg_pricing_repository::InMemoryPAYGPricingRepository;
 pub use in_memory_usage_event_repository::InMemoryUsageEventRepository;

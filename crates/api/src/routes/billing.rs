@@ -17,6 +17,10 @@ pub fn router() -> Router<AppState> {
             get(crate::handlers::payg_pricing::payg_pricing),
         )
         .route(
+            "/billing/allowance",
+            get(crate::handlers::billing_allowance::get_allowance),
+        )
+        .route(
             "/payg/preview",
             axum::routing::post(crate::handlers::payg_preview::payg_preview),
         )
