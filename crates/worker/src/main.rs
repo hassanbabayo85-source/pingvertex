@@ -14,7 +14,8 @@ use infra::{
     PostgresMaintenanceWindowRepository, PostgresMonitorIntervalPolicyRepository,
     PostgresMonitorRepository, PostgresNotificationChannelRepository,
     PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
-    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository, PostgresSchedulingRepository,
+    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
+    PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
     PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
     PostgresTenantRetentionSettingsRepository,
@@ -24,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
     AllowanceResetWorker, AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
+    RumAggregationWorker,
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
@@ -202,6 +204,30 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     tokio::spawn(async move {
         if let Err(err) = wallet_email_worker.run_forever(wallet_email_cancel).await {
             tracing::error!(error=%err, "wallet notification email worker stopped unexpectedly");
+        }
+    });
+
+    // GAP 3 Kashi E: RUM raw-event -> daily aggregate rollup and 7-day
+    // raw retention. The dashboard reads raw events for the last 7 days
+    // and aggregates for older days.
+    let rum_site_repository: Arc<dyn application::ports::RumSiteRepository> =
+        Arc::new(PostgresRumSiteRepository::new(pool.clone()));
+    let rum_retention_repository: Arc<dyn application::ports::RumRetentionRepository> =
+        Arc::new(PostgresRumRetentionRepository::new(pool.clone()));
+    let rum_aggregation_worker = RumAggregationWorker::new(
+        tenant_repository.clone(),
+        rum_site_repository.clone(),
+        rum_retention_repository,
+        Duration::from_secs(6 * 60 * 60),
+        1000,
+    );
+    let rum_aggregation_cancel = cancel_token.clone();
+    tokio::spawn(async move {
+        if let Err(err) = rum_aggregation_worker
+            .run_forever(rum_aggregation_cancel)
+            .await
+        {
+            tracing::error!(error=%err, "rum aggregation worker stopped unexpectedly");
         }
     });
 

@@ -247,6 +247,24 @@ impl WalletRepository for InMemoryWalletRepository {
         })
     }
 
+    async fn find_reservation_by_request(
+        &self,
+        tenant_id: Uuid,
+        request_id: &str,
+    ) -> WalletRepoResult<Option<CreditReservation>> {
+        // Scan the tenant's reservation map. The Postgres implementation
+        // does this with a single indexed query; the in-memory one has to
+        // walk the (small, test-sized) map.
+        let g = self.inner.lock().unwrap();
+        let Some((_, _, reservations)) = g.get(&tenant_id) else {
+            return Ok(None);
+        };
+        Ok(reservations
+            .values()
+            .find(|r| r.request_id == request_id)
+            .cloned())
+    }
+
     async fn renew_reservation_by_request(
         &self,
         tenant_id: Uuid,

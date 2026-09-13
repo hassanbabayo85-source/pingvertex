@@ -36,6 +36,11 @@ pub struct RumSession {
 }
 
 impl RumSession {
+    /// A browser visit is considered a single session while activity is
+    /// continuous; after this many minutes of inactivity, the next beacon
+    /// from the same `session_key` starts a new billable session.
+    pub const SESSION_WINDOW_MINUTES: i64 = 30;
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: RumSessionId,

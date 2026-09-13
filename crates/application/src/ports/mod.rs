@@ -192,10 +192,12 @@ pub use support_ticket_repository::SupportTicketRepository;
 pub mod geo_ip_lookup;
 pub mod rum_analytics_repository;
 pub mod rum_event_repository;
+pub mod rum_retention_repository;
+pub use rum_retention_repository::{RumRetentionOutcome, RumRetentionRepository};
 pub mod rum_site_repository;
 pub use geo_ip_lookup::GeoIpLookup;
 pub use rum_analytics_repository::RumAnalyticsRepository;
-pub use rum_event_repository::RumEventRepository;
+pub use rum_event_repository::{RumEventRepository, UpsertedRumSession};
 pub use rum_site_repository::RumSiteRepository;
 
 pub mod invoice_repository;

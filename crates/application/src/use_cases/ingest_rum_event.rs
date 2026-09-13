@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
+use chrono::Utc;
+
 use domain::errors::DomainError;
 use domain::shared::ids::{RumJsErrorId, RumPageViewId, RumResourceErrorId, RumSessionId};
 use domain::{
@@ -47,6 +49,18 @@ impl fmt::Display for IngestRumEventError {
             Self::Other(err) => write!(f, "{err}"),
         }
     }
+}
+
+/// Result of a successful ingestion.
+///
+/// `session_created = true` means the beacon started a new 30-minute
+/// session; the caller (API handler) should charge one `rum_session`
+/// unit. `false` means the beacon extended an existing active session
+/// and no new charge applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngestRumEventOutcome {
+    pub session_id: RumSessionId,
+    pub session_created: bool,
 }
 
 impl Error for IngestRumEventError {
@@ -112,7 +126,8 @@ where
         &self,
         request: RumIngestRequest,
         country_code: Option<String>,
-    ) -> Result<(), IngestRumEventError> {
+        session_id: RumSessionId,
+    ) -> Result<IngestRumEventOutcome, IngestRumEventError> {
         self.validate_request(&request)?;
 
         let site = self
@@ -122,7 +137,7 @@ where
             .map_err(IngestRumEventError::Other)?
             .ok_or(IngestRumEventError::UnknownSite)?;
 
-        self.execute_for_site(request, country_code, site).await
+        self.execute_for_site(request, country_code, site, session_id).await
     }
 
     /// Same ingestion path after the caller has already resolved the site.
@@ -134,14 +149,15 @@ where
         request: RumIngestRequest,
         country_code: Option<String>,
         site: RumSite,
-    ) -> Result<(), IngestRumEventError> {
+        session_id: RumSessionId,
+    ) -> Result<IngestRumEventOutcome, IngestRumEventError> {
         self.validate_request(&request)?;
         if request.site_key != site.site_key {
             return Err(IngestRumEventError::UnknownSite);
         }
 
         let session = RumSession::new(
-            RumSessionId::new(),
+            session_id,
             site.tenant_id,
             site.id,
             request.session_key.clone(),
@@ -152,9 +168,9 @@ where
             country_code,
         );
 
-        let session = self
+        let upserted = self
             .event_repository
-            .upsert_session(&session)
+            .upsert_session(&session, Utc::now())
             .await
             .map_err(IngestRumEventError::Other)?;
 
@@ -174,7 +190,7 @@ where
                 RumPageViewId::new(),
                 site.tenant_id,
                 site.id,
-                session.id,
+                upserted.session.id,
                 pv.path,
                 pv.referrer_path,
                 vitals,
@@ -194,7 +210,7 @@ where
                 RumJsErrorId::new(),
                 site.tenant_id,
                 site.id,
-                session.id,
+                upserted.session.id,
                 page_view_id,
                 js_error.message,
                 js_error.source,
@@ -214,7 +230,7 @@ where
                 RumResourceErrorId::new(),
                 site.tenant_id,
                 site.id,
-                session.id,
+                upserted.session.id,
                 page_view_id,
                 resource_error.resource_url,
                 parse_resource_type(resource_error.resource_type.as_deref()),
@@ -228,7 +244,10 @@ where
                 .map_err(IngestRumEventError::Other)?;
         }
 
-        Ok(())
+        Ok(IngestRumEventOutcome {
+            session_id: upserted.session.id,
+            session_created: upserted.created,
+        })
     }
 
     fn validate_request(&self, request: &RumIngestRequest) -> Result<(), IngestRumEventError> {
@@ -251,7 +270,9 @@ mod tests {
     use domain::shared::ids::{RumSiteId, TenantId};
 
     use super::*;
-    use crate::ports::rum_event_repository::RepoResult as EventRepoResult;
+    use crate::ports::rum_event_repository::{
+        RepoResult as EventRepoResult, UpsertedRumSession,
+    };
     use crate::ports::rum_site_repository::RepoResult as SiteRepoResult;
 
     #[derive(Default)]
@@ -312,9 +333,16 @@ mod tests {
 
     #[async_trait]
     impl RumEventRepository for FakeEventRepository {
-        async fn upsert_session(&self, session: &RumSession) -> EventRepoResult<RumSession> {
+        async fn upsert_session(
+            &self,
+            session: &RumSession,
+            _now: chrono::DateTime<chrono::Utc>,
+        ) -> EventRepoResult<UpsertedRumSession> {
             self.sessions.lock().unwrap().push(session.clone());
-            Ok(session.clone())
+            Ok(UpsertedRumSession {
+                session: session.clone(),
+                created: true,
+            })
         }
 
         async fn insert_page_view(&self, page_view: &RumPageView) -> EventRepoResult<()> {
@@ -375,7 +403,7 @@ mod tests {
         let request = sample_request("rum_wrong_site_key");
 
         let err = use_case
-            .execute_for_site(request, None, site)
+            .execute_for_site(request, None, site, RumSessionId::new())
             .await
             .unwrap_err();
 
@@ -390,7 +418,7 @@ mod tests {
         );
 
         let err = use_case
-            .execute(sample_request("rum_does_not_exist"), None)
+            .execute(sample_request("rum_does_not_exist"), None, RumSessionId::new())
             .await
             .unwrap_err();
 
@@ -415,7 +443,7 @@ mod tests {
         let use_case = IngestRumEventUseCase::new(site_repo, event_repo);
 
         use_case
-            .execute(sample_request(&site.site_key), None)
+            .execute(sample_request(&site.site_key), None, RumSessionId::new())
             .await
             .unwrap();
 
@@ -453,7 +481,7 @@ mod tests {
             })
             .collect();
 
-        let err = use_case.execute(request, None).await.unwrap_err();
+        let err = use_case.execute(request, None, RumSessionId::new()).await.unwrap_err();
         assert!(matches!(err, IngestRumEventError::TooManyJsErrors));
     }
 
@@ -476,7 +504,7 @@ mod tests {
         // Query string on the path must be rejected by the domain layer.
         request.page_view.as_mut().unwrap().path = "/pricing?token=secret".to_string();
 
-        let err = use_case.execute(request, None).await.unwrap_err();
+        let err = use_case.execute(request, None, RumSessionId::new()).await.unwrap_err();
         assert!(matches!(err, IngestRumEventError::Validation(_)));
     }
 }

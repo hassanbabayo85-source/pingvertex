@@ -136,6 +136,9 @@ pub use rum_js_error::RumJsError;
 mod rum_resource_error;
 pub use rum_resource_error::{RumResourceError, RumResourceType};
 
+mod rum_daily_aggregate;
+pub use rum_daily_aggregate::RumDailyAggregate;
+
 pub mod wallet;
 pub use wallet::{
     AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletBalanceSummary,
