@@ -146,6 +146,11 @@ pub const NAV_GROUPS: &[NavGroup] = &[
                 status: NavStatus::Available,
             },
             NavItem {
+                label: "Add-ons",
+                href: "/billing/addons",
+                status: NavStatus::Available,
+            },
+            NavItem {
                 label: "Wallet",
                 href: "/billing/wallet",
                 status: NavStatus::Available,

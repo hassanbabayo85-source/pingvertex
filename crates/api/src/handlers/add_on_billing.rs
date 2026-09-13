@@ -378,8 +378,10 @@ pub async fn verify_add_on(
             .map_err(|e| {
                 ApiError::internal_with_source("failed to reload add-on after payment", e)
             })?;
-        if let Some(addon) = addon {
-            if addon.addon_type == domain::AddOnType::ExtendedRetention {
+        if let Some(addon) = addon
+            && addon.addon_type == domain::AddOnType::ExtendedRetention
+        {
+            {
                 let tier_str = addon.tier.as_deref().ok_or_else(|| {
                     ApiError::internal("extended-retention add-on has no tier")
                 })?;

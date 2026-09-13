@@ -1,6 +1,7 @@
 use crate::auth::context::provide_auth_context;
 use crate::components::require_auth::RequireAuth;
 use crate::pages::account::AccountPage;
+use crate::pages::add_ons::AddOnsPage;
 use crate::pages::api_flows::ApiFlowsPage;
 use crate::pages::api_keys::ApiKeysPage;
 use crate::pages::audit::AuditPage;
@@ -75,6 +76,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("developer/api-keys") view=ApiKeysPage/>
                     <Route path=path!("developer/api-flows") view=ApiFlowsPage/>
                     <Route path=path!("billing") view=BillingPage/>
+                    <Route path=path!("billing/addons") view=AddOnsPage/>
                     <Route path=path!("billing/wallet") view=WalletPage/>
                     <Route path=path!("billing/usage") view=UsagePage/>
                     <Route path=path!("billing/invoices") view=InvoicesPage/>
