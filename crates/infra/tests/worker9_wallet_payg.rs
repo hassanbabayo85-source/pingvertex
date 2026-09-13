@@ -161,7 +161,6 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
     for (op, price) in [
         ("sms", 1000),
         ("rum_event", 1),
-        ("storage", 20),
         ("network_egress", 100),
         ("heartbeat_processing", 2),
     ] {
@@ -180,7 +179,6 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
     let cases = [
         ("sms", 1, 1000),
         ("rum_event", 1, 1),
-        ("storage", 1, 20),
         ("network_egress", 1, 100),
         ("heartbeat_processing", 1, 2),
     ];
@@ -229,7 +227,7 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
     }
 
     let wallet = wallet.get_or_create(tenant, "USD").await.unwrap();
-    assert_eq!(wallet.balance_units, 10_000 - (1000 + 1 + 20 + 100 + 2));
+    assert_eq!(wallet.balance_units, 10_000 - (1000 + 1 + 100 + 2));
 }
 
 #[tokio::test]

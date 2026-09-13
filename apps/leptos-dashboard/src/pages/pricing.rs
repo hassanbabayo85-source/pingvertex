@@ -3,7 +3,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 fn usd(u: i64) -> String {
-    format!("${}.{:06}", u / 1_000_000, u.abs() % 1_000_000)
+    // Unit is nano-USD (1 = $10^-9).
+    format!("${}.{:06}", u / 1_000_000_000, (u.abs() % 1_000_000_000) / 1_000)
 }
 
 fn operation_label(operation: &str) -> String {
@@ -21,7 +22,6 @@ fn operation_label(operation: &str) -> String {
         "heartbeat_processing" => "Heartbeat processing".into(),
         "rum_event" => "RUM event".into(),
         "sms" => "SMS".into(),
-        "storage" => "Storage write".into(),
         "network_egress" => "Network egress".into(),
         _ => operation.to_owned(),
     }

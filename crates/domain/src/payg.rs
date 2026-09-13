@@ -2,8 +2,11 @@ use crate::MonitorKind;
 use std::fmt;
 use std::str::FromStr;
 
-/// Minimum product-defined wallet top-up: $5 in micro-USD.
-pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000;
+/// Minimum product-defined wallet top-up: $5 in nano-USD.
+///
+/// GAP 3 — the PAYG unit is nano-USD (1 unit = $10^-9 USD). $5 therefore
+/// equals 5_000_000_000 units.
+pub const MIN_PAYG_TOP_UP_UNITS: i64 = 5_000_000_000;
 
 /// PAYG network egress is billed in binary megabytes to match the existing
 /// bounded response-body safety limits and storage metering semantics.
@@ -19,6 +22,7 @@ pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
     "monitor_check",
     "SMS",
     "heartbeat_ping",
+    "storage",
 ];
 
 /// Canonical server-owned PAYG operation identifiers. Runtime code derives
@@ -27,6 +31,9 @@ pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
 /// One-time and monitoring variants are always distinct: `*_check.one_time`
 /// is billed once per Test Now request (per region), `*_check.monitoring`
 /// is billed per scheduled recurring execution.
+///
+/// **Units are nano-USD** (1 = $10^-9 USD). `storage` was retired in GAP 3
+/// and is no longer a canonical operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaygOperation {
     HttpOneTime,
@@ -42,7 +49,6 @@ pub enum PaygOperation {
     ProxyMonitoring,
     RumEvent,
     Sms,
-    Storage,
     NetworkEgress,
 }
 impl PaygOperation {
@@ -61,7 +67,6 @@ impl PaygOperation {
             Self::ProxyMonitoring => "proxy_check.monitoring",
             Self::RumEvent => "rum_event",
             Self::Sms => "sms",
-            Self::Storage => "storage",
             Self::NetworkEgress => "network_egress",
         }
     }
@@ -82,7 +87,6 @@ impl PaygOperation {
         Self::ProxyMonitoring,
         Self::RumEvent,
         Self::Sms,
-        Self::Storage,
         Self::NetworkEgress,
     ];
 
@@ -130,7 +134,7 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_operation_set_matches_part1_price_book() {
-        assert_eq!(PaygOperation::ALL.len(), 15);
+        assert_eq!(PaygOperation::ALL.len(), 14);
         assert!(PaygOperation::is_canonical("http_check.one_time"));
         assert!(PaygOperation::is_canonical("http_check.monitoring"));
         assert!(PaygOperation::is_canonical("proxy_check.one_time"));
@@ -140,11 +144,13 @@ mod tests {
         assert!(!PaygOperation::is_canonical("monitor_check"));
         assert!(!PaygOperation::is_canonical("heartbeat_ping"));
         assert!(!PaygOperation::is_canonical("proxy_check"));
+        assert!(!PaygOperation::is_canonical("storage"));
     }
 
     #[test]
     fn topup_contract_constant_is_stable() {
-        assert_eq!(MIN_PAYG_TOP_UP_UNITS, 5_000_000);
+        // $5 in nano-USD (1 nano-USD = 10^-9 USD).
+        assert_eq!(MIN_PAYG_TOP_UP_UNITS, 5_000_000_000);
     }
 
     #[test]
@@ -169,5 +175,11 @@ mod tests {
             PaygOperation::ProxyOneTime.as_str(),
             PaygOperation::ProxyMonitoring.as_str()
         );
+    }
+
+    #[test]
+    fn storage_is_retired_not_canonical() {
+        assert!(!PaygOperation::is_canonical("storage"));
+        assert!(RETIRED_PAYG_OPERATIONS.contains(&"storage"));
     }
 }

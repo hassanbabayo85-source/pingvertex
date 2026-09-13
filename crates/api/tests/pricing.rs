@@ -32,7 +32,6 @@ async fn pricing_quote_returns_full_breakdown() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.get("compute").is_some());
-    assert!(json.get("storage").is_some());
     assert!(json.get("monthly_price").is_some());
     assert_eq!(json["pricing_version"], 1);
 }
