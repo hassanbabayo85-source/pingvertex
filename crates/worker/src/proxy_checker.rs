@@ -743,10 +743,10 @@ where
                     || async {
                         if had_existing_result {
                             let result = entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("persisted proxy result missing".to_owned())));
-                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted: true, error: None, egress_bytes: 0 }, result))
+                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted: true, error: None, egress_bytes: 0, actual_units: None }, result))
                         } else {
                             let (result, attempted) = check_single_entry(&entry).await;
-                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted, error: None, egress_bytes: 0 }, result))
+                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted, error: None, egress_bytes: 0, actual_units: None }, result))
                         }
                     },
                 ).await {

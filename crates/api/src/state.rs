@@ -1095,6 +1095,7 @@ impl WalletRepository for NoopWalletRepository {
         _reservation_id: uuid::Uuid,
         _usage_event: Option<&domain::UsageEvent>,
         _audit_entries: &[domain::FinancialAuditLogEntry],
+        _actual_charge_units: Option<i64>,
     ) -> RepoResult<domain::WalletTransaction> {
         Err("wallet repository is not configured".into())
     }

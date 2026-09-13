@@ -319,7 +319,7 @@ async fn renew_reservation_by_request_rejects_captured() {
         .await
         .unwrap();
     wallet
-        .capture(outcome.reservation.id, None, &[])
+        .capture(outcome.reservation.id, None, &[], None)
         .await
         .unwrap();
 
@@ -334,7 +334,7 @@ async fn renew_reservation_by_request_rejects_captured() {
     assert!(!extended, "a captured reservation must not be renewable");
 
     // Capture must still be idempotent (no duplicate charge).
-    let second = wallet.capture(outcome.reservation.id, None, &[]).await;
+    let second = wallet.capture(outcome.reservation.id, None, &[], None).await;
     assert!(second.is_ok(), "capture must remain idempotent");
 }
 
@@ -397,7 +397,7 @@ async fn expire_worker_does_not_expire_heartbeated_reservation() {
 
     // And the final capture must still succeed.
     wallet
-        .capture(outcome.reservation.id, None, &[])
+        .capture(outcome.reservation.id, None, &[], None)
         .await
         .unwrap();
 }
@@ -458,7 +458,7 @@ async fn retry_after_temporary_failure_reuses_same_lease_and_reservation() {
     assert_eq!(r1.reservation.id, r2.reservation.id);
 
     // Capture must be idempotent.
-    wallet.capture(r1.reservation.id, None, &[]).await.unwrap();
-    let second_capture = wallet.capture(r1.reservation.id, None, &[]).await;
+    wallet.capture(r1.reservation.id, None, &[], None).await.unwrap();
+    let second_capture = wallet.capture(r1.reservation.id, None, &[], None).await;
     assert!(second_capture.is_ok(), "capture must be idempotent");
 }

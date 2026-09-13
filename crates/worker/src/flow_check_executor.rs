@@ -120,10 +120,21 @@ impl crate::durable_scheduler::CheckExecutor for FlowCheckExecutor {
             error!(monitor_id = %monitor.id.0, error = %err, "failed to evaluate incident state");
         }
 
+        // GAP 3 Kashi B: bill only the steps whose HTTP request actually
+        // started. `attempted = true` on a step means the request was sent
+        // (even if it later failed or timed out); SSRF-blocked steps have
+        // `attempted = false` and consume no network resources.
+        let steps_executed = result
+            .outcomes
+            .iter()
+            .filter(|o| o.attempted)
+            .count() as i64;
+
         Ok(CheckExecution {
             attempted,
             error: None,
             egress_bytes,
+            steps_executed: Some(steps_executed),
         })
     }
 }
