@@ -80,21 +80,12 @@ pub async fn ensure_test_schema(
         .execute(pool)
         .await?;
 
-    let has_migrations: bool = sqlx::query_scalar(
-        "SELECT EXISTS (
-            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = $1 AND table_name = '_sqlx_migrations'
-         )",
-    )
-    .bind(&schema)
-    .fetch_one(pool)
-    .await?;
-
-    if has_migrations {
-        return Ok(());
-    }
-
-    // Migrate on a single connection with search_path set explicitly.
+    // Always run migrations. `sqlx::migrate!().run()` is idempotent:
+    // it reads `_sqlx_migrations` and only applies migrations that have
+    // not been recorded yet. The previous implementation skipped this
+    // call entirely once `_sqlx_migrations` existed, which silently left
+    // newly-added migration files un-applied on test schemas that had
+    // already been bootstrapped by an earlier test-binary run.
     let mut conn = pool.acquire().await?;
     sqlx::query(&format!("SET search_path TO \"{schema}\", public"))
         .execute(&mut *conn)
