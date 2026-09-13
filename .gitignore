@@ -74,3 +74,4 @@ uptime-monitor*.txt
 .payg-part5-*.patch
 .pingvertex-*-backup-*/
 .pingvertex-repair*/
+__pycache__/
