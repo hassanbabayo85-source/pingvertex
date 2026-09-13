@@ -116,8 +116,7 @@ impl RumAggregationWorker {
         if sites_processed > 0 || sites_failed > 0 {
             info!(
                 sites_processed,
-                sites_failed,
-                "rum aggregation sweep completed"
+                sites_failed, "rum aggregation sweep completed"
             );
         }
         Ok(())

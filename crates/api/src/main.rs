@@ -37,10 +37,9 @@ use infra::{
     PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
     PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
     PostgresTenantAlertAllowanceRepository, PostgresTenantInvitationRepository,
-    PostgresTenantRetentionSettingsRepository,
-    PostgresTenantMembershipRepository,
-    PostgresTenantRepository, PostgresUserRepository, RedisPendingAuthCache, RedisRateLimiter,
-    RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
+    PostgresTenantMembershipRepository, PostgresTenantRepository,
+    PostgresTenantRetentionSettingsRepository, PostgresUserRepository, RedisPendingAuthCache,
+    RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
     SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
@@ -183,15 +182,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let platform_tenant_repository = tenant_repository.clone();
     let platform_user_repository = PostgresUserRepository::new(pool.clone());
 
-    let notification_service = NotificationDispatcher::from_env_with_metering(
-        secret_cipher.clone(),
-        metering.clone(),
-    )
-    .with_alert_allowance(
-        std::sync::Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone())),
-        std::sync::Arc::new(PostgresMonitorRepository::new(pool.clone())),
-        std::sync::Arc::new(PostgresNotificationChannelRepository::new(pool.clone())),
-    );
+    let notification_service =
+        NotificationDispatcher::from_env_with_metering(secret_cipher.clone(), metering.clone())
+            .with_alert_allowance(
+                std::sync::Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone())),
+                std::sync::Arc::new(PostgresMonitorRepository::new(pool.clone())),
+                std::sync::Arc::new(PostgresNotificationChannelRepository::new(pool.clone())),
+            );
 
     let mut app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
@@ -243,8 +240,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rate_limiter(redis_rate_limiter.clone())
     .with_wallet_repository(wallet_repository)
     .with_payg_pricing_repository(payg_pricing_repository)
-    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(pool.clone()))
-    .with_tenant_retention_settings_repository(PostgresTenantRetentionSettingsRepository::new(pool.clone()))
+    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
+        pool.clone(),
+    ))
+    .with_tenant_retention_settings_repository(PostgresTenantRetentionSettingsRepository::new(
+        pool.clone(),
+    ))
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))

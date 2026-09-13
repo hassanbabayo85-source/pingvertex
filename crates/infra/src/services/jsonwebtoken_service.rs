@@ -3,11 +3,14 @@ use std::error::Error;
 use application::ports::{TokenService, VerifiedToken};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use uuid::Uuid;
 
 use crate::services::Claims;
 use domain::UserId;
+
+pub const JWT_ISSUER: &str = "uptime-monitor";
+pub const JWT_AUDIENCE: &str = "uptime-monitor-api";
 
 #[derive(Debug, Clone)]
 pub struct JsonWebTokenService {
@@ -20,6 +23,18 @@ impl JsonWebTokenService {
             secret: secret.into(),
         }
     }
+
+    /// SECURITY: signature verification (HS256), `exp` verification, and
+    /// the required `sub`/`iat`/`exp` claims are all preserved exactly
+    /// as before. `iss` and `aud` are ADDED as required claims on top of
+    /// the existing checks — nothing is weakened.
+    fn validation() -> Validation {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
+        validation.set_issuer(&[JWT_ISSUER]);
+        validation.set_audience(&[JWT_AUDIENCE]);
+        validation
+    }
 }
 
 #[async_trait]
@@ -31,6 +46,8 @@ impl TokenService for JsonWebTokenService {
             sub: user_id.to_string(),
             iat: now.timestamp() as usize,
             exp: (now + Duration::hours(24)).timestamp() as usize,
+            iss: JWT_ISSUER.to_string(),
+            aud: JWT_AUDIENCE.to_string(),
         };
 
         encode(
@@ -45,7 +62,7 @@ impl TokenService for JsonWebTokenService {
         let data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.secret.as_bytes()),
-            &Validation::default(),
+            &Self::validation(),
         )
         .map_err(|e| format!("jwt decode error: {e}"))?;
 

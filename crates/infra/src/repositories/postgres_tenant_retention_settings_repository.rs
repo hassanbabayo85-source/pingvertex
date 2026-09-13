@@ -39,22 +39,18 @@ impl Row {
     }
 }
 
-const SELECT_COLUMNS: &str =
-    "tenant_id, retention_days, source, created_at, updated_at";
+const SELECT_COLUMNS: &str = "tenant_id, retention_days, source, created_at, updated_at";
 
 #[async_trait]
 impl TenantRetentionSettingsRepository for PostgresTenantRetentionSettingsRepository {
     async fn get(&self, tenant_id: TenantId) -> RepoResult<Option<TenantRetentionSettings>> {
-        let q = format!(
-            "SELECT {SELECT_COLUMNS} FROM tenant_retention_settings WHERE tenant_id = $1"
-        );
+        let q =
+            format!("SELECT {SELECT_COLUMNS} FROM tenant_retention_settings WHERE tenant_id = $1");
         let row = sqlx::query_as::<_, Row>(&q)
             .bind(tenant_id.0)
             .fetch_optional(&self.pool)
             .await?;
-        row.map(Row::into_domain)
-            .transpose()
-            .map_err(|e| e.into())
+        row.map(Row::into_domain).transpose().map_err(|e| e.into())
     }
 
     async fn upsert(&self, settings: &TenantRetentionSettings) -> RepoResult<()> {

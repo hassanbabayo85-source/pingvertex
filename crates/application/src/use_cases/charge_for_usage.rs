@@ -534,7 +534,7 @@ impl ChargeForUsageUseCase {
                     attempted: true,
                     error: None,
                     egress_bytes: 0,
-                actual_units: None,
+                    actual_units: None,
                 }),
             )
         })
@@ -695,9 +695,9 @@ impl ChargeForUsageUseCase {
             .unwrap_or(&pricing.currency);
         let (units_billed, actual_charge_units) = match attempt.actual_units {
             Some(actual_units) => {
-                let charge = actual_units
-                    .checked_mul(reserved_unit_price)
-                    .ok_or(ChargeForUsageError::InvalidPricing("actual charge overflow"))?;
+                let charge = actual_units.checked_mul(reserved_unit_price).ok_or(
+                    ChargeForUsageError::InvalidPricing("actual charge overflow"),
+                )?;
                 if charge <= 0 || charge > reservation.reservation.amount_units {
                     return Err(ChargeForUsageError::InvalidPricing(
                         "actual charge must be in (0, reserved amount]",

@@ -113,7 +113,10 @@ async fn extended_session_is_not_billed() {
     ));
 
     let w = wallet.get_or_create(tenant, "USD").await.unwrap();
-    assert_eq!(w.balance_units, 1_000_000, "extended session must not debit");
+    assert_eq!(
+        w.balance_units, 1_000_000,
+        "extended session must not debit"
+    );
 }
 
 #[tokio::test]

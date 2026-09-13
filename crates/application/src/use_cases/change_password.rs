@@ -6,6 +6,7 @@ use crate::{
     ports::{PasswordHasher, PendingAuthCache, UserRepository},
     use_cases::session_invalidation::{
         SESSION_INVALIDATION_TTL_SECONDS, session_invalidated_at_cache_key,
+        session_revocation_timestamp,
     },
 };
 
@@ -58,19 +59,6 @@ impl std::fmt::Display for ChangePasswordError {
 
 impl Error for ChangePasswordError {}
 
-/// Changes a user's password after verifying their current password.
-///
-/// On success:
-///   1. a "session invalidated before now" marker is written to
-///      `PendingAuthCache` (Redis) so `jwt_auth` starts rejecting every
-///      session JWT that was issued before this moment;
-///   2. the user's password hash is replaced.
-///
-/// The Redis write is security-critical and is performed BEFORE the
-/// durable password change, identical to `ResetPasswordUseCase`: if it
-/// fails, the whole operation fails before the password is changed, so a
-/// Redis outage can never leave a stale session usable after a
-/// successful password change (no fail-open window).
 pub struct ChangePasswordUseCase<R, H, C> {
     user_repository: R,
     password_hasher: H,
@@ -132,17 +120,10 @@ where
         let password_hash =
             PasswordHash::new(hashed).map_err(|e| ChangePasswordError::Internal(Box::new(e)))?;
 
-        // SEC: session invalidation is a mandatory security precondition.
-        // Do this BEFORE changing the durable password so a Redis outage
-        // cannot leave the old session valid after a successful change.
-        // Mirrors ResetPasswordUseCase's ordering/error-handling exactly
-        // (see HANDOVER.md, MATSALA 1 / H1 — this was previously a
-        // silent `let _ = ...` that discarded the Redis error, which is
-        // the fail-open bug this fix closes).
         self.pending_auth_cache
             .set(
                 &session_invalidated_at_cache_key(user_id),
-                &now.timestamp().to_string(),
+                &session_revocation_timestamp(now.timestamp()).to_string(),
                 SESSION_INVALIDATION_TTL_SECONDS,
             )
             .await

@@ -252,4 +252,3 @@ impl From<PricingAuditLogEntry> for PricingAuditLogResponse {
 fn default_default_retention_days() -> u32 {
     30
 }
-

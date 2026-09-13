@@ -18,17 +18,16 @@ use infra::{
     PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
     PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
-    PostgresTenantRetentionSettingsRepository,
-    PostgresUsageEventRepository, RedisStatusPageCache, UuidIdGenerator, create_pool,
+    PostgresTenantRetentionSettingsRepository, PostgresUsageEventRepository, RedisStatusPageCache,
+    UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
     AllowanceResetWorker, AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
-    RumAggregationWorker,
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
-    RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker,
+    RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker, RumAggregationWorker,
     TenantNotificationRateLimiter, WalletExpirationWorker, WalletNotificationEmailWorker,
     init_rustls_crypto_provider, metrics,
 };
@@ -184,8 +183,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     ));
 
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
-    let allowance_repository =
-        Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
+    let allowance_repository = Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
     let notification_service = Arc::new(
         NotificationDispatcher::from_env_with_metering(secret_cipher, metering.clone())
             .with_alert_allowance(

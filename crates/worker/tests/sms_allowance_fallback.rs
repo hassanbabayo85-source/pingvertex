@@ -73,11 +73,7 @@ fn build_monitor(user_id: UserId, tenant_id: TenantId, name: &str) -> Monitor {
         .unwrap()
 }
 
-fn sms_channel(
-    tenant_id: TenantId,
-    monitor_id: MonitorId,
-    user_id: UserId,
-) -> NotificationChannel {
+fn sms_channel(tenant_id: TenantId, monitor_id: MonitorId, user_id: UserId) -> NotificationChannel {
     let phone = PhoneNumber::new("+15555550100").unwrap();
     let mut ch = NotificationChannel::create_sms(
         NotificationChannelId::new(),
@@ -107,7 +103,12 @@ fn email_channel(
 
 /// Seeds `count` enabled monitors for the tenant so the allowance
 /// formula produces a non-zero SMS limit. 100 monitors → 25 SMS.
-async fn seed_monitors(repo: &InMemoryMonitorRepository, user_id: UserId, tenant: TenantId, count: usize) {
+async fn seed_monitors(
+    repo: &InMemoryMonitorRepository,
+    user_id: UserId,
+    tenant: TenantId,
+    count: usize,
+) {
     for i in 0..count {
         let m = build_monitor(user_id, tenant, &format!("m{i}"));
         repo.save(&m).await.unwrap();
@@ -167,7 +168,11 @@ async fn sms_within_allowance_does_not_touch_wallet() {
         .unwrap();
 
     let log = calls.lock().unwrap().clone();
-    assert_eq!(log, vec!["sms:sms".to_string()], "SMS spy must be called once");
+    assert_eq!(
+        log,
+        vec!["sms:sms".to_string()],
+        "SMS spy must be called once"
+    );
 
     // Allowance consumed.
     let a = allowance

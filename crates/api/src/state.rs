@@ -1285,15 +1285,14 @@ impl TenantAlertAllowanceRepository for NoopTenantAlertAllowanceRepository {
         })
     }
 
-    async fn try_consume_sms(
-        &self,
-        _tenant_id: TenantId,
-        _now: DateTime<Utc>,
-    ) -> RepoResult<bool> {
+    async fn try_consume_sms(&self, _tenant_id: TenantId, _now: DateTime<Utc>) -> RepoResult<bool> {
         Ok(false)
     }
 
-    async fn find(&self, _tenant_id: TenantId) -> RepoResult<Option<domain::entities::TenantAlertAllowance>> {
+    async fn find(
+        &self,
+        _tenant_id: TenantId,
+    ) -> RepoResult<Option<domain::entities::TenantAlertAllowance>> {
         Ok(None)
     }
 }
@@ -1334,8 +1333,6 @@ impl TenantRetentionSettingsRepository for NoopTenantRetentionSettingsRepository
         Ok(default_retention_days.min(max_retention_days).max(1))
     }
 }
-
-
 
 #[derive(Clone, Default)]
 struct NoopMonitorIntervalPolicyRepository;

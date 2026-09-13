@@ -1,6 +1,4 @@
-use application::ports::{
-    AlertAllowanceRepoResult as RepoResult, TenantAlertAllowanceRepository,
-};
+use application::ports::{AlertAllowanceRepoResult as RepoResult, TenantAlertAllowanceRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use domain::entities::TenantAlertAllowance;
@@ -45,19 +43,21 @@ impl TenantAlertAllowanceRepository for InMemoryTenantAlertAllowanceRepository {
         let sms_limit = TenantAlertAllowance::compute_sms_limit(enabled_monitor_count);
 
         let mut guard = self.inner.lock().unwrap();
-        let entry = guard.entry(tenant_id).or_insert_with(|| TenantAlertAllowance {
-            tenant_id,
-            cycle_started_at: cycle_start,
-            cycle_ends_at: cycle_end,
-            sms_limit,
-            sms_used: 0,
-            voice_limit: 0,
-            voice_used: 0,
-            phone_numbers_limit: 0,
-            phone_numbers_used: 0,
-            created_at: now,
-            updated_at: now,
-        });
+        let entry = guard
+            .entry(tenant_id)
+            .or_insert_with(|| TenantAlertAllowance {
+                tenant_id,
+                cycle_started_at: cycle_start,
+                cycle_ends_at: cycle_end,
+                sms_limit,
+                sms_used: 0,
+                voice_limit: 0,
+                voice_used: 0,
+                phone_numbers_limit: 0,
+                phone_numbers_used: 0,
+                created_at: now,
+                updated_at: now,
+            });
         if entry.cycle_started_at < cycle_start {
             entry.cycle_started_at = cycle_start;
             entry.cycle_ends_at = cycle_end;
@@ -70,11 +70,7 @@ impl TenantAlertAllowanceRepository for InMemoryTenantAlertAllowanceRepository {
         Ok(entry.clone())
     }
 
-    async fn try_consume_sms(
-        &self,
-        tenant_id: TenantId,
-        now: DateTime<Utc>,
-    ) -> RepoResult<bool> {
+    async fn try_consume_sms(&self, tenant_id: TenantId, now: DateTime<Utc>) -> RepoResult<bool> {
         let mut guard = self.inner.lock().unwrap();
         let Some(entry) = guard.get_mut(&tenant_id) else {
             return Ok(false);

@@ -14,9 +14,8 @@ use domain::{
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
 use infra::{
-    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository,
-    InMemoryTenantRepository, InMemoryTenantRetentionSettingsRepository,
-    InMemoryWalletRepository,
+    InMemoryHistoryRetentionRepository, InMemoryPricingConfigRepository, InMemoryTenantRepository,
+    InMemoryTenantRetentionSettingsRepository, InMemoryWalletRepository,
 };
 use uuid::Uuid;
 use worker::{RetentionWorker, retention_worker::DEFAULT_BATCH_SIZE};
@@ -310,10 +309,7 @@ async fn legacy_retention_is_preserved_for_non_payg_tenants() {
 
     // A check from 200 days ago would be deleted under free-tier
     // retention (2 days) but preserved under legacy retention (3650).
-    history_repo.seed_check(
-        sample_check_older_than_days(200),
-        legacy_tenant.id,
-    );
+    history_repo.seed_check(sample_check_older_than_days(200), legacy_tenant.id);
 
     let worker = RetentionWorker::new(
         tenant_repo,
@@ -336,4 +332,3 @@ async fn legacy_retention_is_preserved_for_non_payg_tenants() {
         "legacy 3650-day retention must not delete a 200-day-old check"
     );
 }
-

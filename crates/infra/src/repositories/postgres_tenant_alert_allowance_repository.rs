@@ -1,6 +1,4 @@
-use application::ports::{
-    AlertAllowanceRepoResult as RepoResult, TenantAlertAllowanceRepository,
-};
+use application::ports::{AlertAllowanceRepoResult as RepoResult, TenantAlertAllowanceRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use domain::entities::TenantAlertAllowance;
@@ -123,9 +121,8 @@ impl TenantAlertAllowanceRepository for PostgresTenantAlertAllowanceRepository {
         .await?;
 
         // 3. Read the row back.
-        let q = format!(
-            "SELECT {SELECT_COLUMNS} FROM tenant_alert_allowances WHERE tenant_id = $1"
-        );
+        let q =
+            format!("SELECT {SELECT_COLUMNS} FROM tenant_alert_allowances WHERE tenant_id = $1");
         let row = sqlx::query_as::<_, Row>(&q)
             .bind(tenant_id.0)
             .fetch_one(&mut *tx)
@@ -135,11 +132,7 @@ impl TenantAlertAllowanceRepository for PostgresTenantAlertAllowanceRepository {
         Ok(row.into_domain())
     }
 
-    async fn try_consume_sms(
-        &self,
-        tenant_id: TenantId,
-        now: DateTime<Utc>,
-    ) -> RepoResult<bool> {
+    async fn try_consume_sms(&self, tenant_id: TenantId, now: DateTime<Utc>) -> RepoResult<bool> {
         let result = sqlx::query(
             "UPDATE tenant_alert_allowances
              SET sms_used = sms_used + 1, updated_at = now()
@@ -156,9 +149,8 @@ impl TenantAlertAllowanceRepository for PostgresTenantAlertAllowanceRepository {
     }
 
     async fn find(&self, tenant_id: TenantId) -> RepoResult<Option<TenantAlertAllowance>> {
-        let q = format!(
-            "SELECT {SELECT_COLUMNS} FROM tenant_alert_allowances WHERE tenant_id = $1"
-        );
+        let q =
+            format!("SELECT {SELECT_COLUMNS} FROM tenant_alert_allowances WHERE tenant_id = $1");
         let row = sqlx::query_as::<_, Row>(&q)
             .bind(tenant_id.0)
             .fetch_optional(&self.pool)

@@ -169,6 +169,9 @@ impl ResetPasswordTokenRepository for NoopResetPasswordTokenRepository {
     ) -> RepoResult<bool> {
         Ok(false)
     }
+    async fn release_consumed(&self, _id: ResetPasswordTokenId) -> RepoResult<()> {
+        Ok(())
+    }
     async fn delete_unused_for_user(&self, _user_id: UserId) -> RepoResult<()> {
         Ok(())
     }

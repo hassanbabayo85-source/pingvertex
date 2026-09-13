@@ -59,10 +59,9 @@ impl CheckoutSessionRow {
 
     fn into_domain(self) -> Result<CheckoutSession, Box<dyn Error + Send + Sync>> {
         let plan_tier: Option<PlanTier> = match self.plan_tier.as_deref() {
-            Some(s) => Some(
-                s.parse()
-                    .map_err(|err: domain::DomainError| Box::new(err) as Box<dyn Error + Send + Sync>)?,
-            ),
+            Some(s) => Some(s.parse().map_err(|err: domain::DomainError| {
+                Box::new(err) as Box<dyn Error + Send + Sync>
+            })?),
             None => None,
         };
         let status: CheckoutStatus = self

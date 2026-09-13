@@ -327,9 +327,7 @@ pub async fn collect_rum_event(
     };
 
     if let Some(metering) = &metering
-        && let Err(err) = metering
-            .reserve_for_execution(metering_input.clone())
-            .await
+        && let Err(err) = metering.reserve_for_execution(metering_input.clone()).await
     {
         return match err {
             application::use_cases::ChargeForUsageError::InsufficientBalance
@@ -371,7 +369,10 @@ pub async fn collect_rum_event(
                     .await;
             }
             warn!(error = %err, "RUM beacon rejected: malformed payload");
-            return (StatusCode::BAD_REQUEST, Json(json!({ "status": "rejected" })));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "status": "rejected" })),
+            );
         }
         Err(application::use_cases::IngestRumEventError::Other(err)) => {
             if let Some(metering) = &metering {
