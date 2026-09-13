@@ -23,6 +23,7 @@ pub const RETIRED_PAYG_OPERATIONS: &[&str] = &[
     "SMS",
     "heartbeat_ping",
     "storage",
+    "rum_event",
 ];
 
 /// Canonical server-owned PAYG operation identifiers. Runtime code derives
@@ -47,7 +48,7 @@ pub enum PaygOperation {
     HeartbeatProcessing,
     ApiFlowMonitoring,
     ProxyMonitoring,
-    RumEvent,
+    RumSession,
     Sms,
     NetworkEgress,
 }
@@ -65,7 +66,7 @@ impl PaygOperation {
             Self::HeartbeatProcessing => "heartbeat_processing",
             Self::ApiFlowMonitoring => "api_flow_check.monitoring",
             Self::ProxyMonitoring => "proxy_check.monitoring",
-            Self::RumEvent => "rum_event",
+            Self::RumSession => "rum_session",
             Self::Sms => "sms",
             Self::NetworkEgress => "network_egress",
         }
@@ -85,7 +86,7 @@ impl PaygOperation {
         Self::HeartbeatProcessing,
         Self::ApiFlowMonitoring,
         Self::ProxyMonitoring,
-        Self::RumEvent,
+        Self::RumSession,
         Self::Sms,
         Self::NetworkEgress,
     ];

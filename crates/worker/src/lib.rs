@@ -72,6 +72,9 @@ pub mod wallet_expiration_worker;
 pub use wallet_expiration_worker::WalletExpirationWorker;
 pub mod allowance_reset_worker;
 pub use allowance_reset_worker::AllowanceResetWorker;
+
+pub mod rum_aggregation_worker;
+pub use rum_aggregation_worker::RumAggregationWorker;
 pub mod auto_top_up_worker;
 pub use auto_top_up_worker::AutoTopUpWorker;
 

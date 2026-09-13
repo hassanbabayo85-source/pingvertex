@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use application::ports::RumEventRepository;
+use application::ports::{RumEventRepository, UpsertedRumSession};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::shared::ids::{RumSessionId, RumSiteId, TenantId};
@@ -65,6 +65,9 @@ struct RumSessionRow {
     country_code: Option<String>,
     started_at: DateTime<Utc>,
     last_seen_at: DateTime<Utc>,
+    /// Postgres system column: `0` on a fresh INSERT, non-zero when the
+    /// `ON CONFLICT DO UPDATE` path fired. Used to report `created`.
+    is_new: bool,
 }
 
 impl RumSessionRow {
@@ -87,15 +90,24 @@ impl RumSessionRow {
 
 #[async_trait]
 impl RumEventRepository for PostgresRumEventRepository {
-    async fn upsert_session(&self, session: &RumSession) -> RepoResult<RumSession> {
-        // Atomic find-or-touch: a fresh row is inserted with `started_at =
-        // last_seen_at = session.started_at` (the value the caller just
-        // generated); if a session with this (site_id, session_key)
-        // already exists, only `last_seen_at` is bumped — everything else
-        // (including the original `started_at`) is left untouched, since a
-        // later beacon in the same session shouldn't reset when the
-        // session was first observed nor overwrite already-recorded
-        // browser/device info with a possibly-partial later beacon.
+    async fn upsert_session(
+        &self,
+        session: &RumSession,
+        now: DateTime<Utc>,
+    ) -> RepoResult<UpsertedRumSession> {
+        // GAP 3 Kashi E: a beacon either extends an active 30-minute
+        // session (no new charge) or starts a new one (billed once).
+        //
+        // Single-statement upsert. The CASE clauses decide between
+        // "extend" and "restart" atomically; RETURNING compares the
+        // resulting `started_at` with the caller-supplied timestamp to
+        // report `is_new`.
+        //
+        //   * fresh INSERT                     -> started_at = $10, is_new = true
+        //   * existing row, last_seen within 30m -> CASE keeps OLD started_at, is_new = false
+        //   * existing row, last_seen > 30m ago  -> CASE sets started_at = $10, is_new = true
+        let cutoff = now - chrono::Duration::minutes(RumSession::SESSION_WINDOW_MINUTES);
+
         let row = sqlx::query_as::<_, RumSessionRow>(
             r#"
             INSERT INTO rum_sessions (
@@ -105,11 +117,36 @@ impl RumEventRepository for PostgresRumEventRepository {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
             ON CONFLICT (site_id, session_key) DO UPDATE SET
-                last_seen_at = EXCLUDED.last_seen_at
+                last_seen_at = EXCLUDED.last_seen_at,
+                started_at = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.started_at
+                    ELSE rum_sessions.started_at
+                END,
+                browser_name = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.browser_name
+                    ELSE rum_sessions.browser_name
+                END,
+                browser_version = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.browser_version
+                    ELSE rum_sessions.browser_version
+                END,
+                os_name = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.os_name
+                    ELSE rum_sessions.os_name
+                END,
+                device_type = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.device_type
+                    ELSE rum_sessions.device_type
+                END,
+                country_code = CASE
+                    WHEN rum_sessions.last_seen_at < $11 THEN EXCLUDED.country_code
+                    ELSE rum_sessions.country_code
+                END
             RETURNING
                 id, tenant_id, site_id, session_key,
                 browser_name, browser_version, os_name, device_type, country_code,
-                started_at, last_seen_at
+                started_at, last_seen_at,
+                (started_at = $10) AS is_new
             "#,
         )
         .bind(session.id.0)
@@ -122,10 +159,15 @@ impl RumEventRepository for PostgresRumEventRepository {
         .bind(session.device_type.map(device_type_to_str))
         .bind(&session.country_code)
         .bind(session.started_at)
+        .bind(cutoff)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(row.into_domain())
+        let is_new = row.is_new;
+        Ok(UpsertedRumSession {
+            session: row.into_domain(),
+            created: is_new,
+        })
     }
 
     async fn insert_page_view(&self, page_view: &RumPageView) -> RepoResult<()> {

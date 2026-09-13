@@ -184,6 +184,8 @@ pub use postgres_support_ticket_repository::PostgresSupportTicketRepository;
 // RUM (Real User Monitoring):
 pub mod postgres_rum_analytics_repository;
 pub mod postgres_rum_event_repository;
+pub mod postgres_rum_retention_repository;
+pub use postgres_rum_retention_repository::PostgresRumRetentionRepository;
 pub mod postgres_rum_site_repository;
 pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
 pub use postgres_rum_event_repository::PostgresRumEventRepository;

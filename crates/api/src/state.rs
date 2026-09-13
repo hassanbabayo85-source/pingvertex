@@ -881,8 +881,15 @@ struct NoopRumEventRepository;
 
 #[async_trait]
 impl RumEventRepository for NoopRumEventRepository {
-    async fn upsert_session(&self, session: &domain::RumSession) -> RepoResult<domain::RumSession> {
-        Ok(session.clone())
+    async fn upsert_session(
+        &self,
+        session: &domain::RumSession,
+        _now: chrono::DateTime<chrono::Utc>,
+    ) -> RepoResult<application::ports::UpsertedRumSession> {
+        Ok(application::ports::UpsertedRumSession {
+            session: session.clone(),
+            created: true,
+        })
     }
 
     async fn insert_page_view(&self, _page_view: &domain::RumPageView) -> RepoResult<()> {

@@ -302,68 +302,107 @@ pub async fn collect_rum_event(
         state.rum_site_repository.clone(),
         state.rum_event_repository.clone(),
     );
-    let request_id = format!(
-        "rum:{}",
-        payload
-            .request_id
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
-    );
 
-    if let Some(metering) = &state.payg_metering {
-        match metering
-            .execute(
-                MeterUsageInput {
-                    tenant_id: site.tenant_id.0,
-                    operation: "rum_event".to_owned(),
-                    units: 1,
-                    request_id,
+    // GAP 3 Kashi E: per-session billing.
+    //
+    // The session id is generated up front so the metering request_id is
+    // stable across the reserve/finalize pair, and so a retried beacon
+    // reuses the same reservation (idempotent).
+    //
+    // A reservation is created before ingestion and finalized after:
+    //   * new 30-minute session -> captured (one charge)
+    //   * extended session      -> released (no charge)
+    // Any pre-persist failure (unknown site, validation) also releases.
+    let session_id = domain::shared::ids::RumSessionId::new();
+    let tenant_id = site.tenant_id.0;
+    let metering = state.payg_metering.clone();
+    let metering_input = MeterUsageInput {
+        tenant_id,
+        operation: "rum_session".to_owned(),
+        units: 1,
+        request_id: format!("rum_session:{}", session_id.0),
+        monitor_id: None,
+        execution_id: None,
+        pricing_context: None,
+    };
 
-                    monitor_id: None,
-                    execution_id: None,
-                    pricing_context: None,
-                },
-                || use_case.execute_for_site(payload, country_code, site.clone()),
-            )
+    if let Some(metering) = &metering {
+        if let Err(err) = metering
+            .reserve_for_execution(metering_input.clone())
             .await
         {
-            Ok(_) => (StatusCode::ACCEPTED, Json(json!({ "status": "ok" }))),
-            Err(application::use_cases::ChargeForUsageError::InsufficientBalance) => (
-                StatusCode::PAYMENT_REQUIRED,
-                Json(json!({ "status": "insufficient_balance" })),
-            ),
-            Err(err) => {
-                warn!(error = %err, "RUM beacon rejected by PAYG metering");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "status": "error" })),
-                )
-            }
-        }
-    } else {
-        match use_case.execute(payload, country_code).await {
-            Ok(()) => (StatusCode::ACCEPTED, Json(json!({ "status": "ok" }))),
-            Err(application::use_cases::IngestRumEventError::UnknownSite) => {
-                (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" })))
-            }
-            Err(err @ application::use_cases::IngestRumEventError::Validation(_))
-            | Err(err @ application::use_cases::IngestRumEventError::TooManyJsErrors)
-            | Err(err @ application::use_cases::IngestRumEventError::TooManyResourceErrors) => {
-                warn!(error = %err, "RUM beacon rejected: malformed payload");
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({ "status": "rejected" })),
-                )
-            }
-            Err(application::use_cases::IngestRumEventError::Other(err)) => {
-                warn!(error = %err, "failed to persist RUM event");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "status": "error" })),
-                )
-            }
+            return match err {
+                application::use_cases::ChargeForUsageError::InsufficientBalance
+                | application::use_cases::ChargeForUsageError::SpendLimitExceeded => (
+                    StatusCode::PAYMENT_REQUIRED,
+                    Json(json!({ "status": "insufficient_balance" })),
+                ),
+                other => {
+                    warn!(error = %other, "RUM beacon rejected by PAYG reservation");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "status": "error" })),
+                    )
+                }
+            };
         }
     }
+
+    let outcome = match use_case
+        .execute_for_site(payload, country_code, site, session_id)
+        .await
+    {
+        Ok(o) => o,
+        Err(application::use_cases::IngestRumEventError::UnknownSite) => {
+            if let Some(metering) = &metering {
+                let _ = metering
+                    .finalize_reserved_attempt(metering_input.clone(), false)
+                    .await;
+            }
+            return (StatusCode::NOT_FOUND, Json(json!({ "status": "rejected" })));
+        }
+        Err(
+            err @ application::use_cases::IngestRumEventError::Validation(_)
+            | err @ application::use_cases::IngestRumEventError::TooManyJsErrors
+            | err @ application::use_cases::IngestRumEventError::TooManyResourceErrors,
+        ) => {
+            if let Some(metering) = &metering {
+                let _ = metering
+                    .finalize_reserved_attempt(metering_input.clone(), false)
+                    .await;
+            }
+            warn!(error = %err, "RUM beacon rejected: malformed payload");
+            return (StatusCode::BAD_REQUEST, Json(json!({ "status": "rejected" })));
+        }
+        Err(application::use_cases::IngestRumEventError::Other(err)) => {
+            if let Some(metering) = &metering {
+                let _ = metering
+                    .finalize_reserved_attempt(metering_input.clone(), false)
+                    .await;
+            }
+            warn!(error = %err, "failed to persist RUM event");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error" })),
+            );
+        }
+    };
+
+    // Capture on new session, release on extended.
+    if let Some(metering) = &metering {
+        if let Err(err) = metering
+            .finalize_reserved_attempt(metering_input.clone(), outcome.session_created)
+            .await
+        {
+            warn!(error = %err, "RUM session billing finalization failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error" })),
+            );
+        }
+    }
+
+    (StatusCode::ACCEPTED, Json(json!({ "status": "ok" })))
 }
 
 #[cfg(test)]

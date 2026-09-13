@@ -1,9 +1,22 @@
 use std::error::Error;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use domain::{RumJsError, RumPageView, RumResourceError, RumSession};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
+
+/// Result of `RumEventRepository::upsert_session`.
+///
+/// `created = true` when the beacon started a *new* 30-minute session,
+/// which is what gets billed under the `rum_session` PAYG operation.
+/// `created = false` when the beacon merely extended an existing active
+/// session (no new charge).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpsertedRumSession {
+    pub session: RumSession,
+    pub created: bool,
+}
 
 /// Persistence for RUM ingestion writes: sessions, page views, JS errors,
 /// and resource errors.
@@ -15,15 +28,22 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// ownership; they persist what they're given.
 #[async_trait]
 pub trait RumEventRepository: Send + Sync {
-    /// Finds an existing session by `(site_id, session_key)` and bumps its
-    /// `last_seen_at`, or creates a new one if none exists yet.
+    /// Finds an existing session by `(site_id, session_key)` and either:
     ///
-    /// This must be a single atomic upsert at the storage layer (e.g. `ON
-    /// CONFLICT ... DO UPDATE`), not a separate find-then-insert, since
-    /// concurrent beacons from the same session (page view + errors fired
-    /// close together) would otherwise race and could create duplicate
-    /// session rows.
-    async fn upsert_session(&self, session: &RumSession) -> RepoResult<RumSession>;
+    ///   * extends it (`created = false`) when `last_seen_at` is within
+    ///     `RumSession::SESSION_WINDOW_MINUTES` of `now`, or
+    ///   * starts a new session (`created = true`) when the stored one is
+    ///     older than the window (or none exists).
+    ///
+    /// Implementations MUST perform this as a single atomic statement
+    /// (`INSERT ... ON CONFLICT DO UPDATE ... WHERE`), not a separate
+    /// find-then-write, since concurrent beacons from the same session
+    /// (page view + errors fired close together) would otherwise race.
+    async fn upsert_session(
+        &self,
+        session: &RumSession,
+        now: DateTime<Utc>,
+    ) -> RepoResult<UpsertedRumSession>;
 
     async fn insert_page_view(&self, page_view: &RumPageView) -> RepoResult<()>;
 
@@ -37,8 +57,12 @@ impl<T> RumEventRepository for std::sync::Arc<T>
 where
     T: RumEventRepository + ?Sized,
 {
-    async fn upsert_session(&self, session: &RumSession) -> RepoResult<RumSession> {
-        (**self).upsert_session(session).await
+    async fn upsert_session(
+        &self,
+        session: &RumSession,
+        now: DateTime<Utc>,
+    ) -> RepoResult<UpsertedRumSession> {
+        (**self).upsert_session(session, now).await
     }
 
     async fn insert_page_view(&self, page_view: &RumPageView) -> RepoResult<()> {
