@@ -1,14 +1,33 @@
-# Workspace-level Cargo configuration.
+# Cargo target directory is pinned to an external SSD to keep the
+# root filesystem (233G, currently ~85% used) from filling up during
+# workspace builds. The SSD must be mounted at the path below before
+# running any `cargo` command.
+#
+# Mount point:  /run/media/abubakar-hassan-babayo/2e9125ba-a356-4262-9af0-959cb5e15607
+# Device UUID:  2e9125ba-a356-4262-9af0-959cb5e15607
+#
+# If the SSD is not mounted, cargo will fail with "Permission denied"
+# because the target path resolves under an unwritable directory. To
+# build anyway (temporarily), either mount the SSD or override with:
+#     CARGO_TARGET_DIR=$PWD/target cargo build ...
+[build]
+target-dir = "/run/media/abubakar-hassan-babayo/2e9125ba-a356-4262-9af0-959cb5e15607/cargo-target"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# ---------------------------------------------------------------------------
+# Test-only environment.
 #
 # `[env]` sets environment variables for every `cargo test` / `cargo run`
 # invocation in this workspace. `DATABASE_URL` points at the Docker
 # Postgres (port 5433) that integration tests expect — without this,
 # `infra::test_support` falls back to `localhost:5432` (the system
-# Postgres) and picks up whatever stale `_sqlx_migrations` checksum
-# happens to be there.
+# Postgres) and can pick up a stale `_sqlx_migrations` checksum, causing
+# spurious `VersionMismatch(114)` failures during `cargo test --workspace`.
 #
 # This is not secret: the password is the documented dev/test password
-# from `.env.test`. Production deploys set `DATABASE_URL` from the
-# orchestrator, which overrides this value.
+# from `.env.test`. Production orchestrators set `DATABASE_URL` from the
+# environment, which overrides this value.
 [env]
 DATABASE_URL = "postgres://postgres:pingvertex_test_pw@localhost:5433/uptime_monitor_test"
