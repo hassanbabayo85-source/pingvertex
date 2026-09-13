@@ -75,3 +75,7 @@ uptime-monitor*.txt
 .pingvertex-*-backup-*/
 .pingvertex-repair*/
 __pycache__/
+*.bak
+*.bak-*
+*.bak_*
+*.before-*
