@@ -1,6 +1,4 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use application::ports::AgentRegistry;
 use application::ports::{
@@ -35,14 +33,6 @@ use application::dto::{DashboardBadges, DashboardOverview};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// Per-token rate limiter for `GET /public/heartbeat/{token}`. Keyed by the
-/// raw token string; value is `(window_started_at, requests_in_window)`.
-pub type HeartbeatRateLimiter = Arc<tokio::sync::Mutex<HashMap<String, (Instant, u32)>>>;
-
-fn new_heartbeat_rate_limiter() -> HeartbeatRateLimiter {
-    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
-}
-
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
@@ -65,7 +55,6 @@ pub struct AppState {
     pub logo_storage: Arc<dyn LogoStorage>,
     pub secret_cipher: Arc<dyn SecretCipher>,
     pub id_generator: UuidIdGenerator,
-    pub heartbeat_rate_limiter: HeartbeatRateLimiter,
     pub audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     pub api_key_repository: Arc<dyn ApiKeyRepository>,
     pub password_hasher: Arc<dyn PasswordHasher>,
@@ -1542,7 +1531,6 @@ impl AppState {
             logo_storage: Arc::new(NoopLogoStorage),
             secret_cipher,
             id_generator,
-            heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),
@@ -1646,7 +1634,6 @@ impl AppState {
             logo_storage,
             secret_cipher,
             id_generator,
-            heartbeat_rate_limiter: new_heartbeat_rate_limiter(),
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),

@@ -1,5 +1,8 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
-use application::ports::{CheckRepository, DiagnosticReportRepository, IncidentRepository};
+use application::ports::{
+    CheckRepository, DiagnosticReportRepository, IncidentRepository, RateLimiter,
+    RateLimiterResult,
+};
 use application::ports::{
     PasswordHasher, SecretCipher, SecretCipherError, TokenService, UserRepository,
 };
@@ -21,6 +24,51 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+/// Test-only in-memory `RateLimiter` with the same semantics as
+/// `infra::RedisRateLimiter` (fixed-window per key), so the heartbeat
+/// handler's rate-limit path is exercised end-to-end in the test router.
+/// Production uses the real Redis-backed limiter wired in `main.rs`.
+#[derive(Clone, Default)]
+struct TestRateLimiter {
+    buckets: std::sync::Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
+    >,
+}
+
+#[async_trait]
+impl RateLimiter for TestRateLimiter {
+    async fn check_and_record(
+        &self,
+        namespace: &str,
+        key: &str,
+        max_requests: u32,
+        window_seconds: u64,
+    ) -> RateLimiterResult<bool> {
+        let mut map = self.buckets.lock().await;
+        let now = std::time::Instant::now();
+        let window = std::time::Duration::from_secs(window_seconds);
+        let composite = format!("{namespace}:{key}");
+        match map.get_mut(&composite) {
+            Some((start, count)) => {
+                if now.duration_since(*start) >= window {
+                    *start = now;
+                    *count = 1;
+                    Ok(true)
+                } else if *count < max_requests {
+                    *count += 1;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            None => {
+                map.insert(composite, (now, 1));
+                Ok(true)
+            }
+        }
+    }
+}
 
 #[derive(Clone, Default)]
 struct NoopSecretCipher;
@@ -251,7 +299,8 @@ fn build_test_app(user_id: Uuid) -> axum::Router {
         UuidIdGenerator::new(),
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
-    );
+    )
+    .with_rate_limiter(TestRateLimiter::default());
 
     let tenant_repository = InMemoryTenantRepository::new();
     let tenant_membership_repository = InMemoryTenantMembershipRepository::new();
@@ -574,4 +623,215 @@ async fn heartbeat_ping_is_rate_limited_per_token() {
         .unwrap();
 
     assert_eq!(over_limit_response.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+
+// =====================================================================
+// PART 12 — heartbeat credential hardening tests
+// =====================================================================
+
+#[tokio::test]
+async fn heartbeat_post_with_x_heartbeat_token_updates_last_heartbeat_at() {
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let created = create_heartbeat_monitor(&app, user_id, "POST via header").await;
+    let monitor_id = created["id"].as_str().unwrap();
+    let token = created["heartbeat_token"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/heartbeat")
+                .header("x-heartbeat-token", token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let after = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!read_json(after).await["last_heartbeat_at"].is_null());
+}
+
+#[tokio::test]
+async fn heartbeat_post_with_authorization_bearer_updates_last_heartbeat_at() {
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let created = create_heartbeat_monitor(&app, user_id, "POST via Bearer").await;
+    let monitor_id = created["id"].as_str().unwrap();
+    let token = created["heartbeat_token"].as_str().unwrap();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/heartbeat")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let after = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/monitors/{monitor_id}"))
+                .header("authorization", auth_header(user_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!read_json(after).await["last_heartbeat_at"].is_null());
+}
+
+#[tokio::test]
+async fn heartbeat_post_without_any_token_returns_not_found() {
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/heartbeat")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn heartbeat_post_with_malformed_token_returns_not_found() {
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/heartbeat")
+                .header("x-heartbeat-token", "not-a-valid-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn heartbeat_endpoints_advertise_referrer_policy_no_referrer() {
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let get_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/public/heartbeat/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        get_response
+            .headers()
+            .get("referrer-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("no-referrer"),
+        "GET /public/heartbeat/{{token}} must set Referrer-Policy: no-referrer"
+    );
+
+    let post_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/heartbeat")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        post_response
+            .headers()
+            .get("referrer-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("no-referrer"),
+    );
+}
+
+#[tokio::test]
+async fn heartbeat_get_and_post_share_the_same_rate_limit_bucket() {
+    const MAX_REQUESTS_PER_WINDOW: usize = 6;
+    let user_id = Uuid::new_v4();
+    let app = build_test_app(user_id);
+
+    let created = create_heartbeat_monitor(&app, user_id, "Shared bucket").await;
+    let token = created["heartbeat_token"].as_str().unwrap();
+
+    let mut successes = 0usize;
+    for i in 0..(MAX_REQUESTS_PER_WINDOW * 2) {
+        let response = if i % 2 == 0 {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri(format!("/api/v1/public/heartbeat/{token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        } else {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/public/heartbeat")
+                        .header("x-heartbeat-token", token)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        };
+        if response.status() == StatusCode::OK {
+            successes += 1;
+        }
+    }
+
+    assert_eq!(
+        successes, MAX_REQUESTS_PER_WINDOW,
+        "GET and POST must share the same per-token rate-limit bucket"
+    );
 }
