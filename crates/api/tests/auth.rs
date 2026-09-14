@@ -473,7 +473,13 @@ async fn login_endpoint_sets_session_cookie_on_success() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let set_cookie = set_cookie_header(&resp);
-    assert!(set_cookie.starts_with("access_token="));
+    // PART 6 — in secure mode (the default when ENVIRONMENT is not one of
+    // the explicit dev values) the cookie name is `__Host-access_token`.
+    // In dev mode the legacy `access_token` name is kept. Accept both.
+    assert!(
+        set_cookie.starts_with("__Host-access_token=") || set_cookie.starts_with("access_token="),
+        "unexpected Set-Cookie value: {set_cookie}"
+    );
 }
 
 #[tokio::test]

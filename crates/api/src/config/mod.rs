@@ -52,8 +52,32 @@ const KNOWN_LEAKED_OR_EXAMPLE_SECRETS: &[&str] = &[
     "fd0d36442c07ce13ec97bd4f11d2fd515a80405be2df3558a13c7371d332364335f63012e84219051ecb4a096c037125955c81a1b59bc13a3acb5beb9659cbc5",
 ];
 
+/// PART 6 — Environments where a `Noop*` implementation of a
+/// security-relevant dependency (Redis-backed session invalidation,
+/// TOTP cache, distributed rate limiter) is acceptable.
+///
+/// This is an **allowlist**, not a production blocklist. Any environment
+/// name NOT in this list — including `production`, `staging`, `preprod`,
+/// `uat`, or an unset/garbage value — is treated as "must have Redis".
+/// The historical check `environment == "production"` was the wrong shape:
+/// it left staging/preprod/unknown deployments silently using Noop
+/// implementations, which meant session revocation and TOTP were no-ops
+/// in those environments.
+pub const NOOP_ALLOWED_ENVIRONMENTS: &[&str] = &["local", "test", "dev", "development"];
+
+/// Returns `true` iff the current `ENVIRONMENT` explicitly permits the
+/// use of `Noop` implementations. Fail-closed: an unset, empty, or
+/// unrecognized `ENVIRONMENT` returns `false`.
+pub fn noop_implementations_allowed() -> bool {
+    let raw = env::var("ENVIRONMENT").unwrap_or_default();
+    let normalized = raw.trim().to_ascii_lowercase();
+    NOOP_ALLOWED_ENVIRONMENTS
+        .iter()
+        .any(|allowed| *allowed == normalized)
+}
+
 /// Application configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub database_url: String,
     pub jwt_secret: String,
@@ -84,6 +108,25 @@ pub struct Config {
     /// validated here purely for an early, clear boot-time error (see
     /// `DEFAULT_CORS_ALLOWED_ORIGIN` doc comment above).
     pub cors_allowed_origin: String,
+}
+
+/// PART 6 — custom Debug that redacts every secret-bearing field.
+/// The default `#[derive(Debug)]` would print `jwt_secret` and the
+/// password embedded in `database_url` verbatim in any
+/// `tracing::error!(config = ?config, ...)` line.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("database_url", &"<redacted>")
+            .field("jwt_secret", &"<redacted>")
+            .field("redis_url", &self.redis_url.as_ref().map(|_| "<redacted>"))
+            .field("mtls_port", &self.mtls_port)
+            .field("mtls_ca_cert_path", &self.mtls_ca_cert_path)
+            .field("mtls_server_cert_path", &self.mtls_server_cert_path)
+            .field("mtls_server_key_path", &"<redacted>")
+            .field("cors_allowed_origin", &self.cors_allowed_origin)
+            .finish()
+    }
 }
 
 /// Kurakuran da za a iya samu wajen loda/tabbatar da configuration.

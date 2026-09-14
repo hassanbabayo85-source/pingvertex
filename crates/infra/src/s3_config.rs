@@ -5,7 +5,7 @@ use std::env;
 /// Unlike SMTP/Redis (which are optional in self-hosted deployments),
 /// `S3LogoStorage` is the production storage backend selected for logo
 /// uploads, so missing S3 configuration fails closed at boot.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct S3Config {
     pub bucket: String,
     pub region: String,
@@ -20,6 +20,21 @@ pub struct S3Config {
     /// of virtual-hosted style. Defaults to `true` for self-hosted
     /// S3-compatible providers (MinIO, Garage, etc.).
     pub path_style: bool,
+}
+
+/// PART 6 — custom Debug that redacts both AWS credentials.
+impl std::fmt::Debug for S3Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S3Config")
+            .field("bucket", &self.bucket)
+            .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .field("access_key_id", &"<redacted>")
+            .field("secret_access_key", &"<redacted>")
+            .field("public_base_url", &self.public_base_url)
+            .field("path_style", &self.path_style)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -12,9 +12,18 @@ use domain::UserId;
 pub const JWT_ISSUER: &str = "uptime-monitor";
 pub const JWT_AUDIENCE: &str = "uptime-monitor-api";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct JsonWebTokenService {
     secret: String,
+}
+
+/// PART 6 — custom Debug that redacts the signing secret.
+impl std::fmt::Debug for JsonWebTokenService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JsonWebTokenService")
+            .field("secret", &"<redacted>")
+            .finish()
+    }
 }
 
 impl JsonWebTokenService {
