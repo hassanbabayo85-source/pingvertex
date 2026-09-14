@@ -80,6 +80,11 @@ pub enum DomainError {
 
     #[error("header value must not exceed 2048 characters")]
     HeaderValueTooLong,
+    #[error("header name cannot be empty")]
+    EmptyHeaderName,
+
+    #[error("header name must not exceed 256 characters")]
+    HeaderNameTooLong,
 
     #[error("flow step body cannot exceed 65536 bytes (64KB)")]
     FlowStepBodyTooLarge,

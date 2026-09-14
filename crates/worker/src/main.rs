@@ -185,7 +185,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let allowance_repository = Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
     let notification_service = Arc::new(
-        NotificationDispatcher::from_env_with_metering(secret_cipher, metering.clone())
+        NotificationDispatcher::from_env_with_metering(secret_cipher.clone(), metering.clone())
             .with_alert_allowance(
                 allowance_repository.clone(),
                 monitor_repository.clone(),
@@ -248,7 +248,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let api_flow_repository = Arc::new(PostgresApiFlowRepository::new(pool.clone()));
+    let api_flow_repository = Arc::new(PostgresApiFlowRepository::new(
+        pool.clone(),
+        secret_cipher.clone(),
+    ));
 
     let notification_outbox_repository =
         Arc::new(PostgresNotificationOutboxRepository::new(pool.clone()));

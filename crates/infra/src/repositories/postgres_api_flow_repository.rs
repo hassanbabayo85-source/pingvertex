@@ -1,27 +1,53 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 
-use application::ports::ApiFlowRepository;
+use application::ports::{ApiFlowRepository, SecretCipher};
 use async_trait::async_trait;
 use domain::shared::ids::{ApiFlowId, ApiFlowStepId, AssertionId, MonitorId, TenantId};
 use domain::{
-    ApiFlow, ApiFlowStep, Assertion, AssertionOperator, FlowStepName, HttpMethod, ResponsePart,
-    VariableExtraction,
+    ApiFlow, ApiFlowStep, Assertion, AssertionOperator, FlowHeader, FlowStepName, HttpMethod,
+    ResponsePart, VariableExtraction,
 };
+use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// PostgreSQL-backed API flow repository.
-#[derive(Debug, Clone)]
+///
+/// PART 8 — the repository owns the on-disk representation of headers.
+/// Secret header values are encrypted with `SecretCipher` (the existing
+/// AES-256-GCM abstraction) before they reach the database, and
+/// decrypted on read. Non-secret headers are stored verbatim.
 pub struct PostgresApiFlowRepository {
     pool: PgPool,
+    secret_cipher: Arc<dyn SecretCipher>,
+}
+
+impl std::fmt::Debug for PostgresApiFlowRepository {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PostgresApiFlowRepository")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for PostgresApiFlowRepository {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            secret_cipher: Arc::clone(&self.secret_cipher),
+        }
+    }
 }
 
 impl PostgresApiFlowRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, secret_cipher: Arc<dyn SecretCipher>) -> Self {
+        Self {
+            pool,
+            secret_cipher,
+        }
     }
 
     /// Loads the steps (and their assertions) for an already-fetched
@@ -93,11 +119,165 @@ impl PostgresApiFlowRepository {
         let mut steps = Vec::with_capacity(step_rows.len());
         for step_row in step_rows {
             let assertions = assertions_by_step.remove(&step_row.id).unwrap_or_default();
-            steps.push(step_row.into_domain(assertions)?);
+            steps.push(step_row.into_domain(&*self.secret_cipher, assertions)?);
         }
 
         row.into_domain(steps)
     }
+}
+
+//
+// PART 8 — on-disk header representation.
+//
+// A flow step's `headers` column stores a JSON array of `PersistedHeader`.
+// Two on-disk shapes are accepted:
+//
+// * Legacy: `["Authorization", "Bearer abc"]` — a bare pair, from rows
+//   written before header sensitivity classification existed. These are
+//   read as plaintext and auto-classified by name.
+// * Current: `{"name": "Authorization", "secret": true, "value": ...}`
+//   where `value` is a JSON string for non-secret headers, or a JSON
+//   array of bytes (ciphertext) for secret headers.
+//
+// The repository never relies on serde deriving the domain type's
+// persistence representation — the domain `FlowHeader` has private fields
+// and no derived `Serialize`/`Deserialize`, which is what makes it
+// impossible to accidentally leak a plaintext secret through a blanket
+// `serde_json::to_value(&step)`.
+//
+
+#[derive(Debug, Clone)]
+struct PersistedHeader {
+    name: String,
+    secret: bool,
+    value: PersistedHeaderValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum PersistedHeaderValue {
+    /// Non-secret plaintext value.
+    Plain(String),
+    /// Ciphertext bytes produced by `SecretCipher::encrypt_bytes`.
+    Encrypted(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedHeaderStructured {
+    name: String,
+    secret: bool,
+    value: PersistedHeaderValue,
+}
+
+impl Serialize for PersistedHeader {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("PersistedHeader", 3)?;
+        st.serialize_field("name", &self.name)?;
+        st.serialize_field("secret", &self.secret)?;
+        st.serialize_field("value", &self.value)?;
+        st.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PersistedHeader {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Legacy((String, String)),
+            New(PersistedHeaderStructured),
+        }
+
+        match Raw::deserialize(d)? {
+            Raw::Legacy((name, value)) => Ok(PersistedHeader {
+                secret: FlowHeader::is_sensitive_name(&name),
+                name,
+                value: PersistedHeaderValue::Plain(value),
+            }),
+            Raw::New(n) => Ok(PersistedHeader {
+                name: n.name,
+                secret: n.secret,
+                value: n.value,
+            }),
+        }
+    }
+}
+
+/// Encrypts every secret header's value and returns the on-disk
+/// representation.
+fn encode_headers(
+    cipher: &dyn SecretCipher,
+    headers: &[FlowHeader],
+) -> RepoResult<Vec<PersistedHeader>> {
+    let mut out = Vec::with_capacity(headers.len());
+    for h in headers {
+        let value = if h.is_secret() {
+            let ciphertext = cipher.encrypt_bytes(h.value().as_bytes()).map_err(
+                |e| -> Box<dyn Error + Send + Sync> {
+                    format!("failed to encrypt flow header '{}': {e}", h.name()).into()
+                },
+            )?;
+            PersistedHeaderValue::Encrypted(ciphertext)
+        } else {
+            PersistedHeaderValue::Plain(h.value().to_string())
+        };
+        out.push(PersistedHeader {
+            name: h.name().to_string(),
+            secret: h.is_secret(),
+            value,
+        });
+    }
+    Ok(out)
+}
+
+/// Decrypts secret header values and rebuilds validated `FlowHeader`s.
+fn decode_headers(
+    cipher: &dyn SecretCipher,
+    rows: &[PersistedHeader],
+) -> RepoResult<Vec<FlowHeader>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let header = match (row.secret, &row.value) {
+            (false, PersistedHeaderValue::Plain(s)) => {
+                FlowHeader::new(row.name.clone(), s.clone(), false)?
+            }
+            (true, PersistedHeaderValue::Encrypted(ct)) => {
+                let plaintext =
+                    cipher
+                        .decrypt_bytes(ct)
+                        .map_err(|e| -> Box<dyn Error + Send + Sync> {
+                            format!("failed to decrypt flow header '{}': {e}", row.name).into()
+                        })?;
+                let value =
+                    String::from_utf8(plaintext).map_err(|e| -> Box<dyn Error + Send + Sync> {
+                        format!(
+                            "decrypted flow header '{}' is not valid UTF-8: {e}",
+                            row.name
+                        )
+                        .into()
+                    })?;
+                FlowHeader::new(row.name.clone(), value, true)?
+            }
+            (true, PersistedHeaderValue::Plain(s)) => {
+                // Row written before PART 8's encryption path existed.
+                // The stored value is already plaintext; pass it through
+                // and let the next save() re-encrypt it. Not treated as
+                // an error — this is the expected shape of any row that
+                // predates the encryption feature.
+                FlowHeader::new(row.name.clone(), s.clone(), true)?
+            }
+            (false, PersistedHeaderValue::Encrypted(_)) => {
+                return Err(format!(
+                    "persisted flow header '{}' has `secret: false` but its value is stored as ciphertext",
+                    row.name
+                )
+                .into());
+            }
+        };
+        out.push(header);
+    }
+    Ok(out)
 }
 
 //
@@ -151,9 +331,14 @@ struct ApiFlowStepRow {
 }
 
 impl ApiFlowStepRow {
-    fn into_domain(self, assertions: Vec<Assertion>) -> RepoResult<ApiFlowStep> {
+    fn into_domain(
+        self,
+        cipher: &dyn SecretCipher,
+        assertions: Vec<Assertion>,
+    ) -> RepoResult<ApiFlowStep> {
         let method = method_from_db(&self.method)?;
-        let headers: Vec<(String, String)> = serde_json::from_value(self.headers)?;
+        let persisted: Vec<PersistedHeader> = serde_json::from_value(self.headers)?;
+        let headers = decode_headers(cipher, &persisted)?;
         let extract: Vec<VariableExtraction> = serde_json::from_value(self.extract)?;
 
         Ok(ApiFlowStep {
@@ -314,7 +499,8 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
         .await?;
 
         for step in flow.steps() {
-            let headers = serde_json::to_value(&step.headers)?;
+            let persisted = encode_headers(&*self.secret_cipher, &step.headers)?;
+            let headers = serde_json::to_value(&persisted)?;
             let extract = serde_json::to_value(&step.extract)?;
             let order: i16 = step.order.try_into()?;
 
@@ -413,7 +599,8 @@ impl ApiFlowRepository for PostgresApiFlowRepository {
         .await?;
 
         for step in flow.steps() {
-            let headers = serde_json::to_value(&step.headers)?;
+            let persisted = encode_headers(&*self.secret_cipher, &step.headers)?;
+            let headers = serde_json::to_value(&persisted)?;
             let extract = serde_json::to_value(&step.extract)?;
             let order: i16 = step.order.try_into()?;
 
