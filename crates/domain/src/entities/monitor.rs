@@ -554,8 +554,7 @@ mod part9_tests {
     #[test]
     fn rejects_dns_expected_value_over_max() {
         let mut input = base_input(vec![]);
-        input.dns_expected_value =
-            Some("a".repeat(Monitor::MAX_DNS_EXPECTED_VALUE_LENGTH + 1));
+        input.dns_expected_value = Some("a".repeat(Monitor::MAX_DNS_EXPECTED_VALUE_LENGTH + 1));
         assert_eq!(
             Monitor::create(input).unwrap_err(),
             DomainError::DnsExpectedValueTooLong

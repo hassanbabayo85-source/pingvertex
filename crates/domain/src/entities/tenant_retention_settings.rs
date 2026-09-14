@@ -146,11 +146,7 @@ mod part9_tests {
 
     #[test]
     fn rejects_retention_days_below_min() {
-        let result = TenantRetentionSettings::try_new(
-            TenantId::new(),
-            0,
-            RetentionSource::Default,
-        );
+        let result = TenantRetentionSettings::try_new(TenantId::new(), 0, RetentionSource::Default);
         assert_eq!(result.unwrap_err(), DomainError::RetentionDaysTooSmall);
     }
 
