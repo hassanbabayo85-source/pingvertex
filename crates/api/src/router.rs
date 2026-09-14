@@ -758,7 +758,6 @@ pub fn build_pricing_only_router_with_rate_limit(app_state: AppState) -> Router 
     Router::new().nest("/api/v1", pricing_routes)
 }
 
-
 // =====================================================================
 // PART 12 #7 — URI redaction for tracing spans
 // =====================================================================
@@ -797,14 +796,15 @@ impl<B> tower_http::trace::MakeSpan<B> for RedactingMakeSpan {
 /// URL.
 fn redact_uri_for_logging(uri: &axum::http::Uri) -> String {
     let path = uri.path();
-    if let Some(rest) = path.strip_prefix("/api/v1/public/heartbeat/") {
-        if !rest.is_empty() && !rest.contains('/') {
-            let redacted_path = "/api/v1/public/heartbeat/[REDACTED]";
-            return match uri.query() {
-                Some(q) => format!("{redacted_path}?{q}"),
-                None => redacted_path.to_string(),
-            };
-        }
+    if let Some(rest) = path.strip_prefix("/api/v1/public/heartbeat/")
+        && !rest.is_empty()
+        && !rest.contains('/')
+    {
+        let redacted_path = "/api/v1/public/heartbeat/[REDACTED]";
+        return match uri.query() {
+            Some(q) => format!("{redacted_path}?{q}"),
+            None => redacted_path.to_string(),
+        };
     }
     uri.to_string()
 }

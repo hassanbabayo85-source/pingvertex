@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::regex_cache::{self, RegexCache};
 use domain::entities::Assertion;
-use domain::shared::ids::AssertionId;
 use domain::enums::{AssertionOperator, ResponsePart};
+use domain::shared::ids::AssertionId;
 use domain::value_objects::AssertionEvaluationResult;
 use serde_json::Value;
 use tracing::warn;

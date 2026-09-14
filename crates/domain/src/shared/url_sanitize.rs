@@ -32,7 +32,7 @@
 /// * `/page#frag?token=secret`                 -> `/page`
 /// * `https://example.com/page`                -> `https://example.com/page`
 pub fn strip_query_and_fragment(input: &str) -> String {
-    match input.find(|c| c == '?' || c == '#') {
+    match input.find(['?', '#']) {
         Some(idx) => input[..idx].to_string(),
         None => input.to_string(),
     }
@@ -62,10 +62,7 @@ mod tests {
 
     #[test]
     fn fragment_before_query_still_cuts_at_fragment() {
-        assert_eq!(
-            strip_query_and_fragment("/page#frag?token=secret"),
-            "/page"
-        );
+        assert_eq!(strip_query_and_fragment("/page#frag?token=secret"), "/page");
     }
 
     #[test]

@@ -6,9 +6,9 @@ use axum::http::{Request, StatusCode};
 use axum_server_mtls::PeerCertificates;
 use chrono::{Duration, Utc};
 use domain::shared::ids::{CheckId, MonitorId, TenantId};
-use domain::{Agent, Check, Monitor, RegionCode};
+use domain::{Check, Monitor, RegionCode};
 use infra::{
-    InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryAuditLogEntryRepository,
+    InMemoryAgentLeaseRepository, InMemoryAuditLogEntryRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
     NoopNotificationService, UuidIdGenerator,

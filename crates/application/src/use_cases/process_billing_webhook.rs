@@ -198,15 +198,12 @@ where
             // field at all, preserving backward compatibility with any
             // caller that predates this validation. New callers (and the
             // Paystack handler) always include it.
-            if let Some(payload_currency) =
-                command.payload.get("currency").and_then(|v| v.as_str())
+            if let Some(payload_currency) = command.payload.get("currency").and_then(|v| v.as_str())
                 && !payload_currency.eq_ignore_ascii_case(&session.currency)
             {
                 return Err(BillingWebhookError::Other(
-                    std::io::Error::other(
-                        "wallet top-up currency does not match checkout session",
-                    )
-                    .into(),
+                    std::io::Error::other("wallet top-up currency does not match checkout session")
+                        .into(),
                 ));
             }
 

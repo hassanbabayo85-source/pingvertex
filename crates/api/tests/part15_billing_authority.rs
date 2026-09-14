@@ -49,10 +49,10 @@ fn walk_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                if name == "target" || name.starts_with('.') {
-                    continue;
-                }
+            if let Some(name) = path.file_name().and_then(|s| s.to_str())
+                && (name == "target" || name.starts_with('.'))
+            {
+                continue;
             }
             walk_rs_files(&path, out);
         } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
@@ -123,10 +123,7 @@ fn no_runtime_handler_introduces_a_new_subscription_repository_use() {
     // a new HTTP handler or worker job that reaches for the subscription
     // field to make a decision.
     let root = workspace_root();
-    let scan_roots = [
-        root.join("crates/api/src"),
-        root.join("crates/worker/src"),
-    ];
+    let scan_roots = [root.join("crates/api/src"), root.join("crates/worker/src")];
 
     let mut files = Vec::new();
     for scan_root in &scan_roots {
@@ -189,8 +186,8 @@ fn retirement_shells_return_410() {
 
     for shell in shells {
         let path = root.join(shell);
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("cannot read {shell}: {e}"));
+        let content =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {shell}: {e}"));
         assert!(
             content.contains("ApiError::gone"),
             "PART 15 VIOLATION: `{shell}` is a retirement shell but does \

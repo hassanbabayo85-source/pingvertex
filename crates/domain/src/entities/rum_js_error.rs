@@ -162,10 +162,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(
-            err.source.as_deref(),
-            Some("https://example.com/bundle.js")
-        );
+        assert_eq!(err.source.as_deref(), Some("https://example.com/bundle.js"));
         assert!(!err.source.as_deref().unwrap().contains('#'));
     }
 
@@ -213,10 +210,7 @@ mod tests {
                 None,
             )
             .unwrap();
-            assert_eq!(
-                err.source.as_deref(),
-                Some("https://example.com/page")
-            );
+            assert_eq!(err.source.as_deref(), Some("https://example.com/page"));
         }
     }
 

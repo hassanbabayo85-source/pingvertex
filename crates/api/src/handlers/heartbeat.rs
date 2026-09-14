@@ -105,19 +105,19 @@ pub async fn record_heartbeat_post(
 ///
 /// SECURITY: never logged, never echoed back.
 fn extract_heartbeat_token_from_headers(headers: &HeaderMap) -> Option<String> {
-    if let Some(value) = headers.get("x-heartbeat-token") {
-        if let Ok(s) = value.to_str() {
-            return Some(s.to_string());
-        }
+    if let Some(value) = headers.get("x-heartbeat-token")
+        && let Ok(s) = value.to_str()
+    {
+        return Some(s.to_string());
     }
-    if let Some(value) = headers.get(header::AUTHORIZATION) {
-        if let Ok(s) = value.to_str() {
-            if let Some(rest) = s.strip_prefix("Bearer ") {
-                return Some(rest.to_string());
-            }
-            if let Some(rest) = s.strip_prefix("bearer ") {
-                return Some(rest.to_string());
-            }
+    if let Some(value) = headers.get(header::AUTHORIZATION)
+        && let Ok(s) = value.to_str()
+    {
+        if let Some(rest) = s.strip_prefix("Bearer ") {
+            return Some(rest.to_string());
+        }
+        if let Some(rest) = s.strip_prefix("bearer ") {
+            return Some(rest.to_string());
         }
     }
     None
@@ -330,7 +330,11 @@ mod tests {
         let headers = HeaderMap::new();
         let now = Utc::now();
         let a = build_request_id(&monitor_id, &headers, now);
-        let b = build_request_id(&monitor_id, &headers, now + chrono::Duration::nanoseconds(1));
+        let b = build_request_id(
+            &monitor_id,
+            &headers,
+            now + chrono::Duration::nanoseconds(1),
+        );
         assert_ne!(a, b);
         assert!(!a.contains("idempotency"));
     }
