@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// authenticate API requests by itself — it is only valid for
 /// `POST /auth/totp/verify` and expires after 5 minutes (see
 /// `PendingAuthCache`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PendingTwoFactorResponse {
     pub pending_token: String,
 }
@@ -17,4 +17,13 @@ pub struct PendingTwoFactorResponse {
 pub enum LoginOutcome {
     Authenticated(super::AuthResponse),
     PendingTwoFactor(PendingTwoFactorResponse),
+}
+
+/// PART 7 — manual Debug that redacts the pending 2FA token.
+impl std::fmt::Debug for PendingTwoFactorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingTwoFactorResponse")
+            .field("pending_token", &"[REDACTED]")
+            .finish()
+    }
 }

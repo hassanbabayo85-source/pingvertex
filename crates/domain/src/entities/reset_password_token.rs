@@ -18,7 +18,7 @@ use crate::shared::{
 /// carry different raw-token scheme prefixes (`rst_...` vs `evt_...`,
 /// see `application::use_cases::reset_password_support`) so the two
 /// kinds can never be confused for one another at the HTTP boundary.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ResetPasswordToken {
     pub id: ResetPasswordTokenId,
     pub user_id: UserId,
@@ -122,5 +122,19 @@ mod tests {
         let mut token = make_token(Utc::now() + chrono::Duration::minutes(30));
         token.mark_used(Utc::now());
         assert!(!token.is_valid(Utc::now()));
+    }
+}
+
+/// PART 7 — manual Debug that redacts `token_prefix` and `token_hash`.
+impl std::fmt::Debug for ResetPasswordToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResetPasswordToken")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("expires_at", &self.expires_at)
+            .field("used_at", &self.used_at)
+            .field("token_prefix", &"[REDACTED]")
+            .field("token_hash", &"[REDACTED]")
+            .finish()
     }
 }

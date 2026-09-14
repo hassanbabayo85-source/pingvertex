@@ -36,8 +36,14 @@ impl std::fmt::Debug for BillingConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BillingConfig")
             .field("provider", &self.provider)
-            .field("secret_key", &self.secret_key.as_ref().map(|_| "<redacted>"))
-            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "<redacted>"))
+            .field(
+                "secret_key",
+                &self.secret_key.as_ref().map(|_| "<redacted>"),
+            )
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
             .finish()
     }
 }

@@ -5,7 +5,17 @@ use serde::{Deserialize, Serialize};
 /// user to scan into their authenticator app. `totp_enabled` is NOT yet
 /// `true` on the account at this point — it only flips on once
 /// `ConfirmTotpSetupUseCase` verifies the user's first code.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EnableTotpResponse {
     pub otpauth_uri: String,
+}
+
+/// PART 7 — manual Debug that redacts the otpauth URI. That URI encodes
+/// the TOTP secret in plaintext; logging it would defeat 2FA.
+impl std::fmt::Debug for EnableTotpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnableTotpResponse")
+            .field("otpauth_uri", &"[REDACTED]")
+            .finish()
+    }
 }

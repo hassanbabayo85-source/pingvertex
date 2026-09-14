@@ -5,7 +5,16 @@ use serde::{Deserialize, Serialize};
 /// sensitive an action as changing the password itself, so a valid
 /// session JWT alone (`jwt_auth`) is not treated as sufficient proof of
 /// intent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DisableTotpRequest {
     pub password: String,
+}
+
+/// PART 7 — manual Debug that redacts the step-up password.
+impl std::fmt::Debug for DisableTotpRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DisableTotpRequest")
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
 }

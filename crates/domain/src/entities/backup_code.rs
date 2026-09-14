@@ -19,7 +19,7 @@ use crate::shared::{
 /// A code is single-use: `mark_used` records `used_at` the moment it is
 /// redeemed by `VerifyTotpAndLoginUseCase`, and every lookup path must
 /// treat a code with `used_at.is_some()` as no longer valid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BackupCode {
     pub id: BackupCodeId,
     pub user_id: UserId,
@@ -94,5 +94,18 @@ mod tests {
 
         assert!(code.is_used());
         assert_eq!(code.used_at, Some(when));
+    }
+}
+
+/// PART 7 — manual Debug that redacts `code_hash`.
+impl std::fmt::Debug for BackupCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupCode")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("used_at", &self.used_at)
+            .field("created_at", &self.created_at)
+            .field("code_hash", &"[REDACTED]")
+            .finish()
     }
 }

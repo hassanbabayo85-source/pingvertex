@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 
 use crate::{Email, PasswordHash, UserId, UserRole, UserStatus, Username};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct User {
     id: UserId,
     username: Username,
@@ -162,5 +162,25 @@ impl User {
     pub fn delete(&mut self, when: DateTime<Utc>) {
         self.status = UserStatus::Deleted;
         self.updated_at = when;
+    }
+}
+
+/// PART 7 — manual Debug that never prints `password_hash` or the
+/// (encrypted) `totp_secret`. Derived `Debug` would have leaked both.
+impl std::fmt::Debug for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("username", &self.username)
+            .field("role", &self.role)
+            .field("status", &self.status)
+            .field("email_verified", &self.email_verified_at.is_some())
+            .field("totp_enabled", &self.totp_enabled)
+            .field("password_hash", &"[REDACTED]")
+            .field(
+                "totp_secret",
+                &self.totp_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
     }
 }
