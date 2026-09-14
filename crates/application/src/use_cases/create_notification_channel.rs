@@ -143,19 +143,27 @@ impl CreateNotificationChannelUseCase {
                 let url = SlackWebhookUrl::new(command.target).map_err(|err| {
                     CreateNotificationChannelError::InvalidTarget(err.to_string())
                 })?;
-                NotificationChannel::create_slack(id, command.monitor_id, user_id, tenant_id, &url)
+                let encrypted = self
+                    .secret_cipher
+                    .encrypt_bytes(url.as_str().as_bytes())
+                    .map_err(|err| CreateNotificationChannelError::Other(Box::new(err)))?;
+                let mut channel =
+                    NotificationChannel::create_slack(id, command.monitor_id, user_id, tenant_id);
+                channel.encrypted_secret = Some(encrypted);
+                channel
             }
             NotificationChannelKind::Discord => {
                 let url = DiscordWebhookUrl::new(command.target).map_err(|err| {
                     CreateNotificationChannelError::InvalidTarget(err.to_string())
                 })?;
-                NotificationChannel::create_discord(
-                    id,
-                    command.monitor_id,
-                    user_id,
-                    tenant_id,
-                    &url,
-                )
+                let encrypted = self
+                    .secret_cipher
+                    .encrypt_bytes(url.as_str().as_bytes())
+                    .map_err(|err| CreateNotificationChannelError::Other(Box::new(err)))?;
+                let mut channel =
+                    NotificationChannel::create_discord(id, command.monitor_id, user_id, tenant_id);
+                channel.encrypted_secret = Some(encrypted);
+                channel
             }
             NotificationChannelKind::Telegram => {
                 let token = TelegramBotToken::new(command.target).map_err(|err| {

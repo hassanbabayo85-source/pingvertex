@@ -20,13 +20,6 @@ use crate::services::{
     WebhookNotificationService,
 };
 
-/// Routes a notification to the right adapter based on `channel.kind`.
-///
-/// This is intentionally the ONLY place in the whole codebase that knows
-/// both adapters exist. Callers — `worker::IncidentManager` and the API's
-/// "send test notification" handler — just hold a single
-/// `Arc<dyn NotificationService>` and call `.notify(channel, event)`; they
-/// never need to know or care whether a given channel is email or webhook.
 pub struct NotificationDispatcher {
     email: Arc<dyn NotificationService>,
     webhook: Arc<dyn NotificationService>,
@@ -35,18 +28,8 @@ pub struct NotificationDispatcher {
     telegram: Arc<dyn NotificationService>,
     sms: Arc<dyn NotificationService>,
     metering: Option<Arc<MeterUsageUseCase>>,
-    /// GAP 3 Kashi D: fair-use allowance for SMS alerts. When `Some` (and
-    /// `monitor_repository` and `channel_repository` are also `Some`), the
-    /// SMS branch consumes the tenant's free allowance before touching the
-    /// wallet, and falls back to email when the allowance is exhausted and
-    /// the wallet cannot pay.
     allowance_repository: Option<Arc<dyn TenantAlertAllowanceRepository>>,
-    /// Required alongside `allowance_repository` — the allowance limit is
-    /// derived from the tenant's *enabled* monitor count.
     monitor_repository: Option<Arc<dyn MonitorRepository>>,
-    /// Required alongside `allowance_repository` — used to look up the
-    /// tenant's email channels when the SMS allowance is exhausted and
-    /// the wallet cannot pay.
     channel_repository: Option<Arc<dyn NotificationChannelRepository>>,
 }
 
@@ -73,37 +56,11 @@ impl NotificationDispatcher {
         }
     }
 
-    /// Builds a dispatcher from environment variables.
-    ///
-    /// Webhook delivery is always available — it needs no global
-    /// configuration, since each channel carries its own target URL and
-    /// signing secret. Email delivery requires `SMTP_*` environment
-    /// variables (see `SmtpConfig::try_from_env`); if they're missing or
-    /// invalid, this does NOT fail startup — it logs a warning and falls
-    /// back to `DisabledEmailNotificationService`, which returns a clear
-    /// error only if/when an email channel is actually triggered. A
-    /// self-hosted deployment that only wants webhook notifications
-    /// shouldn't be forced to configure an SMTP relay just to boot.
-    /// Enables PAYG billing for SMS delivery. Billing lives at this routing
-    /// boundary so every SMS path (incident, outbox retry, and test send) is
-    /// covered without putting wallet concerns into the Twilio adapter.
     pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
         self.metering = Some(metering);
         self
     }
 
-    /// GAP 3 Kashi D: wire the fair-use SMS allowance.
-    ///
-    /// All three repositories must be provided together. When they are,
-    /// the SMS branch:
-    ///   1. Consumes the tenant's free allowance for the current monthly
-    ///      cycle (limit = `ceil(enabled_monitors * 250 / 1000)`).
-    ///   2. Falls back to the wallet only when the allowance is exhausted.
-    ///   3. Falls back to the tenant's email channels when the wallet
-    ///      cannot pay.
-    ///
-    /// Test sends (`request_id` beginning with `test:`) bypass the
-    /// allowance entirely so a test SMS never burns a tenant's free quota.
     pub fn with_alert_allowance(
         mut self,
         allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
@@ -147,8 +104,10 @@ impl NotificationDispatcher {
 
         let webhook: Arc<dyn NotificationService> =
             Arc::new(WebhookNotificationService::new(cipher.clone()));
-        let slack: Arc<dyn NotificationService> = Arc::new(SlackNotificationService::new());
-        let discord: Arc<dyn NotificationService> = Arc::new(DiscordNotificationService::new());
+        let slack: Arc<dyn NotificationService> =
+            Arc::new(SlackNotificationService::new(cipher.clone()));
+        let discord: Arc<dyn NotificationService> =
+            Arc::new(DiscordNotificationService::new(cipher.clone()));
         let telegram: Arc<dyn NotificationService> =
             Arc::new(TelegramNotificationService::new(cipher.clone()));
         let sms: Arc<dyn NotificationService> = Arc::new(SmsNotificationService::new(cipher));
@@ -172,12 +131,6 @@ impl NotificationService for NotificationDispatcher {
         channel: &NotificationChannel,
         event: &NotificationEvent,
     ) -> NotifyResult {
-        // GAP 3 Kashi D: `NotificationEvent::Test` sends bypass the fair-use
-        // SMS allowance (see the `request_id.starts_with("test:")` check in
-        // `notify_with_request_id`). The "test:" prefix is applied here so
-        // that `SendTestNotificationUseCase` — which calls `notify()`
-        // directly, not `notify_with_request_id()` — cannot silently drain
-        // the tenant's free SMS quota while the user is testing a channel.
         let kind = event_kind(event);
         let request_id = if matches!(event, NotificationEvent::Test(_)) {
             format!("test:{}:{}:{}", channel.id.0, kind, uuid::Uuid::new_v4())
@@ -199,15 +152,6 @@ impl NotificationService for NotificationDispatcher {
         event: &NotificationEvent,
         request_id: &str,
     ) -> NotifyResult {
-        // GAP 3 Kashi D: SMS fair-use allowance flow.
-        //
-        // Skip allowance for test sends (`test:` prefix) so a user testing
-        // an SMS channel does not silently drain the tenant's free quota.
-        //
-        // The full flow, in order:
-        //   1. Consume free allowance for the current monthly cycle.
-        //   2. Fall back to the wallet (paid SMS credits).
-        //   3. Fall back to the tenant's email channels (free, unlimited).
         let use_allowance = channel.kind == NotificationChannelKind::Sms
             && !request_id.starts_with("test:")
             && self.allowance_repository.is_some()
@@ -220,7 +164,6 @@ impl NotificationService for NotificationDispatcher {
             let channel_repo = self.channel_repository.as_ref().unwrap();
             let tenant_id = channel.tenant_id;
 
-            // 1. Lazy-reset / create the current cycle row.
             let enabled = monitor_repo
                 .count_enabled_for_tenant(tenant_id)
                 .await
@@ -232,7 +175,6 @@ impl NotificationService for NotificationDispatcher {
                 warn!(tenant_id = %tenant_id.0, error = %err, "allowance current_cycle lookup failed; falling through to wallet");
             }
 
-            // 2. Try to consume one SMS from the free allowance.
             match allowance_repo.try_consume_sms(tenant_id, Utc::now()).await {
                 Ok(true) => {
                     return self.sms.notify(channel, event).await;
@@ -245,7 +187,6 @@ impl NotificationService for NotificationDispatcher {
                 }
             }
 
-            // 3. Try the wallet (paid SMS credits) if metering is wired.
             if let Some(metering) = &self.metering {
                 let request_id_owned = request_id.to_owned();
                 match metering
@@ -274,7 +215,6 @@ impl NotificationService for NotificationDispatcher {
                 }
             }
 
-            // 4. Fallback: send via every enabled email channel of the tenant.
             let emails = match channel_repo.list_enabled_email_by_tenant(tenant_id).await {
                 Ok(v) => v,
                 Err(err) => {
@@ -299,7 +239,6 @@ impl NotificationService for NotificationDispatcher {
             return Ok(());
         }
 
-        // Legacy path: no allowance wired, or non-SMS, or a test send.
         if channel.kind == NotificationChannelKind::Sms
             && let Some(metering) = &self.metering
         {
