@@ -17,6 +17,7 @@ use crate::{
         agent_auth::agent_auth, agent_id_key_extractor::AgentIdKeyExtractor,
         api_key_auth::api_key_auth, custom_domain_routing::custom_domain_routing,
         jwt_auth::jwt_auth, metrics::record_http_metrics, origin_check::require_matching_origin,
+        require_recent_mfa::require_recent_mfa,
     },
     routes::{
         admin, api_flows, api_keys, audit, auth, billing, checks, dashboard, health, help,
@@ -346,13 +347,29 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 
     // Admin pricing routes: protected by JWT only; permission check is done
     // inside handlers (require ManageBilling, available to Owner only).
-    let admin_pricing_routes = pricing::admin_router()
+    // SECURITY: /admin pricing READS are gated on `jwt_auth` only.
+    // WRITES are additionally gated on `require_recent_mfa` — a fresh
+    // TOTP/backup-code step-up within RECENT_MFA_TTL_SECONDS — so a
+    // plain session JWT can never change platform-wide pricing.
+    let admin_pricing_reads = pricing::admin_router_reads()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_millisecond(17)
-                .burst_size(30)
+                .per_second(2)
+                .burst_size(20)
                 .finish()
-                .expect("valid admin pricing rate-limit configuration"),
+                .expect("valid admin pricing read rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let admin_pricing_writes = pricing::admin_router_writes()
+        .route_layer(from_fn_with_state(auth_state.clone(), require_recent_mfa))
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(5)
+                .finish()
+                .expect("valid admin pricing write rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -368,13 +385,32 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    let platform_admin_routes = admin::router()
+    // SECURITY: platform-admin READS (list companies/users, audit
+    // stream) require `jwt_auth` + `is_platform_admin()` only.
+    // WRITES (suspend/activate company, suspend/delete user, wallet
+    // adjustment, promotional credit) additionally require
+    // `require_recent_mfa`: the platform-admin role is necessary but
+    // not sufficient, so a stolen session cookie cannot perform
+    // irreversible or financial operations.
+    let platform_admin_reads = admin::router_reads()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(10)
+                .per_second(5)
                 .burst_size(20)
                 .finish()
-                .expect("valid platform admin rate-limit configuration"),
+                .expect("valid platform admin read rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let platform_admin_writes = admin::router_writes()
+        .route_layer(from_fn_with_state(auth_state.clone(), require_recent_mfa))
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(5)
+                .finish()
+                .expect("valid platform admin write rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -423,8 +459,10 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1/tenant", tenant_audit_routes)
         .nest("/api/v1", help_routes)
         .nest("/api/v1", support_routes)
-        .nest("/api/v1/admin", admin_pricing_routes)
-        .nest("/api/v1/admin", platform_admin_routes)
+        .nest("/api/v1/admin", admin_pricing_reads)
+        .nest("/api/v1/admin", admin_pricing_writes)
+        .nest("/api/v1/admin", platform_admin_reads)
+        .nest("/api/v1/admin", platform_admin_writes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)
@@ -589,8 +627,14 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    // Admin pricing routes for test router: JWT only, permission check in handlers.
-    let admin_pricing_routes = pricing::admin_router()
+    // Admin pricing READS: JWT only (no MFA — reads are safe).
+    let admin_pricing_reads = pricing::admin_router_reads()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    // Admin pricing WRITES: JWT + recent-MFA step-up.
+    let admin_pricing_writes = pricing::admin_router_writes()
+        .route_layer(from_fn_with_state(auth_state.clone(), require_recent_mfa))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
     let tenant_audit_routes = audit::router()
@@ -604,7 +648,14 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    let platform_admin_routes = admin::router()
+    // Platform-admin READS: JWT only.
+    let platform_admin_reads = admin::router_reads()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    // Platform-admin WRITES: JWT + recent-MFA step-up.
+    let platform_admin_writes = admin::router_writes()
+        .route_layer(from_fn_with_state(auth_state.clone(), require_recent_mfa))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
@@ -630,8 +681,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1/tenant", tenant_audit_routes)
         .nest("/api/v1", help_routes)
         .nest("/api/v1", support_routes)
-        .nest("/api/v1/admin", admin_pricing_routes)
-        .nest("/api/v1/admin", platform_admin_routes)
+        .nest("/api/v1/admin", admin_pricing_reads)
+        .nest("/api/v1/admin", admin_pricing_writes)
+        .nest("/api/v1/admin", platform_admin_reads)
+        .nest("/api/v1/admin", platform_admin_writes)
         .nest("/api/v1", api_key_routes)
         .nest("/api/v1", membership_routes)
         .nest("/api/v1", invitation_routes)

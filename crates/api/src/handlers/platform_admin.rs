@@ -8,6 +8,12 @@ use domain::shared::types::AuthenticatedUser;
 use domain::{TenantStatus, UserStatus};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Platform-admin gate. NOTE: this only checks the platform-admin
+/// flag; the additional "recent MFA" step-up requirement is enforced
+/// by the `require_recent_mfa` middleware at the router layer. Keeping
+/// the two checks separate lets read-only endpoints skip the MFA gate
+/// in the future without also weakening the platform-admin check.
 fn admin(u: &AuthenticatedUser) -> Result<(), ApiError> {
     if u.is_platform_admin() {
         Ok(())
@@ -17,6 +23,7 @@ fn admin(u: &AuthenticatedUser) -> Result<(), ApiError> {
         ))
     }
 }
+
 #[derive(Serialize)]
 pub struct CompanyResponse {
     pub id: String,
@@ -26,6 +33,7 @@ pub struct CompanyResponse {
     pub status: String,
     pub wallet_balance_units: i64,
 }
+
 #[derive(Serialize)]
 pub struct PlatformUserResponse {
     pub id: String,
@@ -34,16 +42,19 @@ pub struct PlatformUserResponse {
     pub role: String,
     pub status: String,
 }
+
 #[derive(Deserialize)]
 pub struct StatusRequest {
     pub status: String,
 }
+
 #[derive(Deserialize)]
 pub struct WalletAdjustmentRequest {
     pub delta_units: i64,
     pub idempotency_key: String,
     pub description: Option<String>,
 }
+
 pub async fn list_companies(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -73,6 +84,7 @@ pub async fn list_companies(
     }
     Ok(Json(out))
 }
+
 pub async fn list_users(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -95,6 +107,7 @@ pub async fn list_users(
             .collect(),
     ))
 }
+
 pub async fn set_company_status(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -107,6 +120,19 @@ pub async fn set_company_status(
         "suspended" => TenantStatus::Suspended,
         _ => return Err(ApiError::bad_request("status must be active or suspended")),
     };
+
+    // Read the current tenant state FIRST so the audit record can
+    // capture `old_state` alongside `new_state`. This is a read, not a
+    // CAS, so a concurrent change between read and write is possible;
+    // the audit `new_state` reflects exactly what THIS call requested,
+    // which is the value we want in the trail.
+    let old_state = s
+        .platform_tenant_repository
+        .find_by_id(domain::TenantId(id))
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load company", e))?
+        .map(|t| t.status.as_str().to_string());
+
     if !s
         .platform_tenant_repository
         .set_status(domain::TenantId(id), st)
@@ -115,17 +141,31 @@ pub async fn set_company_status(
     {
         return Err(ApiError::not_found("company not found"));
     }
+
+    let new_state = st.as_str().to_string();
+    let action = if st == TenantStatus::Suspended {
+        domain::AuditAction::PlatformCompanySuspended
+    } else {
+        domain::AuditAction::PlatformCompanyActivated
+    };
+
+    // Enriched audit metadata. `actor_user_id` and `target_id` are
+    // stored both as first-class columns (on the entry) AND inside
+    // `metadata` so the JSON payload is self-contained for downstream
+    // consumers that only read `metadata`.
     let entry = domain::AuditLogEntry {
         id: domain::AuditLogEntryId::new(),
         actor_user_id: u.user_id(),
         tenant_id: Some(domain::TenantId(id)),
-        action: if st == TenantStatus::Suspended {
-            domain::AuditAction::PlatformCompanySuspended
-        } else {
-            domain::AuditAction::PlatformCompanyActivated
-        },
+        action,
         target_id: id.to_string(),
-        metadata: serde_json::json!({"status":st.as_str()}),
+        metadata: serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": if st == TenantStatus::Suspended { "company_suspend" } else { "company_activate" },
+            "old_state": old_state,
+            "new_state": new_state,
+        }),
         created_at: chrono::Utc::now(),
     };
     s.audit_log_entry_repository
@@ -134,6 +174,7 @@ pub async fn set_company_status(
         .map_err(|e| ApiError::internal_with_source("failed to audit company status", e))?;
     Ok(StatusCode::NO_CONTENT)
 }
+
 pub async fn set_user_status(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -141,11 +182,20 @@ pub async fn set_user_status(
     Json(r): Json<StatusRequest>,
 ) -> Result<StatusCode, ApiError> {
     admin(&u)?;
+
+    // SECURITY: an admin must never be able to suspend or delete their
+    // OWN account through this endpoint. Doing so would leave the
+    // platform without an actor in the audit trail for the very act
+    // that removed them, and (for the sole-admin case) is
+    // indistinguishable from a privilege-removal denial of service.
+    // This invariant is preserved by the platform-admin hardening
+    // tests.
     if id == u.user_id().0 {
         return Err(ApiError::bad_request(
-            "cannot suspend the current administrator",
+            "cannot change the status of the current administrator",
         ));
     }
+
     let st = match r.status.as_str() {
         "active" => UserStatus::Active,
         "suspended" => UserStatus::Suspended,
@@ -156,6 +206,7 @@ pub async fn set_user_status(
             ));
         }
     };
+
     let uid = domain::UserId(id);
     let mut target = s
         .platform_user_repository
@@ -163,6 +214,9 @@ pub async fn set_user_status(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load user", e))?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
+
+    let old_state = target.status().to_string();
+
     match st {
         UserStatus::Active => target.activate(chrono::Utc::now()),
         UserStatus::Suspended => target.suspend(chrono::Utc::now()),
@@ -173,17 +227,31 @@ pub async fn set_user_status(
         .update(&target)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to update user", e))?;
+
+    let action = match st {
+        UserStatus::Suspended => domain::AuditAction::PlatformUserSuspended,
+        UserStatus::Deleted => domain::AuditAction::PlatformUserDeleted,
+        _ => domain::AuditAction::PlatformUserActivated,
+    };
+    let action_label = match st {
+        UserStatus::Suspended => "user_suspend",
+        UserStatus::Deleted => "user_delete",
+        _ => "user_activate",
+    };
+
     let entry = domain::AuditLogEntry {
         id: domain::AuditLogEntryId::new(),
         actor_user_id: u.user_id(),
         tenant_id: None,
-        action: match st {
-            UserStatus::Suspended => domain::AuditAction::PlatformUserSuspended,
-            UserStatus::Deleted => domain::AuditAction::PlatformUserDeleted,
-            _ => domain::AuditAction::PlatformUserActivated,
-        },
+        action,
         target_id: id.to_string(),
-        metadata: serde_json::json!({"status":st.to_string()}),
+        metadata: serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": action_label,
+            "old_state": old_state,
+            "new_state": st.to_string(),
+        }),
         created_at: chrono::Utc::now(),
     };
     s.audit_log_entry_repository
@@ -192,6 +260,7 @@ pub async fn set_user_status(
         .map_err(|e| ApiError::internal_with_source("failed to audit user status", e))?;
     Ok(StatusCode::NO_CONTENT)
 }
+
 pub async fn adjust_company_wallet(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -204,6 +273,16 @@ pub async fn adjust_company_wallet(
             "idempotency_key must be 1-200 characters",
         ));
     }
+
+    // Snapshot the balance BEFORE the adjustment so the audit trail
+    // records the `old_state` alongside the `new_state` and the delta.
+    let old_balance_units = s
+        .wallet_repository
+        .find(id)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load wallet", e))?
+        .map(|w| w.balance_units);
+
     let tx = s
         .wallet_repository
         .adjust_balance(
@@ -214,20 +293,68 @@ pub async fn adjust_company_wallet(
         )
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+    let new_balance_units = s
+        .wallet_repository
+        .find(id)
+        .await
+        .ok()
+        .flatten()
+        .map(|w| w.balance_units);
+
+    // Financial audit entry. `old_state`/`new_state` here are wallet
+    // balances; `amount` is the signed delta; `idempotency_key` is the
+    // caller-supplied request identifier. Together these let
+    // investigators reconstruct exactly what happened, whether the
+    // operation was retried, and by how much the balance moved.
     let audit = domain::FinancialAuditLogEntry::new(
         u.user_id().0.to_string(),
         Some(id),
         "platform_wallet_adjusted",
         "wallet",
         Some(tx.id.to_string()),
-        serde_json::json!({"delta_units":r.delta_units}),
+        serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": "wallet_adjustment",
+            "old_state": old_balance_units,
+            "new_state": new_balance_units,
+            "amount": r.delta_units,
+            "idempotency_key": r.idempotency_key,
+            "description": r.description,
+        }),
     );
     s.financial_audit_log_repository
         .create(&audit)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to audit wallet adjustment", e))?;
+
+    // Also record in the generic platform audit stream so it shows up
+    // in `GET /api/v1/admin/audit` alongside non-financial events.
+    let generic_entry = domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: u.user_id(),
+        tenant_id: Some(domain::TenantId(id)),
+        action: domain::AuditAction::PlatformWalletAdjusted,
+        target_id: id.to_string(),
+        metadata: serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": "wallet_adjustment",
+            "amount": r.delta_units,
+            "idempotency_key": r.idempotency_key,
+            "transaction_id": tx.id.to_string(),
+        }),
+        created_at: chrono::Utc::now(),
+    };
+    s.audit_log_entry_repository
+        .create(&generic_entry)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to audit wallet adjustment", e))?;
+
     Ok(Json(tx))
 }
+
 pub async fn grant_company_promo(
     State(s): State<AppState>,
     Extension(u): Extension<AuthenticatedUser>,
@@ -244,6 +371,14 @@ pub async fn grant_company_promo(
         ));
     }
     let expires = chrono::Utc::now() + chrono::Duration::days(30);
+
+    let old_balance_units = s
+        .wallet_repository
+        .find(id)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to load wallet", e))?
+        .map(|w| w.balance_units);
+
     let tx = s
         .wallet_repository
         .grant_promotional_credit(
@@ -255,18 +390,60 @@ pub async fn grant_company_promo(
         )
         .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+    let new_balance_units = s
+        .wallet_repository
+        .find(id)
+        .await
+        .ok()
+        .flatten()
+        .map(|w| w.balance_units);
+
     let audit = domain::FinancialAuditLogEntry::new(
         u.user_id().0.to_string(),
         Some(id),
         "platform_promotional_credit_granted",
         "wallet",
         Some(tx.id.to_string()),
-        serde_json::json!({"amount_units":r.delta_units,"expires_at":expires}),
+        serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": "promotional_credit",
+            "old_state": old_balance_units,
+            "new_state": new_balance_units,
+            "amount": r.delta_units,
+            "expires_at": expires,
+            "idempotency_key": r.idempotency_key,
+            "description": r.description,
+        }),
     );
     s.financial_audit_log_repository
         .create(&audit)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to audit promotional credit", e))?;
+
+    let generic_entry = domain::AuditLogEntry {
+        id: domain::AuditLogEntryId::new(),
+        actor_user_id: u.user_id(),
+        tenant_id: Some(domain::TenantId(id)),
+        action: domain::AuditAction::PlatformPromotionalCreditGranted,
+        target_id: id.to_string(),
+        metadata: serde_json::json!({
+            "actor_user_id": u.user_id().0.to_string(),
+            "target_id": id.to_string(),
+            "action": "promotional_credit",
+            "amount": r.delta_units,
+            "expires_at": expires,
+            "idempotency_key": r.idempotency_key,
+            "transaction_id": tx.id.to_string(),
+        }),
+        created_at: chrono::Utc::now(),
+    };
+    s.audit_log_entry_repository
+        .create(&generic_entry)
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to audit promotional credit", e))?;
+
     Ok(Json(tx))
 }
 
@@ -290,13 +467,6 @@ pub async fn audit_records(
     admin(&u)?;
     crate::handlers::audit::_validate_date_range(query.from, query.to)?;
 
-    // Admin audit is the platform-admin counterpart of `GET /api/v1/tenant/audit`.
-    // Like the tenant endpoint, it must merge the generic audit stream
-    // (`audit_log`) with the financial audit stream (`financial_audit_log`)
-    // so admins see both in a single cursor-paginated response. The tenant
-    // endpoint is scoped to exactly one tenant; this one may be scoped to
-    // one, many, or no tenant, which is why the financial side goes through
-    // `list_page_admin` (accepts `Option<Uuid>`) instead of `list_page`.
     let limit = query.limit.unwrap_or(50).clamp(1, 100) as usize;
     let cursor_generic = crate::handlers::audit::decode_cursor_for_admin(query.cursor.as_deref())?;
 
@@ -315,18 +485,6 @@ pub async fn audit_records(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?;
 
-    // The generic audit stream exposes the audited resource identity as
-    // `target_id`; the financial stream uses `resource_id`. Mapping one to
-    // the other keeps the "target" filter semantically identical across
-    // both streams.
-    // `PlatformAuditQuery.actor` is `Option<Uuid>`, matching the generic
-    // audit stream's `actor_user_id` column. The financial audit stream's
-    // `actor` is a free-form string: user-initiated entries store the
-    // acting user's UUID as a string, while system entries use namespaced
-    // strings like `"billing:webhook"` or `"system:payg"`. Passing the
-    // UUID as a string keeps user-actor filtering working across both
-    // streams. System-actor filtering is out of scope for this endpoint;
-    // it would require a separate string-typed query parameter.
     let financial_filter = application::ports::FinancialAuditLogFilter {
         action: query.action.clone(),
         resource_id: query.target.clone(),
@@ -368,8 +526,6 @@ pub async fn audit_records(
         });
     }
 
-    // Same ordering as the repositories (`created_at DESC, id DESC`) so the
-    // merged page is stable and cursor-consistent across both streams.
     items.sort_by(|a, b| {
         b.created_at
             .cmp(&a.created_at)

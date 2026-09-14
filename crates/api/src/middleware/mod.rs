@@ -6,3 +6,4 @@ pub mod jwt_auth;
 pub mod metrics;
 pub mod origin_check;
 pub mod require_permission;
+pub mod require_recent_mfa;

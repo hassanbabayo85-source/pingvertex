@@ -1,4 +1,5 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
+use application::ports::PendingAuthCache;
 use application::ports::TenantMembershipRepository;
 use application::ports::TenantRepository;
 use application::ports::{PasswordHasher, TokenService, UserRepository};
@@ -152,6 +153,43 @@ impl TokenService for NoopTokenService {
     }
 }
 
+#[derive(Clone, Default)]
+struct RealPendingAuthCache {
+    store: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+}
+
+#[async_trait::async_trait]
+impl application::ports::PendingAuthCache for RealPendingAuthCache {
+    async fn get(
+        &self,
+        key: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.store.lock().unwrap().get(key).cloned())
+    }
+    async fn getdel(
+        &self,
+        key: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.store.lock().unwrap().remove(key))
+    }
+    async fn set(
+        &self,
+        key: &str,
+        value: &str,
+        _ttl_seconds: u64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.store
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), value.to_string());
+        Ok(())
+    }
+    async fn delete(&self, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.store.lock().unwrap().remove(key);
+        Ok(())
+    }
+}
+
 async fn build_test_app(
     tenant_id: TenantId,
     membership_repo: InMemoryTenantMembershipRepository,
@@ -189,7 +227,7 @@ async fn build_test_app_with_platform_admin(
         .await
         .unwrap();
 
-    let auth_state = AuthState::new(
+    let mut auth_state = AuthState::new(
         NoopUserRepository {
             platform_admin_user,
         },
@@ -200,6 +238,24 @@ async fn build_test_app_with_platform_admin(
         membership_repo,
         InMemoryRegistrationTransaction::new(),
     );
+
+    // Inject a real in-memory pending-auth cache so we can seed a
+    // "recent MFA" marker for the platform admin — otherwise the
+    // `require_recent_mfa` middleware would reject every write with
+    // 403 (step-up required), which is the correct production
+    // behavior but not what these read/write tests are exercising.
+    let cache = std::sync::Arc::new(RealPendingAuthCache::default());
+    auth_state.pending_auth_cache = cache.clone();
+    if let Some(admin_id) = platform_admin_user {
+        cache
+            .set(
+                &application::recent_mfa_cache_key(admin_id),
+                "1",
+                application::RECENT_MFA_TTL_SECONDS,
+            )
+            .await
+            .unwrap();
+    }
 
     build_test_router(app_state, auth_state)
 }
