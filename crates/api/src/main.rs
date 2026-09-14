@@ -14,6 +14,7 @@ use application::ports::{
 };
 use axum_server::tls_rustls::RustlsAcceptor;
 use axum_server_mtls::MtlsAcceptor;
+use infra::PostgresAgentRegistryRepository;
 use infra::services::MaxMindGeoIpLookup;
 use infra::{
     AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
@@ -218,6 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))
     .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
+    .with_agent_registry(PostgresAgentRegistryRepository::new(pool.clone()))
     .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
     .with_platform_admin_repositories(platform_user_repository.clone(), platform_tenant_repository)
     .with_bulk_monitor_action_repository(PostgresBulkMonitorActionRepository::new(pool.clone()))

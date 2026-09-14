@@ -11,10 +11,12 @@ use axum_server_mtls::PeerCertificates;
 use domain::pricing::PricingConfig;
 use domain::shared::ids::TenantId;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
+use domain::{Agent, AgentStatus};
 use domain::{
     Check, CheckInterval, DiagnosticReport, ExpectedStatus, HttpMethod, Incident, Monitor,
     MonitorBuilder, MonitorName, RegionCode, Timeout, Url, User,
 };
+use infra::InMemoryAgentRegistry;
 use infra::InMemoryAuditLogEntryRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;
@@ -71,6 +73,19 @@ fn peer_certificates_with_cn(cn: &str) -> PeerCertificates {
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
     PeerCertificates::new(vec![cert_der])
+}
+
+/// PART 5 — seeds a test InMemoryAgentRegistry with the CNs the
+/// existing tests use, plus a revoked fixture.
+fn seed_test_agents() -> std::sync::Arc<infra::InMemoryAgentRegistry> {
+    let reg = std::sync::Arc::new(infra::InMemoryAgentRegistry::new());
+    for id in ["agent-1", "agent-2", "agent-us-east-1"] {
+        reg.register(domain::Agent::new(id, "us-east"));
+    }
+    reg.register(
+        domain::Agent::new("agent-revoked", "us-east").with_status(domain::AgentStatus::Revoked),
+    );
+    reg
 }
 
 #[derive(Clone, Default)]
@@ -343,6 +358,7 @@ async fn build_test_app(
         InMemoryAuditLogEntryRepository::new(),
     )
     .with_agent_lease_repository(agent_lease_repository.clone())
+    .with_agent_registry(seed_test_agents())
     .with_wallet_repository(wallet_repository.clone())
     .with_payg_pricing_repository(payg_pricing_repository.clone())
     .with_pricing_config_repository(pricing_config_repository.clone())
@@ -463,7 +479,7 @@ async fn claim_checks_with_cn_not_matching_path_agent_id_returns_forbidden() {
 }
 
 #[tokio::test]
-async fn claim_checks_with_invalid_region_header_returns_bad_request() {
+async fn claim_checks_with_forged_region_header_returns_forbidden() {
     let monitor = build_monitor_with_regions(vec![RegionCode::new("us-east").unwrap()]);
     let (app, _check_repo, _lease_repo) = build_test_app(vec![monitor]).await;
 
@@ -479,7 +495,7 @@ async fn claim_checks_with_invalid_region_header_returns_bad_request() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

@@ -6,12 +6,12 @@ use axum::http::{Request, StatusCode};
 use axum_server_mtls::PeerCertificates;
 use chrono::{Duration, Utc};
 use domain::shared::ids::{CheckId, MonitorId, TenantId};
-use domain::{Check, Monitor, RegionCode};
+use domain::{Agent, Check, Monitor, RegionCode};
 use infra::{
-    InMemoryAgentLeaseRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryRegistrationTransaction,
-    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryAuditLogEntryRepository,
+    InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::{Arc, Mutex};
@@ -289,7 +289,13 @@ async fn build_app_with_lease_repo(
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_agent_lease_repository(lease_repo);
+    .with_agent_lease_repository(lease_repo)
+    .with_agent_registry({
+        // PART 5 — yadda test ɗin yake aiki: agent-1 a us-east.
+        let reg = infra::InMemoryAgentRegistry::new();
+        reg.register(domain::Agent::new("agent-1", "us-east"));
+        reg
+    });
 
     let auth_state = AuthState::new(
         NoopUserRepository,

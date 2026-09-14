@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use application::ports::SubmitAgentResultOutcome;
 use axum::{
     Json, Router,
-    extract::{Extension, Path, State},
+    extract::{Extension, State},
     http::StatusCode,
     routing::post,
 };
@@ -13,11 +13,7 @@ use domain::{Check, CheckStatus, ErrorType, Monitor, RegionCode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    error::ApiError,
-    middleware::agent_auth::{AgentId, AgentRegion},
-    state::AppState,
-};
+use crate::{error::ApiError, middleware::agent_auth::AuthenticatedAgent, state::AppState};
 
 fn env_positive_u32(key: &str, default: u32, max: u32) -> u32 {
     std::env::var(key)
@@ -73,10 +69,15 @@ pub fn router() -> Router<AppState> {
 
 async fn claim_checks(
     State(state): State<AppState>,
-    Path(agent_id): Path<String>,
-    Extension(_agent): Extension<AgentId>,
-    Extension(agent_region): Extension<AgentRegion>,
+    Extension(agent): Extension<AuthenticatedAgent>,
 ) -> Result<Json<ClaimResponse>, ApiError> {
+    // PART 5 — agent_id and region come from the SERVER-SIDE identity
+    // (`AuthenticatedAgent`), which the `agent_auth` middleware
+    // constructed from the certificate CN + registry lookup. Neither
+    // value can be influenced by anything the client sent.
+    let agent_id = agent.agent_id.clone();
+    let agent_region = agent.region.clone();
+
     let mut checks = Vec::new();
     let mut plan_cache: HashMap<Uuid, domain::Plan> = HashMap::new();
 
@@ -84,7 +85,7 @@ async fn claim_checks(
         let leases = lease_repo
             .claim_due_checks_with_limits(
                 &agent_id,
-                &agent_region.0,
+                &agent_region,
                 agent_claim_limit(),
                 Duration::from_secs(420),
                 Utc::now(),
@@ -156,7 +157,7 @@ async fn claim_checks(
                         execution_id: Some(lease.check_id.0),
                         pricing_context: Some(application::ports::PricingContext {
                             account_type: None,
-                            region: Some(agent_region.0.clone()),
+                            region: Some(agent_region.clone()),
                             monitor_kind: Some(monitor.kind),
                             quantity: 1,
                         }),
@@ -232,13 +233,21 @@ async fn claim_checks(
 
 async fn submit_result(
     State(state): State<AppState>,
-    Path(agent_id): Path<String>,
-    Extension(_agent): Extension<AgentId>,
-    Extension(_agent_region): Extension<AgentRegion>,
+    Extension(agent): Extension<AuthenticatedAgent>,
     Json(payload): Json<SubmitResultRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let region =
+    let agent_id = agent.agent_id.clone();
+    let region = agent.region.clone();
+
+    // Defense-in-depth: if the body carries a region claim (agents
+    // currently do, for backward compatibility), it MUST match the
+    // server-side registered region. A mismatch is an identity-tampering
+    // attempt and is refused rather than silently coerced.
+    let body_region =
         RegionCode::new(payload.region).map_err(|err| ApiError::bad_request(err.to_string()))?;
+    if body_region != region {
+        return Err(ApiError::forbidden("agent region mismatch"));
+    }
 
     let check = Check::new(
         CheckId(payload.check_id),

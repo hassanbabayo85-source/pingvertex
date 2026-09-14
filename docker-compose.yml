@@ -174,7 +174,22 @@ services:
     environment:
       AGENT_API_BASE_URL: https://api:3443/internal/v1
       AGENT_ID: agent-us-east-1
+      # PART 5 — region is authoritative on the SERVER side (see
+      # migrations/0122_agent_registry.sql). This value is only used by
+      # the agent to fill the informational X-Agent-Region header; the
+      # API rejects any request whose header does not match the
+      # registered region, and never trusts this value on its own.
+      AGENT_REGION: us-east
       RUST_LOG: info
+    # PART 5 — client-key.pem is deliberately NOT baked into the image
+    # (see Dockerfile.agent). It is bind-mounted here from a location
+    # OUTSIDE the repository. Point AGENT_CLIENT_KEY_PATH_HOST at a
+    # securely-managed file on the host (e.g. `/etc/pingvertex/agents/...`).
+    volumes:
+      - type: bind
+        source: ${AGENT_CLIENT_KEY_PATH_HOST:-./secrets/agent-us-east-1-client-key.pem}
+        target: /app/certs/agents/agent-us-east-1/client-key.pem
+        read_only: true
 
   frontend-build:
     build:

@@ -488,6 +488,8 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 }
 
 pub fn build_internal_agent_router(app_state: AppState) -> Router {
+    // PART 5 — agent_auth now needs `State<AppState>` (the agent
+    // registry lives there), so it is wired via `from_fn_with_state`.
     let internal_agent_routes = internal_agents::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -497,7 +499,10 @@ pub fn build_internal_agent_router(app_state: AppState) -> Router {
                 .finish()
                 .expect("valid internal agent rate-limit configuration"),
         ))
-        .route_layer(axum::middleware::from_fn(agent_auth))
+        .route_layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            agent_auth,
+        ))
         .with_state(app_state.clone());
 
     Router::new()
@@ -603,7 +608,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
     let public_routes = public::router().with_state(app_state.clone());
 
     let internal_agent_routes = internal_agents::router()
-        .route_layer(axum::middleware::from_fn(agent_auth))
+        .route_layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            agent_auth,
+        ))
         .with_state(app_state.clone());
 
     // NOTE (H10): deliberately still NO `GovernorLayer` here, consistent

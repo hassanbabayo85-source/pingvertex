@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use application::ports::AgentRegistry;
 use application::ports::{
     AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
     AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
@@ -76,6 +77,8 @@ pub struct AppState {
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
     pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
+    /// PART 5 — server-side agent identity registry.
+    pub agent_registry: Arc<dyn AgentRegistry>,
     pub scheduling_repository: Arc<dyn SchedulingRepository>,
     /// B34: backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
     /// healthy) until `with_health_check_port` substitutes a real check —
@@ -1044,6 +1047,23 @@ impl GeoIpLookup for NoopGeoIpLookup {
 }
 
 #[derive(Clone, Default)]
+struct NoopAgentRegistry;
+
+#[async_trait]
+impl application::ports::AgentRegistry for NoopAgentRegistry {
+    async fn find_by_id(
+        &self,
+        _agent_id: &str,
+    ) -> application::ports::AgentRegistryResult<Option<domain::Agent>> {
+        // Fail closed: an empty registry means "no agent is trusted".
+        Ok(None)
+    }
+    async fn list_active(&self) -> application::ports::AgentRegistryResult<Vec<domain::Agent>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Clone, Default)]
 struct NoopWalletRepository;
 
 #[async_trait]
@@ -1536,6 +1556,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
+            agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
@@ -1639,6 +1660,7 @@ impl AppState {
             billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
+            agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
@@ -1765,6 +1787,17 @@ impl AppState {
         R: AgentLeaseRepository + 'static,
     {
         self.agent_lease_repository = Some(Arc::new(agent_lease_repository));
+        self
+    }
+
+    /// PART 5 — substitutes a real `AgentRegistry` (see
+    /// `infra::PostgresAgentRegistryRepository`) in place of the
+    /// fail-closed `NoopAgentRegistry` default.
+    pub fn with_agent_registry<R>(mut self, agent_registry: R) -> Self
+    where
+        R: AgentRegistry + 'static,
+    {
+        self.agent_registry = Arc::new(agent_registry);
         self
     }
 
