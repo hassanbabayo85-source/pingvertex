@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{error::Error, sync::Arc};
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use domain::{
     entities::ApiKey,
     shared::ids::{ApiKeyId, TenantId},
@@ -41,6 +42,22 @@ pub trait ApiKeyRepository: Send + Sync {
     async fn find_by_prefix(&self, key_prefix: &str) -> RepoResult<Option<ApiKey>>;
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<ApiKey>>;
+
+    /// PART 8 — cursor-paginated variant of `list_by_tenant`.
+    ///
+    /// Default impl paginates in memory (correct for `InMemoryApiKeyRepository`).
+    /// `PostgresApiKeyRepository` overrides it with SQL-level `LIMIT` so
+    /// the DB never materializes more than `limit + 1` rows.
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ApiKey>> {
+        let all = self.list_by_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |k| {
+            Cursor::new(k.created_at, k.id.0)
+        }))
+    }
 
     /// Deletes a key by id, with no tenant filtering — same authorization
     /// contract as `find_by_id` above. Returns `Ok(false)` if no key with
@@ -92,6 +109,14 @@ where
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<ApiKey>> {
         (**self).list_by_tenant(tenant_id).await
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ApiKey>> {
+        (**self).list_by_tenant_paginated(tenant_id, page).await
     }
 
     async fn delete(&self, id: ApiKeyId) -> RepoResult<bool> {

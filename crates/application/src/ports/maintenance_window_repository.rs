@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use std::error::Error;
 use std::sync::Arc;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
+
 use domain::MaintenanceWindow;
 use domain::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
 
@@ -46,6 +48,18 @@ pub trait MaintenanceWindowRepository: Send + Sync {
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {
         unimplemented!()
     }
+
+    /// PART 8 — cursor-paginated variant of `list_by_monitor`.
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<MaintenanceWindow>> {
+        let all = self.list_by_monitor(monitor_id).await?;
+        Ok(paginate_in_memory(all, page, |w| {
+            Cursor::new(w.created_at, w.id.0)
+        }))
+    }
 }
 
 #[async_trait]
@@ -75,5 +89,13 @@ where
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {
         (**self).list_by_monitor(monitor_id).await
+    }
+
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<MaintenanceWindow>> {
+        (**self).list_by_monitor_paginated(monitor_id, page).await
     }
 }

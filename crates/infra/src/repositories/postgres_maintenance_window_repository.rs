@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::MaintenanceWindowRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -120,6 +121,48 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
                 .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<MaintenanceWindow>> {
+        // PART 8 — SQL-level cursor pagination. Note: `MaintenanceWindowRow`
+        // has no `updated_at`; the cursor still orders by `(created_at, id)`
+        // which is stable because `created_at` is set at insert and `id`
+        // is immutable.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {SELECT_COLUMNS} FROM maintenance_windows WHERE monitor_id = "
+        ));
+        qb.push_bind(monitor_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<MaintenanceWindowRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        // `MaintenanceWindowRow::into_domain` returns `MaintenanceWindow`
+        // directly (not `Result`), so no collect::<RepoResult<...>>.
+        let items: Vec<MaintenanceWindow> = rows
+            .into_iter()
+            .map(MaintenanceWindowRow::into_domain)
+            .collect();
+
+        Ok(Page::from_rows(items, page.limit, |w| {
+            Cursor::new(w.created_at, w.id.0)
+        }))
     }
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<MaintenanceWindow>> {

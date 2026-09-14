@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
+
 use domain::entities::{ProxyCheckJob, ProxyEntry};
 use domain::enums::ProxyScheme;
 use domain::shared::ids::{ProxyCheckJobId, TenantId, UserId};
@@ -77,6 +79,31 @@ pub trait ProxyCheckJobRepository: Send + Sync {
     async fn cancel_job(&self, id: ProxyCheckJobId, tenant_id: TenantId) -> RepoResult<bool>;
 
     async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>>;
+
+    /// PART 8 — cursor-paginated variant of `find_jobs_by_user_id`.
+    async fn find_jobs_by_user_id_paginated(
+        &self,
+        user_id: UserId,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        let all = self.find_jobs_by_user_id(user_id, tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |j| {
+            Cursor::new(j.created_at(), j.id().0)
+        }))
+    }
+
+    /// PART 8 — cursor-paginated variant of `find_jobs_by_tenant_id`.
+    async fn find_jobs_by_tenant_id_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        let all = self.find_jobs_by_tenant_id(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |j| {
+            Cursor::new(j.created_at(), j.id().0)
+        }))
+    }
 }
 
 #[async_trait]
@@ -169,5 +196,26 @@ where
     }
     async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>> {
         (**self).find_pending_jobs(limit).await
+    }
+
+    async fn find_jobs_by_user_id_paginated(
+        &self,
+        user_id: UserId,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        (**self)
+            .find_jobs_by_user_id_paginated(user_id, tenant_id, page)
+            .await
+    }
+
+    async fn find_jobs_by_tenant_id_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        (**self)
+            .find_jobs_by_tenant_id_paginated(tenant_id, page)
+            .await
     }
 }

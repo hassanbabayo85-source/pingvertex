@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use async_trait::async_trait;
 use domain::RumSite;
 use domain::shared::ids::{RumSiteId, TenantId};
@@ -23,6 +24,18 @@ pub trait RumSiteRepository: Send + Sync {
     async fn find_by_id(&self, id: RumSiteId, tenant_id: TenantId) -> RepoResult<Option<RumSite>>;
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RumSite>>;
+
+    /// PART 8 — cursor-paginated variant of `list_by_tenant`.
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<RumSite>> {
+        let all = self.list_by_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |s| {
+            Cursor::new(s.created_at, s.id.0)
+        }))
+    }
 }
 
 #[async_trait]
@@ -44,5 +57,13 @@ where
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RumSite>> {
         (**self).list_by_tenant(tenant_id).await
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<RumSite>> {
+        (**self).list_by_tenant_paginated(tenant_id, page).await
     }
 }

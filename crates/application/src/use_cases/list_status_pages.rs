@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use crate::pagination::{Page, PageRequest};
 use crate::ports::StatusPageRepository;
 use domain::shared::ids::TenantId;
 use domain::{entities::StatusPage, shared::types::AuthenticatedUser};
@@ -36,5 +37,16 @@ where
     /// an `ApiKeyPrincipal`.
     pub async fn execute_for_tenant(&self, tenant_id: TenantId) -> UseCaseResult<Vec<StatusPage>> {
         self.repository.find_all_for_tenant(tenant_id).await
+    }
+
+    /// PART 8 — cursor-paginated entry point for `GET /api/v1/status-pages`.
+    pub async fn execute_paginated(
+        &self,
+        authenticated_user: AuthenticatedUser,
+        page: PageRequest,
+    ) -> UseCaseResult<Page<StatusPage>> {
+        self.repository
+            .find_all_for_tenant_paginated(authenticated_user.tenant_context().tenant_id(), page)
+            .await
     }
 }

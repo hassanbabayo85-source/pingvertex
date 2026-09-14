@@ -1,3 +1,4 @@
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::AddOnSubscriptionRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -77,6 +78,81 @@ impl AddOnSubscriptionRepository for PostgresAddOnSubscriptionRepository {
         let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at FROM addon_subscriptions WHERE id=$1").bind(id.0).fetch_optional(&self.pool).await?;
         r.map(Row::into_domain).transpose()
     }
+    async fn list_active_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<AddOnSubscription>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status, \
+                    provider_checkout_id,paid_at,canceled_at,created_at,updated_at \
+             FROM addon_subscriptions WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        qb.push(" AND status = 'active'");
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb.build_query_as::<Row>().fetch_all(&self.pool).await?;
+
+        let items: Vec<AddOnSubscription> = rows
+            .into_iter()
+            .map(Row::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |a| {
+            Cursor::new(a.created_at, a.id.0)
+        }))
+    }
+
+    async fn list_by_tenant_and_type_paginated(
+        &self,
+        tenant_id: TenantId,
+        addon_type: AddOnType,
+        page: PageRequest,
+    ) -> RepoResult<Page<AddOnSubscription>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status, \
+                    provider_checkout_id,paid_at,canceled_at,created_at,updated_at \
+             FROM addon_subscriptions WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        qb.push(" AND addon_type = ").push_bind(addon_type.as_str());
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb.build_query_as::<Row>().fetch_all(&self.pool).await?;
+
+        let items: Vec<AddOnSubscription> = rows
+            .into_iter()
+            .map(Row::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |a| {
+            Cursor::new(a.created_at, a.id.0)
+        }))
+    }
+
     async fn list_active_by_tenant(&self, t: TenantId) -> RepoResult<Vec<AddOnSubscription>> {
         let r=sqlx::query_as::<_,Row>("SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status,provider_checkout_id,paid_at,canceled_at,created_at,updated_at FROM addon_subscriptions WHERE tenant_id=$1 AND status='active' ORDER BY created_at DESC").bind(t.0).fetch_all(&self.pool).await?;
         r.into_iter().map(Row::into_domain).collect()

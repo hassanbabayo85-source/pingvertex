@@ -5,6 +5,7 @@ use domain::RumSite;
 use domain::errors::DomainError;
 use domain::shared::ids::TenantId;
 
+use crate::pagination::{Page, PageRequest};
 use crate::ports::RumSiteRepository;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -89,6 +90,18 @@ where
 
     pub async fn execute(&self, tenant_id: TenantId) -> UseCaseResult<Vec<RumSite>> {
         self.site_repository.list_by_tenant(tenant_id).await
+    }
+
+    /// PART 8 — cursor-paginated entry point for
+    /// `GET /api/v1/dashboard/rum/sites`.
+    pub async fn execute_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> UseCaseResult<Page<RumSite>> {
+        self.site_repository
+            .list_by_tenant_paginated(tenant_id, page)
+            .await
     }
 }
 

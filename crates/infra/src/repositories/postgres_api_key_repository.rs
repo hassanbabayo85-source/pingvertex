@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::str::FromStr;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::ApiKeyRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -130,6 +131,47 @@ impl ApiKeyRepository for PostgresApiKeyRepository {
         .fetch_optional(&self.pool)
         .await?;
         row.map(ApiKeyRow::into_domain).transpose()
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ApiKey>> {
+        // PART 8 — cursor pagination at the SQL layer. `peek one ahead`
+        // (LIMIT limit+1) to determine whether a next page exists without
+        // a second COUNT query; drop the extra row before returning.
+        // Ordering `(created_at DESC, id DESC)` is backed by
+        // `idx_api_keys_tenant_created_id` (migration 0123).
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {SELECT_COLUMNS} FROM api_keys WHERE tenant_id = "
+        ));
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<ApiKeyRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<ApiKey> = rows
+            .into_iter()
+            .map(ApiKeyRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |k| {
+            Cursor::new(k.created_at, k.id.0)
+        }))
     }
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<ApiKey>> {

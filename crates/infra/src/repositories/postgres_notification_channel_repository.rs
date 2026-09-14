@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::NotificationChannelRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -272,6 +273,43 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
 
     /// Lists every channel for a monitor with NO ownership filtering. Safe
     /// once the caller has verified `monitor_id` belongs to their tenant.
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<NotificationChannel>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {SELECT_COLUMNS} FROM notification_channels WHERE monitor_id = "
+        ));
+        qb.push_bind(monitor_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<NotificationChannelRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<NotificationChannel> = rows
+            .into_iter()
+            .map(NotificationChannelRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |c| {
+            Cursor::new(c.created_at, c.id.0)
+        }))
+    }
+
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
         let rows = sqlx::query_as::<_, NotificationChannelRow>(&format!(
             "SELECT {SELECT_COLUMNS} FROM notification_channels \
