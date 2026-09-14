@@ -1,13 +1,14 @@
 services:
-  # ⚠️  DEVELOPMENT/LOCAL USE ONLY. The `POSTGRES_PASSWORD`/
-  # `GF_SECURITY_ADMIN_PASSWORD` defaults below (`postgres`/`admin`) are
-  # intentionally weak, predictable dev credentials and MUST NOT reach
-  # production. `docker-compose.prod.yml` overrides both to fail closed
-  # (`${VAR:?must be set}`) if unset — always deploy with:
+  # ⚠️  DEVELOPMENT/LOCAL USE ONLY for the weak default passwords below.
+  # Production MUST use docker-compose.prod.yml (which fails closed if
+  # these are unset). Always deploy with:
   #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-  # Never run `docker compose up` with only this base file against a
-  # production/internet-reachable host. See `.env.example` for the
-  # variables to set for local development.
+  #
+  # PART 3 (DB hardening): the postgres service now also receives the
+  # three role passwords so the first-init bootstrap script can create
+  # the `pingvertex_migrator` / `pingvertex_app` / `pingvertex_worker`
+  # roles. The migrate / api / worker services each connect under their
+  # own dedicated role — none of them uses the `postgres` superuser.
   postgres:
     image: postgres:16.6
     container_name: uptime-monitor-postgres
@@ -16,6 +17,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: uptime_monitor
+      # PART 3 — passed to docker/postgres-init/01-bootstrap-roles.sh
+      # (runs once on first DB initialization).
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}
+      POSTGRES_WORKER_PASSWORD: ${POSTGRES_WORKER_PASSWORD:?POSTGRES_WORKER_PASSWORD must be set}
     ports:
       - "127.0.0.1:5433:5432"
     healthcheck:
@@ -25,6 +31,7 @@ services:
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
 
   redis:
     image: redis:7.4-alpine
@@ -38,6 +45,9 @@ services:
     volumes:
       - redis_data:/data
 
+  # Migrations run as pingvertex_migrator — NOT superuser. The migrator
+  # role owns the schema and may CREATE/ALTER/GRANT; it cannot create
+  # roles or databases.
   migrate:
     build:
       context: .
@@ -48,11 +58,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://pingvertex_migrator:${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}@postgres:5432/uptime_monitor
     entrypoint: ["sh", "-c"]
     command:
       - "sqlx database create || true && sqlx migrate run --source migrations"
 
+  # API runtime uses pingvertex_app — NOT superuser.
   api:
     build:
       context: .
@@ -71,12 +82,13 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}@postgres:5432/uptime_monitor
       RUST_LOG: info,axum::rejection=trace,tower_http=debug
     ports:
       - "127.0.0.1:3000:3000"
       - "3443:3443"
 
+  # Background worker uses pingvertex_worker — NOT superuser.
   worker:
     build:
       context: .
@@ -95,7 +107,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/uptime_monitor
+      DATABASE_URL: postgres://pingvertex_worker:${POSTGRES_WORKER_PASSWORD:?POSTGRES_WORKER_PASSWORD must be set}@postgres:5432/uptime_monitor
       RUST_LOG: info
       METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
     ports:
@@ -157,7 +169,6 @@ services:
       AGENT_ID: agent-us-east-1
       RUST_LOG: info
 
-  # Leptos frontend build job (one-shot)
   frontend-build:
     build:
       context: .
