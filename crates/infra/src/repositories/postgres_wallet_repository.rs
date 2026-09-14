@@ -311,6 +311,19 @@ impl WalletRepository for PostgresWalletRepository {
         .fetch_one(&mut *tx)
         .await?;
 
+        // PART 14 defense-in-depth: the caller (`charge_for_usage.rs`)
+        // is expected to have resolved the active pricing — and therefore
+        // the currency — before calling `reserve`, but if that resolution
+        // ever returned a currency that does not match the wallet, this
+        // check prevents a reservation priced in one currency from being
+        // booked against a wallet denominated in another. The invariant
+        // "no reservation may exist whose currency differs from its
+        // wallet's currency" is now enforced at the storage boundary
+        // itself, not only at the caller.
+        if !wallet.currency.eq_ignore_ascii_case(currency) {
+            return Err("reservation currency does not match wallet currency".into());
+        }
+
         let mut expired_reservation_id = None;
 
         if let Some(existing) = sqlx::query_as::<_, ReservationRow>(
@@ -579,6 +592,18 @@ impl WalletRepository for PostgresWalletRepository {
         .bind(r.wallet_id)
         .fetch_one(&mut *tx)
         .await?;
+
+        // PART 14 defense-in-depth: `r.currency` is `Option` to permit
+        // legacy reservations created before the PAYG price snapshot
+        // (migration 0093). When present it MUST match the wallet's
+        // currency; capturing a USD-priced reservation against an NGN
+        // wallet would silently move the wrong amount of value.
+        if let Some(reservation_currency) = r.currency.as_deref()
+            && !reservation_currency.eq_ignore_ascii_case(&wallet.currency)
+        {
+            return Err("reservation currency does not match wallet currency".into());
+        }
+
         let new_balance = wallet
             .balance_units
             .checked_sub(capture_amount)

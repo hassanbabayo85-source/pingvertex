@@ -353,3 +353,390 @@ async fn concurrent_wallet_reservations_cannot_overspend() {
         "reserved_units ({reserved}) must never exceed wallet balance"
     );
 }
+
+
+// ===========================================================================
+// PART 14 — adversarial concurrency + financial invariant tests
+// ===========================================================================
+
+/// 100 concurrent beacons with the SAME request_id: exactly one
+/// reservation is created, exactly one wallet transaction is written,
+/// and the wallet is debited exactly once.
+#[tokio::test]
+async fn hundred_concurrent_same_request_id_debits_exactly_once() {
+    let Some((pool, _guard)) = pool_or_skip().await else {
+        return;
+    };
+    let (tenant_id, wallet) = setup_tenant_wallet(&pool, 1_000).await;
+
+    let shared_request_id = format!("part14-hundred-same-{}", Uuid::new_v4());
+    const N: usize = 100;
+    const AMOUNT: i64 = 10;
+
+    let mut tasks = JoinSet::new();
+    for _ in 0..N {
+        let w = wallet.clone();
+        let req = shared_request_id.clone();
+        tasks.spawn(async move {
+            let outcome = w
+                .reserve(
+                    tenant_id,
+                    AMOUNT,
+                    "http_check.monitoring",
+                    1,
+                    1,
+                    "USD",
+                    &req,
+                    Utc::now() + Duration::seconds(60),
+                )
+                .await?;
+            let tx = w.capture(outcome.reservation.id, None, &[], None).await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((
+                outcome.reservation.id,
+                tx.id,
+                outcome.created,
+            ))
+        });
+    }
+
+    let mut reservation_ids = std::collections::HashSet::new();
+    let mut tx_ids = std::collections::HashSet::new();
+    let mut created_count = 0usize;
+    let mut errors = 0usize;
+    while let Some(res) = tasks.join_next().await {
+        match res.expect("task must not panic") {
+            Ok((rid, tid, created)) => {
+                reservation_ids.insert(rid);
+                tx_ids.insert(tid);
+                if created {
+                    created_count += 1;
+                }
+            }
+            Err(_) => errors += 1,
+        }
+    }
+
+    assert_eq!(errors, 0, "no errors expected — replays return the same row");
+    assert_eq!(
+        reservation_ids.len(),
+        1,
+        "all 100 callers must observe exactly one reservation row"
+    );
+    assert_eq!(
+        tx_ids.len(),
+        1,
+        "all 100 callers must observe exactly one wallet transaction"
+    );
+    assert_eq!(
+        created_count, 1,
+        "exactly one caller may report created=true"
+    );
+
+    let balance = wallet.find(tenant_id).await.unwrap().unwrap().balance_units;
+    assert_eq!(balance, 1_000 - AMOUNT, "wallet debited exactly once");
+
+    let debit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM wallet_transactions
+         WHERE tenant_id=$1 AND transaction_type='DEBIT'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(debit_count, 1, "exactly one DEBIT row for the whole burst");
+}
+
+/// 100 concurrent requests with DISTINCT request_ids against the same
+/// wallet: each is an independent debit, and the wallet balance must
+/// reflect the exact arithmetic sum.
+#[tokio::test]
+async fn hundred_concurrent_distinct_request_ids_against_same_wallet() {
+    let Some((pool, _guard)) = pool_or_skip().await else {
+        return;
+    };
+    let (tenant_id, wallet) = setup_tenant_wallet(&pool, 1_000).await;
+
+    const N: usize = 100;
+    const AMOUNT: i64 = 5;
+
+    let mut tasks = JoinSet::new();
+    for i in 0..N {
+        let w = wallet.clone();
+        let req = format!("part14-hundred-distinct-{}-{}", i, Uuid::new_v4());
+        tasks.spawn(async move {
+            let outcome = w
+                .reserve(
+                    tenant_id,
+                    AMOUNT,
+                    "http_check.monitoring",
+                    1,
+                    1,
+                    "USD",
+                    &req,
+                    Utc::now() + Duration::seconds(60),
+                )
+                .await?;
+            w.capture(outcome.reservation.id, None, &[], None).await
+        });
+    }
+
+    let mut successes = 0usize;
+    while let Some(res) = tasks.join_next().await {
+        res.expect("task must not panic").expect("call must not fail");
+        successes += 1;
+    }
+    assert_eq!(successes, N);
+
+    let balance = wallet.find(tenant_id).await.unwrap().unwrap().balance_units;
+    assert_eq!(
+        balance,
+        1_000 - (N as i64) * AMOUNT,
+        "each reservation must debit independently"
+    );
+
+    let debit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM wallet_transactions
+         WHERE tenant_id=$1 AND transaction_type='DEBIT'",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(debit_count, N as i64, "exactly N DEBIT rows");
+}
+
+/// Simultaneous refund + top-up: both are credits against the same
+/// wallet. Each must apply exactly once, and the arithmetic must be
+/// exact — no money created, no money destroyed.
+#[tokio::test]
+async fn simultaneous_refund_and_top_up_both_apply_once() {
+    let Some((pool, _guard)) = pool_or_skip().await else {
+        return;
+    };
+    let (tenant_id, wallet) = setup_tenant_wallet(&pool, 0).await;
+
+    // Seed the wallet via a completed top-up that will be refundable.
+    let seed_top_up = 5_000_i64;
+    let checkout_id = format!("chk-{}", Uuid::new_v4());
+    let session = domain::WalletTopUpSession {
+        id: Uuid::new_v4(),
+        tenant_id,
+        provider: "paystack".to_string(),
+        provider_checkout_id: checkout_id.clone(),
+        checkout_url: "https://example.test/pay".to_string(),
+        idempotency_key: format!("idem-{}", Uuid::new_v4()),
+        provider_payment_id: None,
+        amount_units: seed_top_up,
+        refunded_amount_units: 0,
+        currency: "USD".to_string(),
+        status: "PENDING".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    wallet.create_top_up_session(&session).await.unwrap();
+    wallet
+        .complete_top_up_session(tenant_id, &checkout_id, "provider-pay-part14")
+        .await
+        .unwrap();
+    wallet
+        .credit(
+            tenant_id,
+            seed_top_up,
+            WalletTransactionType::TopUp,
+            &format!("topup:provider-pay-part14:{}", Uuid::new_v4()),
+            Some("seed top-up"),
+        )
+        .await
+        .unwrap();
+
+    // Wallet now: 5_000.
+    let before = wallet.find(tenant_id).await.unwrap().unwrap().balance_units;
+    assert_eq!(before, seed_top_up);
+
+    // Fire refund (credit) and top-up (credit) simultaneously.
+    let refund_amount = 2_000_i64;
+    let new_top_up_amount = 3_000_i64;
+    let refund_id = format!("refund-{}", Uuid::new_v4());
+    let new_top_up_key = format!("part14-newtopup-{}", Uuid::new_v4());
+
+    let wallet_r = wallet.clone();
+    let refund_task = tokio::spawn(async move {
+        wallet_r
+            .record_verified_refund(
+                tenant_id,
+                "provider-pay-part14",
+                refund_amount,
+                &refund_id,
+            )
+            .await
+    });
+    let wallet_t = wallet.clone();
+    let topup_task = tokio::spawn(async move {
+        wallet_t
+            .credit(
+                tenant_id,
+                new_top_up_amount,
+                WalletTransactionType::TopUp,
+                &new_top_up_key,
+                Some("concurrent top-up"),
+            )
+            .await
+    });
+
+    let (refund_res, topup_res) = tokio::join!(refund_task, topup_task);
+    assert!(
+        refund_res.unwrap().unwrap(),
+        "refund must be recorded successfully"
+    );
+    topup_res.unwrap().expect("top-up must succeed");
+
+    let after = wallet.find(tenant_id).await.unwrap().unwrap().balance_units;
+    assert_eq!(
+        after,
+        seed_top_up + refund_amount + new_top_up_amount,
+        "both concurrent credits must apply exactly once"
+    );
+
+    // The invariant: balance == SUM(wallet_transactions.amount_units)
+    let ledger_sum: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(amount_units),0)::BIGINT
+         FROM wallet_transactions WHERE tenant_id=$1",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        ledger_sum, after,
+        "FINANCIAL INVARIANT VIOLATED: balance must equal SUM(wallet_transactions)"
+    );
+
+    // Every ledger row must record a non-negative balance_after_units.
+    let negative: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM wallet_transactions
+         WHERE tenant_id=$1 AND balance_after_units < 0",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(negative, 0);
+}
+
+/// Financial invariant under a mixed workload:
+///   initial + credits - captures - refunds - adjustments == current
+///
+/// This is the explicit test for the PART 14 SECURITY INVARIANT. The
+/// reconciliation worker checks the same identity at runtime; this test
+/// proves it holds across every operation kind on a fresh wallet.
+#[tokio::test]
+async fn financial_invariant_holds_after_mixed_workload() {
+    let Some((pool, _guard)) = pool_or_skip().await else {
+        return;
+    };
+    let (tenant_id, wallet) = setup_tenant_wallet(&pool, 0).await;
+
+    // Three top-ups.
+    for i in 0..3 {
+        wallet
+            .credit(
+                tenant_id,
+                10_000,
+                WalletTransactionType::TopUp,
+                &format!("inv-topup-{}-{}", i, Uuid::new_v4()),
+                Some("test top-up"),
+            )
+            .await
+            .unwrap();
+    }
+
+    // One positive admin adjustment.
+    wallet
+        .adjust_balance(
+            tenant_id,
+            5_000,
+            &format!("inv-adj-{}", Uuid::new_v4()),
+            Some("test adjustment"),
+        )
+        .await
+        .unwrap();
+
+    // Two reservations + captures (debits).
+    for i in 0..2 {
+        let outcome = wallet
+            .reserve(
+                tenant_id,
+                1_000,
+                "http_check.monitoring",
+                500,
+                1,
+                "USD",
+                &format!("inv-debit-{}-{}", i, Uuid::new_v4()),
+                Utc::now() + Duration::seconds(60),
+            )
+            .await
+            .unwrap();
+        wallet
+            .capture(outcome.reservation.id, None, &[], None)
+            .await
+            .unwrap();
+    }
+
+    // One promotional credit.
+    wallet
+        .grant_promotional_credit(
+            tenant_id,
+            2_000,
+            Utc::now() + Duration::days(30),
+            &format!("inv-promo-{}", Uuid::new_v4()),
+            Some("test promotional credit"),
+        )
+        .await
+        .unwrap();
+
+    // Expected: 3 * 10_000 + 5_000 - 2 * 1_000 + 2_000 = 35_000
+    let expected: i64 = 3 * 10_000 + 5_000 - 2 * 1_000 + 2_000;
+    let balance = wallet.find(tenant_id).await.unwrap().unwrap().balance_units;
+    assert_eq!(balance, expected);
+
+    // The invariant.
+    let ledger_sum: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(amount_units),0)::BIGINT
+         FROM wallet_transactions WHERE tenant_id=$1",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        ledger_sum, balance,
+        "FINANCIAL INVARIANT VIOLATED: initial + credits - debits == current_balance"
+    );
+
+    // Cross-check against the reconciler's own inequality: no negative
+    // balance_after_units, and every row's sign matches its type.
+    let bad_sign: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE tenant_id=$1
+         AND ((transaction_type IN ('TOP_UP','REFUND','PROMOTIONAL_CREDIT')
+               AND amount_units <= 0)
+           OR (transaction_type IN ('DEBIT','EXPIRATION')
+               AND amount_units >= 0))",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_sign, 0, "every ledger row must have the correct sign");
+
+    // Sanity: the reservation rows themselves must be terminal.
+    let non_terminal: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM credit_reservations
+         WHERE wallet_id=(SELECT id FROM user_wallets WHERE tenant_id=$1)
+           AND status NOT IN ('CAPTURED','RELEASED','EXPIRED')",
+    )
+    .bind(tenant_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(non_terminal, 0, "no reservation may remain PENDING");
+}

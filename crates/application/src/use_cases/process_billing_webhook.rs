@@ -186,6 +186,30 @@ where
                 ));
             }
 
+            // PART 14: currency validation. The Paystack handler already
+            // checks this against "USD" before building the command, but
+            // the internal `/billing/webhook` endpoint also reaches this
+            // code path, and a future second provider may not. Without
+            // this check a bug on the caller side (or a provider that
+            // reports a different currency) could silently credit a USD
+            // session for a payment actually made in another currency.
+            //
+            // The check is skipped when the payload carries no currency
+            // field at all, preserving backward compatibility with any
+            // caller that predates this validation. New callers (and the
+            // Paystack handler) always include it.
+            if let Some(payload_currency) =
+                command.payload.get("currency").and_then(|v| v.as_str())
+                && !payload_currency.eq_ignore_ascii_case(&session.currency)
+            {
+                return Err(BillingWebhookError::Other(
+                    std::io::Error::other(
+                        "wallet top-up currency does not match checkout session",
+                    )
+                    .into(),
+                ));
+            }
+
             let completed = wallet
                 .complete_top_up_session(command.tenant_id.0, checkout_id, payment_id)
                 .await
