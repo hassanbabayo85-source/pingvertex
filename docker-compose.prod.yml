@@ -49,6 +49,12 @@ services:
     logging: *default-logging
 
   api:
+    # PART 13 — production closes even the 127.0.0.1:3000 binding that
+    # docker-compose.yml sets up for local dev convenience, so the ONLY
+    # ingress path is Caddy on :443 (and :80 for ACME + redirect). The
+    # `!reset` tag REPLACES the base file's list instead of appending to
+    # it, and requires Compose v2.24 or newer.
+    ports: !reset []
     environment:
       DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set for production}@postgres:5432/uptime_monitor
       ENVIRONMENT: production
@@ -140,6 +146,10 @@ services:
         condition: service_healthy
     environment:
       - PINGVERTEX_DOMAIN=${PINGVERTEX_DOMAIN:-api.example.com}
+    # PART 13 — the ONLY intentionally-published ports in production.
+    # 443 is the sole public ingress path; 80 exists only for the ACME
+    # HTTP-01 challenge and for the automatic redirect to 443 that Caddy
+    # emits for that reason.
     ports:
       - "80:80"
       - "443:443"
@@ -148,6 +158,18 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - frontend_dist:/srv/frontend:ro
+    # PART 13 — caddy runs as its own non-root user (the caddy:2.9.1-alpine
+    # image ships a `caddy` user). It drops ALL Linux capabilities and
+    # re-adds only CAP_NET_BIND_SERVICE so it can bind :80 and :443;
+    # no-new-privileges prevents gaining any other capability via setuid
+    # or file-cap after start.
+    user: caddy
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
     deploy:
       resources:
