@@ -79,6 +79,30 @@ pub struct Monitor {
 impl Monitor {
     pub const MAX_ASSERTIONS: usize = 20;
 
+    /// PART 9 — hard cap on the number of regions a monitor may be checked from.
+    /// Mirrors `ALLOWED_REGION_CODES.len()` so an attacker cannot force the API
+    /// to persist an unbounded `Vec<RegionCode>`.
+    pub const MAX_REGIONS_PER_MONITOR: usize = 4;
+
+    /// PART 9 — hard cap on the byte length of a monitor's DNS expected value.
+    pub const MAX_DNS_EXPECTED_VALUE_LENGTH: usize = 2048;
+
+    /// PART 9 — hard cap on the byte length of a monitor's DNS record type.
+    /// (The set of valid record types is tiny — `A`, `AAAA`, `CNAME`, `MX`,
+    /// `TXT`, `NS`, `SOA`, `PTR`, `SRV`, `CAA` — 32 bytes is generous and
+    /// still bounds the field against abuse. TCP's only string field is the
+    /// target `Host`, which is already capped at 253 bytes by `Host::new`.)
+    pub const MAX_DNS_RECORD_TYPE_LENGTH: usize = 32;
+
+    /// PART 9 — minimum allowed heartbeat interval, in seconds.
+    pub const HEARTBEAT_INTERVAL_MIN_SECS: u32 = 30;
+    /// PART 9 — maximum allowed heartbeat interval, in seconds.
+    pub const HEARTBEAT_INTERVAL_MAX_SECS: u32 = 86_400;
+    /// PART 9 — minimum allowed heartbeat grace period, in seconds.
+    pub const HEARTBEAT_GRACE_MIN_SECS: u32 = 30;
+    /// PART 9 — maximum allowed heartbeat grace period, in seconds.
+    pub const HEARTBEAT_GRACE_MAX_SECS: u32 = 86_400;
+
     /// Creates a new monitor.
     ///
     /// Validates that the fields required by `input.kind` are present
@@ -88,6 +112,71 @@ impl Monitor {
     /// see `MonitorKind::Flow`'s doc comment) — existing callers that
     /// never set `kind` (it defaults to `Http`) always succeed here,
     /// preserving full backward compatibility.
+    /// PART 9 — validate that a client-supplied DNS expected value is within
+    /// the hard byte cap.
+    fn validate_dns_expected_value(value: Option<&str>) -> Result<(), DomainError> {
+        if let Some(v) = value
+            && v.len() > Self::MAX_DNS_EXPECTED_VALUE_LENGTH
+        {
+            return Err(DomainError::DnsExpectedValueTooLong);
+        }
+        Ok(())
+    }
+
+    /// PART 9 — validate that a client-supplied DNS record type is within
+    /// the hard byte cap.
+    fn validate_dns_record_type(value: Option<&str>) -> Result<(), DomainError> {
+        if let Some(v) = value
+            && v.len() > Self::MAX_DNS_RECORD_TYPE_LENGTH
+        {
+            return Err(DomainError::DnsRecordTypeTooLong);
+        }
+        Ok(())
+    }
+
+    /// PART 9 — cap the heartbeat interval to a bounded range.
+    fn validate_heartbeat_interval(value: Option<u32>) -> Result<(), DomainError> {
+        if let Some(v) = value {
+            if v < Self::HEARTBEAT_INTERVAL_MIN_SECS {
+                return Err(DomainError::HeartbeatIntervalTooSmall);
+            }
+            if v > Self::HEARTBEAT_INTERVAL_MAX_SECS {
+                return Err(DomainError::HeartbeatIntervalTooLarge);
+            }
+        }
+        Ok(())
+    }
+
+    /// PART 9 — cap the heartbeat grace period to a bounded range.
+    fn validate_heartbeat_grace_period(value: Option<u32>) -> Result<(), DomainError> {
+        if let Some(v) = value {
+            if v < Self::HEARTBEAT_GRACE_MIN_SECS {
+                return Err(DomainError::HeartbeatGracePeriodTooSmall);
+            }
+            if v > Self::HEARTBEAT_GRACE_MAX_SECS {
+                return Err(DomainError::HeartbeatGracePeriodTooLarge);
+            }
+        }
+        Ok(())
+    }
+
+    /// PART 9 — cap the number of regions and deduplicate them (preserving
+    /// insertion order) so persistence never writes the same region twice.
+    fn validate_and_dedup_regions(
+        regions: Vec<RegionCode>,
+    ) -> Result<Vec<RegionCode>, DomainError> {
+        if regions.len() > Self::MAX_REGIONS_PER_MONITOR {
+            return Err(DomainError::TooManyRegionsPerMonitor);
+        }
+        let mut deduped: Vec<RegionCode> = Vec::with_capacity(regions.len());
+        for region in regions {
+            if !deduped.iter().any(|r| r.as_str() == region.as_str()) {
+                deduped.push(region);
+            }
+        }
+        Ok(deduped)
+    }
+
     pub fn create(input: CreateMonitor) -> Result<Self, DomainError> {
         Self::validate_kind_fields(
             input.kind,
@@ -97,6 +186,16 @@ impl Monitor {
             input.heartbeat_interval_seconds,
             input.heartbeat_grace_period_seconds,
         )?;
+
+        // PART 9 — validate attacker-controlled strings and cap collections.
+        Self::validate_dns_expected_value(input.dns_expected_value.as_deref())?;
+        Self::validate_dns_record_type(input.dns_record_type.as_deref())?;
+        Self::validate_heartbeat_interval(input.heartbeat_interval_seconds)?;
+        Self::validate_heartbeat_grace_period(input.heartbeat_grace_period_seconds)?;
+        let mut regions = Self::validate_and_dedup_regions(input.regions)?;
+        if regions.is_empty() {
+            regions.push(RegionCode::default_region());
+        }
 
         let now = Utc::now();
 
@@ -112,11 +211,7 @@ impl Monitor {
             timeout_seconds: input.timeout_seconds,
             enabled: true,
             is_public: false,
-            regions: if input.regions.is_empty() {
-                vec![RegionCode::default_region()]
-            } else {
-                input.regions
-            },
+            regions,
             ssl_check_enabled: true,
             ssl_expiry_warning_days: 14,
             kind: input.kind,
@@ -249,6 +344,11 @@ impl Monitor {
             heartbeat_grace_period_seconds,
         )?;
 
+        Self::validate_dns_expected_value(dns_expected_value.as_deref())?;
+        Self::validate_dns_record_type(dns_record_type.as_deref())?;
+        Self::validate_heartbeat_interval(heartbeat_interval_seconds)?;
+        Self::validate_heartbeat_grace_period(heartbeat_grace_period_seconds)?;
+
         self.kind = kind;
         self.tcp_port = tcp_port;
         self.dns_record_type = dns_record_type;
@@ -364,5 +464,162 @@ impl TenantOwned for Monitor {
 impl Ownable for Monitor {
     fn owner_id(&self) -> UserId {
         self.user_id
+    }
+}
+
+#[cfg(test)]
+mod part9_tests {
+    use super::*;
+    use crate::enums::{HttpMethod, MonitorKind};
+    use crate::shared::ids::{MonitorId, TenantId, UserId};
+    use crate::value_objects::MonitorName;
+
+    fn rc(s: &str) -> RegionCode {
+        RegionCode::new(s).unwrap()
+    }
+
+    fn base_input(regions: Vec<RegionCode>) -> CreateMonitor {
+        CreateMonitor {
+            id: MonitorId::new(),
+            user_id: UserId::new(),
+            tenant_id: TenantId::new(),
+            name: MonitorName::new("test").unwrap(),
+            url: "https://example.com".to_string(),
+            method: HttpMethod::Get,
+            expected_status: 200,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            regions,
+            kind: MonitorKind::Http,
+            tcp_port: None,
+            dns_record_type: None,
+            dns_expected_value: None,
+            heartbeat_token: None,
+            heartbeat_interval_seconds: None,
+            heartbeat_grace_period_seconds: None,
+            last_heartbeat_at: None,
+        }
+    }
+
+    #[test]
+    fn accepts_exactly_max_unique_regions() {
+        let regions = vec![
+            rc("us-east"),
+            rc("eu-west"),
+            rc("af-west"),
+            rc("ap-southeast"),
+        ];
+        assert_eq!(regions.len(), Monitor::MAX_REGIONS_PER_MONITOR);
+        let monitor = Monitor::create(base_input(regions)).unwrap();
+        assert_eq!(monitor.regions.len(), 4);
+    }
+
+    #[test]
+    fn rejects_max_plus_one_regions() {
+        let regions = vec![
+            rc("us-east"),
+            rc("us-east"),
+            rc("us-east"),
+            rc("us-east"),
+            rc("us-east"),
+        ];
+        assert_eq!(regions.len(), Monitor::MAX_REGIONS_PER_MONITOR + 1);
+        let err = Monitor::create(base_input(regions)).unwrap_err();
+        assert_eq!(err, DomainError::TooManyRegionsPerMonitor);
+    }
+
+    #[test]
+    fn deduplicates_regions_before_persistence() {
+        let regions = vec![rc("us-east"), rc("us-east"), rc("eu-west"), rc("us-east")];
+        let monitor = Monitor::create(base_input(regions)).unwrap();
+        assert_eq!(monitor.regions.len(), 2);
+        assert_eq!(monitor.regions[0].as_str(), "us-east");
+        assert_eq!(monitor.regions[1].as_str(), "eu-west");
+    }
+
+    #[test]
+    fn empty_regions_defaults_to_single_default_region() {
+        let monitor = Monitor::create(base_input(vec![])).unwrap();
+        assert_eq!(monitor.regions.len(), 1);
+        assert_eq!(monitor.regions[0].as_str(), "us-east");
+    }
+
+    #[test]
+    fn accepts_dns_expected_value_at_max() {
+        let mut input = base_input(vec![]);
+        input.dns_expected_value = Some("a".repeat(Monitor::MAX_DNS_EXPECTED_VALUE_LENGTH));
+        assert!(Monitor::create(input).is_ok());
+    }
+
+    #[test]
+    fn rejects_dns_expected_value_over_max() {
+        let mut input = base_input(vec![]);
+        input.dns_expected_value =
+            Some("a".repeat(Monitor::MAX_DNS_EXPECTED_VALUE_LENGTH + 1));
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::DnsExpectedValueTooLong
+        );
+    }
+
+    #[test]
+    fn rejects_dns_record_type_over_max() {
+        let mut input = base_input(vec![]);
+        input.dns_record_type = Some("a".repeat(Monitor::MAX_DNS_RECORD_TYPE_LENGTH + 1));
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::DnsRecordTypeTooLong
+        );
+    }
+
+    #[test]
+    fn accepts_heartbeat_interval_at_boundaries() {
+        let mut input = base_input(vec![]);
+        input.heartbeat_interval_seconds = Some(Monitor::HEARTBEAT_INTERVAL_MIN_SECS);
+        assert!(Monitor::create(input).is_ok());
+
+        let mut input = base_input(vec![]);
+        input.heartbeat_interval_seconds = Some(Monitor::HEARTBEAT_INTERVAL_MAX_SECS);
+        assert!(Monitor::create(input).is_ok());
+    }
+
+    #[test]
+    fn rejects_heartbeat_interval_below_min() {
+        let mut input = base_input(vec![]);
+        input.heartbeat_interval_seconds = Some(Monitor::HEARTBEAT_INTERVAL_MIN_SECS - 1);
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::HeartbeatIntervalTooSmall
+        );
+    }
+
+    #[test]
+    fn rejects_heartbeat_interval_above_max() {
+        let mut input = base_input(vec![]);
+        input.heartbeat_interval_seconds = Some(Monitor::HEARTBEAT_INTERVAL_MAX_SECS + 1);
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::HeartbeatIntervalTooLarge
+        );
+    }
+
+    #[test]
+    fn rejects_heartbeat_grace_period_below_min() {
+        let mut input = base_input(vec![]);
+        input.heartbeat_grace_period_seconds = Some(Monitor::HEARTBEAT_GRACE_MIN_SECS - 1);
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::HeartbeatGracePeriodTooSmall
+        );
+    }
+
+    #[test]
+    fn rejects_heartbeat_grace_period_above_max() {
+        let mut input = base_input(vec![]);
+        input.heartbeat_grace_period_seconds = Some(Monitor::HEARTBEAT_GRACE_MAX_SECS + 1);
+        assert_eq!(
+            Monitor::create(input).unwrap_err(),
+            DomainError::HeartbeatGracePeriodTooLarge
+        );
     }
 }

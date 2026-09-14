@@ -375,4 +375,44 @@ pub enum DomainError {
 
     #[error("RUM resource error URL cannot exceed 2048 characters")]
     RumResourceUrlTooLong,
+
+    // PART 9 — Resource limits at domain boundary:
+    #[error("a monitor cannot have more than 4 regions")]
+    TooManyRegionsPerMonitor,
+
+    #[error("a flow step cannot have more than 10 variable extractions")]
+    TooManyExtractionsPerStep,
+
+    #[error("a flow step cannot have more than 20 assertions")]
+    TooManyAssertionsPerStep,
+
+    #[error("api flow serialized size must not exceed 262144 bytes (256 KB)")]
+    FlowSerializedTooLarge,
+
+    #[error("regex pattern must not exceed 512 characters")]
+    RegexPatternTooLong,
+
+    #[error("DNS expected value must not exceed 2048 characters")]
+    DnsExpectedValueTooLong,
+
+    #[error("DNS record type must not exceed 32 characters")]
+    DnsRecordTypeTooLong,
+
+    #[error("heartbeat interval must be at least 30 seconds")]
+    HeartbeatIntervalTooSmall,
+
+    #[error("heartbeat interval cannot exceed 86400 seconds")]
+    HeartbeatIntervalTooLarge,
+
+    #[error("heartbeat grace period must be at least 30 seconds")]
+    HeartbeatGracePeriodTooSmall,
+
+    #[error("heartbeat grace period cannot exceed 86400 seconds")]
+    HeartbeatGracePeriodTooLarge,
+
+    #[error("retention_days must be at least 1")]
+    RetentionDaysTooSmall,
+
+    #[error("retention_days cannot exceed 3650")]
+    RetentionDaysTooLarge,
 }

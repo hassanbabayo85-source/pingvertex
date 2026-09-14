@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::errors::DomainError;
 use crate::shared::ids::TenantId;
 
 /// How the tenant's current retention value was set.
@@ -68,6 +69,22 @@ pub struct TenantRetentionSettings {
 }
 
 impl TenantRetentionSettings {
+    /// PART 9 — minimum allowed retention window, in days.
+    pub const MIN_RETENTION_DAYS: u32 = 1;
+    /// PART 9 — maximum allowed retention window, in days (10 years).
+    pub const MAX_RETENTION_DAYS: u32 = 3650;
+
+    /// Constructs retention settings from a trusted source.
+    ///
+    /// This constructor intentionally does NOT validate `retention_days`,
+    /// because it is also used to reconstruct rows from the database
+    /// (including historical or hand-edited rows whose values may fall
+    /// outside the current allowed range). `effective_retention` on the
+    /// repository clamps such values before use.
+    ///
+    /// Callers that pass a *user-supplied* `retention_days` MUST use
+    /// [`Self::try_new`] instead so the value is validated at the domain
+    /// boundary.
     pub fn new(tenant_id: TenantId, retention_days: u32, source: RetentionSource) -> Self {
         let now = Utc::now();
         Self {
@@ -77,5 +94,73 @@ impl TenantRetentionSettings {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// PART 9 — fallible constructor that validates `retention_days` is
+    /// within `[MIN_RETENTION_DAYS, MAX_RETENTION_DAYS]`.
+    pub fn try_new(
+        tenant_id: TenantId,
+        retention_days: u32,
+        source: RetentionSource,
+    ) -> Result<Self, DomainError> {
+        if retention_days < Self::MIN_RETENTION_DAYS {
+            return Err(DomainError::RetentionDaysTooSmall);
+        }
+        if retention_days > Self::MAX_RETENTION_DAYS {
+            return Err(DomainError::RetentionDaysTooLarge);
+        }
+        let now = Utc::now();
+        Ok(Self {
+            tenant_id,
+            retention_days,
+            source,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+}
+
+#[cfg(test)]
+mod part9_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_retention_days_at_min() {
+        let result = TenantRetentionSettings::try_new(
+            TenantId::new(),
+            TenantRetentionSettings::MIN_RETENTION_DAYS,
+            RetentionSource::Default,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accepts_retention_days_at_max() {
+        let result = TenantRetentionSettings::try_new(
+            TenantId::new(),
+            TenantRetentionSettings::MAX_RETENTION_DAYS,
+            RetentionSource::Default,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_retention_days_below_min() {
+        let result = TenantRetentionSettings::try_new(
+            TenantId::new(),
+            0,
+            RetentionSource::Default,
+        );
+        assert_eq!(result.unwrap_err(), DomainError::RetentionDaysTooSmall);
+    }
+
+    #[test]
+    fn rejects_retention_days_above_max() {
+        let result = TenantRetentionSettings::try_new(
+            TenantId::new(),
+            TenantRetentionSettings::MAX_RETENTION_DAYS + 1,
+            RetentionSource::Default,
+        );
+        assert_eq!(result.unwrap_err(), DomainError::RetentionDaysTooLarge);
     }
 }
