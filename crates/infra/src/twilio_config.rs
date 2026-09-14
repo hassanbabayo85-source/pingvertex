@@ -25,11 +25,22 @@ const KNOWN_PLACEHOLDER_TWILIO_AUTH_TOKENS: &[&str] = &[
 ///
 /// Replaces the three separate ad-hoc `std::env::var("TWILIO_*").ok()`
 /// reads previously inlined in `SmsNotificationService::notify`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TwilioConfig {
     pub account_sid: String,
     pub auth_token: String,
     pub from_number: String,
+}
+
+/// PART 6 — custom Debug that redacts the auth token.
+impl std::fmt::Debug for TwilioConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TwilioConfig")
+            .field("account_sid", &self.account_sid)
+            .field("auth_token", &"<redacted>")
+            .field("from_number", &self.from_number)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

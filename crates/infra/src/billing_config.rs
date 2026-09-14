@@ -13,7 +13,7 @@ const KNOWN_PLACEHOLDER_BILLING_SECRETS: &[&str] = &[
     "sk_test_example",
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BillingConfig {
     pub provider: String,
     pub secret_key: Option<String>,
@@ -29,6 +29,17 @@ pub struct BillingConfig {
     ///   otherwise it falls back to `BILLING_SECRET_KEY` so single-secret
     ///   deployments keep working.
     pub webhook_secret: Option<String>,
+}
+
+/// PART 6 — custom Debug that redacts secrets.
+impl std::fmt::Debug for BillingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BillingConfig")
+            .field("provider", &self.provider)
+            .field("secret_key", &self.secret_key.as_ref().map(|_| "<redacted>"))
+            .field("webhook_secret", &self.webhook_secret.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

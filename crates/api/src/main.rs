@@ -67,19 +67,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::from_env();
 
-    // Session invalidation (logout/password changes) and TOTP's pending
-    // authentication state are security-sensitive. In production they must
-    // have a real shared cache; the test/development no-op implementation
-    // would otherwise make revocation silently ineffective.
-    let environment = std::env::var("ENVIRONMENT").unwrap_or_default();
-    if matches!(
-        environment.to_ascii_lowercase().as_str(),
-        "production" | "prod"
-    ) && config.redis_url.is_none()
-    {
-        return Err(
-            "REDIS_URL must be configured in production for session invalidation and TOTP".into(),
-        );
+    // PART 6 — Session invalidation (logout/password changes), TOTP's
+    // pending authentication state, and the distributed rate limiter are
+    // all security-sensitive. Redis is MANDATORY for every environment
+    // EXCEPT an explicit allowlist of local/test/dev. Any other value of
+    // ENVIRONMENT — including "staging", "preprod", "uat", or unset —
+    // fails closed. This replaces the previous check, which only caught
+    // the literal string "production" and therefore silently disabled
+    // revocation in staging/preprod/unknown deployments.
+    if !api::config::noop_implementations_allowed() && config.redis_url.is_none() {
+        let env_name = std::env::var("ENVIRONMENT").unwrap_or_default();
+        return Err(format!(
+            "REDIS_URL must be configured in this environment for session              invalidation, TOTP, and rate limiting. The only environments              allowed to omit it are: {}. ENVIRONMENT is currently '{}'.              Refusing to start (fail-closed).",
+            api::config::NOOP_ALLOWED_ENVIRONMENTS.join(", "),
+            if env_name.is_empty() { "<unset>" } else { &env_name },
+        )
+        .into());
     }
 
     let pool = create_pool(&config.database_url).await?;

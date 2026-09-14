@@ -20,8 +20,16 @@ pub async fn jwt_auth(
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let token = if let Some(cookie) = jar.get("access_token") {
-        cookie.value().to_string()
+    // PART 6 — read BOTH the new `__Host-access_token` cookie and the
+    // legacy `access_token` cookie during the transition. A production
+    // deployment that has just been upgraded will still be receiving
+    // legacy cookies from clients that haven't re-logged-in yet.
+    let cookie_token = shared::cookie::access_token_cookie_names()
+        .iter()
+        .find_map(|name| jar.get(name).map(|c| c.value().to_string()));
+
+    let token = if let Some(token) = cookie_token {
+        token
     } else {
         let authorization = headers
             .get(AUTHORIZATION)
