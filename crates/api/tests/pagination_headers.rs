@@ -25,8 +25,8 @@ use axum::{
 use domain::pricing::PricingConfig;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId, UserId};
 use domain::{
-    Check, CheckInterval, DiagnosticReport, ExpectedStatus, HttpMethod, Incident,
-    MonitorBuilder, MonitorName, Timeout, Url, User,
+    Check, CheckInterval, DiagnosticReport, ExpectedStatus, HttpMethod, Incident, MonitorBuilder,
+    MonitorName, Timeout, Url, User,
 };
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,

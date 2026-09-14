@@ -12,6 +12,7 @@ pub mod heartbeat_sweeper;
 pub mod incident_evaluator;
 pub mod incident_manager;
 pub mod placeholder_resolver;
+pub mod regex_cache;
 pub mod scheduler;
 pub mod tcp_check_executor;
 pub mod tcp_checker;

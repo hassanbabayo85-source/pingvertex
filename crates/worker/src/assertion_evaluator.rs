@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
+use crate::regex_cache::{self, RegexCache};
 use domain::entities::Assertion;
+use domain::shared::ids::AssertionId;
 use domain::enums::{AssertionOperator, ResponsePart};
 use domain::value_objects::AssertionEvaluationResult;
 use serde_json::Value;
@@ -21,6 +23,18 @@ pub fn evaluate_assertions(
     assertions: &[Assertion],
     ctx: &EvalContext,
 ) -> (bool, Vec<AssertionEvaluationResult>) {
+    evaluate_assertions_with_cache(assertions, ctx, regex_cache::global())
+}
+
+/// PART 10 — evaluation entry point that lets the caller supply a specific
+/// [`RegexCache`]. Production callers use [`evaluate_assertions`] (which
+/// goes through the process-wide cache); tests use this variant so they can
+/// assert on per-cache statistics without disturbing the global cache.
+pub fn evaluate_assertions_with_cache(
+    assertions: &[Assertion],
+    ctx: &EvalContext,
+    regex_cache: &RegexCache,
+) -> (bool, Vec<AssertionEvaluationResult>) {
     let mut all_passed = true;
     let mut results = Vec::with_capacity(assertions.len());
 
@@ -28,7 +42,7 @@ pub fn evaluate_assertions(
     let mut json_cache: Option<Value> = None;
 
     for assertion in assertions {
-        let result = evaluate_one(assertion, ctx, &mut json_cache);
+        let result = evaluate_one(assertion, ctx, &mut json_cache, regex_cache);
         if !result.passed {
             all_passed = false;
             warn!(
@@ -47,6 +61,7 @@ fn evaluate_one(
     assertion: &Assertion,
     ctx: &EvalContext,
     json_cache: &mut Option<Value>,
+    regex_cache: &RegexCache,
 ) -> AssertionEvaluationResult {
     // 1. Ɗauko ainihin ƙimar da za a gwada.
     let actual: Option<String> = match &assertion.response_part {
@@ -171,7 +186,13 @@ fn evaluate_one(
             _ => {
                 if let Some(ref actual_val) = actual {
                     let expected = assertion.expected_value.as_deref().unwrap_or("");
-                    let p = compare_values(&assertion.operator, actual_val, expected);
+                    let p = compare_values(
+                        assertion.id,
+                        &assertion.operator,
+                        actual_val,
+                        expected,
+                        regex_cache,
+                    );
                     let msg = if p {
                         None
                     } else {
@@ -198,7 +219,13 @@ fn evaluate_one(
 }
 
 /// Kwatanta ƙimar gaske da abin da ake tsammani bisa ma'aikacin da aka zaɓa.
-fn compare_values(operator: &AssertionOperator, actual: &str, expected: &str) -> bool {
+fn compare_values(
+    assertion_id: AssertionId,
+    operator: &AssertionOperator,
+    actual: &str,
+    expected: &str,
+    regex_cache: &RegexCache,
+) -> bool {
     match operator {
         AssertionOperator::Equals => actual == expected,
         AssertionOperator::NotEquals => actual != expected,
@@ -228,17 +255,24 @@ fn compare_values(operator: &AssertionOperator, actual: &str, expected: &str) ->
             }
         }
 
-        AssertionOperator::RegexMatch => match regex::Regex::new(expected) {
-            Ok(re) => re.is_match(actual),
-            Err(err) => {
-                warn!(
-                    pattern = expected,
-                    error = %err,
-                    "Ma'aikacin RegexMatch: pattern ɗin regex bai inganta ba"
-                );
-                false
+        AssertionOperator::RegexMatch => {
+            // PART 10 — never recompile on the hot path. The cache is keyed
+            // by `(assertion_id, pattern)` so an in-place pattern edit is
+            // detected and recompiled once, and a stable pattern is reused
+            // across every check. We also never log the pattern itself, nor
+            // the compiler's error text (which can echo the pattern back).
+            match regex_cache.get_or_compile(assertion_id, expected) {
+                Some(re) => re.is_match(actual),
+                None => {
+                    warn!(
+                        assertion_id = %assertion_id,
+                        error_category = "invalid_regex",
+                        "RegexMatch assertion has an invalid pattern at evaluation time"
+                    );
+                    false
+                }
             }
-        },
+        }
 
         _ => false,
     }
@@ -737,5 +771,124 @@ mod tests {
         // Kada ya haifar da panic; dole ya kawai gaza (return false).
         let (passed, _) = evaluate_assertions(&assertions, &ctx);
         assert!(!passed);
+    }
+}
+
+#[cfg(test)]
+mod part10_tests {
+    use super::*;
+    use crate::regex_cache::RegexCache;
+    use domain::enums::{AssertionOperator, ResponsePart};
+    use domain::shared::ids::AssertionId;
+
+    fn assertion_with_id(
+        id: AssertionId,
+        operator: AssertionOperator,
+        expected: &str,
+    ) -> Assertion {
+        Assertion {
+            id,
+            response_part: ResponsePart::Body,
+            operator,
+            target: None,
+            expected_value: Some(expected.to_string()),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    fn ctx() -> EvalContext {
+        EvalContext {
+            status_code: 200,
+            headers: HashMap::new(),
+            body_bytes: b"Hello, world!".to_vec(),
+            latency_ms: 1,
+        }
+    }
+
+    #[test]
+    fn repeated_evaluation_does_not_recompile_the_same_pattern() {
+        let cache = RegexCache::new(16);
+        let id = AssertionId::new();
+        let assertions = vec![assertion_with_id(
+            id,
+            AssertionOperator::RegexMatch,
+            r"^Hello",
+        )];
+
+        // Evaluate three times with the same cache. Only the first call
+        // should hit `Regex::new`.
+        for _ in 0..3 {
+            let (passed, _) = evaluate_assertions_with_cache(&assertions, &ctx(), &cache);
+            assert!(passed);
+        }
+
+        assert_eq!(
+            cache.compile_count(),
+            1,
+            "repeated evaluation must compile the regex exactly once"
+        );
+    }
+
+    #[test]
+    fn changing_the_pattern_forcibly_recompiles() {
+        let cache = RegexCache::new(16);
+        let id = AssertionId::new();
+
+        let a = vec![assertion_with_id(
+            id,
+            AssertionOperator::RegexMatch,
+            r"^Hello",
+        )];
+        let (passed, _) = evaluate_assertions_with_cache(&a, &ctx(), &cache);
+        assert!(passed);
+        assert_eq!(cache.compile_count(), 1);
+
+        // Same ID, different pattern — the cache must invalidate.
+        let b = vec![assertion_with_id(
+            id,
+            AssertionOperator::RegexMatch,
+            r"^Goodbye",
+        )];
+        let (passed, _) = evaluate_assertions_with_cache(&b, &ctx(), &cache);
+        assert!(!passed, "the new pattern should not match the body");
+        assert_eq!(
+            cache.compile_count(),
+            2,
+            "editing the pattern must force exactly one recompile"
+        );
+    }
+
+    #[test]
+    fn invalid_pattern_at_evaluation_time_fails_closed() {
+        let cache = RegexCache::new(16);
+        let id = AssertionId::new();
+        // This should have been rejected at write time, but we exercise
+        // the defensive path in case of legacy data.
+        let assertions = vec![assertion_with_id(
+            id,
+            AssertionOperator::RegexMatch,
+            "[unclosed",
+        )];
+
+        let (passed, results) = evaluate_assertions_with_cache(&assertions, &ctx(), &cache);
+        assert!(!passed, "an invalid regex must fail the assertion");
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].passed);
+        // The cache must not have stored a bad entry.
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn cached_regex_arc_is_reused_across_evaluations() {
+        // A direct, non-global check that the same compiled regex is
+        // handed out on the second evaluation.
+        let cache = RegexCache::new(16);
+        let id = AssertionId::new();
+        let pattern = r"^Hello";
+
+        let first = cache.get_or_compile(id, pattern).unwrap();
+        let second = cache.get_or_compile(id, pattern).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
     }
 }

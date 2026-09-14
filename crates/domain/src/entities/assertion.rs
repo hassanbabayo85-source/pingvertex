@@ -74,11 +74,22 @@ impl Assertion {
         // a worker thread or blow up the regex engine's memory.
         if matches!(self.operator, AssertionOperator::RegexMatch)
             && let Some(pattern) = &self.expected_value
-            && pattern.len() > MAX_REGEX_PATTERN_LENGTH
         {
-            return Err(format!(
-                "regex pattern must not exceed {MAX_REGEX_PATTERN_LENGTH} characters"
-            ));
+            if pattern.len() > MAX_REGEX_PATTERN_LENGTH {
+                return Err(format!(
+                    "regex pattern must not exceed {MAX_REGEX_PATTERN_LENGTH} characters"
+                ));
+            }
+
+            // PART 10 — the pattern must actually compile. This moves the
+            // "this is an invalid regex" failure from the worker hot path
+            // (where it would waste CPU on every check) to the request
+            // boundary, where the client can fix it and retry. We do NOT
+            // include the pattern itself in the error message, so a request
+            // that fails validation cannot echo the pattern back through
+            // logs or error responses.
+            regex::Regex::new(pattern)
+                .map_err(|_| "regex pattern is not a valid regular expression".to_string())?;
         }
 
         Ok(())
@@ -130,5 +141,83 @@ mod part9_tests {
             Some(value),
         );
         assert!(assertion.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod part10_tests {
+    use super::*;
+    use crate::enums::{AssertionOperator, ResponsePart};
+
+    #[test]
+    fn accepts_a_valid_regex_pattern() {
+        let result = Assertion::new(
+            ResponsePart::Body,
+            AssertionOperator::RegexMatch,
+            None,
+            Some(r"^[a-z]+@[a-z]+\.[a-z]{2,}$".to_string()),
+        );
+        assert!(result.is_ok(), "valid regex must be accepted at write time");
+    }
+
+    #[test]
+    fn rejects_an_invalid_regex_pattern() {
+        let result = Assertion::new(
+            ResponsePart::Body,
+            AssertionOperator::RegexMatch,
+            None,
+            // Unclosed character class — invalid syntax.
+            Some("[unclosed".to_string()),
+        );
+        let err = result.expect_err("invalid regex must be rejected at write time");
+        assert!(
+            err.contains("not a valid regular expression"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_an_oversized_regex_pattern() {
+        let pattern = "a".repeat(MAX_REGEX_PATTERN_LENGTH + 1);
+        let result = Assertion::new(
+            ResponsePart::Body,
+            AssertionOperator::RegexMatch,
+            None,
+            Some(pattern),
+        );
+        let err = result.expect_err("oversized regex must be rejected");
+        assert!(err.contains("must not exceed"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn non_regex_operators_are_not_compiled() {
+        // A string that would be an invalid regex must still be accepted
+        // for non-RegexMatch operators — the validator only compiles when
+        // the operator is RegexMatch.
+        let result = Assertion::new(
+            ResponsePart::Body,
+            AssertionOperator::Equals,
+            None,
+            Some("[unclosed".to_string()),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn error_message_never_contains_the_pattern() {
+        // The pattern is user-supplied; it must not leak into the error
+        // string (which callers may log or return to the client).
+        let secret = "SECRET_TOKEN_abc123[unclosed";
+        let result = Assertion::new(
+            ResponsePart::Body,
+            AssertionOperator::RegexMatch,
+            None,
+            Some(secret.to_string()),
+        );
+        let err = result.expect_err("invalid regex must be rejected");
+        assert!(
+            !err.contains("SECRET_TOKEN_abc123"),
+            "error message leaked the pattern: {err}"
+        );
     }
 }
