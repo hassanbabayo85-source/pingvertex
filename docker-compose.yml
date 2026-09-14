@@ -59,6 +59,13 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://pingvertex_migrator:${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}@postgres:5432/uptime_monitor
+    # Mount the migrations directory from the host so a NEW migration does
+    # not require a `docker compose build` to be picked up. Without this,
+    # Docker caches the image built from Dockerfile.migrate (which COPYs
+    # `migrations/` at build time), and a freshly added migration silently
+    # never runs — exactly what happened during PART 3 verification.
+    volumes:
+      - ./migrations:/app/migrations:ro
     entrypoint: ["sh", "-c"]
     command:
       - "sqlx database create || true && sqlx migrate run --source migrations"
