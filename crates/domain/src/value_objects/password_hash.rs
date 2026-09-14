@@ -6,7 +6,7 @@ use std::fmt;
 /// This type NEVER stores or accepts a plain-text password.
 /// Hashing is performed by the Application layer through the
 /// PasswordHasher port and implemented in Infrastructure.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PasswordHash(String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,5 +58,14 @@ impl fmt::Display for PasswordHash {
 impl AsRef<str> for PasswordHash {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+/// PART 7 — manual Debug that redacts the inner hash. `Display` is
+/// intentionally left unchanged: it is used by callers that genuinely
+/// need the hash string (persisting it, comparing it, etc).
+impl std::fmt::Debug for PasswordHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PasswordHash").field(&"[REDACTED]").finish()
     }
 }

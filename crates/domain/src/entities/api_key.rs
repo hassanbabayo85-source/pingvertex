@@ -14,7 +14,7 @@ use crate::{
 /// and `PasswordHasher::hash`), because randomness/hashing are I/O-adjacent
 /// concerns the domain entity itself never performs, matching the
 /// `CreateWebhookChannel` pattern used for notification channels.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CreateApiKey {
     pub id: ApiKeyId,
     pub tenant_id: TenantId,
@@ -42,7 +42,7 @@ pub struct CreateApiKey {
 /// `DeleteApiKey` use cases, exactly like every other tenant-scoped
 /// resource in this codebase. `user_id` is retained purely as an audit
 /// trail of who originally created the key, not as an ownership gate.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ApiKey {
     pub id: ApiKeyId,
     pub tenant_id: TenantId,
@@ -145,5 +145,34 @@ mod tests {
         let key = sample_key(vec![ApiKeyScope::MonitorRead], None);
         assert!(key.has_scope(ApiKeyScope::MonitorRead));
         assert!(!key.has_scope(ApiKeyScope::MonitorWrite));
+    }
+}
+
+/// PART 7 — manual Debug that redacts `hashed_key` on `ApiKey`.
+impl std::fmt::Debug for ApiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiKey")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("name", &self.name)
+            .field("scopes", &self.scopes)
+            .field("expires_at", &self.expires_at)
+            .field("hashed_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// PART 7 — manual Debug that redacts `hashed_key` on the create-DTO.
+impl std::fmt::Debug for CreateApiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateApiKey")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("name", &self.name)
+            .field("scopes", &self.scopes)
+            .field("expires_at", &self.expires_at)
+            .field("hashed_key", &"[REDACTED]")
+            .finish()
     }
 }

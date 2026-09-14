@@ -19,7 +19,7 @@ pub struct CreateEmailChannel {
 }
 
 /// Data required to create a new webhook notification channel.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CreateWebhookChannel {
     pub id: NotificationChannelId,
     pub monitor_id: MonitorId,
@@ -42,7 +42,7 @@ pub struct CreateWebhookChannel {
 /// populated for `Webhook` channels — see the `chk_notification_channels_*`
 /// constraints in `migrations/0010_create_notification_channels.sql`, which
 /// enforce the same invariant at the database level.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NotificationChannel {
     pub id: NotificationChannelId,
     pub monitor_id: MonitorId,
@@ -296,5 +296,48 @@ impl TenantOwned for NotificationChannel {
 impl Ownable for NotificationChannel {
     fn owner_id(&self) -> UserId {
         self.user_id
+    }
+}
+
+/// PART 7 — manual Debug that redacts `target`, `signing_secret`, and
+/// `encrypted_secret` on `NotificationChannel`.
+///
+/// `target` is redacted too: for Slack/Discord channels, the webhook URL
+/// IS the credential (it contains an unguessable token in its path), and
+/// for webhook channels it can carry a query-string token. Printing it
+/// would defeat the point of redacting the other secret fields.
+impl std::fmt::Debug for NotificationChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NotificationChannel")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("monitor_id", &self.monitor_id)
+            .field("user_id", &self.user_id)
+            .field("kind", &self.kind)
+            .field("enabled", &self.enabled)
+            .field("target", &"[REDACTED]")
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "encrypted_secret",
+                &self.encrypted_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
+/// PART 7 — manual Debug that redacts `signing_secret` on the create-DTO.
+impl std::fmt::Debug for CreateWebhookChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateWebhookChannel")
+            .field("id", &self.id)
+            .field("monitor_id", &self.monitor_id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("url", &self.url)
+            .field("signing_secret", &"[REDACTED]")
+            .finish()
     }
 }

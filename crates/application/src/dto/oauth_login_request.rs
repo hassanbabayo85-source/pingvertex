@@ -9,7 +9,16 @@ use serde::{Deserialize, Serialize};
 /// sees a password or an OAuth client secret here; it only verifies
 /// this token's signature against the provider's public keys (see
 /// `application::ports::IdTokenVerifier`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthLoginRequest {
     pub id_token: String,
+}
+
+/// PART 7 — manual Debug that redacts the OAuth id_token.
+impl std::fmt::Debug for OAuthLoginRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthLoginRequest")
+            .field("id_token", &"[REDACTED]")
+            .finish()
+    }
 }

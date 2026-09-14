@@ -30,7 +30,7 @@ use crate::shared::{
 /// redeemed by `VerifyEmailUseCase` — every lookup path must treat a
 /// token with `used_at.is_some()`, or `expires_at` in the past, as no
 /// longer valid (see `is_valid`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EmailVerificationToken {
     pub id: EmailVerificationTokenId,
     pub user_id: UserId,
@@ -134,5 +134,19 @@ mod tests {
         let mut token = make_token(Utc::now() + chrono::Duration::hours(1));
         token.mark_used(Utc::now());
         assert!(!token.is_valid(Utc::now()));
+    }
+}
+
+/// PART 7 — manual Debug that redacts `token_prefix` and `token_hash`.
+impl std::fmt::Debug for EmailVerificationToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmailVerificationToken")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("expires_at", &self.expires_at)
+            .field("used_at", &self.used_at)
+            .field("token_prefix", &"[REDACTED]")
+            .field("token_hash", &"[REDACTED]")
+            .finish()
     }
 }
