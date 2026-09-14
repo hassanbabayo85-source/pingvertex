@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::RumSiteRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -100,6 +101,43 @@ impl RumSiteRepository for PostgresRumSiteRepository {
         .await?;
 
         Ok(row.map(RumSiteRow::into_domain))
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<RumSite>> {
+        // PART 8 — SQL-level cursor pagination; see
+        // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
+        // full explanation of the `peek one ahead` technique and the
+        // keyset predicate.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, tenant_id, site_key, name, domain, created_at, updated_at              FROM rum_sites WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<RumSiteRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<RumSite> = rows.into_iter().map(RumSiteRow::into_domain).collect();
+
+        Ok(Page::from_rows(items, page.limit, |s| {
+            Cursor::new(s.created_at, s.id.0)
+        }))
     }
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RumSite>> {

@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::EscalationPolicyRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -161,6 +162,45 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         .await?;
 
         row.map(EscalationPolicyRow::into_domain).transpose()
+    }
+
+    async fn list_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<EscalationPolicy>> {
+        // PART 8 — SQL-level cursor pagination; see
+        // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
+        // full explanation.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {SELECT_COLUMNS} FROM escalation_policies WHERE tenant_id = "
+        ));
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<EscalationPolicyRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<EscalationPolicy> = rows
+            .into_iter()
+            .map(EscalationPolicyRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |p| {
+            Cursor::new(p.created_at, p.id.0)
+        }))
     }
 
     async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {

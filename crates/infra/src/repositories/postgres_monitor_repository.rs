@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::MonitorRepository;
 use application::ports::monitor_repository::{
     BulkImportExistingMonitor, BulkImportMonitorSnapshot, QuotaCheckOutcome,
@@ -559,6 +560,100 @@ impl MonitorRepository for PostgresMonitorRepository {
         }
 
         Ok(monitors)
+    }
+
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<Monitor>> {
+        // PART 8 — cursor pagination at the SQL layer. We fetch
+        // `limit + 1` rows ("peek one ahead") to determine whether a next
+        // page exists without a second COUNT query, then drop the extra
+        // row before returning.
+        //
+        // Ordering is `(created_at DESC, id DESC)`, backed by
+        // `idx_monitors_tenant_created_id` (migration 0123). The cursor
+        // predicate is the standard keyset form:
+        //   `(created_at, id) < (cursor.created_at, cursor.id)`
+        // which is stable under concurrent inserts: a row inserted
+        // between two pages cannot cause a duplicate or skip of any
+        // already-fetched row.
+        let fetch_size = page.fetch_size();
+
+        let mut qb = sqlx::QueryBuilder::<Postgres>::new(format!(
+            "SELECT {MONITOR_COLUMNS} FROM monitors WHERE tenant_id = "
+        ));
+        qb.push_bind(tenant_id.0);
+
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(fetch_size);
+
+        let monitor_rows = qb
+            .build_query_as::<MonitorRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        // Fetch assertions only for the monitors actually in this page —
+        // otherwise we'd reintroduce the unbounded fetch through the
+        // assertion join.
+        let page_monitor_ids: Vec<Uuid> = monitor_rows.iter().map(|r| r.id).collect();
+
+        let mut assertions_by_monitor: HashMap<Uuid, Vec<Assertion>> = HashMap::new();
+        if !page_monitor_ids.is_empty() {
+            let assertion_rows = sqlx::query_as::<_, AssertionRow>(
+                r#"
+                SELECT
+                    id,
+                    monitor_id,
+                    position,
+                    response_part,
+                    operator,
+                    target,
+                    expected_value,
+                    created_at,
+                    updated_at
+                FROM monitor_assertions
+                WHERE monitor_id = ANY($1)
+                ORDER BY monitor_id, position
+                "#,
+            )
+            .bind(&page_monitor_ids)
+            .fetch_all(&self.pool)
+            .await?;
+
+            for row in assertion_rows {
+                let monitor_id = row.monitor_id;
+                let domain_assertion = row.into_domain()?;
+                assertions_by_monitor
+                    .entry(monitor_id)
+                    .or_default()
+                    .push(domain_assertion);
+            }
+        }
+
+        let mut monitors = Vec::with_capacity(monitor_rows.len());
+        for row in monitor_rows {
+            let monitor_id = row.id;
+            let assertions = assertions_by_monitor
+                .remove(&monitor_id)
+                .unwrap_or_default();
+            monitors.push(row.into_domain(assertions)?);
+        }
+
+        Ok(Page::from_rows(monitors, page.limit, |m| {
+            Cursor::new(m.created_at, m.id.0)
+        }))
     }
 
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {

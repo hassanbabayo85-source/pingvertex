@@ -1,3 +1,4 @@
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::SupportTicketRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -109,6 +110,87 @@ impl SupportTicketRepository for PostgresSupportTicketRepository {
         .fetch_optional(&self.pool)
         .await?;
         row.map(SupportTicketRow::into_domain).transpose()
+    }
+
+    async fn list_user_tickets_paginated(
+        &self,
+        tenant_id: TenantId,
+        user_id: UserId,
+        page: PageRequest,
+    ) -> RepoResult<Page<SupportTicket>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, ticket_number, tenant_id, created_by, subject, category, status, \
+                    created_at, updated_at \
+             FROM support_tickets \
+             WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        qb.push(" AND created_by = ").push_bind(user_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<SupportTicketRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<SupportTicket> = rows
+            .into_iter()
+            .map(SupportTicketRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |t| {
+            Cursor::new(t.created_at, t.id.0)
+        }))
+    }
+
+    async fn list_tenant_tickets_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<SupportTicket>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, ticket_number, tenant_id, created_by, subject, category, status, \
+                    created_at, updated_at \
+             FROM support_tickets WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<SupportTicketRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<SupportTicket> = rows
+            .into_iter()
+            .map(SupportTicketRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |t| {
+            Cursor::new(t.created_at, t.id.0)
+        }))
     }
 
     async fn list_user_tickets(

@@ -5,6 +5,7 @@ use domain::{
     shared::types::{AuthenticatedUser, Permission},
 };
 
+use crate::pagination::{Page, PageRequest};
 use crate::ports::ApiKeyRepository;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -37,5 +38,19 @@ impl ListApiKeysUseCase {
 
         let tenant_id = authenticated_user.tenant_context().tenant_id();
         self.api_key_repository.list_by_tenant(tenant_id).await
+    }
+
+    /// PART 8 — cursor-paginated entry point for `GET /api/v1/api-keys`.
+    /// Same `ManageApiKeys` permission gate as `execute`.
+    pub async fn execute_paginated(
+        &self,
+        authenticated_user: AuthenticatedUser,
+        page: PageRequest,
+    ) -> UseCaseResult<Page<ApiKey>> {
+        authenticated_user.require(Permission::ManageApiKeys)?;
+        let tenant_id = authenticated_user.tenant_context().tenant_id();
+        self.api_key_repository
+            .list_by_tenant_paginated(tenant_id, page)
+            .await
     }
 }

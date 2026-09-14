@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::monitor_repository::QuotaCheckOutcome;
 use application::ports::{
     EncryptedProxyCredentials, ProxyCheckJobRepository, ProxyCredentialCipher,
@@ -311,6 +312,82 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         .fetch_optional(&self.pool)
         .await?;
         row.map(ProxyCheckJobRow::into_domain).transpose()
+    }
+
+    async fn find_jobs_by_user_id_paginated(
+        &self,
+        user_id: UserId,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE user_id = "
+        ));
+        qb.push_bind(user_id.0);
+        qb.push(" AND tenant_id = ").push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<ProxyCheckJobRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<ProxyCheckJob> = rows
+            .into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |j| {
+            Cursor::new(j.created_at(), j.id().0)
+        }))
+    }
+
+    async fn find_jobs_by_tenant_id_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<ProxyCheckJob>> {
+        // PART 8 — SQL-level cursor pagination.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE tenant_id = "
+        ));
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<ProxyCheckJobRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<ProxyCheckJob> = rows
+            .into_iter()
+            .map(ProxyCheckJobRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |j| {
+            Cursor::new(j.created_at(), j.id().0)
+        }))
     }
 
     async fn find_jobs_by_user_id(

@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::TenantInvitationRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -147,6 +148,47 @@ impl TenantInvitationRepository for PostgresTenantInvitationRepository {
         .await?;
 
         row.map(TenantInvitationRow::into_domain).transpose()
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<TenantInvitation>> {
+        // PART 8 — SQL-level cursor pagination; see
+        // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
+        // full explanation.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT id, tenant_id, email, role, token_prefix, token_hash, \
+                    expires_at, revoked_at, accepted_at, created_at \
+             FROM tenant_invitations WHERE tenant_id = ",
+        );
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<TenantInvitationRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<TenantInvitation> = rows
+            .into_iter()
+            .map(TenantInvitationRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |i| {
+            Cursor::new(i.created_at, i.id.into_uuid())
+        }))
     }
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<TenantInvitation>> {

@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,7 @@ use domain::RumSite;
 use domain::shared::types::{AuthenticatedUser, Permission};
 
 use crate::error::ApiError;
+use crate::handlers::pagination::{PaginationQuery, pagination_headers};
 use crate::state::AppState;
 use crate::validation::{parse_datetime, parse_rum_site_id};
 
@@ -176,19 +177,30 @@ pub async fn create_rum_site(
     Ok((StatusCode::CREATED, Json(RumSiteResponse::from(site))))
 }
 
-/// `GET /api/v1/dashboard/rum/sites`
+/// `GET /api/v1/dashboard/rum/sites?limit=50&cursor=<opaque>`
+///
+/// PART 8 — cursor-paginated. Response body is a JSON array (unchanged
+/// from before PART 8); a next-page cursor (when present) is returned via
+/// the `X-Next-Cursor` response header. Absence of the header = "last
+/// page".
 pub async fn list_rum_sites(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
-) -> Result<Json<Vec<RumSiteResponse>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<(HeaderMap, Json<Vec<RumSiteResponse>>), ApiError> {
     let use_case = ListRumSitesUseCase::new(state.rum_site_repository.clone());
 
-    let sites = use_case
-        .execute(authenticated_user.tenant_context().tenant_id())
+    let page = use_case
+        .execute_paginated(
+            authenticated_user.tenant_context().tenant_id(),
+            query.into_page_request(),
+        )
         .await
         .map_err(|err| ApiError::internal_with_source("failed to list RUM sites", err))?;
 
-    Ok(Json(sites.into_iter().map(RumSiteResponse::from).collect()))
+    let headers = pagination_headers(page.next_cursor)?;
+    let body: Vec<RumSiteResponse> = page.items.into_iter().map(RumSiteResponse::from).collect();
+    Ok((headers, Json(body)))
 }
 
 fn dashboard_queries(

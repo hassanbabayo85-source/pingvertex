@@ -510,9 +510,10 @@ async fn e2e_logout_revokes_copied_bearer_token() {
 
     let set_cookie = login.headers().get("set-cookie").unwrap().to_str().unwrap();
     let token = set_cookie
-        .strip_prefix("access_token=")
+        .strip_prefix("__Host-access_token=")
+        .or_else(|| set_cookie.strip_prefix("access_token="))
         .and_then(|value| value.split(';').next())
-        .expect("registration must return an access token cookie")
+        .expect("login must return an access token cookie")
         .to_owned();
 
     let logout = client

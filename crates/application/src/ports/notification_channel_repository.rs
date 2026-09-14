@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use std::error::Error;
 use std::sync::Arc;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
+
 use domain::{
     entities::NotificationChannel,
     shared::ids::{MonitorId, NotificationChannelId, UserId},
@@ -113,6 +115,18 @@ pub trait NotificationChannelRepository: Send + Sync {
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
         unimplemented!()
     }
+
+    /// PART 8 — cursor-paginated variant of `list_by_monitor`.
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<NotificationChannel>> {
+        let all = self.list_by_monitor(monitor_id).await?;
+        Ok(paginate_in_memory(all, page, |c| {
+            Cursor::new(c.created_at, c.id.0)
+        }))
+    }
 }
 
 #[async_trait]
@@ -182,5 +196,13 @@ where
 
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<NotificationChannel>> {
         (**self).list_by_monitor(monitor_id).await
+    }
+
+    async fn list_by_monitor_paginated(
+        &self,
+        monitor_id: MonitorId,
+        page: PageRequest,
+    ) -> RepoResult<Page<NotificationChannel>> {
+        (**self).list_by_monitor_paginated(monitor_id, page).await
     }
 }

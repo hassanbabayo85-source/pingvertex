@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use domain::{
     HttpMethod, MonitorKind,
     entities::Monitor,
@@ -96,6 +97,30 @@ pub trait MonitorRepository: Send + Sync {
     /// monitors instead of only the ones they personally created.
     async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         unimplemented!()
+    }
+
+    /// Bounded, cursor-paginated variant of `find_all_for_tenant`.
+    ///
+    /// PART 8 security invariant: an authenticated tenant MUST NOT be able
+    /// to force the API to load an unbounded amount of DB data in one
+    /// request. `PageRequest::new` clamps `limit` into `[1, 100]`, and the
+    /// Postgres override applies `LIMIT` at the SQL layer so the DB never
+    /// materializes more than `limit + 1` rows.
+    ///
+    /// The default implementation reuses `find_all_for_tenant` and
+    /// paginates in memory — correct but unbounded on the DB side, so it
+    /// is only suitable for in-memory/test repositories. Production
+    /// callers MUST use a repository that overrides this (see
+    /// `PostgresMonitorRepository::find_all_for_tenant_paginated`).
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<Monitor>> {
+        let all = self.find_all_for_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |m| {
+            Cursor::new(m.created_at, m.id.0)
+        }))
     }
 
     /// Tenant-scoped count for entitlement/bulk decisions. Production
@@ -305,6 +330,16 @@ where
     }
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<Monitor>> {
         (**self).find_all_for_tenant(tenant_id).await
+    }
+
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<Monitor>> {
+        (**self)
+            .find_all_for_tenant_paginated(tenant_id, page)
+            .await
     }
 
     async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {

@@ -1,6 +1,7 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
+    http::HeaderMap,
 };
 use chrono::Utc;
 use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
@@ -9,6 +10,7 @@ use domain::{EscalationPolicy, EscalationStep};
 
 use crate::{
     error::ApiError,
+    handlers::pagination::{PaginationQuery, pagination_headers},
     state::AppState,
     validation::{parse_escalation_policy_id, parse_monitor_id, parse_notification_channel_id},
 };
@@ -73,11 +75,17 @@ pub struct UpdateEscalationPolicyRequest {
     pub steps: Vec<crate::handlers::feature_types::EscalationStepInput>,
 }
 
+/// `GET /api/v1/monitors/{monitor_id}/maintenance-windows`
+///
+/// PART 8 — cursor-paginated. Response body is the same JSON array as
+/// before; a next-page cursor (when present) is returned via the
+/// `X-Next-Cursor` response header.
 pub async fn list_maintenance_windows(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Path(monitor_id): Path<String>,
-) -> Result<Json<Vec<MaintenanceWindowResponse>>, ApiError> {
+    Query(query): Query<PaginationQuery>,
+) -> Result<(HeaderMap, Json<Vec<MaintenanceWindowResponse>>), ApiError> {
     let monitor_id = parse_monitor_id(&monitor_id)?;
     let monitor = state
         .monitor_repository
@@ -88,24 +96,44 @@ pub async fn list_maintenance_windows(
     if !AuthorizationPolicy::same_tenant(&user.tenant_context(), monitor.tenant_id()) {
         return Err(ApiError::not_found("monitor not found"));
     }
-    let windows = state
+    let page = state
         .maintenance_window_repository
-        .list_by_monitor(monitor_id)
+        .list_by_monitor_paginated(monitor_id, query.into_page_request())
         .await
         .map_err(|e| ApiError::internal_with_source("failed to list maintenance windows", e))?;
-    Ok(Json(windows.into_iter().map(Into::into).collect()))
+
+    let headers = pagination_headers(page.next_cursor)?;
+    let body: Vec<MaintenanceWindowResponse> = page
+        .items
+        .into_iter()
+        .map(MaintenanceWindowResponse::from)
+        .collect();
+    Ok((headers, Json(body)))
 }
 
+/// `GET /api/v1/escalation-policies`
+///
+/// PART 8 — cursor-paginated. Response body is the same JSON array as
+/// before; a next-page cursor (when present) is returned via the
+/// `X-Next-Cursor` response header.
 pub async fn list_escalation_policies(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
-) -> Result<Json<Vec<EscalationPolicyResponse>>, ApiError> {
-    let policies = state
+    Query(query): Query<PaginationQuery>,
+) -> Result<(HeaderMap, Json<Vec<EscalationPolicyResponse>>), ApiError> {
+    let page = state
         .escalation_policy_repository
-        .list_for_tenant(user.tenant_context().tenant_id())
+        .list_for_tenant_paginated(user.tenant_context().tenant_id(), query.into_page_request())
         .await
         .map_err(|e| ApiError::internal_with_source("failed to list escalation policies", e))?;
-    Ok(Json(policies.into_iter().map(Into::into).collect()))
+
+    let headers = pagination_headers(page.next_cursor)?;
+    let body: Vec<EscalationPolicyResponse> = page
+        .items
+        .into_iter()
+        .map(EscalationPolicyResponse::from)
+        .collect();
+    Ok((headers, Json(body)))
 }
 
 pub async fn update_escalation_policy(

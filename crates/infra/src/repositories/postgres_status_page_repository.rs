@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::StatusPageRepository;
 use async_trait::async_trait;
 use domain::entities::{CreateStatusPage, CustomDomainVerification, StatusPage};
@@ -266,6 +267,46 @@ impl StatusPageRepository for PostgresStatusPageRepository {
             .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<StatusPage>> {
+        // PART 8 — SQL-level cursor pagination; see
+        // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
+        // full explanation of the `peek one ahead` technique and the
+        // keyset predicate.
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
+            "SELECT {SELECT_COLUMNS} FROM status_pages WHERE tenant_id = "
+        ));
+        qb.push_bind(tenant_id.0);
+        if let Some(c) = page.cursor {
+            qb.push(" AND (created_at < ")
+                .push_bind(c.created_at)
+                .push(" OR (created_at = ")
+                .push_bind(c.created_at)
+                .push(" AND id < ")
+                .push_bind(c.id)
+                .push("))");
+        }
+        qb.push(" ORDER BY created_at DESC, id DESC LIMIT ")
+            .push_bind(page.fetch_size());
+
+        let rows = qb
+            .build_query_as::<StatusPageRow>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let items: Vec<StatusPage> = rows
+            .into_iter()
+            .map(StatusPageRow::into_domain)
+            .collect::<RepoResult<Vec<_>>>()?;
+
+        Ok(Page::from_rows(items, page.limit, |sp| {
+            Cursor::new(sp.created_at, sp.id.0)
+        }))
     }
 
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use domain::{
     entities::StatusPage,
     shared::ids::{MonitorId, StatusPageId, TenantId, UserId},
@@ -53,6 +54,18 @@ pub trait StatusPageRepository: Send + Sync {
     /// of the tenant created it.
     async fn find_all_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
         unimplemented!()
+    }
+
+    /// PART 8 — cursor-paginated variant of `find_all_for_tenant`.
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<StatusPage>> {
+        let all = self.find_all_for_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |sp| {
+            Cursor::new(sp.created_at, sp.id.0)
+        }))
     }
 
     /// Looks up a status page by its `pingvertex.com` subdomain, e.g.
@@ -147,6 +160,16 @@ where
 
     async fn find_all_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<StatusPage>> {
         (**self).find_all_for_tenant(tenant_id).await
+    }
+
+    async fn find_all_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<StatusPage>> {
+        (**self)
+            .find_all_for_tenant_paginated(tenant_id, page)
+            .await
     }
 
     async fn find_by_subdomain(&self, subdomain: &str) -> RepoResult<Option<StatusPage>> {

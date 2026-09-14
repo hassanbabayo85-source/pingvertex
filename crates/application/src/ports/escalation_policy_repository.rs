@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::error::Error;
 use std::sync::Arc;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use domain::EscalationPolicy;
 use domain::shared::ids::{EscalationPolicyId, MonitorId, TenantId};
 
@@ -35,6 +36,18 @@ pub trait EscalationPolicyRepository: Send + Sync {
     async fn list_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {
         unimplemented!()
     }
+
+    /// PART 8 — cursor-paginated variant of `list_for_tenant`.
+    async fn list_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<EscalationPolicy>> {
+        let all = self.list_for_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |p| {
+            Cursor::new(p.created_at, p.id.0)
+        }))
+    }
 }
 
 #[async_trait]
@@ -64,5 +77,13 @@ where
 
     async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<EscalationPolicy>> {
         (**self).list_for_tenant(tenant_id).await
+    }
+
+    async fn list_for_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<EscalationPolicy>> {
+        (**self).list_for_tenant_paginated(tenant_id, page).await
     }
 }

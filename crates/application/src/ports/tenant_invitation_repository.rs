@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{InvitationId, TenantId, TenantInvitation};
@@ -17,6 +18,18 @@ pub trait TenantInvitationRepository: Send + Sync {
     async fn find_by_id(&self, id: InvitationId) -> RepoResult<Option<TenantInvitation>>;
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<TenantInvitation>>;
+
+    /// PART 8 — cursor-paginated variant of `list_by_tenant`.
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<TenantInvitation>> {
+        let all = self.list_by_tenant(tenant_id).await?;
+        Ok(paginate_in_memory(all, page, |i| {
+            Cursor::new(i.created_at, i.id.into_uuid())
+        }))
+    }
 
     /// Marks an invitation revoked only if it is still pending.
     async fn mark_revoked(&self, id: InvitationId, revoked_at: DateTime<Utc>) -> RepoResult<()>;
@@ -44,6 +57,14 @@ where
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<TenantInvitation>> {
         (**self).list_by_tenant(tenant_id).await
+    }
+
+    async fn list_by_tenant_paginated(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> RepoResult<Page<TenantInvitation>> {
+        (**self).list_by_tenant_paginated(tenant_id, page).await
     }
 
     async fn mark_revoked(&self, id: InvitationId, revoked_at: DateTime<Utc>) -> RepoResult<()> {
