@@ -474,7 +474,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .layer(from_fn(record_http_metrics))
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .make_span_with(RedactingMakeSpan)
                 .on_request(DefaultOnRequest::new().level(Level::INFO))
                 .on_response(
                     DefaultOnResponse::new()
@@ -756,4 +756,55 @@ pub fn build_pricing_only_router_with_rate_limit(app_state: AppState) -> Router 
         .with_state(app_state);
 
     Router::new().nest("/api/v1", pricing_routes)
+}
+
+
+// =====================================================================
+// PART 12 #7 — URI redaction for tracing spans
+// =====================================================================
+
+/// Custom `MakeSpan` for `TraceLayer` that redacts credential-bearing
+/// path segments before they reach the tracing subscriber.
+///
+/// SECURITY: the default `DefaultMakeSpan` records the request URI in
+/// the span, which would include the heartbeat token for
+/// `GET /api/v1/public/heartbeat/{token}` — leaking the credential into
+/// every log backend that ingests tracing spans. This wrapper preserves
+/// the span's usefulness (method, version, path shape) while replacing
+/// the token segment with `[REDACTED]`.
+///
+/// The new POST shape (`POST /api/v1/public/heartbeat`, token in a
+/// header) is unaffected by this redactor because the token is never in
+/// the URI in the first place.
+#[derive(Clone, Copy, Debug)]
+struct RedactingMakeSpan;
+
+impl<B> tower_http::trace::MakeSpan<B> for RedactingMakeSpan {
+    fn make_span(&mut self, request: &axum::http::Request<B>) -> tracing::Span {
+        let uri = redact_uri_for_logging(request.uri());
+        tracing::info_span!(
+            "http.request",
+            method = %request.method(),
+            uri = %uri,
+            version = ?request.version(),
+        )
+    }
+}
+
+/// Redacts credential-bearing path segments from a URI so it is safe to
+/// record in a tracing span. Currently only the legacy heartbeat GET
+/// path (`/api/v1/public/heartbeat/{token}`) carries a credential in the
+/// URL.
+fn redact_uri_for_logging(uri: &axum::http::Uri) -> String {
+    let path = uri.path();
+    if let Some(rest) = path.strip_prefix("/api/v1/public/heartbeat/") {
+        if !rest.is_empty() && !rest.contains('/') {
+            let redacted_path = "/api/v1/public/heartbeat/[REDACTED]";
+            return match uri.query() {
+                Some(q) => format!("{redacted_path}?{q}"),
+                None => redacted_path.to_string(),
+            };
+        }
+    }
+    uri.to_string()
 }

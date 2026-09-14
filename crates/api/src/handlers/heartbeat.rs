@@ -1,21 +1,19 @@
-use std::time::{Duration, Instant};
-
 use application::MeterUsageInput;
 use application::use_cases::ChargeForUsageError;
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
 };
 use chrono::Utc;
 use domain::value_objects::HeartbeatToken;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::state::{AppState, HeartbeatRateLimiter};
+use crate::state::AppState;
 
-/// Max number of `GET /public/heartbeat/{token}` requests a single token
-/// may make within `HEARTBEAT_RATE_LIMIT_WINDOW`.
+/// Max number of heartbeat requests a single token may make within
+/// `HEARTBEAT_RATE_LIMIT_WINDOW_SECS`.
 ///
 /// This is a PER-TOKEN limit, deliberately separate from the IP-based
 /// `GovernorLayer` applied to the rest of `public::router()` — a heartbeat
@@ -26,47 +24,136 @@ use crate::state::{AppState, HeartbeatRateLimiter};
 /// pinging many of its own heartbeat monitors). Keying on the token itself
 /// gives each monitored service its own independent quota regardless of
 /// source IP.
-const HEARTBEAT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+///
+/// PART 12 #3: this is now enforced via `state.rate_limiter` — the same
+/// `RateLimiter` port the RUM ingest endpoint uses — which in production
+/// is `infra::RedisRateLimiter` with a real per-key TTL. This replaces
+/// the previous per-process, never-pruned `HashMap` bucket which (a)
+/// grew without bound as new tokens were seen and (b) was per-instance,
+/// so a token could exceed its nominal limit N times over when the
+/// service ran in N replicas behind a load balancer.
+const HEARTBEAT_RATE_LIMIT_WINDOW_SECS: u64 = 60;
 const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
+
+/// Namespace used with `state.rate_limiter`, kept stable so counters do
+/// not collide with the RUM ingest or auth namespaces.
+const HEARTBEAT_RATE_LIMIT_NAMESPACE: &str = "heartbeat";
+
 const MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
-/// `GET /api/v1/public/heartbeat/{token}`
+/// Bucket size (seconds) applied to a client-supplied `Idempotency-Key`.
 ///
-/// Unauthenticated "dead man's switch" ping endpoint for
-/// `MonitorKind::Heartbeat` monitors. A monitored service (cron job,
-/// background worker, etc.) calls this on its own schedule; the worker's
-/// scheduler separately evaluates whether a heartbeat has been received
-/// recently enough (see `evaluate_heartbeat_monitor` in
-/// `worker::scheduler`) and opens/resolves an incident accordingly.
+/// PART 12 #9: an `Idempotency-Key` is only treated as identifying the
+/// SAME request within a single bucket of this size. Past the bucket
+/// boundary, the same key value identifies a NEW request — so a client
+/// that caches or reuses an idempotency key cannot silently suppress
+/// legitimate future heartbeat execution.
 ///
-/// SECURITY: never returns any monitor details (name, URL, owner, etc.) —
-/// only a generic acknowledgement — since this endpoint is unauthenticated
-/// and reachable by anyone who has (or guesses/leaks) a token.
+/// Chosen (a) larger than `HEARTBEAT_RATE_LIMIT_WINDOW_SECS` so an
+/// in-flight retry inside one rate-limit burst still dedupes, and (b)
+/// smaller than any realistic heartbeat interval so a reused key never
+/// suppresses more than one scheduled ping.
+const HEARTBEAT_IDEMPOTENCY_BUCKET_SECS: i64 = 300;
+
+/// `GET /api/v1/public/heartbeat/{token}` (LEGACY).
 ///
-/// B34: the raw path segment is validated as a well-formed
-/// `HeartbeatToken` BEFORE it is ever used as a key into the in-memory
-/// rate-limit map. Previously, any arbitrary string reaching this handler
-/// — including garbage that could never match a real monitor — was
-/// inserted into `HeartbeatRateLimiter` first, and only rejected by the
-/// DB lookup afterwards. Since that map is never pruned (see its doc
-/// comment) and is keyed by the raw path string, an attacker could grow
-/// it without bound by requesting a large number of distinct nonsense
-/// paths — a memory-exhaustion vector on an unauthenticated endpoint,
-/// independent of (and not mitigated by) the IP-based `GovernorLayer` on
-/// `public::router()`, since a distributed/rotating-IP attacker is not
-/// slowed by a per-IP limit. Rejecting malformed tokens before the map
-/// insert closes this: only strings shaped like a real token (UUID or
-/// 32-char lowercase hex — see `HeartbeatToken::new`) can ever occupy a
-/// slot, and the number of distinct VALID tokens is bounded by how many
-/// heartbeat monitors actually exist.
+/// Kept for backwards compatibility with clients that already embed the
+/// token in a URL. New integrations should use
+/// `POST /api/v1/public/heartbeat` with the `X-Heartbeat-Token` header
+/// (or `Authorization: Bearer <token>`) — see [`record_heartbeat_post`]
+/// — so the credential never appears in a URL path, access log, browser
+/// history, or `Referer` header.
+///
+/// `routes::public::router()` sets `Referrer-Policy: no-referrer` on
+/// every response from this route group, so a browser that somehow loads
+/// this URL cannot leak it via `Referer` on the next navigation.
 pub async fn record_heartbeat(
     State(state): State<AppState>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
-    let token = HeartbeatToken::new(&token).map_err(|_| StatusCode::NOT_FOUND)?;
+    record_heartbeat_inner(&state, &token, &headers).await
+}
 
-    if !check_and_record_rate_limit(&state.heartbeat_rate_limiter, token.as_str()).await {
+/// `POST /api/v1/public/heartbeat` (RECOMMENDED).
+///
+/// Token is supplied in a header, never in the URL:
+///   * `X-Heartbeat-Token: <token>` (preferred), or
+///   * `Authorization: Bearer <token>`.
+///
+/// If both are present, `X-Heartbeat-Token` wins (more specific for this
+/// endpoint). Response body is identical to the GET shape — no monitor
+/// details are ever returned by either.
+///
+/// SECURITY: the token value is never logged by this handler and is
+/// never included in the response body — see requirement "Never expose
+/// monitor details from heartbeat endpoint" / "Do not log the heartbeat
+/// token".
+pub async fn record_heartbeat_post(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    let token = extract_heartbeat_token_from_headers(&headers).ok_or(StatusCode::NOT_FOUND)?;
+    record_heartbeat_inner(&state, &token, &headers).await
+}
+
+/// Extracts a heartbeat token from the request headers.
+///
+/// Returns `None` when neither header is present or when neither parses
+/// as text; the caller treats that exactly like an invalid token. Full
+/// shape validation still happens in [`HeartbeatToken::new`].
+///
+/// SECURITY: never logged, never echoed back.
+fn extract_heartbeat_token_from_headers(headers: &HeaderMap) -> Option<String> {
+    if let Some(value) = headers.get("x-heartbeat-token") {
+        if let Ok(s) = value.to_str() {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(value) = headers.get(header::AUTHORIZATION) {
+        if let Ok(s) = value.to_str() {
+            if let Some(rest) = s.strip_prefix("Bearer ") {
+                return Some(rest.to_string());
+            }
+            if let Some(rest) = s.strip_prefix("bearer ") {
+                return Some(rest.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Shared handler body for both GET and POST shapes.
+async fn record_heartbeat_inner(
+    state: &AppState,
+    raw_token: &str,
+    headers: &HeaderMap,
+) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    // (1) PART 12 #2: reject malformed tokens BEFORE any rate-limit or DB
+    // work. Only well-formed `HeartbeatToken`s ever reach the limiter, so
+    // an attacker cannot grow the limiter's key space with junk.
+    let token = HeartbeatToken::new(raw_token).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // (2) PART 12 #3: distributed, TTL-bounded per-token rate limit.
+    // Fail CLOSED on limiter unavailability, matching rum_ingest.
+    let allowed = match state
+        .rate_limiter
+        .check_and_record(
+            HEARTBEAT_RATE_LIMIT_NAMESPACE,
+            token.as_str(),
+            HEARTBEAT_RATE_LIMIT_MAX_REQUESTS,
+            HEARTBEAT_RATE_LIMIT_WINDOW_SECS,
+        )
+        .await
+    {
+        Ok(allowed) => allowed,
+        Err(err) => {
+            warn!(error = %err, "heartbeat rate limiter unavailable; failing closed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+    };
+    if !allowed {
+        // PART 12 #7: no token in the log line.
         warn!("heartbeat rate limit exceeded for a token");
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -89,23 +176,7 @@ pub async fn record_heartbeat(
     // sweeper's later timeout evaluation is platform-side bookkeeping and
     // is intentionally NOT billed.
     let now = Utc::now();
-    let request_id = headers
-        .get("idempotency-key")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES
-                && value.is_ascii()
-                && value.bytes().all(|b| b.is_ascii_graphic())
-        })
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| {
-            format!(
-                "heartbeat:{}:{}",
-                monitor.id.0,
-                now.timestamp_nanos_opt().unwrap_or_default()
-            )
-        });
+    let request_id = build_request_id(&monitor.id, headers, now);
 
     if let Some(metering) = &state.payg_metering {
         match metering
@@ -116,8 +187,7 @@ pub async fn record_heartbeat(
                         .as_str()
                         .to_owned(),
                     units: 1,
-                    request_id: format!("heartbeat:{}", request_id),
-
+                    request_id,
                     monitor_id: None,
                     execution_id: None,
                     pricing_context: None,
@@ -153,93 +223,150 @@ pub async fn record_heartbeat(
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
 }
 
-/// Fixed-window per-token rate limiter. Returns `true` if this request is
-/// allowed (and records it against the token's current window), `false` if
-/// the token has already made `HEARTBEAT_RATE_LIMIT_MAX_REQUESTS` requests
-/// within the current `HEARTBEAT_RATE_LIMIT_WINDOW`.
+/// Builds the idempotency `request_id` for one heartbeat attempt.
 ///
-/// NOTE: the map is never pruned of stale/inactive tokens. This is bounded
-/// in practice by the number of Heartbeat monitors that have EVER pinged
-/// this server (one entry per distinct token) AND, as of B34, only ever
-/// receives entries for well-formed tokens (see `record_heartbeat`'s doc
-/// comment) — a small, slowly-growing set compared to raw request volume,
-/// acceptable for now, but a candidate for a periodic sweep if it ever
-/// becomes a concern.
-async fn check_and_record_rate_limit(limiter: &HeartbeatRateLimiter, token: &str) -> bool {
-    let mut buckets = limiter.lock().await;
-    let now = Instant::now();
+/// * No client `Idempotency-Key` — a unique value per request
+///   (`heartbeat:<monitor_id>:<nanos>`), so retries of the SAME real
+///   request still charge independently. This is the default.
+/// * With client `Idempotency-Key` — `heartbeat:<monitor_id>:<key>:<bucket>`.
+///   Within one bucket the same key is deduplicated; in a new bucket the
+///   same key identifies a distinct request. This bounds how long a
+///   stale/reused key can suppress a legitimate future heartbeat
+///   (PART 12 #9).
+///
+/// The token is NEVER part of the request_id (PART 12 #7 invariant).
+fn build_request_id(
+    monitor_id: &domain::shared::ids::MonitorId,
+    headers: &HeaderMap,
+    now: chrono::DateTime<Utc>,
+) -> String {
+    let client_key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES
+                && value.is_ascii()
+                && value.bytes().all(|b| b.is_ascii_graphic())
+        });
 
-    match buckets.get_mut(token) {
-        Some((window_started_at, count)) => {
-            if now.duration_since(*window_started_at) >= HEARTBEAT_RATE_LIMIT_WINDOW {
-                *window_started_at = now;
-                *count = 1;
-                true
-            } else if *count < HEARTBEAT_RATE_LIMIT_MAX_REQUESTS {
-                *count += 1;
-                true
-            } else {
-                false
-            }
+    match client_key {
+        Some(key) => {
+            let bucket = now.timestamp() / HEARTBEAT_IDEMPOTENCY_BUCKET_SECS;
+            format!("heartbeat:{}:{}:{}", monitor_id.0, key, bucket)
         }
-        None => {
-            buckets.insert(token.to_string(), (now, 1));
-            true
-        }
+        None => format!(
+            "heartbeat:{}:{}",
+            monitor_id.0,
+            now.timestamp_nanos_opt().unwrap_or_default()
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Arc;
+    use axum::http::HeaderValue;
 
-    fn empty_limiter() -> HeartbeatRateLimiter {
-        Arc::new(tokio::sync::Mutex::new(HashMap::new()))
+    #[test]
+    fn extracts_token_from_x_heartbeat_token_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-heartbeat-token",
+            HeaderValue::from_static("550e8400-e29b-41d4-a716-446655440000"),
+        );
+        assert_eq!(
+            extract_heartbeat_token_from_headers(&headers).as_deref(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
     }
 
-    #[tokio::test]
-    async fn allows_requests_up_to_the_limit() {
-        let limiter = empty_limiter();
-
-        for _ in 0..HEARTBEAT_RATE_LIMIT_MAX_REQUESTS {
-            assert!(check_and_record_rate_limit(&limiter, "token-a").await);
-        }
+    #[test]
+    fn extracts_token_from_authorization_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer 550e8400-e29b-41d4-a716-446655440000"),
+        );
+        assert_eq!(
+            extract_heartbeat_token_from_headers(&headers).as_deref(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
     }
 
-    #[tokio::test]
-    async fn rejects_requests_beyond_the_limit_within_the_window() {
-        let limiter = empty_limiter();
-
-        for _ in 0..HEARTBEAT_RATE_LIMIT_MAX_REQUESTS {
-            assert!(check_and_record_rate_limit(&limiter, "token-b").await);
-        }
-
-        assert!(!check_and_record_rate_limit(&limiter, "token-b").await);
+    #[test]
+    fn x_heartbeat_token_wins_over_authorization_when_both_present() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-heartbeat-token", HeaderValue::from_static("winner"));
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer loser"),
+        );
+        assert_eq!(
+            extract_heartbeat_token_from_headers(&headers).as_deref(),
+            Some("winner")
+        );
     }
 
-    #[tokio::test]
-    async fn different_tokens_have_independent_limits() {
-        let limiter = empty_limiter();
-
-        for _ in 0..HEARTBEAT_RATE_LIMIT_MAX_REQUESTS {
-            assert!(check_and_record_rate_limit(&limiter, "token-c").await);
-        }
-
-        assert!(check_and_record_rate_limit(&limiter, "token-d").await);
+    #[test]
+    fn no_token_headers_yields_none() {
+        let headers = HeaderMap::new();
+        assert!(extract_heartbeat_token_from_headers(&headers).is_none());
     }
 
-    #[tokio::test]
-    async fn record_heartbeat_rejects_malformed_token_before_touching_rate_limiter() {
-        // B34 regression test: a malformed token must never be able to
-        // grow the rate-limiter map. We can't easily call the full
-        // handler here without a lot of AppState scaffolding (already
-        // covered end-to-end in crates/api/tests/heartbeat.rs), so this
-        // test asserts the underlying guarantee directly: HeartbeatToken
-        // parsing rejects arbitrary garbage, which is the mechanism
-        // `record_heartbeat` now relies on to fail closed before any
-        // limiter/database call.
+    #[test]
+    fn malformed_authorization_scheme_yields_none() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic dXNlcjpwYXNz"),
+        );
+        assert!(extract_heartbeat_token_from_headers(&headers).is_none());
+    }
+
+    #[test]
+    fn build_request_id_is_unique_without_client_key() {
+        let monitor_id = domain::shared::ids::MonitorId(uuid::Uuid::new_v4());
+        let headers = HeaderMap::new();
+        let now = Utc::now();
+        let a = build_request_id(&monitor_id, &headers, now);
+        let b = build_request_id(&monitor_id, &headers, now + chrono::Duration::nanoseconds(1));
+        assert_ne!(a, b);
+        assert!(!a.contains("idempotency"));
+    }
+
+    #[test]
+    fn build_request_id_buckets_client_key_by_time() {
+        let monitor_id = domain::shared::ids::MonitorId(uuid::Uuid::new_v4());
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", HeaderValue::from_static("abc"));
+        let t1 = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let a = build_request_id(&monitor_id, &headers, t1);
+        let b = build_request_id(&monitor_id, &headers, t1 + chrono::Duration::seconds(10));
+        assert_eq!(a, b);
+        let c = build_request_id(
+            &monitor_id,
+            &headers,
+            t1 + chrono::Duration::seconds(HEARTBEAT_IDEMPOTENCY_BUCKET_SECS),
+        );
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn build_request_id_never_contains_the_token() {
+        let monitor_id = domain::shared::ids::MonitorId(uuid::Uuid::new_v4());
+        let mut headers = HeaderMap::new();
+        headers.insert("idempotency-key", HeaderValue::from_static("abc"));
+        headers.insert(
+            "x-heartbeat-token",
+            HeaderValue::from_static("550e8400-e29b-41d4-a716-446655440000"),
+        );
+        let id = build_request_id(&monitor_id, &headers, Utc::now());
+        assert!(!id.contains("550e8400"));
+    }
+
+    #[test]
+    fn malformed_tokens_are_rejected_by_the_value_object() {
         assert!(HeartbeatToken::new("../../../../etc/passwd").is_err());
         assert!(HeartbeatToken::new("<script>alert(1)</script>").is_err());
         assert!(HeartbeatToken::new("").is_err());
