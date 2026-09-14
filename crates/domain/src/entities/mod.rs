@@ -1,5 +1,6 @@
 mod financial_audit_log;
 pub use financial_audit_log::FinancialAuditLogEntry;
+pub mod agent;
 pub mod assertion;
 pub use assertion::*;
 pub mod api_flow_step;

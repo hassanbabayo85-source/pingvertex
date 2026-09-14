@@ -1,3 +1,4 @@
+pub mod in_memory_agent_registry;
 pub mod in_memory_api_flow_repository;
 pub mod in_memory_api_key_repository;
 pub mod in_memory_audit_log_entry_repository;
@@ -18,6 +19,7 @@ pub mod in_memory_tenant_invitation_repository;
 pub mod in_memory_tenant_membership_repository;
 pub mod in_memory_tenant_repository;
 pub mod in_memory_user_repository;
+pub mod postgres_agent_registry_repository;
 pub mod postgres_api_flow_repository;
 pub mod postgres_api_key_repository;
 pub mod postgres_audit_log_entry_repository;
@@ -218,3 +220,7 @@ pub mod postgres_bulk_monitor_action_repository;
 pub mod postgres_bulk_monitor_import_repository;
 pub use postgres_bulk_monitor_action_repository::PostgresBulkMonitorActionRepository;
 pub use postgres_bulk_monitor_import_repository::PostgresBulkMonitorImportRepository;
+
+pub use in_memory_agent_registry::InMemoryAgentRegistry;
+
+pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;

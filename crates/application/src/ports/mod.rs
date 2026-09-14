@@ -1,3 +1,4 @@
+pub mod agent_registry;
 pub mod api_flow_repository;
 pub mod check_repository;
 pub mod diagnostic_report_repository;
@@ -236,3 +237,5 @@ pub use bulk_monitor_import_repository::{
 pub use bulk_monitor_action_repository::{
     BulkMonitorActionJob, BulkMonitorActionRepoResult, BulkMonitorActionRepository,
 };
+
+pub use agent_registry::{AgentRegistry, AgentRegistryResult};

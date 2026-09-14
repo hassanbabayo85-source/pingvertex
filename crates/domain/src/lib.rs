@@ -8,6 +8,7 @@ pub mod repositories;
 pub mod shared;
 pub mod value_objects;
 
+pub use entities::agent::*;
 pub use entities::*;
 pub use enums::*;
 pub use errors::*;

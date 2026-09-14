@@ -92,3 +92,6 @@ __pycache__/
 
 # ===== Stray files da suka taɓa fitowa =====
 get_constraint.sql
+
+# PART 5 — agent mTLS private keys (runtime-injected, never committed)
+secrets/
