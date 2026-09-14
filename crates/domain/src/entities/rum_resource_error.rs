@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::DomainError;
 use crate::shared::ids::{RumPageViewId, RumResourceErrorId, RumSessionId, RumSiteId, TenantId};
 use crate::shared::policies::TenantOwned;
+use crate::shared::url_sanitize::strip_query_and_fragment;
 
 pub const MAX_RUM_RESOURCE_URL_LEN: usize = 2048;
 
@@ -21,6 +22,10 @@ pub enum RumResourceType {
 /// script, a failed `fetch`). Like `RumJsError`, `resource_url` is
 /// browser-supplied and untrusted — plain text only on render, never
 /// trusted HTML (see Task G security self-check).
+///
+/// SECURITY: `resource_url` is normalized (query string and fragment
+/// stripped) in `new` before the entity is constructed. See
+/// [`crate::shared::url_sanitize`] for the shared rule and rationale.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RumResourceError {
     pub id: RumResourceErrorId,
@@ -46,7 +51,12 @@ impl RumResourceError {
         resource_type: Option<RumResourceType>,
         status_code: Option<i32>,
     ) -> Result<Self, DomainError> {
-        let resource_url = resource_url.trim().to_string();
+        // Strip `?query=…` and `#fragment` BEFORE the length check, so a
+        // URL whose secret-bearing tail pushes it over the limit is not
+        // rejected just because of the part we are about to discard.
+        let stripped = strip_query_and_fragment(resource_url.trim());
+        let resource_url = stripped.trim().to_string();
+
         if resource_url.is_empty() {
             return Err(DomainError::EmptyRumResourceUrl);
         }
@@ -108,5 +118,101 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, DomainError::RumResourceUrlTooLong);
+    }
+
+    #[test]
+    fn strips_query_string_from_resource_url() {
+        let err = RumResourceError::new(
+            RumResourceErrorId::new(),
+            TenantId::new(),
+            RumSiteId::new(),
+            RumSessionId::new(),
+            None,
+            "https://example.com/script.js?token=secret".to_string(),
+            Some(RumResourceType::Script),
+            Some(404),
+        )
+        .unwrap();
+        assert_eq!(err.resource_url, "https://example.com/script.js");
+        assert!(!err.resource_url.contains("secret"));
+        assert!(!err.resource_url.contains('?'));
+    }
+
+    #[test]
+    fn strips_fragment_from_resource_url() {
+        let err = RumResourceError::new(
+            RumResourceErrorId::new(),
+            TenantId::new(),
+            RumSiteId::new(),
+            RumSessionId::new(),
+            None,
+            "https://example.com/script.js#frag".to_string(),
+            Some(RumResourceType::Script),
+            None,
+        )
+        .unwrap();
+        assert_eq!(err.resource_url, "https://example.com/script.js");
+        assert!(!err.resource_url.contains('#'));
+    }
+
+    #[test]
+    fn strips_query_and_fragment_from_full_resource_url() {
+        let err = RumResourceError::new(
+            RumResourceErrorId::new(),
+            TenantId::new(),
+            RumSiteId::new(),
+            RumSessionId::new(),
+            None,
+            "https://example.com/page?token=secret#fragment".to_string(),
+            Some(RumResourceType::Fetch),
+            Some(500),
+        )
+        .unwrap();
+        assert_eq!(err.resource_url, "https://example.com/page");
+        assert!(!err.resource_url.contains("secret"));
+        assert!(!err.resource_url.contains('?'));
+        assert!(!err.resource_url.contains('#'));
+    }
+
+    #[test]
+    fn every_named_secret_param_is_stripped_from_resource_url() {
+        for param in [
+            "?token=t",
+            "?code=c",
+            "?password=p",
+            "?secret=s",
+            "?key=k",
+            "?email=e",
+        ] {
+            let url = format!("https://example.com/page{param}");
+            let err = RumResourceError::new(
+                RumResourceErrorId::new(),
+                TenantId::new(),
+                RumSiteId::new(),
+                RumSessionId::new(),
+                None,
+                url,
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(err.resource_url, "https://example.com/page");
+        }
+    }
+
+    #[test]
+    fn resource_url_that_becomes_empty_after_stripping_is_rejected() {
+        let err = RumResourceError::new(
+            RumResourceErrorId::new(),
+            TenantId::new(),
+            RumSiteId::new(),
+            RumSessionId::new(),
+            None,
+            "?token=secret".to_string(),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err, DomainError::EmptyRumResourceUrl);
     }
 }
