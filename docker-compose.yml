@@ -32,6 +32,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    security_opt:
+      - no-new-privileges:true
 
   redis:
     image: redis:7.4-alpine
@@ -44,6 +50,13 @@ services:
       retries: 10
     volumes:
       - redis_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   # Migrations run as pingvertex_migrator — NOT superuser. The migrator
   # role owns the schema and may CREATE/ALTER/GRANT; it cannot create
@@ -67,6 +80,10 @@ services:
     volumes:
       - ./migrations:/app/migrations:ro
     entrypoint: ["sh", "-c"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     command:
       - "sqlx database create || true && sqlx migrate run --source migrations"
 
@@ -92,8 +109,25 @@ services:
       DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}@postgres:5432/uptime_monitor
       RUST_LOG: info,axum::rejection=trace,tower_http=debug
     ports:
+      # PART 13 — only the local dev convenience binding is kept here.
+      # docker-compose.prod.yml clears even this with `ports: !reset []`,
+      # so that in production the ONLY ingress path is Caddy on :443.
       - "127.0.0.1:3000:3000"
-      - "3443:3443"
+      # PART 13 — the mTLS port 3443 is deliberately NOT published. It is
+      # reachable only via the `pv_agent_mtls` internal network (see the
+      # `networks:` block at the bottom of this file), by the agent
+      # container. Publishing it here would expose the mTLS endpoint to
+      # anyone who can reach the host on 3443, bypassing Caddy entirely.
+    networks:
+      default: {}
+      pv_agent_mtls: {}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   # Background worker uses pingvertex_worker — NOT superuser.
   worker:
@@ -119,6 +153,13 @@ services:
       METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
     ports:
       - "127.0.0.1:3001:3001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -136,6 +177,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
     ports:
       - "127.0.0.1:9090:9090"
+    security_opt:
+      - no-new-privileges:true
 
   grafana:
     image: grafana/grafana-oss:11.2.0
@@ -148,6 +191,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
     ports:
       - "127.0.0.1:3002:3000"
+    security_opt:
+      - no-new-privileges:true
 
   alertmanager:
     image: prom/alertmanager:v0.27.0
@@ -159,6 +204,8 @@ services:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
     ports:
       - "127.0.0.1:9093:9093"
+    security_opt:
+      - no-new-privileges:true
 
   agent:
     build:
@@ -168,7 +215,7 @@ services:
     restart: unless-stopped
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -187,9 +234,25 @@ services:
     # securely-managed file on the host (e.g. `/etc/pingvertex/agents/...`).
     volumes:
       - type: bind
-        source: ${AGENT_CLIENT_KEY_PATH_HOST:-./secrets/agent-us-east-1-client-key.pem}
+        # PART 13 — the previous `:-` default pointed at `./secrets/...`
+        # inside the repository. `:?` makes the variable mandatory, so
+        # the container will refuse to start if the operator has not
+        # explicitly pointed this at a file OUTSIDE the repo. This is
+        # what "mount at runtime as secret, least privilege" means in
+        # practice for a non-Swarm deployment.
+        source: ${AGENT_CLIENT_KEY_PATH_HOST:?AGENT_CLIENT_KEY_PATH_HOST must be set — the agent's mTLS private key must live outside the repository (see SECURITY_HARDENING.md)}
         target: /app/certs/agents/agent-us-east-1/client-key.pem
         read_only: true
+    networks:
+      default: {}
+      pv_agent_mtls: {}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   frontend-build:
     build:
@@ -207,11 +270,29 @@ services:
       - frontend_dist:/app/apps/leptos-dashboard/dist
     command: trunk build --release
     restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   postgres_data:
   frontend_dist:
   redis_data:
+
+# PART 13 — internal network for the agent ↔ API mTLS channel.
+#
+# `internal: true` means this network has NO gateway to the outside
+# world: a container attached to it cannot reach the host or the
+# internet via this interface. Combined with the fact that port 3443 is
+# not published via any `ports:` mapping, this means the mTLS endpoint
+# is reachable ONLY by containers explicitly attached to this network
+# (currently: `api` and `agent`). No other service, and nothing on the
+# host, can open a connection to api:3443.
+networks:
+  pv_agent_mtls:
+    driver: bridge
+    internal: true
 
 secrets:
   metrics_token:
