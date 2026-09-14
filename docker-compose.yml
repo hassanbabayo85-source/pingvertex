@@ -43,6 +43,14 @@ services:
     image: redis:7.4-alpine
     container_name: uptime-monitor-redis
     restart: unless-stopped
+    # PART 13 follow-up: drop to the redis user directly. The image's
+    # entrypoint uses `setpriv` to drop from root to `redis`, which
+    # requires CAP_SETUID/CAP_SETGID — but `cap_drop: [ALL]` removed
+    # them, so the container crash-looped with `setpriv: setresuid
+    # failed: Operation not permitted`. Running as `redis` from the
+    # start makes the entrypoint skip the privilege drop entirely.
+    # This matches the caddy service's `user: caddy` pattern.
+    user: redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
