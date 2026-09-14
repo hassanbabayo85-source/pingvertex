@@ -71,6 +71,14 @@ pub async fn logout(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    /// Process-wide `ENVIRONMENT` mutex. These tests mutate the shared
+    /// process environment, so they MUST NOT run concurrently with each
+    /// other (cargo runs tests in parallel by default). Without this,
+    /// two tests can interleave `set_var` calls and one of them will
+    /// observe the other's value, causing a flaky failure.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// PART 6 — in a secure environment, logout must emit TWO Set-Cookie
     /// headers: one for `__Host-access_token` and one for the legacy
@@ -78,9 +86,8 @@ mod tests {
     /// cleared).
     #[tokio::test]
     async fn logout_clears_both_cookie_names_in_secure_mode() {
-        // SAFETY: these tests run in a single process; the shared env
-        // mutex in `shared::env_test_lock` is not reachable from this
-        // crate, so we set/restore around the call.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         let prev = std::env::var("ENVIRONMENT").ok();
         unsafe {
             std::env::set_var("ENVIRONMENT", "production");
@@ -109,6 +116,8 @@ mod tests {
     /// cookie name IS the legacy name).
     #[tokio::test]
     async fn logout_emits_single_cookie_in_dev_mode() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         let prev = std::env::var("ENVIRONMENT").ok();
         unsafe {
             std::env::set_var("ENVIRONMENT", "development");

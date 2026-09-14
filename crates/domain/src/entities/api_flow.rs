@@ -15,6 +15,10 @@ use crate::shared::policies::TenantOwned;
 /// comfortably covers real use while blocking abuse.
 pub const MAX_STEPS: usize = 10;
 
+/// PART 9 — hard cap on the total estimated serialized size of an
+/// `ApiFlow` (sum of all step byte lengths plus per-step overhead).
+pub const MAX_SERIALIZED_SIZE: usize = 256 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiFlow {
     pub id: ApiFlowId,
@@ -47,6 +51,11 @@ impl ApiFlow {
 
         if orders != expected {
             return Err(DomainError::InvalidStepOrder);
+        }
+
+        let total_size: usize = steps.iter().map(|s| s.rough_serialized_size()).sum();
+        if total_size > MAX_SERIALIZED_SIZE {
+            return Err(DomainError::FlowSerializedTooLarge);
         }
 
         let now = Utc::now();

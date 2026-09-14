@@ -24,6 +24,14 @@ pub const MAX_BODY_LENGTH: usize = 65536;
 /// Hard cap on the byte length of the url template.
 pub const MAX_URL_TEMPLATE_LENGTH: usize = 2048;
 
+/// PART 9 — hard cap on the number of variable extractions a single step
+/// may carry. `extract` is a client-supplied, unbounded `Vec`.
+pub const MAX_EXTRACTIONS: usize = 10;
+
+/// PART 9 — hard cap on the number of assertions a single step may carry.
+/// `assertions` is a client-supplied, unbounded `Vec`.
+pub const MAX_ASSERTIONS_PER_STEP: usize = 20;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiFlowStep {
     pub id: ApiFlowStepId,
@@ -73,6 +81,14 @@ impl ApiFlowStep {
             return Err(DomainError::FlowStepBodyTooLarge);
         }
 
+        if extract.len() > MAX_EXTRACTIONS {
+            return Err(DomainError::TooManyExtractionsPerStep);
+        }
+
+        if assertions.len() > MAX_ASSERTIONS_PER_STEP {
+            return Err(DomainError::TooManyAssertionsPerStep);
+        }
+
         Ok(Self {
             id: ApiFlowStepId::new(),
             order,
@@ -84,6 +100,28 @@ impl ApiFlowStep {
             extract,
             assertions,
         })
+    }
+
+    /// PART 9 — conservative byte-size estimate for the step's JSON
+    /// representation. Used by `ApiFlow` to enforce a total-size cap
+    /// without pulling `serde_json` into the domain crate.
+    pub fn rough_serialized_size(&self) -> usize {
+        let mut size = self.url_template.len();
+        if let Some(body) = &self.body {
+            size += body.len();
+        }
+        for (k, v) in &self.headers {
+            size += k.len() + v.len() + 8;
+        }
+        for ext in &self.extract {
+            size += ext.name().len() + 32;
+        }
+        for a in &self.assertions {
+            size += a.target.as_ref().map_or(0, |s| s.len());
+            size += a.expected_value.as_ref().map_or(0, |s| s.len());
+            size += 64;
+        }
+        size + 256
     }
 }
 
@@ -202,5 +240,108 @@ mod tests {
         );
 
         assert_eq!(result, Err(DomainError::FlowStepBodyTooLarge));
+    }
+}
+
+#[cfg(test)]
+mod part9_tests {
+    use super::*;
+    use crate::enums::{ExtractSource, HttpMethod};
+    use crate::value_objects::{FlowStepName, VariableExtraction};
+
+    fn step_name() -> FlowStepName {
+        FlowStepName::new("Login").unwrap()
+    }
+
+    fn an_extraction(i: usize) -> VariableExtraction {
+        VariableExtraction::new(format!("var_{i}"), ExtractSource::Body).unwrap()
+    }
+
+    #[test]
+    fn accepts_extractions_at_max() {
+        let extract: Vec<_> = (0..MAX_EXTRACTIONS).map(an_extraction).collect();
+        assert_eq!(extract.len(), MAX_EXTRACTIONS);
+        let result = ApiFlowStep::new(
+            1,
+            step_name(),
+            HttpMethod::Get,
+            "https://example.com".to_string(),
+            vec![],
+            None,
+            extract,
+            vec![],
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_extractions_over_max() {
+        let extract: Vec<_> = (0..(MAX_EXTRACTIONS + 1)).map(an_extraction).collect();
+        let result = ApiFlowStep::new(
+            1,
+            step_name(),
+            HttpMethod::Get,
+            "https://example.com".to_string(),
+            vec![],
+            None,
+            extract,
+            vec![],
+        );
+        assert_eq!(result.unwrap_err(), DomainError::TooManyExtractionsPerStep);
+    }
+
+    #[test]
+    fn rejects_assertions_over_max_per_step() {
+        use crate::entities::Assertion;
+        use crate::enums::{AssertionOperator, ResponsePart};
+        let assertions: Vec<_> = (0..(MAX_ASSERTIONS_PER_STEP + 1))
+            .map(|_| {
+                Assertion::new(
+                    ResponsePart::Body,
+                    AssertionOperator::Equals,
+                    None,
+                    Some("200".to_string()),
+                )
+                .unwrap()
+            })
+            .collect();
+        let result = ApiFlowStep::new(
+            1,
+            step_name(),
+            HttpMethod::Get,
+            "https://example.com".to_string(),
+            vec![],
+            None,
+            vec![],
+            assertions,
+        );
+        assert_eq!(result.unwrap_err(), DomainError::TooManyAssertionsPerStep);
+    }
+
+    #[test]
+    fn rough_serialized_size_is_monotonic_with_body_length() {
+        let s1 = ApiFlowStep::new(
+            1,
+            step_name(),
+            HttpMethod::Get,
+            "https://example.com".to_string(),
+            vec![],
+            None,
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        let s2 = ApiFlowStep::new(
+            1,
+            step_name(),
+            HttpMethod::Get,
+            "https://example.com".to_string(),
+            vec![],
+            Some("x".repeat(1024)),
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        assert!(s2.rough_serialized_size() > s1.rough_serialized_size());
     }
 }
