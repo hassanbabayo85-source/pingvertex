@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         PostgresIncidentRepository::new(pool.clone()),
         PostgresNotificationChannelRepository::new(pool.clone()),
         notification_service,
-        PostgresApiFlowRepository::new(pool.clone()),
+        PostgresApiFlowRepository::new(pool.clone(), secret_cipher.clone()),
         proxy_check_job_repository,
         PostgresMaintenanceWindowRepository::new(pool.clone()),
         PostgresEscalationPolicyRepository::new(pool.clone()),

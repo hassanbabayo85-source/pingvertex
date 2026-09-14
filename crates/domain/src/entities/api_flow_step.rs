@@ -5,18 +5,24 @@ use crate::entities::Assertion;
 use crate::enums::HttpMethod;
 use crate::errors::DomainError;
 use crate::shared::ids::ApiFlowStepId;
-use crate::value_objects::{FlowStepName, VariableExtraction};
+use crate::value_objects::{
+    FlowStepName, VariableExtraction,
+    flow_header::{FlowHeader, MAX_HEADER_VALUE_LENGTH, MAX_HEADERS_PER_STEP},
+};
 
 /// Hard cap on the number of headers a single flow step may carry.
 ///
-/// `headers` is a client-supplied, unbounded `Vec<(String, String)>` with no
-/// prior limit — a single step could carry thousands of headers that would
-/// be validated and persisted for no legitimate reason (a real HTTP request
-/// needs only a handful). 20 comfortably covers real use while blocking abuse.
-pub const MAX_HEADERS: usize = 20;
+/// `headers` is a client-supplied, unbounded `Vec<FlowHeader>` with no
+/// prior limit — a single step could carry thousands of headers that
+/// would be validated and persisted for no legitimate reason (a real HTTP
+/// request needs only a handful). 20 comfortably covers real use while
+/// blocking abuse.
+pub const MAX_HEADERS: usize = MAX_HEADERS_PER_STEP;
 
-/// Hard cap on the byte length of a single header value.
-pub const MAX_HEADER_VALUE_LENGTH: usize = 2048;
+/// Hard cap on the byte length of a single header value. Re-exported
+/// from `value_objects::flow_header` so that every header-related limit
+/// lives next to the type that owns it.
+pub const MAX_HEADER_VALUE_LENGTH_REEXPORT: usize = MAX_HEADER_VALUE_LENGTH;
 
 /// Hard cap on the byte length of the request body.
 pub const MAX_BODY_LENGTH: usize = 65536;
@@ -39,7 +45,18 @@ pub struct ApiFlowStep {
     pub name: FlowStepName,
     pub method: HttpMethod,
     pub url_template: String,
-    pub headers: Vec<(String, String)>,
+    /// Headers, with sensitivity classification.
+    ///
+    /// Deliberately `#[serde(skip, default)]`:
+    /// - The value object `FlowHeader` does not implement
+    ///   `Serialize`/`Deserialize` — every header must be constructed
+    ///   through `FlowHeader::new`, which validates name/value lengths
+    ///   and requires an explicit `secret` flag.
+    /// - Persistence is handled explicitly by each repository (see
+    ///   `PostgresApiFlowRepository`, which encrypts secret values via
+    ///   `SecretCipher`), not by a blanket `serde_json::to_value(&step)`.
+    #[serde(skip, default)]
+    pub headers: Vec<FlowHeader>,
     pub body: Option<String>,
     pub extract: Vec<VariableExtraction>,
     pub assertions: Vec<Assertion>,
@@ -52,7 +69,7 @@ impl ApiFlowStep {
         name: FlowStepName,
         method: HttpMethod,
         url_template: String,
-        headers: Vec<(String, String)>,
+        headers: Vec<FlowHeader>,
         body: Option<String>,
         extract: Vec<VariableExtraction>,
         assertions: Vec<Assertion>,
@@ -68,12 +85,10 @@ impl ApiFlowStep {
         if headers.len() > MAX_HEADERS {
             return Err(DomainError::TooManyHeaders);
         }
-
-        for (_, value) in &headers {
-            if value.len() > MAX_HEADER_VALUE_LENGTH {
-                return Err(DomainError::HeaderValueTooLong);
-            }
-        }
+        // Per-header name/value length validation is performed inside
+        // `FlowHeader::new`, which is the only way to construct a
+        // `FlowHeader` (its fields are private). No re-validation is
+        // needed here.
 
         if let Some(body) = &body
             && body.len() > MAX_BODY_LENGTH
@@ -105,13 +120,19 @@ impl ApiFlowStep {
     /// PART 9 — conservative byte-size estimate for the step's JSON
     /// representation. Used by `ApiFlow` to enforce a total-size cap
     /// without pulling `serde_json` into the domain crate.
+    ///
+    /// SECURITY: uses the plaintext `value()` accessor even for secret
+    /// headers. The estimate is intentionally conservative (ciphertext
+    /// is slightly larger than plaintext), and this value is never
+    /// returned to a client or written to a log — it is only compared
+    /// against `MAX_SERIALIZED_SIZE`.
     pub fn rough_serialized_size(&self) -> usize {
         let mut size = self.url_template.len();
         if let Some(body) = &self.body {
             size += body.len();
         }
-        for (k, v) in &self.headers {
-            size += k.len() + v.len() + 8;
+        for header in &self.headers {
+            size += header.name().len() + header.value().len() + 8;
         }
         for ext in &self.extract {
             size += ext.name().len() + 32;
@@ -140,7 +161,7 @@ mod tests {
             valid_name(),
             HttpMethod::Get,
             "https://example.com/login".to_string(),
-            vec![("Authorization".to_string(), "Bearer token".to_string())],
+            vec![FlowHeader::secret("Authorization", "Bearer token").unwrap()],
             Some("{}".to_string()),
             vec![],
             vec![],
@@ -187,8 +208,8 @@ mod tests {
 
     #[test]
     fn rejects_too_many_headers() {
-        let headers = (0..(MAX_HEADERS + 1))
-            .map(|i| (format!("X-Header-{i}"), "value".to_string()))
+        let headers: Vec<FlowHeader> = (0..(MAX_HEADERS + 1))
+            .map(|i| FlowHeader::plain(format!("X-Header-{i}"), "value").unwrap())
             .collect();
 
         let result = ApiFlowStep::new(
@@ -207,21 +228,12 @@ mod tests {
 
     #[test]
     fn rejects_header_value_too_long() {
+        // FlowHeader::new itself rejects this, so we verify that path.
         let value = "a".repeat(MAX_HEADER_VALUE_LENGTH + 1);
-        let headers = vec![("X-Header".to_string(), value)];
-
-        let result = ApiFlowStep::new(
-            1,
-            valid_name(),
-            HttpMethod::Get,
-            "https://example.com".to_string(),
-            headers,
-            None,
-            vec![],
-            vec![],
+        assert_eq!(
+            FlowHeader::plain("X-Header", value).unwrap_err(),
+            DomainError::HeaderValueTooLong
         );
-
-        assert_eq!(result, Err(DomainError::HeaderValueTooLong));
     }
 
     #[test]

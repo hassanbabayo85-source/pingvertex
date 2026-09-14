@@ -8,10 +8,10 @@ use chrono::{Duration, Utc};
 use domain::shared::ids::{CheckId, MonitorId, TenantId};
 use domain::{Check, Monitor, RegionCode};
 use infra::{
-    InMemoryAgentLeaseRepository, InMemoryAuditLogEntryRepository,
-    InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryAgentLeaseRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
+    InMemoryNotificationChannelRepository, InMemoryRegistrationTransaction,
+    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
+    UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::{Arc, Mutex};

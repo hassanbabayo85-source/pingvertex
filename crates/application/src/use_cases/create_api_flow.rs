@@ -12,19 +12,13 @@ use domain::{
     entities::{ApiFlow, ApiFlowStep, Assertion},
     shared::policies::{AuthorizationPolicy, TenantOwned},
     shared::types::{AuthenticatedUser, Permission},
-    value_objects::{FlowStepName, VariableExtraction},
+    value_objects::{FlowHeader, FlowStepName, VariableExtraction},
 };
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 #[derive(Debug)]
 pub enum CreateApiFlowError {
-    /// The referenced monitor doesn't exist, or exists but doesn't
-    /// belong to the actor's tenant. Both cases collapse to this single
-    /// variant (rather than a separate "forbidden" variant) so a caller
-    /// mapping this to an HTTP response returns 404 either way — a 403
-    /// would confirm to an attacker that the monitor_id exists but
-    /// belongs to someone else.
     Forbidden,
     MonitorNotFound,
     FlowAlreadyExists,
@@ -92,16 +86,6 @@ where
             return Err(CreateApiFlowError::Forbidden);
         }
 
-        // Authorization: the monitor must exist and belong to the
-        // actor's tenant. This is enforced HERE, in the use case, not
-        // left to the HTTP handler layer — a use case must not depend on
-        // its caller having already checked authorization, or the check
-        // silently disappears the moment a second caller (another
-        // handler, an internal job, a future refactor) invokes this use
-        // case without repeating it. `MonitorNotFound` covers both "no
-        // such monitor" and "exists but wrong tenant" so a caller
-        // mapping this to HTTP always returns 404, never a 403 that
-        // would confirm the id belongs to someone else.
         let monitor = self
             .monitor_repository
             .find_by_id(request.monitor_id)
@@ -145,6 +129,24 @@ where
             let name =
                 FlowStepName::new(step_input.name).map_err(Box::<dyn Error + Send + Sync>::from)?;
 
+            let mut headers = Vec::with_capacity(step_input.headers.len());
+            for header_input in step_input.headers {
+                // MATAKIN 4 & 6 — Validation: Prevent saving the exact string "***REDACTED***"
+                // as a literal secret during initial creation.
+                if header_input.secret && header_input.value == "***REDACTED***" {
+                    return Err(format!(
+                        "cannot use '***REDACTED***' for header '{}' during creation",
+                        header_input.name
+                    )
+                    .into());
+                }
+
+                let header =
+                    FlowHeader::new(header_input.name, header_input.value, header_input.secret)
+                        .map_err(Box::<dyn Error + Send + Sync>::from)?;
+                headers.push(header);
+            }
+
             let mut extract = Vec::with_capacity(step_input.extract.len());
             for extraction_input in step_input.extract {
                 let source = match extraction_input.source {
@@ -173,12 +175,13 @@ where
                 assertions.push(assertion);
             }
 
+            // MATAKIN 6 — Strict Input Limits: Enforced centrally at domain boundary.
             let step = ApiFlowStep::new(
                 step_input.order,
                 name,
                 step_input.method,
                 step_input.url_template,
-                step_input.headers,
+                headers,
                 step_input.body,
                 extract,
                 assertions,

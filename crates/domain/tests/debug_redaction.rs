@@ -259,3 +259,88 @@ fn create_webhook_channel_debug_redacts_signing_secret() {
     );
     assert_redacted(&rendered, "CreateWebhookChannel::Debug");
 }
+
+// ===========================================================================
+// PART 8 — FlowHeader / ApiFlowStep / ApiFlow
+// ===========================================================================
+
+use domain::HttpMethod;
+use domain::entities::{ApiFlow, ApiFlowStep};
+use domain::value_objects::{FlowHeader, FlowStepName};
+
+#[test]
+fn flow_header_debug_redacts_secret_value() {
+    let h = FlowHeader::secret("Authorization", "Bearer MUST_NOT_LEAK").unwrap();
+    let rendered = format!("{h:?}");
+    assert_no_plaintext(&rendered, &["MUST_NOT_LEAK"], "FlowHeader::Debug");
+    assert!(rendered.contains("***REDACTED***"));
+    assert!(rendered.contains("Authorization"));
+}
+
+#[test]
+fn flow_header_debug_shows_plain_value() {
+    let h = FlowHeader::plain("Content-Type", "application/json").unwrap();
+    let rendered = format!("{h:?}");
+    assert!(rendered.contains("application/json"));
+}
+
+#[test]
+fn api_flow_step_debug_redacts_all_secret_header_values() {
+    let step = ApiFlowStep::new(
+        1,
+        FlowStepName::new("Login").unwrap(),
+        HttpMethod::Get,
+        "https://example.com".to_string(),
+        vec![
+            FlowHeader::secret("Authorization", "Bearer MUST_NOT_LEAK").unwrap(),
+            FlowHeader::secret("Cookie", "session=MUST_NOT_LEAK").unwrap(),
+            FlowHeader::secret("X-Api-Key", "MUST_NOT_LEAK").unwrap(),
+            FlowHeader::plain("Content-Type", "application/json").unwrap(),
+        ],
+        None,
+        vec![],
+        vec![],
+    )
+    .unwrap();
+
+    let rendered = format!("{step:?}");
+    assert_no_plaintext(
+        &rendered,
+        &[
+            "MUST_NOT_LEAK",
+            "Bearer MUST_NOT_LEAK",
+            "session=MUST_NOT_LEAK",
+        ],
+        "ApiFlowStep::Debug",
+    );
+    assert!(rendered.contains("***REDACTED***"));
+    // Non-secret header remains visible for debugging.
+    assert!(rendered.contains("application/json"));
+}
+
+#[test]
+fn api_flow_debug_redacts_secret_header_values() {
+    let step = ApiFlowStep::new(
+        1,
+        FlowStepName::new("Login").unwrap(),
+        HttpMethod::Get,
+        "https://example.com".to_string(),
+        vec![FlowHeader::secret("Authorization", "Bearer MUST_NOT_LEAK").unwrap()],
+        None,
+        vec![],
+        vec![],
+    )
+    .unwrap();
+
+    let flow = ApiFlow::new(
+        domain::ApiFlowId::new(),
+        domain::MonitorId::new(),
+        domain::TenantId::new(),
+        vec![step],
+    )
+    .unwrap();
+
+    let rendered = format!("{flow:?}");
+    assert_no_plaintext(&rendered, &["MUST_NOT_LEAK"], "ApiFlow::Debug");
+    assert!(rendered.contains("***REDACTED***"));
+}

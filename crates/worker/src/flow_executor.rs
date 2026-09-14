@@ -284,9 +284,9 @@ async fn execute_step(
     };
 
     let mut resolved_headers: Vec<(String, String)> = Vec::with_capacity(step.headers.len());
-    for (key, value_template) in &step.headers {
-        match resolve_template(value_template, results, step.order) {
-            Ok(v) => resolved_headers.push((key.clone(), v)),
+    for header in &step.headers {
+        match resolve_template(header.value(), results, step.order) {
+            Ok(v) => resolved_headers.push((header.name().to_string(), v)),
             Err(err) => return (failed_outcome(err), None),
         }
     }
