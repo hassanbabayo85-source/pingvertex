@@ -11,7 +11,10 @@ use crate::{
         BackupCodeRepository, PasswordHasher, PendingAuthCache, SecretCipher, TokenService,
         UserRepository,
     },
-    use_cases::totp_support::{build_totp, pending_login_cache_key},
+    use_cases::{
+        recent_mfa::{RECENT_MFA_TTL_SECONDS, recent_mfa_cache_key},
+        totp_support::{build_totp, pending_login_cache_key},
+    },
 };
 
 type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -60,14 +63,6 @@ where
     pub async fn execute(&self, request: VerifyTotpRequest) -> UseCaseResult<AuthResponse> {
         let cache_key = pending_login_cache_key(&request.pending_token);
 
-        // SEC (DoS fix): PEEK the pending token first (non-destructive
-        // `get`), rather than consuming it immediately. Consuming before
-        // verification meant a single wrong/garbled code destroyed the
-        // token and forced the legitimate user to restart the whole
-        // login flow — a self-inflicted denial of service on typos, not
-        // an auth bypass, but still bad UX/availability. The token is
-        // only actually consumed (via `getdel` below) AFTER the TOTP/
-        // backup code has been verified.
         let user_id_str = self
             .pending_auth_cache
             .get(&cache_key)
@@ -85,17 +80,12 @@ where
             .await?
             .ok_or(DomainError::InvalidPendingTwoFactorToken)?;
 
-        // The account's 2FA state may have changed between login and
-        // verify (e.g. concurrently disabled) — fail closed rather than
-        // silently granting a session.
         if !user.totp_enabled() {
             return Err(DomainError::InvalidPendingTwoFactorToken.into());
         }
 
         let mut verified = false;
 
-        // Try TOTP first (cheap, no DB round-trip). `build_totp`'s skew
-        // of 1 covers the required ±1 step clock-skew tolerance.
         if let Some(encrypted_secret) = user.totp_secret()
             && let Ok(secret_bytes) = self.secret_cipher.decrypt_bytes(encrypted_secret)
             && let Ok(totp) = build_totp(secret_bytes, user.email().as_str().to_string())
@@ -104,7 +94,6 @@ where
             verified = true;
         }
 
-        // Fall back to a backup code only when TOTP didn't match.
         if !verified {
             let all_codes = self
                 .backup_code_repository
@@ -119,10 +108,6 @@ where
                     .unwrap_or(false);
 
                 if matches {
-                    // If this code was already used, it's an invalid backup
-                    // code (single-use). If it's still unused, atomically
-                    // try to redeem it; a false return means a concurrent
-                    // request won the race.
                     if candidate.used_at.is_some() {
                         return Err(DomainError::InvalidBackupCode.into());
                     }
@@ -146,13 +131,6 @@ where
             return Err(DomainError::InvalidTotpCode.into());
         }
 
-        // SEC: NOW atomically consume the pending token, after (not
-        // before) a successful code check. `getdel` still guarantees
-        // single-use: if a concurrent request already consumed this
-        // same pending_token (e.g. two requests both submitted the
-        // correct, still-valid code at the same time), this returns
-        // `None` and we fail closed rather than issuing a second
-        // session for one pending login.
         let consumed = self
             .pending_auth_cache
             .getdel(&cache_key)
@@ -162,6 +140,30 @@ where
         if consumed.as_deref() != Some(user_id_str.as_str()) {
             return Err(DomainError::InvalidPendingTwoFactorToken.into());
         }
+
+        // SEC: record a "recently verified MFA" marker BEFORE issuing
+        // the JWT. High-risk platform-admin operations (wallet
+        // adjustment, promotional credit, pricing change, user
+        // deletion/suspension, company suspension/activation) are
+        // gated by the `require_recent_mfa` API middleware, which only
+        // looks at this marker. Possession of a normal session JWT
+        // alone — without this marker — is intentionally insufficient
+        // for those operations.
+        //
+        // Ordering (marker before JWT) means the invariant "JWT is
+        // usable for high-risk ops iff a recent MFA marker exists" is
+        // enforced at issuance time, not just at check time. If the
+        // marker write fails, we fail the whole login rather than
+        // issue a JWT that would silently lack the high-risk
+        // capability.
+        self.pending_auth_cache
+            .set(
+                &recent_mfa_cache_key(user_id),
+                &Utc::now().timestamp().to_string(),
+                RECENT_MFA_TTL_SECONDS,
+            )
+            .await
+            .map_err(|e| format!("failed to record recent-mfa marker: {e}"))?;
 
         let token = self.token_service.generate(user.id()).await?;
 

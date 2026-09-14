@@ -11,18 +11,16 @@ use crate::{
         BackupCodeRepository, IdGenerator, PasswordHasher, PendingAuthCache, SecretCipher,
         UserRepository,
     },
-    use_cases::totp_support::{build_totp, pending_secret_cache_key},
+    use_cases::{
+        recent_mfa::{RECENT_MFA_TTL_SECONDS, recent_mfa_cache_key},
+        totp_support::{build_totp, pending_secret_cache_key},
+    },
 };
 
 type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Ten single-use recovery codes are generated on every successful
-/// enrollment, per the task's requirements.
 const BACKUP_CODE_COUNT: usize = 10;
 
-/// Finishes TOTP 2FA enrollment: verifies the user's first code against
-/// the pending secret stashed by `EnableTotpUseCase`, and if valid,
-/// permanently enables 2FA on the account and issues fresh backup codes.
 pub struct ConfirmTotpSetupUseCase<R, S, H, C, B, G> {
     repository: R,
     secret_cipher: S,
@@ -105,14 +103,9 @@ where
 
         let now = Utc::now();
 
-        // Persist the SAME ciphertext that was sitting in the pending
-        // cache — it already came from `SecretCipher::encrypt_bytes` in
-        // `EnableTotpUseCase`, nothing to re-derive.
         user.enable_totp(encrypted, now);
         self.repository.update(&user).await?;
 
-        // Any codes from a previous, since-disabled enrollment must not
-        // remain redeemable once a new secret takes over.
         self.backup_code_repository
             .delete_all_for_user(user_id)
             .await?;
@@ -140,6 +133,21 @@ where
             .delete(&cache_key)
             .await
             .map_err(|e| format!("failed to clear pending totp secret: {e}"))?;
+
+        // SEC: enrolling in 2FA also counts as "recent MFA" for the
+        // step-up window. The user just proved possession of their
+        // second factor (they submitted a valid first code), so
+        // blocking them from high-risk admin operations for the next
+        // few minutes would be pure friction with no security benefit.
+        // Mirrors the marker written by `VerifyTotpAndLoginUseCase`.
+        self.pending_auth_cache
+            .set(
+                &recent_mfa_cache_key(user_id),
+                &now.timestamp().to_string(),
+                RECENT_MFA_TTL_SECONDS,
+            )
+            .await
+            .map_err(|e| format!("failed to record recent-mfa marker: {e}"))?;
 
         Ok(ConfirmTotpSetupResponse {
             backup_codes: raw_codes,

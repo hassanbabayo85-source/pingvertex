@@ -145,27 +145,47 @@ pub async fn create_payg_price(
             "payg_pricing",
             Some(pricing.id.to_string()),
             serde_json::json!({
-                "version": pricing.version,
-                "operation": pricing.operation,
-                "unit_name": pricing.unit_name,
-                "unit_price": pricing.unit_price,
-                "currency": pricing.currency,
-                "effective_from": pricing.effective_from,
+                "actor_user_id": user.user_id().0.to_string(),
+                "target_id": pricing.id.to_string(),
+                "action": "payg_price_create",
+                "pricing_version": pricing.version,
+                "old_state": serde_json::Value::Null,
+                "new_state": {
+                    "operation": pricing.operation,
+                    "unit_name": pricing.unit_name,
+                    "unit_price": pricing.unit_price,
+                    "currency": pricing.currency,
+                    "effective_from": pricing.effective_from,
+                },
                 "reason": payload.reason.trim(),
             }),
         ))
         .await
         .map_err(|e| ApiError::internal_with_source("failed to audit PAYG price change", e))?;
 
-    state.audit_log_entry_repository.create(&domain::AuditLogEntry {
-        id: domain::AuditLogEntryId::new(),
-        actor_user_id: user.user_id(),
-        tenant_id: None,
-        action: domain::AuditAction::PricingChanged,
-        target_id: pricing.id.to_string(),
-        metadata: serde_json::json!({"version": pricing.version, "operation": pricing.operation, "unit_price": pricing.unit_price, "currency": pricing.currency, "effective_from": pricing.effective_from}),
-        created_at: chrono::Utc::now(),
-    }).await.map_err(|e| ApiError::internal_with_source("failed to record pricing audit", e))?;
+    state
+        .audit_log_entry_repository
+        .create(&domain::AuditLogEntry {
+            id: domain::AuditLogEntryId::new(),
+            actor_user_id: user.user_id(),
+            tenant_id: None,
+            action: domain::AuditAction::PricingChanged,
+            target_id: pricing.id.to_string(),
+            metadata: serde_json::json!({
+                "actor_user_id": user.user_id().0.to_string(),
+                "target_id": pricing.id.to_string(),
+                "action": "payg_price_create",
+                "pricing_version": pricing.version,
+                "operation": pricing.operation,
+                "unit_price": pricing.unit_price,
+                "currency": pricing.currency,
+                "effective_from": pricing.effective_from,
+                "reason": payload.reason.trim(),
+            }),
+            created_at: chrono::Utc::now(),
+        })
+        .await
+        .map_err(|e| ApiError::internal_with_source("failed to record pricing audit", e))?;
 
     Ok((
         StatusCode::CREATED,
