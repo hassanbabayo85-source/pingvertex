@@ -20,13 +20,11 @@ pub async fn jwt_auth(
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // PART 6 — read BOTH the new `__Host-access_token` cookie and the
-    // legacy `access_token` cookie during the transition. A production
-    // deployment that has just been upgraded will still be receiving
-    // legacy cookies from clients that haven't re-logged-in yet.
-    let cookie_token = shared::cookie::access_token_cookie_names()
-        .iter()
-        .find_map(|name| jar.get(name).map(|c| c.value().to_string()));
+    // MATAKIN 1 & 2 — ACCEPT ONLY __Host-access_token (or its dev equivalent).
+    // The legacy "access_token" fallback iteration is removed. A valid
+    // legacy cookie in the jar will be ignored entirely.
+    let cookie_name = shared::cookie::access_token_cookie_name();
+    let cookie_token = jar.get(&cookie_name).map(|c| c.value().to_string());
 
     let token = if let Some(token) = cookie_token {
         token
@@ -50,16 +48,7 @@ pub async fn jwt_auth(
 
     let user_id = verified.user_id;
 
-    // SECURITY (P0 — fixed): reload the user's CURRENT account status on
-    // every authenticated request. Without this, a JWT issued before an
-    // account was suspended or soft-deleted stayed valid until it
-    // naturally expired (up to 24h), regardless of any subsequent
-    // administrator action or incident-response decision. Suspension
-    // and deletion are authorization events and must take effect
-    // immediately — not "the next time the user happens to log in
-    // again". This check runs BEFORE `AuthenticatedUser` is
-    // constructed, so a non-active account never even reaches a
-    // handler.
+    // Reload the user's CURRENT account status.
     let user = auth
         .user_repository
         .find_by_id(&user_id)
@@ -67,8 +56,7 @@ pub async fn jwt_auth(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    // SECURITY: email verification is a hard authentication boundary.
-    // A token must never grant dashboard/API access to an unverified account.
+    // Email verification boundary.
     if matches!(
         user.status(),
         UserStatus::PendingVerification | UserStatus::Suspended | UserStatus::Deleted
@@ -125,6 +113,7 @@ pub async fn jwt_auth(
     if tenant.status != TenantStatus::Active && user.role() != UserRole::Admin {
         return Err(StatusCode::UNAUTHORIZED);
     }
+
     let tenant_context = TenantContext::with_actor(membership.tenant_id, user_id);
     let authenticated_user = AuthenticatedUser::new(user_id, membership.role, tenant_context)
         .with_platform_admin(matches!(user.role(), UserRole::Admin));

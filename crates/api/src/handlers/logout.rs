@@ -15,19 +15,10 @@ use crate::{auth_state::AuthState, error::ApiError};
 
 /// `POST /api/v1/auth/logout`
 ///
-/// Logout is authentication-protected and does two things:
-/// 1. expires the browser's httpOnly access-token cookie(s); and
+/// MATAKIN 4 — Logout is authentication-protected and does two things:
+/// 1. expires the browser's ONLY access-token cookie (`__Host-access_token`); and
 /// 2. writes a per-user "invalidated before" marker to Redis, revoking the
 ///    current JWT and every older JWT immediately.
-///
-/// The marker is mandatory. If Redis is unavailable, logout fails closed
-/// rather than reporting success while the bearer token remains valid.
-///
-/// PART 6 — during the transition from the legacy `access_token` cookie
-/// to the `__Host-access_token` cookie, TWO `Set-Cookie` headers are
-/// emitted in secure mode (one per name). This is why `HeaderMap::append`
-/// is used instead of `insert` — `insert` would replace the first header
-/// with the second, leaving the legacy cookie alive after logout.
 pub async fn logout(
     State(auth): State<AuthState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
@@ -46,46 +37,26 @@ pub async fn logout(
 
     let mut headers = HeaderMap::new();
 
-    // Current (or dev) cookie name.
     let primary = shared::cookie::logout_cookie();
-    headers.append(
+    // We only use `insert` now since there is exactly one cookie.
+    headers.insert(
         SET_COOKIE,
         HeaderValue::from_str(&primary)
             .map_err(|_| ApiError::internal("failed to clear cookie"))?,
     );
-
-    // During the transition, also clear the legacy cookie name so a
-    // client that still holds one doesn't keep a session token around
-    // after logout. In dev, `legacy_logout_cookie()` returns `None` (the
-    // primary name IS the legacy name).
-    if let Some(legacy) = shared::cookie::legacy_logout_cookie() {
-        headers.append(
-            SET_COOKIE,
-            HeaderValue::from_str(&legacy)
-                .map_err(|_| ApiError::internal("failed to clear legacy cookie"))?,
-        );
-    }
 
     Ok((headers, Json(json!({ "authenticated": false }))))
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::sync::Mutex;
 
-    /// Process-wide `ENVIRONMENT` mutex. These tests mutate the shared
-    /// process environment, so they MUST NOT run concurrently with each
-    /// other (cargo runs tests in parallel by default). Without this,
-    /// two tests can interleave `set_var` calls and one of them will
-    /// observe the other's value, causing a flaky failure.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    /// PART 6 — in a secure environment, logout must emit TWO Set-Cookie
-    /// headers: one for `__Host-access_token` and one for the legacy
-    /// `access_token` (so a client with a stale legacy cookie is also
-    /// cleared).
     #[tokio::test]
-    async fn logout_clears_both_cookie_names_in_secure_mode() {
+    async fn logout_clears_cookie_in_secure_mode() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         let prev = std::env::var("ENVIRONMENT").ok();
@@ -94,7 +65,6 @@ mod tests {
         }
 
         let primary = shared::cookie::logout_cookie();
-        let legacy = shared::cookie::legacy_logout_cookie();
 
         unsafe {
             match prev {
@@ -104,16 +74,8 @@ mod tests {
         }
 
         assert!(primary.starts_with("__Host-access_token=;"));
-        assert!(
-            legacy.is_some(),
-            "legacy cookie clear MUST be emitted in secure mode"
-        );
-        let legacy = legacy.unwrap();
-        assert!(legacy.starts_with("access_token=;"));
     }
 
-    /// In a dev environment, only ONE Set-Cookie is emitted (the dev
-    /// cookie name IS the legacy name).
     #[tokio::test]
     async fn logout_emits_single_cookie_in_dev_mode() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,7 +86,6 @@ mod tests {
         }
 
         let primary = shared::cookie::logout_cookie();
-        let legacy = shared::cookie::legacy_logout_cookie();
 
         unsafe {
             match prev {
@@ -134,11 +95,8 @@ mod tests {
         }
 
         assert!(primary.starts_with("access_token=;"));
-        assert!(legacy.is_none());
     }
 
-    /// Attributes on the emitted cookies must match what the browser
-    /// requires to actually delete them.
     #[test]
     fn logout_cookie_has_required_attributes() {
         let cookie = "access_token=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0";
