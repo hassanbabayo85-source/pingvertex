@@ -361,9 +361,6 @@ pub enum DomainError {
     #[error("RUM page view path cannot exceed 2048 characters")]
     RumPageViewPathTooLong,
 
-    #[error("RUM page view path must not contain a query string or fragment")]
-    RumPageViewPathContainsQuery,
-
     #[error("RUM Core Web Vital value cannot be negative")]
     NegativeRumMetricValue,
 

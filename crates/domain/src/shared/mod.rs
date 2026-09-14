@@ -5,3 +5,5 @@ pub mod policies;
 pub mod specifications;
 pub mod traits;
 pub mod types;
+
+pub mod url_sanitize;

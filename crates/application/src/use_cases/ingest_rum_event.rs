@@ -491,8 +491,130 @@ mod tests {
         assert!(matches!(err, IngestRumEventError::TooManyJsErrors));
     }
 
+    /// End-to-end proof of the "RUM data loss / secret redaction"
+    /// invariant: even if a client bypasses the SDK entirely and posts a
+    /// page_view.path containing a query string + fragment, the value
+    /// that ends up in the persisted `RumPageView` contains neither.
     #[tokio::test]
-    async fn propagates_domain_validation_errors() {
+    async fn strips_query_string_and_fragment_from_page_view_path() {
+        let site_repo = FakeSiteRepository::default();
+        let event_repo = FakeEventRepository::default();
+        let tenant_id = TenantId::new();
+        let site = RumSite::new(
+            RumSiteId::new(),
+            tenant_id,
+            "My Site".to_string(),
+            "example.com".to_string(),
+        )
+        .unwrap();
+        site_repo.create(&site).await.unwrap();
+
+        let use_case = IngestRumEventUseCase::new(site_repo, event_repo);
+        let mut request = sample_request(&site.site_key);
+        request.page_view.as_mut().unwrap().path =
+            "https://example.com/page?token=secret#fragment".to_string();
+
+        use_case
+            .execute(request, None, RumSessionId::new())
+            .await
+            .unwrap();
+
+        let stored = {
+            let pvs = use_case.event_repository.page_views.lock().unwrap();
+            assert_eq!(pvs.len(), 1);
+            pvs[0].path.clone()
+        };
+        assert_eq!(stored, "https://example.com/page");
+        assert!(!stored.contains("secret"));
+        assert!(!stored.contains('?'));
+        assert!(!stored.contains('#'));
+    }
+
+    #[tokio::test]
+    async fn strips_query_string_and_fragment_from_resource_error_url() {
+        let site_repo = FakeSiteRepository::default();
+        let event_repo = FakeEventRepository::default();
+        let tenant_id = TenantId::new();
+        let site = RumSite::new(
+            RumSiteId::new(),
+            tenant_id,
+            "My Site".to_string(),
+            "example.com".to_string(),
+        )
+        .unwrap();
+        site_repo.create(&site).await.unwrap();
+
+        let use_case = IngestRumEventUseCase::new(site_repo, event_repo);
+        let mut request = sample_request(&site.site_key);
+        request.page_view = None;
+        request.resource_errors = vec![crate::dto::RumIngestResourceError {
+            resource_url: "https://example.com/page?token=secret#fragment".to_string(),
+            resource_type: Some("fetch".to_string()),
+            status_code: Some(500),
+        }];
+
+        use_case
+            .execute(request, None, RumSessionId::new())
+            .await
+            .unwrap();
+
+        let stored = {
+            let errs = use_case.event_repository.resource_errors.lock().unwrap();
+            assert_eq!(errs.len(), 1);
+            errs[0].resource_url.clone()
+        };
+        assert_eq!(stored, "https://example.com/page");
+        assert!(!stored.contains("secret"));
+        assert!(!stored.contains('?'));
+        assert!(!stored.contains('#'));
+    }
+
+    #[tokio::test]
+    async fn strips_query_string_and_fragment_from_js_error_source() {
+        let site_repo = FakeSiteRepository::default();
+        let event_repo = FakeEventRepository::default();
+        let tenant_id = TenantId::new();
+        let site = RumSite::new(
+            RumSiteId::new(),
+            tenant_id,
+            "My Site".to_string(),
+            "example.com".to_string(),
+        )
+        .unwrap();
+        site_repo.create(&site).await.unwrap();
+
+        let use_case = IngestRumEventUseCase::new(site_repo, event_repo);
+        let mut request = sample_request(&site.site_key);
+        request.page_view = None;
+        request.js_errors = vec![crate::dto::RumIngestJsError {
+            message: "boom".to_string(),
+            source: Some("https://example.com/page?token=secret#fragment".to_string()),
+            line_number: Some(1),
+            column_number: Some(1),
+        }];
+
+        use_case
+            .execute(request, None, RumSessionId::new())
+            .await
+            .unwrap();
+
+        let stored = {
+            let errs = use_case.event_repository.js_errors.lock().unwrap();
+            assert_eq!(errs.len(), 1);
+            errs[0].source.clone()
+        };
+        assert_eq!(stored.as_deref(), Some("https://example.com/page"));
+        assert!(!stored.as_deref().unwrap().contains("secret"));
+        assert!(!stored.as_deref().unwrap().contains('?'));
+        assert!(!stored.as_deref().unwrap().contains('#'));
+    }
+
+    /// A path that is *only* a query string (no path component at all)
+    /// must still be rejected by the domain layer after stripping — it
+    /// would otherwise become an empty string, which is not a valid
+    /// page-view path.
+    #[tokio::test]
+    async fn path_that_is_only_a_query_string_is_still_rejected() {
         let site_repo = FakeSiteRepository::default();
         let tenant_id = TenantId::new();
         let site = RumSite::new(
@@ -507,8 +629,7 @@ mod tests {
         let use_case = IngestRumEventUseCase::new(site_repo, FakeEventRepository::default());
 
         let mut request = sample_request(&site.site_key);
-        // Query string on the path must be rejected by the domain layer.
-        request.page_view.as_mut().unwrap().path = "/pricing?token=secret".to_string();
+        request.page_view.as_mut().unwrap().path = "?token=secret".to_string();
 
         let err = use_case
             .execute(request, None, RumSessionId::new())
