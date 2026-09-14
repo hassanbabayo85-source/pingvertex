@@ -1,3 +1,4 @@
+use axum::extract::Request;
 use axum::{
     Router,
     http::{HeaderValue, header},
@@ -5,7 +6,6 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
-use axum::extract::Request;
 
 use crate::{
     handlers::{

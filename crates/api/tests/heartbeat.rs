@@ -1,7 +1,6 @@
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
-    CheckRepository, DiagnosticReportRepository, IncidentRepository, RateLimiter,
-    RateLimiterResult,
+    CheckRepository, DiagnosticReportRepository, IncidentRepository, RateLimiter, RateLimiterResult,
 };
 use application::ports::{
     PasswordHasher, SecretCipher, SecretCipherError, TokenService, UserRepository,
@@ -624,7 +623,6 @@ async fn heartbeat_ping_is_rate_limited_per_token() {
 
     assert_eq!(over_limit_response.status(), StatusCode::TOO_MANY_REQUESTS);
 }
-
 
 // =====================================================================
 // PART 12 — heartbeat credential hardening tests

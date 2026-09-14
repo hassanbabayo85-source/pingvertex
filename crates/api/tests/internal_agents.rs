@@ -11,12 +11,10 @@ use axum_server_mtls::PeerCertificates;
 use domain::pricing::PricingConfig;
 use domain::shared::ids::TenantId;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
-use domain::{Agent, AgentStatus};
 use domain::{
     Check, CheckInterval, DiagnosticReport, ExpectedStatus, HttpMethod, Incident, Monitor,
     MonitorBuilder, MonitorName, RegionCode, Timeout, Url, User,
 };
-use infra::InMemoryAgentRegistry;
 use infra::InMemoryAuditLogEntryRepository;
 use infra::InMemoryRegistrationTransaction;
 use infra::InMemoryTenantMembershipRepository;

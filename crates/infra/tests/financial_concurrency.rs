@@ -354,7 +354,6 @@ async fn concurrent_wallet_reservations_cannot_overspend() {
     );
 }
 
-
 // ===========================================================================
 // PART 14 — adversarial concurrency + financial invariant tests
 // ===========================================================================
@@ -416,7 +415,10 @@ async fn hundred_concurrent_same_request_id_debits_exactly_once() {
         }
     }
 
-    assert_eq!(errors, 0, "no errors expected — replays return the same row");
+    assert_eq!(
+        errors, 0,
+        "no errors expected — replays return the same row"
+    );
     assert_eq!(
         reservation_ids.len(),
         1,
@@ -482,7 +484,8 @@ async fn hundred_concurrent_distinct_request_ids_against_same_wallet() {
 
     let mut successes = 0usize;
     while let Some(res) = tasks.join_next().await {
-        res.expect("task must not panic").expect("call must not fail");
+        res.expect("task must not panic")
+            .expect("call must not fail");
         successes += 1;
     }
     assert_eq!(successes, N);
@@ -562,12 +565,7 @@ async fn simultaneous_refund_and_top_up_both_apply_once() {
     let wallet_r = wallet.clone();
     let refund_task = tokio::spawn(async move {
         wallet_r
-            .record_verified_refund(
-                tenant_id,
-                "provider-pay-part14",
-                refund_amount,
-                &refund_id,
-            )
+            .record_verified_refund(tenant_id, "provider-pay-part14", refund_amount, &refund_id)
             .await
     });
     let wallet_t = wallet.clone();

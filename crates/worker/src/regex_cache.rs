@@ -86,12 +86,12 @@ impl RegexCache {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
 
         // Fast path: cached entry with the exact same pattern.
-        if let Some(entry) = inner.entries.get(&assertion_id) {
-            if entry.pattern == pattern {
-                let regex = entry.regex.clone();
-                touch(&mut inner, assertion_id);
-                return Some(regex);
-            }
+        if let Some(entry) = inner.entries.get(&assertion_id)
+            && entry.pattern == pattern
+        {
+            let regex = entry.regex.clone();
+            touch(&mut inner, assertion_id);
+            return Some(regex);
         }
 
         // Slow path: compile. We hold the lock across compile to avoid a
@@ -102,10 +102,11 @@ impl RegexCache {
         let regex = Arc::new(Regex::new(pattern).ok()?);
 
         // Evict if we're at capacity and this would be a new entry.
-        if !inner.entries.contains_key(&assertion_id) && inner.entries.len() >= self.max_entries {
-            if let Some(evicted) = inner.order.pop_front() {
-                inner.entries.remove(&evicted);
-            }
+        if !inner.entries.contains_key(&assertion_id)
+            && inner.entries.len() >= self.max_entries
+            && let Some(evicted) = inner.order.pop_front()
+        {
+            inner.entries.remove(&evicted);
         }
 
         inner.entries.insert(
@@ -126,6 +127,13 @@ impl RegexCache {
             .unwrap_or_else(|e| e.into_inner())
             .entries
             .len()
+    }
+
+    /// `true` when the cache holds no entries. Exists to satisfy the
+    /// `clippy::len_without_is_empty` lint; `len()` is test-only, so
+    /// `is_empty()` is test-only too.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Total number of `Regex::new` calls this cache has made. Test-only.
