@@ -27,7 +27,7 @@ pub struct ListMonitorsQuery {
 
 /// Response header name carrying the opaque cursor for the next page.
 /// Present ONLY when a next page exists; absent on the last page.
-const NEXT_CURSOR_HEADER: HeaderName = HeaderName::from_static("x-next-cursor");
+pub const NEXT_CURSOR_HEADER: HeaderName = HeaderName::from_static("x-next-cursor");
 
 /// Lists monitors for the caller's tenant, cursor-paginated.
 ///
