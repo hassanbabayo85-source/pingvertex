@@ -29,12 +29,6 @@ where
 
     /// Tenant-scoped variant of `execute` that takes a `TenantId`
     /// directly instead of an `AuthenticatedUser`.
-    ///
-    /// Added for the API-key-authenticated public surface
-    /// (`GET /api/v1/external/status-pages`, B31) — see the doc comment
-    /// on `ListChecksUseCase::execute_for_tenant` for why a separate
-    /// method exists instead of synthesizing an `AuthenticatedUser` from
-    /// an `ApiKeyPrincipal`.
     pub async fn execute_for_tenant(&self, tenant_id: TenantId) -> UseCaseResult<Vec<StatusPage>> {
         self.repository.find_all_for_tenant(tenant_id).await
     }
@@ -45,8 +39,19 @@ where
         authenticated_user: AuthenticatedUser,
         page: PageRequest,
     ) -> UseCaseResult<Page<StatusPage>> {
+        self.execute_paginated_for_tenant(authenticated_user.tenant_context().tenant_id(), page)
+            .await
+    }
+
+    /// PART 5 — tenant-scoped cursor-paginated variant.
+    /// Used by external api_key based endpoint.
+    pub async fn execute_paginated_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        page: PageRequest,
+    ) -> UseCaseResult<Page<StatusPage>> {
         self.repository
-            .find_all_for_tenant_paginated(authenticated_user.tenant_context().tenant_id(), page)
+            .find_all_for_tenant_paginated(tenant_id, page)
             .await
     }
 }
