@@ -8997,3 +8997,74 @@ html[data-theme="dark"] .form-error {
   color: #fda4af !important;
   border-color: rgba(251, 113, 133, .28) !important;
 }
+
+/* =========================================================================
+   PINGVERTEX — RUNTIME METERING GRID FIX (usage page)
+   Matsala: dogayen sunaye (http_check.one_time.monitoring) suna amfani da
+   .card-value wanda ke da font-size: 1.9rem, wanda ya yi girma sosai
+   don dogon string, sai ya haura zuwa ɗakin da ke kusa.
+   Magani: modifier class ɗin da ke sa kowane item ya zama kati mai
+   zaman kansa, tare da ƙaramin font + word-break.
+   ========================================================================= */
+
+.overview-cards--operations {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.overview-cards--operations > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e4e7ee;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.overview-cards--operations .card-label {
+  margin: 0;
+  color: #8a94a6;
+  font-size: 0.63rem;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.overview-cards--operations .card-value {
+  margin: 0;
+  color: #111827;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.4;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Dark mode */
+html[data-theme="dark"] .overview-cards--operations > div {
+  background: #0f1626;
+  border-color: #1f2a44;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+
+html[data-theme="dark"] .overview-cards--operations .card-label {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .overview-cards--operations .card-value {
+  color: #eef2ff;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .overview-cards--operations {
+    grid-template-columns: 1fr;
+  }
+}
