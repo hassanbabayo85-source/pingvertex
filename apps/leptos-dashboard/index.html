@@ -52,7 +52,7 @@
         setError('');
 
         const response = await fetch(
-          `/api/auth/oauth/${provider}`,
+          `/api/v1/auth/oauth/${provider}`,
           {
             method: 'POST',
             credentials: 'same-origin',

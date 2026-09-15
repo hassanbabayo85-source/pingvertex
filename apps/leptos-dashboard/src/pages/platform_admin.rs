@@ -28,8 +28,6 @@ struct PlatformUser {
 }
 #[derive(Clone, Debug, Deserialize)]
 struct AuditEntry {
-    // Retained for completeness (Debug/Clone). May be used by future
-    // cursor-pagination work; the backend already returns a stable id.
     #[allow(dead_code)]
     id: String,
     actor_user_id: String,
@@ -57,43 +55,24 @@ fn load_audit(
     let mut path = "/admin/audit?limit=50".to_owned();
     if !audit_action.get().is_empty() {
         path.push_str("&action=");
-        path.push_str(
-            &js_sys::encode_uri_component(&audit_action.get())
-                .as_string()
-                .unwrap_or_default(),
-        );
+        path.push_str(&js_sys::encode_uri_component(&audit_action.get()).as_string().unwrap_or_default());
     }
     if !audit_tenant.get().is_empty() {
         path.push_str("&tenant=");
-        path.push_str(
-            &js_sys::encode_uri_component(&audit_tenant.get())
-                .as_string()
-                .unwrap_or_default(),
-        );
+        path.push_str(&js_sys::encode_uri_component(&audit_tenant.get()).as_string().unwrap_or_default());
     }
     if !audit_from.get().is_empty() {
         path.push_str("&from=");
-        path.push_str(
-            &js_sys::encode_uri_component(&format!("{}T00:00:00Z", audit_from.get()))
-                .as_string()
-                .unwrap_or_default(),
-        );
+        path.push_str(&js_sys::encode_uri_component(&format!("{}T00:00:00Z", audit_from.get())).as_string().unwrap_or_default());
     }
     if !audit_to.get().is_empty() {
         path.push_str("&to=");
-        path.push_str(
-            &js_sys::encode_uri_component(&format!("{}T23:59:59Z", audit_to.get()))
-                .as_string()
-                .unwrap_or_default(),
-        );
+        path.push_str(&js_sys::encode_uri_component(&format!("{}T23:59:59Z", audit_to.get())).as_string().unwrap_or_default());
     }
     spawn_local(async move {
         match client::get_json::<serde_json::Value>(&path).await {
             Ok(value) => match serde_json::from_value::<Vec<AuditEntry>>(
-                value
-                    .get("items")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!([])),
+                value.get("items").cloned().unwrap_or_else(|| serde_json::json!([])),
             ) {
                 Ok(items) => audit.set(items),
                 Err(value) => error.set(Some(value.to_string())),
@@ -119,6 +98,11 @@ pub fn PlatformAdminPage() -> impl IntoView {
     let pricing_units = RwSignal::new("2".to_owned());
     let pricing_reason = RwSignal::new(String::new());
 
+    // 🟡 MATAKI NA 3: Sabbin Signals domin Pricing da Usage
+    let active_pricing = RwSignal::new(None::<String>);
+    let pricing_logs = RwSignal::new(None::<String>);
+    let selected_company_usage = RwSignal::new(None::<(String, String)>);
+
     spawn_local(async move {
         match client::get_json::<Session>("/auth/me").await {
             Ok(session) if session.authenticated && session.user.platform_admin => {
@@ -131,19 +115,30 @@ pub fn PlatformAdminPage() -> impl IntoView {
                     Ok(value) => users.set(value),
                     Err(value) => error.set(Some(value.to_string())),
                 }
-                load_audit(
-                    audit_action,
-                    audit_tenant,
-                    audit,
-                    error,
-                    audit_from,
-                    audit_to,
-                );
+                load_audit(audit_action, audit_tenant, audit, error, audit_from, audit_to);
+                
+                // 🟡 MATAKI NA 3: Ɗauko farashin da ke aiki da kuma audit logs
+                if let Ok(v) = client::get_json::<serde_json::Value>("/admin/pricing/configs/active").await {
+                    active_pricing.set(Some(serde_json::to_string_pretty(&v).unwrap_or_default()));
+                }
+                if let Ok(v) = client::get_json::<serde_json::Value>("/admin/pricing/audit-logs").await {
+                    pricing_logs.set(Some(serde_json::to_string_pretty(&v).unwrap_or_default()));
+                }
             }
             Ok(_) => error.set(Some("Platform administrator access required.".to_owned())),
             Err(value) => error.set(Some(value.to_string())),
         }
     });
+
+    // 🟡 MATAKI NA 3: Function domin ɗauko amfanin kamfani (Company Usage)
+    let fetch_company_usage = move |id: String, name: String| {
+        spawn_local(async move {
+            match client::get_json::<serde_json::Value>(&format!("/admin/companies/{}/usage", id)).await {
+                Ok(v) => selected_company_usage.set(Some((name, serde_json::to_string_pretty(&v).unwrap_or_default()))),
+                Err(e) => selected_company_usage.set(Some((name, format!("Error loading usage: {}", e)))),
+            }
+        });
+    };
 
     view! {
         <div class="feature-page">
@@ -154,9 +149,26 @@ pub fn PlatformAdminPage() -> impl IntoView {
                     <p class="muted">"Global controls. Mutations are server-authorized, idempotent and audited."</p>
                 </div>
             </header>
+            
             {move || error.get().map(|value| view! { <div class="error" role="alert">{value}</div> })}
+            
             {move || if allowed.get() {
                 view! {
+                    // 🟡 MATAKI NA 3: Nuna cikakken bayanin amfanin kamfani idan an zaɓa
+                    {move || selected_company_usage.get().map(|(name, usage_data)| {
+                        view! {
+                            <div class="card" style="margin-bottom: 2rem; border-left: 4px solid var(--primary-color);">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <h2>"Usage Report: " {name}</h2>
+                                    <button class="btn" on:click=move |_| selected_company_usage.set(None)>"Close"</button>
+                                </div>
+                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 400px; margin-top: 1rem;">
+                                    {usage_data}
+                                </pre>
+                            </div>
+                        }
+                    })}
+
                     <section class="card">
                         <h2>"Companies"</h2>
                         <div class="table-shell">
@@ -167,6 +179,8 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                         let company_id = company.id.clone();
                                         let next_status = if company.status == "active" { "suspended" } else { "active" };
                                         let adjustment_signal = adjustment;
+                                        
+                                        // Domin Status Toggle
                                         let status_id = company_id.clone();
                                         let status_value = next_status.to_owned();
                                         let on_status = move |_| {
@@ -177,6 +191,8 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                                 let _ = client::post_json_no_content_with_body(&format!("/admin/companies/{id}/status"), &body).await;
                                             });
                                         };
+                                        
+                                        // Domin Wallet Adjust
                                         let adjust_id = company_id.clone();
                                         let on_adjust = move |_| {
                                             let amount = adjustment_signal.get().parse::<i64>().unwrap_or(0);
@@ -187,9 +203,18 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                                 let _ = client::post_json::<serde_json::Value, _>(&format!("/admin/companies/{id}/wallet-adjustment"), &body).await;
                                             });
                                         };
+
+                                        // 🟡 MATAKI NA 3: Sanya sunan kamfani ya zama Clickable domin ganin Usage
+                                        let usage_id = company.id.clone();
+                                        let usage_name = company.name.clone();
+                                        let on_company_click = move |e: leptos::ev::MouseEvent| {
+                                            e.prevent_default();
+                                            fetch_company_usage(usage_id.clone(), usage_name.clone());
+                                        };
+
                                         view! {
                                             <tr>
-                                                <td>{company.name}</td>
+                                                <td><a href="#" on:click=on_company_click style="text-decoration: underline; color: var(--primary-color);">{company.name}</a></td>
                                                 <td>{company.status}</td>
                                                 <td>{company.wallet_balance_units}</td>
                                                 <td>
@@ -205,14 +230,38 @@ pub fn PlatformAdminPage() -> impl IntoView {
                             </table>
                         </div>
                     </section>
+                    
                     <section class="card">
                         <h2>"Accounts"</h2>
                         <div class="table-shell"><table class="data-table"><thead><tr><th>"Username"</th><th>"Email"</th><th>"Status"</th><th>"Action"</th></tr></thead><tbody>
                             {users.get().into_iter().map(|user| { let id=user.id.clone(); let next=if user.status=="active"{"suspended"}else{"active"}; let on_status=move |_| { let id=id.clone(); let status=next.to_owned(); spawn_local(async move { let body=serde_json::json!({"status":status}); let _=client::post_json_no_content_with_body(&format!("/admin/users/{id}/status"),&body).await; }); }; view! { <tr><td>{user.username}</td><td>{user.email}</td><td>{user.status}</td><td><button class="button button-secondary" on:click=on_status>{next}</button></td></tr> } }).collect_view()}
                         </tbody></table></div>
                     </section>
+                    
                     <section class="card">
-                        <div class="section-heading"><div><h2>"PAYG pricing"</h2><p class="muted">"Create a new immutable price version; historical versions cannot be edited."</p></div></div>
+                        <div class="section-heading">
+                            <div>
+                                <h2>"PAYG pricing"</h2>
+                                <p class="muted">"Create a new immutable price version; historical versions cannot be edited."</p>
+                            </div>
+                        </div>
+
+                        // 🟡 MATAKI NA 3: Nuna Active Pricing da Audit Logs kafin form ɗin
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div>
+                                <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">"Active Pricing Configuration"</h3>
+                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 250px; font-size: 0.85rem;">
+                                    {move || active_pricing.get().unwrap_or_else(|| "Loading...".to_string())}
+                                </pre>
+                            </div>
+                            <div>
+                                <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">"Recent Pricing Changes (Audit)"</h3>
+                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 250px; font-size: 0.85rem;">
+                                    {move || pricing_logs.get().unwrap_or_else(|| "Loading...".to_string())}
+                                </pre>
+                            </div>
+                        </div>
+
                         <div class="form-grid">
                             <label>"Operation"<select prop:value=pricing_operation on:change=move |e| pricing_operation.set(event_target_value(&e))><option value="http_check.monitoring">"HTTP check"</option><option value="tcp_check.monitoring">"TCP check"</option><option value="dns_check.monitoring">"DNS check"</option><option value="api_flow_check.monitoring">"API flow"</option><option value="network_egress">"Network egress"</option></select></label>
                             <label>"Unit price (micro-USD)"<input type="number" min="1" prop:value=pricing_units on:input=move |e| pricing_units.set(event_target_value(&e)) /></label>
@@ -227,6 +276,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
                             } >"Create version"</button>
                         </div>
                     </section>
+                    
                     <section class="card">
                         <div class="section-heading"><div><h2>"Audit search"</h2><p class="muted">"Bounded, filterable platform audit history."</p></div></div>
                         <div class="form-grid">

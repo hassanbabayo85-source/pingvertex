@@ -54,8 +54,8 @@ pub fn access_token_cookie(token: &str) -> String {
         // Production: __Host- prefix MUST have Secure, Path=/, and NO Domain.
         format!("{name}={token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400")
     } else {
-        // Local development over HTTP.
-        format!("{name}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400")
+        // Local development over HTTP. Mun sauya zuwa SameSite=Lax don OAuth yayi aiki lafiya.
+        format!("{name}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400")
     }
 }
 
@@ -65,6 +65,6 @@ pub fn logout_cookie() -> String {
     if is_secure_environment() {
         format!("{name}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0")
     } else {
-        format!("{name}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+        format!("{name}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
     }
 }

@@ -3,8 +3,6 @@ use crate::auth::context::{use_auth, AuthState, Role};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
-/// Retention tiers exposed by the add-on UI. Kept in sync with the
-/// server's `RetentionTier` enum: `"90" | "180" | "365"`.
 const RETENTION_TIERS: &[(&str, &str)] =
     &[("90", "90 days"), ("180", "180 days"), ("365", "365 days")];
 
@@ -18,6 +16,25 @@ pub fn AddOnsPage() -> impl IntoView {
     let result = RwSignal::new(None::<billing::AddOn>);
     let error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
+    
+    // Gyara: Amfani da RwSignal don ajiye active add-ons maimakon Resource
+    let active_add_ons = RwSignal::new(None::<Vec<billing::AddOn>>);
+    let summary_error = RwSignal::new(None::<String>);
+
+    // Function don ɗauko jerin add-ons da ke aiki
+    let fetch_summary = move || {
+        spawn_local(async move {
+            match billing::summary().await {
+                Ok(summary) => active_add_ons.set(Some(summary.active_add_ons)),
+                Err(e) => summary_error.set(Some(e.to_string())),
+            }
+        });
+    };
+
+    // Kira fetch_summary a farkon buɗe shafin
+    Effect::new(move |_| {
+        fetch_summary();
+    });
 
     let can = move || match auth.state.get() {
         AuthState::Authenticated(u) => matches!(u.role, Role::Owner),
@@ -26,12 +43,34 @@ pub fn AddOnsPage() -> impl IntoView {
     let is_retention = move || kind.get() == "retention";
     let is_sms = move || kind.get() == "sms";
 
+    let cancel_addon = move |id: String| {
+        busy.set(true);
+        spawn_local(async move {
+            if let Err(e) = billing::cancel_add_on(&id).await {
+                error.set(Some(format!("Failed to cancel: {}", e)));
+            } else {
+                fetch_summary(); // Sake ɗauko jerin bayan an soke
+            }
+            busy.set(false);
+        });
+    };
+
+    let verify_addon = move |id: String| {
+        busy.set(true);
+        spawn_local(async move {
+            if let Err(e) = billing::verify_add_on(&id).await {
+                error.set(Some(format!("Verification failed: {}", e)));
+            } else {
+                fetch_summary(); // Sake ɗauko jerin idan ya tabbata
+                result.set(None); // Ɓoye sanarwar biyan kuɗi
+            }
+            busy.set(false);
+        });
+    };
+
     let add = move |e: leptos::ev::SubmitEvent| {
         e.prevent_default();
 
-        // Retention is a tier, not a quantity: the server rejects
-        // `quantity != 1` and requires `tier`. Force those values here
-        // so the buyer never sees the quantity/country inputs.
         let (quantity, country_code, tier_value) = if is_retention() {
             (1u64, None, Some(tier.get()))
         } else {
@@ -62,7 +101,10 @@ pub fn AddOnsPage() -> impl IntoView {
         };
         spawn_local(async move {
             match billing::add_on(&req).await {
-                Ok(v) => result.set(Some(v)),
+                Ok(v) => {
+                    result.set(Some(v));
+                    fetch_summary();
+                }
                 Err(e) => error.set(Some(e.to_string())),
             }
             busy.set(false);
@@ -84,32 +126,77 @@ pub fn AddOnsPage() -> impl IntoView {
             {move || error.get().map(|e| view! { <div class="error" role="alert">{e}</div> })}
 
             {move || result.get().map(|r| {
-                let summary = format!(
+                let summary_text = format!(
                     "Created {} × {} for {} {}",
                     r.quantity, r.addon_type, r.total_price, r.currency
                 );
                 let checkout_url = r.checkout_url.clone();
+                let addon_id = r.id.clone();
                 view! {
-                    <div class="success">
-                        <p>{summary}</p>
-                        {checkout_url.map(|url| view! {
-                            <a
-                                class="btn btn-primary"
-                                href=url
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                "Complete payment"
-                            </a>
-                        })}
+                    <div class="success card" style="margin-bottom: 2rem;">
+                        <p>{summary_text}</p>
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            {checkout_url.map(|url| view! {
+                                <a
+                                    class="btn btn-primary"
+                                    href=url
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    "Complete payment"
+                                </a>
+                            })}
+                            <button class="btn" on:click=move |_| verify_addon(addon_id.clone()) disabled=move || busy.get()>
+                                {move || if busy.get() { "Verifying..." } else { "I've paid, verify now" }}
+                            </button>
+                        </div>
                     </div>
                 }
             })}
 
+            <section class="card" style="margin-bottom: 2rem;">
+                <h2>"Active Add-ons"</h2>
+                {move || match active_add_ons.get() {
+                    Some(addons) => {
+                        if addons.is_empty() {
+                            view! { <p class="muted">"No active add-ons."</p> }.into_any()
+                        } else {
+                            view! {
+                                <div class="stack">
+                                    {addons.into_iter().map(|addon| {
+                                        let id = addon.id.clone();
+                                        view! {
+                                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid var(--border-color);">
+                                                <div>
+                                                    <strong>{addon.quantity} " × " {addon.addon_type}</strong>
+                                                    <br/>
+                                                    <span class="muted">{addon.status} " - " {addon.total_price} " " {addon.currency}</span>
+                                                </div>
+                                                <button class="btn btn-danger" on:click=move |_| cancel_addon(id.clone()) disabled=move || busy.get()>
+                                                    "Cancel"
+                                                </button>
+                                            </div>
+                                        }
+                                    }).collect_view()}
+                                </div>
+                            }.into_any()
+                        }
+                    },
+                    None => {
+                        if let Some(e) = summary_error.get() {
+                            view! { <div class="error">"Failed to load: " {e}</div> }.into_any()
+                        } else {
+                            view! { <p class="muted">"Loading..."</p> }.into_any()
+                        }
+                    }
+                }}
+            </section>
+
             {move || if can() {
                 view! {
                     <section class="card">
-                        <form on:submit=add class="stack-form">
+                        <h2>"Purchase New Add-on"</h2>
+                        <form on:submit=add class="stack-form" style="margin-top: 1rem;">
                             <label>
                                 "Type"
                                 <select
@@ -175,7 +262,7 @@ pub fn AddOnsPage() -> impl IntoView {
                                 {move || if busy.get() { "Creating…" } else { "Create add-on" }}
                             </button>
                         </form>
-                        <p class="muted">
+                        <p class="muted" style="margin-top: 1rem;">
                             "Add-ons are purchased through the payment provider, not from the wallet. \
                              Extended retention replaces your tenant's default history retention until cancelled."
                         </p>
