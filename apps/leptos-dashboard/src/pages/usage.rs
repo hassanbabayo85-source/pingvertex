@@ -246,7 +246,7 @@ pub fn UsagePage() -> impl IntoView {
                         <p class="muted">"PAYG charges now cover the live runtime paths below."</p>
                     </div>
                 </div>
-                <div class="overview-cards">
+                <div class="overview-cards overview-cards--operations">
                     <div><span class="card-label">"HTTP one-time"</span><span class="card-value">"http_check.one_time"</span></div>
                     <div><span class="card-label">"TCP one-time"</span><span class="card-value">"tcp_check.one_time"</span></div>
                     <div><span class="card-label">"DNS one-time"</span><span class="card-value">"dns_check.one_time"</span></div>
