@@ -5,10 +5,8 @@ use axum::{
 };
 
 pub fn router() -> Router<AppState> {
-    Router::new().route(
-        "/pricing/quote",
-        post(crate::handlers::pricing_quote::pricing_quote),
-    )
+    // Mun cire tsohon /pricing/quote. Wannan ya zama empty router domin kar ya karya main router.
+    Router::new()
 }
 
 /// Read-only admin pricing routes. JWT required, MFA step-up NOT

@@ -96,7 +96,6 @@ pub mod payg_preview;
 pub mod payg_pricing;
 pub mod paystack_webhook;
 pub mod platform_admin;
-pub mod pricing_quote;
 pub mod pricing_types;
 
 // H14 — Help Center & Support:
@@ -182,12 +181,8 @@ pub use revoke_invitation::*;
 // B14 — Billing Provider Abstraction & Checkout:
 pub mod billing_finalization;
 pub mod billing_types;
-pub mod initiate_checkout;
-pub mod verify_checkout;
-pub use billing_finalization::{cancel_subscription, get_invoice, get_subscription, list_plans};
+pub use billing_finalization::{get_invoice};
 pub use billing_types::*;
-pub use initiate_checkout::*;
-pub use verify_checkout::*;
 
 // B15 — Billing Webhooks:
 pub mod billing_webhook;
@@ -195,16 +190,12 @@ pub use billing_webhook::*;
 pub use paystack_webhook::paystack_webhook;
 
 // H12 — Subscription Usage Update:
-pub mod subscription_types;
 pub mod update_subscription_usage;
-pub use subscription_types::*;
 pub use update_subscription_usage::*;
 
 pub mod add_on_billing;
-pub mod change_plan;
 pub mod invoices;
 pub use add_on_billing::{billing_summary, cancel_add_on, create_add_on, verify_add_on};
-pub use change_plan::{change_plan, verify_plan_change};
 pub use invoices::list_invoices;
 
 // H14 — Help Center & Support:

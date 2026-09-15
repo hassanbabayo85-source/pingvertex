@@ -115,7 +115,10 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}@postgres:5432/uptime_monitor
-      RUST_LOG: info,axum::rejection=trace,tower_http=debug
+      RUST_LOG: debug
+      ENVIRONMENT: local
+      RUST_BACKTRACE: "1"
+      REDIS_URL: redis://redis:6379
     ports:
       # PART 13 — only the local dev convenience binding is kept here.
       # docker-compose.prod.yml clears even this with `ports: !reset []`,
