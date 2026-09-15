@@ -181,7 +181,7 @@ pub use revoke_invitation::*;
 // B14 — Billing Provider Abstraction & Checkout:
 pub mod billing_finalization;
 pub mod billing_types;
-pub use billing_finalization::{get_invoice};
+pub use billing_finalization::get_invoice;
 pub use billing_types::*;
 
 // B15 — Billing Webhooks:

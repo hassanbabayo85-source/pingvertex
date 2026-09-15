@@ -16,7 +16,7 @@ pub fn AddOnsPage() -> impl IntoView {
     let result = RwSignal::new(None::<billing::AddOn>);
     let error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
-    
+
     // Gyara: Amfani da RwSignal don ajiye active add-ons maimakon Resource
     let active_add_ons = RwSignal::new(None::<Vec<billing::AddOn>>);
     let summary_error = RwSignal::new(None::<String>);

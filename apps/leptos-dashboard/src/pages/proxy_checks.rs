@@ -222,6 +222,8 @@ fn safe_filename_suffix(filter: ResultFilter) -> &'static str {
 pub fn ProxyChecksPage() -> impl IntoView {
     let input = RwSignal::new(String::new());
     let input_mode = RwSignal::new("paste".to_string());
+    let uploaded_filename = RwSignal::new(None::<String>);
+    let uploaded_proxy_count = RwSignal::new(0usize);
     let job = RwSignal::new(None::<ProxyJob>);
     let results = RwSignal::new(Vec::<ProxyResult>::new());
     let active_filter = RwSignal::new(ResultFilter::All);
@@ -381,6 +383,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         };
                         match parsed {
                             Ok(items) => {
+                                uploaded_filename.set(Some(file.name()));
+                                uploaded_proxy_count.set(items.len());
+
                                 // submit_items owns the busy lifecycle while the
                                 // job is being created and polled.
                                 submit_items.run(items)
@@ -496,40 +501,96 @@ pub fn ProxyChecksPage() -> impl IntoView {
                 <div class="error" role="alert">{message}</div>
             })}
 
-            <section class="card proxy-input-card">
+            <section class="card proxy-input-card proxy-input-card-premium">
+                <div class="proxy-input-hero">
+                    <div>
+                        <span class="proxy-section-kicker">"PROXY SOURCE"</span>
+                        <h2>"Add proxies to inspect"</h2>
+                        <p class="muted">
+                            "Upload a CSV/JSON list or paste proxy endpoints. Up to 500 proxies per job."
+                        </p>
+                    </div>
+                    <div class="proxy-source-orb" aria-hidden="true">
+                        <span>"↗"</span>
+                    </div>
+                </div>
+
                 <div class="proxy-input-tabs" role="tablist" aria-label="Proxy input format">
-                    <button type="button" class:active=move || input_mode.get() == "paste">"Paste"</button>
+                    <button
+                        type="button"
+                        class:active=move || input_mode.get() == "paste"
+                        on:click=move |_| input_mode.set("paste".into())
+                    >
+                        <span class="proxy-tab-icon">"⌨"</span>
+                        " Paste"
+                    </button>
+
                     <label class="btn proxy-file-button">
-                        "CSV Upload"
+                        <span class="proxy-tab-icon">"CSV"</span>
+                        " Upload CSV"
                         <input type="file" accept=".csv,text/csv" on:change=on_file_change />
                     </label>
+
                     <label class="btn proxy-file-button">
-                        "JSON"
+                        <span class="proxy-tab-icon">"JSON"</span>
+                        " Upload JSON"
                         <input type="file" accept=".json,application/json" on:change=on_file_change />
                     </label>
                 </div>
 
+                {move || uploaded_filename.get().map(|filename| view! {
+                    <div class="proxy-uploaded-file">
+                        <div class="proxy-file-icon">"▤"</div>
+                        <div class="proxy-file-details">
+                            <strong>{filename.clone()}</strong>
+                            <span>
+                                {format!(
+                                    "{} file · {} proxies detected",
+                                    if filename.to_ascii_lowercase().ends_with(".json") { "JSON" } else { "CSV" },
+                                    uploaded_proxy_count.get()
+                                )}
+                            </span>
+                        </div>
+                        <div class="proxy-file-state">
+                            <span class="proxy-file-dot"></span>
+                            " Ready"
+                        </div>
+                    </div>
+                })}
+
                 <form on:submit=submit class="stack-form">
                     <label for="proxy-list">"Paste proxies"</label>
-                    <textarea
-                        id="proxy-list"
-                        rows="10"
-                        spellcheck="false"
-                        autocomplete="off"
-                        prop:value=input
-                        placeholder="http://1.2.3.4:8080&#10;socks5://2.3.4.5:1080"
-                        on:input=move |e| {
-                            input.set(event_target_value(&e));
-                            input_mode.set("paste".into());
-                            input_error.set(None);
-                        }
-                    ></textarea>
+                    <div class="proxy-editor-shell">
+                        <div class="proxy-editor-bar">
+                            <span></span><span></span><span></span>
+                            <small>"PROXY LIST"</small>
+                        </div>
+                        <textarea
+                            id="proxy-list"
+                            rows="10"
+                            spellcheck="false"
+                            autocomplete="off"
+                            prop:value=input
+                            placeholder="http://1.2.3.4:8080&#10;socks5://2.3.4.5:1080"
+                            on:input=move |e| {
+                                input.set(event_target_value(&e));
+                                input_mode.set("paste".into());
+                                uploaded_filename.set(None);
+                                uploaded_proxy_count.set(0);
+                                input_error.set(None);
+                            }
+                        ></textarea>
+                    </div>
 
                     {move || {
                         let (count, preview_error) = parse_input_for_preview(&input.get());
                         view! {
-                            <div class="proxy-input-meta">
-                                <span>{format!("{} proxies detected", count)}</span>
+                            <div class="proxy-input-meta proxy-input-meta-premium">
+                                <span>
+                                    <strong>{count}</strong>
+                                    " proxies detected"
+                                </span>
+                                <span class="proxy-input-limit">"MAX 500"</span>
                                 {preview_error.map(|message| view! {
                                     <span class="proxy-inline-error">{message}</span>
                                 })}
@@ -537,8 +598,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         }
                     }}
 
-                    <button class="btn btn-primary" type="submit" disabled=move || busy.get()>
-                        {move || if busy.get() { "Submitting…" } else { "Check Proxies" }}
+                    <button class="btn btn-primary proxy-check-button" type="submit" disabled=move || busy.get()>
+                        <span>"◉"</span>
+                        {move || if busy.get() { "Checking…" } else { "Check Proxies" }}
                     </button>
                 </form>
 
@@ -668,47 +730,101 @@ pub fn ProxyChecksPage() -> impl IntoView {
                             }).collect_view()}
                         </div>
 
-                        <div class="table-responsive">
-                            <table class="proxy-results-table">
-                                <thead>
-                                    <tr>
-                                        <th>"Host"</th>
-                                        <th>"Port"</th>
-                                        <th>"Scheme"</th>
-                                        <th>"Status"</th>
-                                        <th>"Latency"</th>
-                                        <th>"HTTPS"</th>
-                                        <th>"Country"</th>
-                                        <th>"Error"</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {move || results.get().into_iter()
-                                        .filter(|row| matches_filter(row, active_filter.get()))
-                                        .map(|row| {
-                                            let body = row.result.clone();
-                                            let status = body.as_ref().map(|r| if r.reachable { "Working" } else { "Failed" }).unwrap_or("Pending");
-                                            let status_class = if status == "Working" { "up" } else if status == "Failed" { "down" } else { "" };
-                                            let latency = body.as_ref().and_then(|r| r.latency_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
-                                            let https = body.as_ref().is_some_and(|r| r.supports_https);
-                                            let country = body.as_ref().and_then(|r| r.country_code.clone()).unwrap_or_else(|| "—".into());
-                                            let error_text = body.as_ref().filter(|r| !r.reachable).map(result_error).unwrap_or_else(|| "—".into());
-                                            let error_title = error_text.clone();
-                                            view! {
-                                                <tr>
-                                                    <td>{row.host}</td>
-                                                    <td>{row.port}</td>
-                                                    <td>{row.scheme}</td>
-                                                    <td><span class=status_class>{status}</span></td>
-                                                    <td>{latency}</td>
-                                                    <td>{if https { "Yes" } else { "No" }}</td>
-                                                    <td>{country}</td>
-                                                    <td title=error_title>{error_text}</td>
-                                                </tr>
-                                            }
-                                        }).collect_view()}
-                                </tbody>
-                            </table>
+                        <div class="proxy-result-grid">
+                            {move || results.get().into_iter()
+                                .filter(|row| matches_filter(row, active_filter.get()))
+                                .map(|row| {
+                                    let body = row.result.clone();
+
+                                    let status = body
+                                        .as_ref()
+                                        .map(|r| if r.reachable { "WORKING" } else { "FAILED" })
+                                        .unwrap_or("PENDING");
+
+                                    let status_class = match status {
+                                        "WORKING" => "working",
+                                        "FAILED" => "failed",
+                                        _ => "pending",
+                                    };
+
+                                    let latency = body
+                                        .as_ref()
+                                        .and_then(|r| r.latency_ms)
+                                        .map(|v| format!("{} ms", v))
+                                        .unwrap_or_else(|| "—".into());
+
+                                    let https = body.as_ref().is_some_and(|r| r.supports_https);
+                                    let country = body
+                                        .as_ref()
+                                        .and_then(|r| r.country_code.clone())
+                                        .unwrap_or_else(|| "—".into());
+
+                                    let anonymity = body
+                                        .as_ref()
+                                        .and_then(|r| r.anonymity.clone())
+                                        .unwrap_or_else(|| "—".into());
+
+                                    let error_text = body
+                                        .as_ref()
+                                        .filter(|r| !r.reachable)
+                                        .map(result_error)
+                                        .unwrap_or_else(|| "Connection healthy".into());
+
+                                    let endpoint = format!(
+                                        "{}://{}:{}",
+                                        row.scheme,
+                                        row.host,
+                                        row.port
+                                    );
+
+                                    view! {
+                                        <article class=format!("proxy-result-card proxy-result-{}", status_class)>
+                                            <div class="proxy-result-top">
+                                                <div class="proxy-result-status">
+                                                    <span class="proxy-status-dot"></span>
+                                                    <strong>{status}</strong>
+                                                </div>
+                                                <span class="proxy-result-scheme">{row.scheme.clone()}</span>
+                                            </div>
+
+                                            <div class="proxy-endpoint">
+                                                <span class="proxy-endpoint-prefix">"PROXY"</span>
+                                                <code>{endpoint}</code>
+                                            </div>
+
+                                            <div class="proxy-result-metrics">
+                                                <div>
+                                                    <span>"LATENCY"</span>
+                                                    <strong>{latency}</strong>
+                                                </div>
+                                                <div>
+                                                    <span>"HTTPS"</span>
+                                                    <strong class:proxy-positive=https>
+                                                        {if https { "Supported" } else { "No" }}
+                                                    </strong>
+                                                </div>
+                                                <div>
+                                                    <span>"COUNTRY"</span>
+                                                    <strong>{country}</strong>
+                                                </div>
+                                                <div>
+                                                    <span>"ANONYMITY"</span>
+                                                    <strong>{anonymity}</strong>
+                                                </div>
+                                            </div>
+
+                                            <div class=if status == "WORKING" {
+                                                "proxy-result-message proxy-result-message-success"
+                                            } else {
+                                                "proxy-result-message proxy-result-message-error"
+                                            }>
+                                                <span>{if status == "WORKING" { "✓" } else { "!" }}</span>
+                                                <span>{error_text}</span>
+                                            </div>
+                                        </article>
+                                    }
+                                })
+                                .collect_view()}
                         </div>
                     </section>
                 }.into_any()

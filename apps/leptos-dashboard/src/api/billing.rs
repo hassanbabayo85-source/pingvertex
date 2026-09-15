@@ -118,18 +118,12 @@ pub async fn add_on(req: &AddOnRequest) -> Result<AddOn, ApiError> {
 
 // 🟡 MATAKI NA 3: An gano gibin Frontend - Ƙara function na soke Add-On (Cancel Add-on)
 pub async fn cancel_add_on(id: &str) -> Result<(), ApiError> {
-    client::post_json(
-        "/billing/addons/cancel",
-        &serde_json::json!({ "id": id }),
-    ).await
+    client::post_json("/billing/addons/cancel", &serde_json::json!({ "id": id })).await
 }
 
 // 🟡 MATAKI NA 3: An gano gibin Frontend - Ƙara function na tantance Add-On (Verify Add-on)
 pub async fn verify_add_on(id: &str) -> Result<(), ApiError> {
-    client::post_json(
-        "/billing/addons/verify",
-        &serde_json::json!({ "id": id }),
-    ).await
+    client::post_json("/billing/addons/verify", &serde_json::json!({ "id": id })).await
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

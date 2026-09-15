@@ -1,12 +1,13 @@
+use crate::api::client;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::api::client;
 
 #[component]
 #[allow(dead_code)]
 pub fn MfaStepUpModal(
     /// Wannan yana nuna ko za a buɗe Modal ɗin ko a'a
-    #[prop(into)] show: Signal<bool>,
+    #[prop(into)]
+    show: Signal<bool>,
     /// Function da za a kira idan mutum ya ba da lambar daidai
     on_success: Callback<(), ()>,
     /// Function da za a kira idan mutum ya fasa (Cancel)
@@ -43,7 +44,7 @@ pub fn MfaStepUpModal(
                     <div class="card" style="background: var(--bg-color); max-width: 400px; width: 90%; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                         <h2 style="margin-top: 0;">"Security Verification Required"</h2>
                         <p class="muted">"Please enter the 6-digit code from your authenticator app to authorize this high-privilege action."</p>
-                        
+
                         <form on:submit=submit_mfa class="auth-form" style="margin-top: 1rem;">
                             <div class="field">
                                 <label for="stepup-code">"6-digit code"</label>
@@ -58,7 +59,7 @@ pub fn MfaStepUpModal(
                                 />
                             </div>
                             {move || error.get().map(|e| view! { <div class="form-error" style="color: var(--danger-color); margin-top: 0.5rem;">{e}</div> })}
-                            
+
                             <div style="display: flex; gap: 1rem; margin-top: 1.5rem; justify-content: flex-end;">
                                 <button type="button" class="btn" on:click=move |_| on_cancel.run(()) disabled=move || busy.get()>
                                     "Cancel"

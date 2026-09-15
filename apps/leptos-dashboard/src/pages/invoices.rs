@@ -6,7 +6,7 @@ use leptos::task::spawn_local;
 pub fn InvoicesPage() -> impl IntoView {
     let rows = RwSignal::new(Vec::<billing::Invoice>::new());
     let error = RwSignal::new(None::<String>);
-    
+
     // 🟡 MATAKI NA 3: Signals domin riƙe cikakken invoice da aka zaɓa
     let selected_invoice = RwSignal::new(None::<billing::Invoice>);
     let detail_error = RwSignal::new(None::<String>);
@@ -42,7 +42,7 @@ pub fn InvoicesPage() -> impl IntoView {
                     <h1>"Invoices"</h1>
                 </div>
             </header>
-            
+
             {move || error.get().map(|e| view! { <div class="error" role="alert">{e}</div> })}
             {move || detail_error.get().map(|e| view! { <div class="error" role="alert">{e}</div> })}
 
@@ -58,23 +58,23 @@ pub fn InvoicesPage() -> impl IntoView {
                             <div>
                                 <p class="muted">"Status"</p>
                                 <p><strong>{inv.status.clone()}</strong></p>
-                                
+
                                 <p class="muted">"Created At"</p>
                                 <p>{inv.created_at.clone()}</p>
-                                
+
                                 <p class="muted">"Paid At"</p>
                                 <p>{inv.paid_at.clone().unwrap_or_else(|| "Not Paid".to_string())}</p>
                             </div>
                             <div>
                                 <p class="muted">"Billing Period"</p>
                                 <p>{inv.period_start.clone()} " → " {inv.period_end.clone()}</p>
-                                
+
                                 <p class="muted">"Subtotal"</p>
                                 <p>{inv.currency.clone()} " " {inv.subtotal.clone()}</p>
-                                
+
                                 <p class="muted">"Tax"</p>
                                 <p>{inv.currency.clone()} " " {inv.tax.clone()}</p>
-                                
+
                                 <p class="muted">"Total"</p>
                                 <p><strong>{inv.currency.clone()} " " {inv.total.clone()}</strong></p>
                             </div>

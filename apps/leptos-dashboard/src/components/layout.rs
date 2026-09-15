@@ -49,6 +49,7 @@ fn set_storage_value(window: &web_sys::Window, key: &str, value: &str) {
     let _ = set_item.call2(&storage, &JsValue::from_str(key), &JsValue::from_str(value));
 }
 
+#[allow(dead_code)]
 fn system_prefers_dark(window: &web_sys::Window) -> bool {
     let Ok(match_media) = js_sys::Reflect::get(window.as_ref(), &JsValue::from_str("matchMedia"))
     else {
@@ -84,19 +85,22 @@ fn apply_theme(dark: bool) {
 
     let theme = if dark { "dark" } else { "light" };
     let _ = root.set_attribute("data-theme", theme);
-    set_storage_value(&window, "pingvertex-theme", theme);
+    set_storage_value(&window, "pingvertex-theme-v2", theme);
 }
 
 fn initial_dark_theme() -> bool {
     let Some(window) = web_sys::window() else {
-        return false;
+        return true;
     };
 
-    if let Some(value) = storage_value(&window, "pingvertex-theme") {
+    if let Some(value) = storage_value(&window, "pingvertex-theme-v2") {
         return value == "dark";
     }
 
-    system_prefers_dark(&window)
+    // PingVertex branded UI defaults to dark. Users can still switch to
+    // light via the topbar toggle, which persists to localStorage.
+    let _ = system_prefers_dark;
+    true
 }
 
 fn is_nav_active(current: &str, href: &str) -> bool {
