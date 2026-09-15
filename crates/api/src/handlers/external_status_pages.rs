@@ -1,17 +1,22 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
 };
 use tracing::info;
 
 use application::{
     commands::UpdateStatusPage,
+    pagination::PageRequest,
     use_cases::{ListStatusPagesUseCase, UpdateStatusPageError, UpdateStatusPageUseCase},
 };
 
 use crate::{
     error::ApiError,
-    handlers::types::{StatusPageResponse, StatusPageUpdateRequest},
+    handlers::{
+        list_monitors::{ListMonitorsQuery, NEXT_CURSOR_HEADER},
+        types::{StatusPageResponse, StatusPageUpdateRequest},
+    },
     middleware::api_key_auth::ApiKeyPrincipal,
     state::AppState,
     validation::{parse_monitor_id, parse_status_page_id},
@@ -19,28 +24,41 @@ use crate::{
 
 /// Lists status pages belonging to the API key's tenant.
 ///
-/// `GET /api/v1/external/status-pages`
+/// `GET /api/v1/external/status-pages?limit=50&cursor=<opaque>`
 ///
 /// Gated on `ApiKeyScope::StatusPageRead`.
+///
+/// PART 5 — Converted to cursor-based pagination. Both `limit` and `cursor`
+/// are optional. Limits are clamped to `MAX_PAGE_SIZE` (100).
 pub async fn list_status_pages_via_api_key(
     State(state): State<AppState>,
     Extension(principal): Extension<ApiKeyPrincipal>,
-) -> Result<Json<Vec<StatusPageResponse>>, ApiError> {
+    Query(query): Query<ListMonitorsQuery>,
+) -> Result<(StatusCode, HeaderMap, Json<Vec<StatusPageResponse>>), ApiError> {
     info!("API: list_status_pages_via_api_key");
 
+    let page_request = PageRequest::new(query.limit, query.cursor.as_deref());
     let use_case = ListStatusPagesUseCase::new(state.status_page_repository.clone());
 
-    let status_pages = use_case
-        .execute_for_tenant(principal.tenant_id)
+    let page = use_case
+        .execute_paginated_for_tenant(principal.tenant_id, page_request)
         .await
         .map_err(|err| ApiError::internal_with_source("failed to list status pages", err))?;
 
-    Ok(Json(
-        status_pages
-            .into_iter()
-            .map(StatusPageResponse::from)
-            .collect(),
-    ))
+    let response: Vec<StatusPageResponse> = page
+        .items
+        .into_iter()
+        .map(StatusPageResponse::from)
+        .collect();
+
+    let mut headers = HeaderMap::new();
+    if let Some(cursor) = page.next_cursor {
+        let value = HeaderValue::from_str(&cursor)
+            .map_err(|_| ApiError::internal("failed to encode next cursor"))?;
+        headers.insert(NEXT_CURSOR_HEADER, value);
+    }
+
+    Ok((StatusCode::OK, headers, Json(response)))
 }
 
 /// Updates a status page belonging to the API key's tenant.
@@ -81,10 +99,6 @@ pub async fn update_status_page_via_api_key(
         .execute_for_tenant(command, principal.tenant_id, principal.user_id)
         .await
         .map_err(|err| match err {
-            // `execute_for_tenant` never constructs `Forbidden` — that
-            // check only runs in `execute`'s `AuthenticatedUser` wrapper,
-            // which this API-key-authenticated path doesn't call. Kept
-            // here only because the match must be exhaustive.
             UpdateStatusPageError::Forbidden => {
                 ApiError::internal("unexpected authorization error")
             }
