@@ -50,6 +50,7 @@ pub async fn logout(
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
     use std::sync::Mutex;
 
