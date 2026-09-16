@@ -78,3 +78,71 @@ pub struct ProxyCheckResultsHttpResponse {
     pub limit: u32,
     pub offset: u32,
 }
+
+
+// ---------------------------------------------------------------------------
+// PART 2 — Preview endpoint HTTP types
+// ---------------------------------------------------------------------------
+
+/// Response returned by `POST /api/v1/proxy-checks/preview`. Purely a
+/// read-only dry run — creating this response does NOT touch the DB,
+/// does NOT consume quota, and does NOT create a job.
+///
+/// SECURITY: `accepted` deliberately does NOT include username/password
+/// values. Each entry carries `has_credentials: bool` instead, so that
+/// the response can never become a place where credentials leak (into
+/// logs, into a UI cache, into a screenshot, etc.). The frontend does
+/// not need to display credentials; it only needs to know whether an
+/// entry has them.
+#[derive(Debug, Serialize)]
+pub struct ProxyPreviewHttpResponse {
+    /// Every non-empty, non-comment input unit (CSV line or JSON array
+    /// element).
+    pub total: usize,
+    /// Accepted + duplicate — i.e. entries that passed shape parsing
+    /// and domain validation.
+    pub valid: usize,
+    /// Shape-parse failures only (bad `host:port`, unknown scheme, etc.).
+    pub invalid: usize,
+    /// Number of entries that duplicated an earlier entry in the same batch.
+    pub duplicate_count: usize,
+    /// Total failures — shape-parse + domain validation.
+    pub rejected_count: usize,
+    pub accepted: Vec<ProxyEntryPreviewHttpResponse>,
+    pub rejected: Vec<RejectedProxyHttp>,
+    pub duplicates: Vec<DuplicateProxyHttp>,
+}
+
+/// One accepted proxy entry, without credentials.
+///
+/// `position` is the 1-based position of this entry in the original
+/// input (CSV line number or JSON array index). The dashboard uses it to
+/// map this credential-free summary back to the original parsed input,
+/// which still carries the credentials needed for submission.
+#[derive(Debug, Serialize)]
+pub struct ProxyEntryPreviewHttpResponse {
+    pub position: usize,
+    pub host: String,
+    pub port: u16,
+    pub scheme: domain::ProxyScheme,
+    pub has_credentials: bool,
+}
+
+/// One rejected input unit.
+#[derive(Debug, Serialize)]
+pub struct RejectedProxyHttp {
+    /// 1-based CSV line number, or 1-based JSON array index.
+    pub position: usize,
+    /// Raw input (truncated to 256 bytes by the parser).
+    pub raw: String,
+    pub reason: String,
+}
+
+/// One entry that duplicated an earlier entry in the same batch.
+#[derive(Debug, Serialize)]
+pub struct DuplicateProxyHttp {
+    pub position: usize,
+    pub raw: String,
+    /// Position of the FIRST entry that matched the same dedup key.
+    pub first_seen_at: usize,
+}

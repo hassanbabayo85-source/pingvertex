@@ -1,8 +1,8 @@
 use crate::dto::ProxyEntryInput;
 use domain::ProxyScheme;
 
-const MAX_CSV_LINES: usize = 500;
-const MAX_JSON_BYTES: usize = 1_000_000; // 1MB
+pub(crate) const MAX_CSV_LINES: usize = 500;
+pub(crate) const MAX_JSON_BYTES: usize = 1_000_000; // 1MB
 
 /// Parses a CSV-like text where each non‑empty, non‑comment line represents
 /// one proxy. Supported formats per line:
@@ -56,7 +56,7 @@ pub fn parse_csv(input: &str) -> Result<Vec<ProxyEntryInput>, String> {
 ///     handled separately from the scheme-prefixed shape, because a naive
 ///     "split on the last colon" approach misparses the 4-part form (it
 ///     would take the password as the port).
-fn parse_csv_line(line: &str) -> Result<ProxyEntryInput, String> {
+pub(crate) fn parse_csv_line(line: &str) -> Result<ProxyEntryInput, String> {
     if let Some(idx) = line.find("://") {
         let scheme_str = &line[..idx];
         let rest = &line[idx + 3..];

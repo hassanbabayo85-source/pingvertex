@@ -9902,3 +9902,131 @@ aside a:hover svg, nav a:hover svg, .menu-item:hover svg, .nav-link:hover svg,
 aside a.active svg, nav a.active svg, .menu-item.active svg {
     opacity: 1 !important; /* Icon ɗin zai haskaka sosai idan an zaɓe shi */
 }
+
+/* ---------- PART 2 — Proxy preview / import summary ---------- */
+
+.proxy-submit-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+.proxy-submit-row .proxy-check-button {
+  flex: 1 1 auto;
+  min-width: 200px;
+}
+
+.proxy-preview-card {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+.proxy-preview-card .section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.proxy-preview-card .section-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.proxy-preview-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.proxy-preview-counts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.proxy-preview-counts span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+}
+
+.proxy-preview-counts strong {
+  font-size: 1.25rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.proxy-preview-counts strong.up { color: var(--up); }
+.proxy-preview-counts strong.down { color: var(--down); }
+
+.proxy-preview-details {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.proxy-preview-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+  user-select: none;
+}
+
+.proxy-preview-details summary:hover {
+  color: var(--accent);
+}
+
+.proxy-preview-details ul {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.proxy-preview-details li {
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+.proxy-preview-details li code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+
+.proxy-preview-hint {
+  margin: var(--space-4) 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.proxy-preview-hint strong {
+  color: var(--up);
+  font-variant-numeric: tabular-nums;
+}
