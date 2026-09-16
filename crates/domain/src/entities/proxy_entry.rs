@@ -115,6 +115,7 @@ impl ProxyEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::enums::ProxyCheckOutcome;
 
     fn host() -> ProxyHost {
         ProxyHost::new("8.8.8.8").unwrap()
@@ -165,6 +166,13 @@ mod tests {
             country_code: Some("US".to_string()),
             error_code: None,
             error_message: None,
+            outcome: Some(ProxyCheckOutcome::Working),
+            failure_kind: None,
+            connection_latency_ms: Some(30),
+            tls_handshake_latency_ms: Some(50),
+            ttfb_ms: Some(100),
+            total_time_ms: Some(120),
+            http_status_code: Some(200),
         };
 
         let entry = ProxyEntry::from_persisted(

@@ -17,7 +17,17 @@ const MAX_POLL_ATTEMPTS: u32 = 150;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ResultFilter {
     All,
+    /// Proxy is alive (Working OR WorkingTargetUnreachable). The correct
+    /// filter for "which proxies can I actually use?".
     Working,
+    /// Proxy is alive but the target through it was unreachable. Only
+    /// meaningful for the PART 3 outcome model.
+    TargetFailed,
+    /// Proxy itself failed. The only filter that means "dead proxy".
+    ProxyFailed,
+    /// Legacy alias retained for the old "Failed" label — matches any
+    /// non-alive proxy OR any non-fully-working one, so that existing
+    /// tests and users keep seeing what they saw before PART 3.
     Failed,
     Http,
     Https,
@@ -31,7 +41,9 @@ impl ResultFilter {
         match self {
             Self::All => "All",
             Self::Working => "Working",
-            Self::Failed => "Failed",
+            Self::TargetFailed => "Target failed",
+            Self::ProxyFailed => "Proxy failed",
+            Self::Failed => "Any failed",
             Self::Http => "HTTP",
             Self::Https => "HTTPS",
             Self::Socks4 => "SOCKS4",
@@ -54,11 +66,25 @@ fn human_error_code(code: &str) -> &'static str {
         "DNS_FAILED" => "The proxy hostname could not be resolved.",
         "INVALID_PROXY" => "This proxy is invalid or uses a disallowed port.",
         "CONNECTION_REFUSED" => "The proxy refused the connection.",
-        "CONNECTION_TIMEOUT" | "TARGET_TIMEOUT" => "The proxy connection timed out.",
+        "CONNECTION_TIMEOUT" => "The proxy connection timed out.",
         "AUTH_FAILED" => "The proxy rejected its credentials.",
         "TLS_FAILED" => "The proxy TLS connection could not be established.",
         "HTTP_PROXY_FAILED" | "HTTPS_PROXY_FAILED" | "SOCKS4_FAILED" | "SOCKS5_FAILED" => {
             "The proxy protocol check failed."
+        }
+        // PART 3 — the target through the proxy failed, but the proxy
+        // itself is alive. These must NOT be shown as "the proxy could
+        // not be reached" — the proxy was reached successfully.
+        "TARGET_TIMEOUT" | "TARGET_CONNECT_TIMEOUT" => {
+            "The target did not respond in time through this proxy."
+        }
+        "TARGET_TLS_FAILED" => "TLS to the target through this proxy failed.",
+        "TARGET_HTTP_ERROR" | "TARGET_CONNECT_HTTP_ERROR" => {
+            "The target returned an unexpected response through this proxy."
+        }
+        "TARGET_CONNECT_FAILED" => "The proxy could not reach the target.",
+        "TARGET_CONNECT_AUTH_FAILED" => {
+            "The proxy rejected the CONNECT tunnel for this target."
         }
         _ => "The proxy could not be reached.",
     }
@@ -70,6 +96,9 @@ fn humanize_api_error(message: String) -> String {
         "INVALID_PROXY", "CONNECTION_REFUSED", "CONNECTION_TIMEOUT", "TARGET_TIMEOUT",
         "AUTH_FAILED", "TLS_FAILED", "HTTP_PROXY_FAILED", "HTTPS_PROXY_FAILED",
         "SOCKS4_FAILED", "SOCKS5_FAILED",
+        "TARGET_TIMEOUT", "TARGET_TLS_FAILED", "TARGET_HTTP_ERROR",
+        "TARGET_CONNECT_FAILED", "TARGET_CONNECT_TIMEOUT",
+        "TARGET_CONNECT_HTTP_ERROR", "TARGET_CONNECT_AUTH_FAILED",
     ] {
         if message.contains(code) {
             return human_error_code(code).to_string();
@@ -92,7 +121,15 @@ fn matches_filter(row: &ProxyResult, filter: ResultFilter) -> bool {
     let body = row.result.as_ref();
     match filter {
         ResultFilter::All => true,
-        ResultFilter::Working => body.is_some_and(|r| r.reachable),
+        // PART 3 — "Working" means the PROXY is alive. A target-side
+        // failure must not hide a good proxy from the user.
+        ResultFilter::Working => body.is_some_and(|r| r.is_alive()),
+        ResultFilter::TargetFailed => body.is_some_and(|r| r.is_target_failure()),
+        ResultFilter::ProxyFailed => body.is_some_and(|r| {
+            r.effective_outcome() == "proxy_failed"
+        }),
+        // Legacy "Failed" filter — kept as a superset of the previous
+        // `!reachable` behaviour so existing tests/users are unchanged.
         ResultFilter::Failed => body.is_some_and(|r| !r.reachable),
         ResultFilter::Http => row.scheme.eq_ignore_ascii_case("http"),
         ResultFilter::Https => row.scheme.eq_ignore_ascii_case("https"),
@@ -117,7 +154,7 @@ fn csv_cell(value: &str) -> String {
 
 fn result_to_csv(rows: &[ProxyResult]) -> String {
     let mut out = String::from(
-        "host,port,scheme,reachable,latency_ms,supports_https,country_code,error_code\n",
+        "host,port,scheme,outcome,reachable,total_ms,connect_ms,tls_ms,ttfb_ms,http_status,supports_https,country_code,error_code\n",
     );
     for row in rows {
         let body = row.result.as_ref();
@@ -125,8 +162,13 @@ fn result_to_csv(rows: &[ProxyResult]) -> String {
             csv_cell(&row.host),
             row.port.to_string(),
             csv_cell(&row.scheme),
+            csv_cell(body.map(|r| r.effective_outcome()).unwrap_or("pending")),
             body.is_some_and(|r| r.reachable).to_string(),
-            body.and_then(|r| r.latency_ms).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.effective_total_time_ms()).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.connection_latency_ms).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.tls_handshake_latency_ms).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.ttfb_ms).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.http_status_code).map(|v| v.to_string()).unwrap_or_default(),
             body.is_some_and(|r| r.supports_https).to_string(),
             body.and_then(|r| r.country_code.clone()).unwrap_or_default(),
             body.and_then(|r| r.error_code.clone()).unwrap_or_default(),
@@ -757,8 +799,8 @@ pub fn ProxyChecksPage() -> impl IntoView {
             {move || if job.get().is_some() {
                 let rows = results.get();
                 let total = job.get().map(|j| j.total_count as usize).unwrap_or(rows.len());
-                let working = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| b.reachable)).count();
-                let failed = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| !b.reachable)).count();
+                let working = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| b.is_alive())).count();
+                let failed = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| !b.is_alive())).count();
                 let https = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| b.supports_https)).count();
                 let latency_values = rows.iter().filter_map(|r| r.result.as_ref().and_then(|b| b.latency_ms)).collect::<Vec<_>>();
                 let avg_latency = if latency_values.is_empty() { "—".into() } else { format!("{} ms", latency_values.iter().copied().map(u64::from).sum::<u64>() / latency_values.len() as u64) };
@@ -784,7 +826,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         </div>
 
                         <div class="proxy-filters" role="toolbar" aria-label="Result filters">
-                            {[ResultFilter::All, ResultFilter::Working, ResultFilter::Failed, ResultFilter::Http, ResultFilter::Https, ResultFilter::Socks4, ResultFilter::Socks5, ResultFilter::HttpsCapable].into_iter().map(|filter| {
+                            {[ResultFilter::All, ResultFilter::Working, ResultFilter::TargetFailed, ResultFilter::ProxyFailed, ResultFilter::Failed, ResultFilter::Http, ResultFilter::Https, ResultFilter::Socks4, ResultFilter::Socks5, ResultFilter::HttpsCapable].into_iter().map(|filter| {
                                 let label = filter.label();
                                 view! {
                                     <button type="button" class:active=move || active_filter.get() == filter on:click=move |_| active_filter.set(filter)>{label}</button>
@@ -797,14 +839,43 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                 .filter(|row| matches_filter(row, active_filter.get()))
                                 .map(|row| {
                                     let body = row.result.clone();
-                                    let status = body.as_ref().map(|r| if r.reachable { "WORKING" } else { "FAILED" }).unwrap_or("PENDING");
-                                    let status_class = match status { "WORKING" => "working", "FAILED" => "failed", _ => "pending" };
-                                    let latency = body.as_ref().and_then(|r| r.latency_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
+                                    // PART 3 — three-way status. Derive from
+                                    // the effective_outcome so that both new
+                                    // (PART 3) and legacy rows render correctly.
+                                    let (status, status_class) = match body.as_ref().map(|r| r.effective_outcome()) {
+                                        Some("working") => ("WORKING", "working"),
+                                        Some("working_target_unreachable") => ("TARGET FAILED", "target-failed"),
+                                        Some("proxy_failed") => ("PROXY FAILED", "failed"),
+                                        _ => ("PENDING", "pending"),
+                                    };
+                                    let is_alive = body.as_ref().is_some_and(|r| r.is_alive());
+                                    let total_latency = body.as_ref().and_then(|r| r.effective_total_time_ms()).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
+                                    let conn_latency = body.as_ref().and_then(|r| r.connection_latency_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
+                                    let tls_latency = body.as_ref().and_then(|r| r.tls_handshake_latency_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
+                                    let ttfb = body.as_ref().and_then(|r| r.ttfb_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
+                                    let http_status = body.as_ref().and_then(|r| r.http_status_code).map(|v| v.to_string()).unwrap_or_else(|| "—".into());
                                     let https = body.as_ref().is_some_and(|r| r.supports_https);
                                     let country = body.as_ref().and_then(|r| r.country_code.clone()).unwrap_or_else(|| "—".into());
                                     let anonymity = body.as_ref().and_then(|r| r.anonymity.clone()).unwrap_or_else(|| "—".into());
-                                    let error_text = body.as_ref().filter(|r| !r.reachable).map(result_error).unwrap_or_else(|| "Connection healthy".into());
+                                    // Only show an error message when the proxy
+                                    // actually failed OR when there's a target
+                                    // warning. A fully working row shows
+                                    // "Connection healthy".
+                                    let error_text = match body.as_ref() {
+                                        Some(r) if r.is_alive() && !r.is_fully_working() => {
+                                            result_error(r)
+                                        }
+                                        Some(r) if !r.is_alive() => result_error(r),
+                                        _ => "Connection healthy".into(),
+                                    };
                                     let endpoint = format!("{}://{}:{}", row.scheme, row.host, row.port);
+                                    let warning_class = if is_alive && !body.as_ref().is_some_and(|r| r.is_fully_working()) {
+                                        "proxy-result-message proxy-result-message-warning"
+                                    } else if is_alive {
+                                        "proxy-result-message proxy-result-message-success"
+                                    } else {
+                                        "proxy-result-message proxy-result-message-error"
+                                    };
 
                                     view! {
                                         <article class=format!("proxy-result-card proxy-result-{}", status_class)>
@@ -816,14 +887,18 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                                 <span class="proxy-endpoint-prefix">"PROXY"</span>
                                                 <code>{endpoint}</code>
                                             </div>
-                                            <div class="proxy-result-metrics">
-                                                <div><span>"LATENCY"</span><strong>{latency}</strong></div>
+                                            <div class="proxy-result-metrics proxy-result-metrics-wide">
+                                                <div><span>"TOTAL"</span><strong>{total_latency}</strong></div>
+                                                <div><span>"CONNECT"</span><strong>{conn_latency}</strong></div>
+                                                <div><span>"TLS"</span><strong>{tls_latency}</strong></div>
+                                                <div><span>"TTFB"</span><strong>{ttfb}</strong></div>
+                                                <div><span>"HTTP"</span><strong>{http_status}</strong></div>
                                                 <div><span>"HTTPS"</span><strong class:proxy-positive=https>{if https { "Supported" } else { "No" }}</strong></div>
                                                 <div><span>"COUNTRY"</span><strong>{country}</strong></div>
                                                 <div><span>"ANONYMITY"</span><strong>{anonymity}</strong></div>
                                             </div>
-                                            <div class=if status == "WORKING" { "proxy-result-message proxy-result-message-success" } else { "proxy-result-message proxy-result-message-error" }>
-                                                <span>{if status == "WORKING" { "✓" } else { "!" }}</span>
+                                            <div class={warning_class}>
+                                                <span>{if is_alive { "✓" } else { "!" }}</span>
                                                 <span>{error_text}</span>
                                             </div>
                                         </article>
@@ -847,6 +922,8 @@ mod tests {
     use super::*;
 
     fn row(reachable: bool, scheme: &str, https: bool) -> ProxyResult {
+        // Legacy helper — leave `outcome` as None so tests exercise the
+        // backward-compat derivation from `reachable` + `error_code`.
         ProxyResult {
             id: "id".into(),
             host: "8.8.8.8".into(),
@@ -860,6 +937,38 @@ mod tests {
                 anonymity: None,
                 error_code: None,
                 error_message: None,
+                outcome: None,
+                failure_kind: None,
+                connection_latency_ms: None,
+                tls_handshake_latency_ms: None,
+                ttfb_ms: None,
+                total_time_ms: None,
+                http_status_code: None,
+            }),
+        }
+    }
+
+    fn row_with_outcome(outcome: &str, error_code: Option<&str>) -> ProxyResult {
+        ProxyResult {
+            id: "id".into(),
+            host: "8.8.8.8".into(),
+            port: 8080,
+            scheme: "http".into(),
+            result: Some(ProxyResultBody {
+                reachable: outcome == "working",
+                latency_ms: Some(20),
+                supports_https: false,
+                country_code: None,
+                anonymity: None,
+                error_code: error_code.map(|s| s.into()),
+                error_message: None,
+                outcome: Some(outcome.into()),
+                failure_kind: None,
+                connection_latency_ms: Some(5),
+                tls_handshake_latency_ms: None,
+                ttfb_ms: Some(15),
+                total_time_ms: Some(20),
+                http_status_code: Some(200),
             }),
         }
     }
@@ -878,6 +987,41 @@ mod tests {
         let failed_socks4 = row(false, "socks4", false);
         assert!(matches_filter(&failed_socks4, ResultFilter::Socks4));
         assert!(!matches_filter(&failed_socks4, ResultFilter::Socks5));
+    }
+
+    #[test]
+    fn target_failure_is_not_a_dead_proxy_in_filters() {
+        // The central PART 3 invariant, exercised through the UI filter
+        // logic: a target-side failure must appear under `Working`
+        // (because the proxy is alive) AND under `TargetFailed`, but
+        // NOT under `ProxyFailed`.
+        let target_failed = row_with_outcome("working_target_unreachable", Some("TARGET_TIMEOUT"));
+
+        assert!(matches_filter(&target_failed, ResultFilter::Working));
+        assert!(matches_filter(&target_failed, ResultFilter::TargetFailed));
+        assert!(!matches_filter(&target_failed, ResultFilter::ProxyFailed));
+
+        let proxy_failed = row_with_outcome("proxy_failed", Some("CONNECTION_REFUSED"));
+        assert!(!matches_filter(&proxy_failed, ResultFilter::Working));
+        assert!(!matches_filter(&proxy_failed, ResultFilter::TargetFailed));
+        assert!(matches_filter(&proxy_failed, ResultFilter::ProxyFailed));
+
+        let working = row_with_outcome("working", None);
+        assert!(matches_filter(&working, ResultFilter::Working));
+        assert!(!matches_filter(&working, ResultFilter::TargetFailed));
+        assert!(!matches_filter(&working, ResultFilter::ProxyFailed));
+    }
+
+    #[test]
+    fn csv_export_uses_part3_columns() {
+        let csv = result_to_csv(&[row(true, "http", true)]);
+        assert!(csv.starts_with("host,port,scheme,outcome,"));
+        assert!(csv.contains("connect_ms"));
+        assert!(csv.contains("ttfb_ms"));
+        assert!(csv.contains("http_status"));
+        // Credentials must never appear.
+        assert!(!csv.contains("username"));
+        assert!(!csv.contains("password"));
     }
 
     #[test]

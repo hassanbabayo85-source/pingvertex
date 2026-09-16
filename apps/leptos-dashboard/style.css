@@ -10030,3 +10030,29 @@ aside a.active svg, nav a.active svg, .menu-item.active svg {
   color: var(--up);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- PART 3 — proxy result card: 8-up metric grid + warning ---------- */
+
+.proxy-result-metrics-wide {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .proxy-result-metrics-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.proxy-result-message-warning {
+  background: var(--degraded-soft);
+  color: var(--degraded);
+  border-color: var(--degraded);
+}
+
+.proxy-result-target-failed .proxy-status-dot {
+  background: var(--degraded);
+}
+
+.proxy-result-target-failed {
+  border-color: var(--degraded);
+}
