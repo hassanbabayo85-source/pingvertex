@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 
-const RECENT_MONITORS_LIMIT: usize = 8;
+const RECENT_MONITORS_LIMIT: usize = 10;
 const TREND_HEIGHT: f64 = 120.0;
 const TREND_BOTTOM: f64 = 116.0;
 
@@ -572,6 +572,14 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                     let _spark_latency = trend.iter().filter_map(|p| p.avg_latency_ms).collect::<Vec<_>>();
                     let spark_incidents = trend.iter().map(|p| p.incident_count as f64).collect::<Vec<_>>();
                     let spark_monitors = vec![summary.total as f64; trend.len().max(2)];
+                    // Leptos's view! macro moves each value into its own closure,
+                    // so repeated usages need separate owners. Pre-clone them.
+                    let spark_monitors_1 = spark_monitors.clone();
+                    let spark_monitors_2 = spark_monitors.clone();
+                    let spark_incidents_1 = spark_incidents.clone();
+                    let spark_incidents_2 = spark_incidents.clone();
+                    let spark_incidents_3 = spark_incidents.clone();
+                    let _ = (&spark_monitors, &spark_incidents);
                     let up_delta = trend_delta(&trend, "uptime");
                     let incident_delta = trend_delta(&trend, "incidents");
 
@@ -585,36 +593,36 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                             })}
 
                             <section class="metric-strip" aria-label="Monitor health summary">
-                                <div class="card metric-card metric-primary">
-                                    <div class="metric-card-top"><span class="metric-icon metric-icon-monitors" aria-hidden="true">"◈"</span><span class="card-label">"MONITORS"</span></div>
+                                <A href="/monitors" attr:class="card metric-card metric-primary">
+                                    <div class="metric-card-top"><span class="metric-icon metric-icon-monitors" aria-hidden="true">"◈"</span><span class="card-label">"MONITORS"</span><span class="metric-card-link" aria-hidden="true">"View →"</span></div>
                                     <span class="card-value">{summary.total}</span>
                                     <span class="card-hint"><span class="metric-trend-copy">"Configured"</span></span>
-                                    <StatSparkline values=spark_monitors.clone()/>
-                                </div>
-                                <div class="card metric-card metric-up">
-                                    <div class="metric-card-top"><span class="metric-icon metric-icon-up" aria-hidden="true">"✓"</span><span class="card-label">"UP"</span></div>
+                                    <StatSparkline values=spark_monitors_1/>
+                                </A>
+                                <A href="/monitors?status=up" attr:class="card metric-card metric-up">
+                                    <div class="metric-card-top"><span class="metric-icon metric-icon-up" aria-hidden="true">"✓"</span><span class="card-label">"UP"</span><span class="metric-card-link" aria-hidden="true">"View →"</span></div>
                                     <span class="card-value up">{summary.up}</span>
                                     <span class="card-hint"><TrendIndicator delta=up_delta.unwrap_or(0.0) /><span>"vs 24h ago"</span></span>
                                     <StatSparkline values=spark_uptime/>
-                                </div>
-                                <div class="card metric-card metric-down">
-                                    <div class="metric-card-top"><span class="metric-icon metric-icon-down" aria-hidden="true">"!"</span><span class="card-label">"DOWN"</span></div>
+                                </A>
+                                <A href="/monitors?status=down" attr:class="card metric-card metric-down">
+                                    <div class="metric-card-top"><span class="metric-icon metric-icon-down" aria-hidden="true">"!"</span><span class="card-label">"DOWN"</span><span class="metric-card-link" aria-hidden="true">"View →"</span></div>
                                     <span class="card-value down">{summary.down}</span>
                                     <span class="card-hint"><TrendIndicator delta=incident_delta.unwrap_or(0.0) inverse=true/><span>"vs 24h ago"</span></span>
-                                    <StatSparkline values=spark_incidents.clone()/>
-                                </div>
-                                <div class="card metric-card metric-disabled">
-                                    <div class="metric-card-top"><span class="metric-icon metric-icon-disabled" aria-hidden="true">"–"</span><span class="card-label">"DISABLED"</span></div>
+                                    <StatSparkline values=spark_incidents_1/>
+                                </A>
+                                <A href="/monitors?status=disabled" attr:class="card metric-card metric-disabled">
+                                    <div class="metric-card-top"><span class="metric-icon metric-icon-disabled" aria-hidden="true">"–"</span><span class="card-label">"DISABLED"</span><span class="metric-card-link" aria-hidden="true">"View →"</span></div>
                                     <span class="card-value">{summary.disabled}</span>
                                     <span class="card-hint">"Not monitored"</span>
-                                    <StatSparkline values=spark_monitors.clone()/>
-                                </div>
-                                <div class="card metric-card metric-incident">
-                                    <div class="metric-card-top"><span class="metric-icon metric-icon-incident" aria-hidden="true">"!"</span><span class="card-label">"INCIDENTS"</span></div>
+                                    <StatSparkline values=spark_monitors_2/>
+                                </A>
+                                <A href="/incidents" attr:class="card metric-card metric-incident">
+                                    <div class="metric-card-top"><span class="metric-icon metric-icon-incident" aria-hidden="true">"!"</span><span class="card-label">"INCIDENTS"</span><span class="metric-card-link" aria-hidden="true">"View →"</span></div>
                                     <span class="card-value">{open_incidents}</span>
                                     <span class="card-hint"><TrendIndicator delta=incident_delta.unwrap_or(0.0) inverse=true/><span>{format!("{} started in 24h", incident_total_24h)}</span></span>
-                                    <StatSparkline values=spark_incidents.clone()/>
-                                </div>
+                                    <StatSparkline values=spark_incidents_2/>
+                                </A>
                             </section>
 
                             <section class="dashboard-section">
@@ -669,12 +677,13 @@ pub fn DashboardOverviewPage() -> impl IntoView {
                                         }).collect_view()}</tbody></table></div> }.into_any()
                                     }
                                 }}
+                                <div class="dashboard-view-all"><A href="/monitors" attr:class="btn">"View all monitors →"</A></div>
                             </section>
 
                             <section class="dashboard-section">
                                 <div class="section-heading dashboard-section-heading"><div><p class="eyebrow">"INCIDENTS"</p><h2>"Recent incidents"</h2></div><A href="/incidents">"View all"</A></div>
                                 {if incidents.is_empty() { view! { <div class="dashboard-empty compact"><p>"No recent incidents."</p></div> }.into_any() } else { view! { <div class="incident-list dashboard-incident-list">{incidents.into_iter().map(|incident| {
-    let incident_sparkline = spark_incidents.clone();
+    let incident_sparkline = spark_incidents_3.clone();
                                     let href = format!("/incidents/{}", incident.id);
                                     let _monitor_href = format!("/monitors/{}", incident.monitor_id);
                                     let resolved = incident.resolved_at.is_some();

@@ -8,9 +8,9 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
-use leptos_router::hooks::use_navigate;
+use leptos_router::hooks::{use_navigate, use_query_map};
 
-const PAGE_SIZE: usize = 20;
+const PAGE_SIZE: usize = 10;
 
 #[component]
 pub fn MonitorsPage() -> impl IntoView {
@@ -22,7 +22,17 @@ pub fn MonitorsPage() -> impl IntoView {
     let pending_bulk = RwSignal::new(None::<(bool, bool)>); // (all, enabled)
     let selected_ids = RwSignal::new(Vec::<String>::new());
     let search = RwSignal::new(String::new());
-    let status_filter = RwSignal::new("all".to_string());
+    let query = use_query_map();
+    let initial_status = match query.get_untracked().get("status").as_deref() {
+        Some("up") => "up",
+        Some("down") => "down",
+        Some("degraded") => "degraded",
+        Some("unknown") => "unknown",
+        Some("disabled") | Some("paused") => "paused",
+        _ => "all",
+    }
+    .to_string();
+    let status_filter = RwSignal::new(initial_status);
     let kind_filter = RwSignal::new("all".to_string());
     let sort_key = RwSignal::new("name".to_string());
     let sort_asc = RwSignal::new(true);
@@ -30,6 +40,19 @@ pub fn MonitorsPage() -> impl IntoView {
     let navigate = use_navigate();
     let refresh_in_flight = RwSignal::new(false);
     let navigate_new = navigate.clone();
+
+    // URL ɗin da ke zuwa daga dashboard metric cards (misali /monitors?status=up)
+    let query = use_query_map();
+    Effect::new(move |_| {
+        let url_status = query
+            .get()
+            .get("status")
+            .unwrap_or_else(|| "all".to_string());
+        if url_status != status_filter.get_untracked() {
+            status_filter.set(url_status);
+            page.set(0);
+        }
+    });
 
     let poll_monitors = move || {
         let monitors = monitors;
@@ -307,17 +330,18 @@ pub fn MonitorsPage() -> impl IntoView {
                                         <label>
                                             "Status"
                                             <select
+                                                prop:value=move || status_filter.get()
                                                 on:change=move |ev| {
                                                     status_filter.set(event_target_value(&ev));
                                                     page.set(0);
                                                 }
                                             >
-                                                <option value="all" selected=status_value == "all">"All Status"</option>
-                                                <option value="up" selected=status_value == "up">"Up"</option>
-                                                <option value="down" selected=status_value == "down">"Down"</option>
-                                                <option value="degraded" selected=status_value == "degraded">"Degraded"</option>
-                                                <option value="paused" selected=status_value == "paused">"Paused"</option>
-                                                <option value="unknown" selected=status_value == "unknown">"Unknown"</option>
+                                                <option value="all">"All Status"</option>
+                                                <option value="up">"Up"</option>
+                                                <option value="down">"Down"</option>
+                                                <option value="degraded">"Degraded"</option>
+                                                <option value="paused">"Paused"</option>
+                                                <option value="unknown">"Unknown"</option>
                                             </select>
                                         </label>
                                         <label>

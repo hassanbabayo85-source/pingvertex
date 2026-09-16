@@ -38,9 +38,10 @@ fn parse_scheme(raw: Option<&str>) -> Result<Option<ProxyScheme>, ApiError> {
         None => Ok(None),
         Some(s) if s == "http" => Ok(Some(ProxyScheme::Http)),
         Some(s) if s == "https" => Ok(Some(ProxyScheme::Https)),
+        Some(s) if s == "socks4" => Ok(Some(ProxyScheme::Socks4)),
         Some(s) if s == "socks5" || s == "socks" => Ok(Some(ProxyScheme::Socks5)),
         Some(_) => Err(ApiError::bad_request(
-            "scheme must be http, https, or socks5",
+            "scheme must be http, https, socks4, or socks5",
         )),
     }
 }

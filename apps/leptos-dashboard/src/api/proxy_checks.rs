@@ -223,6 +223,7 @@ fn parse_scheme(raw: &str) -> Result<String, String> {
     match raw.to_ascii_lowercase().as_str() {
         "http" => Ok("http".into()),
         "https" => Ok("https".into()),
+        "socks4" => Ok("socks4".into()),
         "socks" | "socks5" => Ok("socks5".into()),
         _ => Err(format!("unsupported proxy scheme '{}'", raw)),
     }
@@ -269,7 +270,7 @@ fn validate_proxy_input(entry: &ProxyInput) -> Result<(), String> {
     }
     if !matches!(
         entry.scheme.to_ascii_lowercase().as_str(),
-        "http" | "https" | "socks" | "socks5"
+        "http" | "https" | "socks4" | "socks" | "socks5"
     ) {
         return Err("unsupported proxy scheme".into());
     }
@@ -297,6 +298,17 @@ mod tests {
         assert_eq!(values[1].username.as_deref(), Some("user"));
         assert_eq!(values[1].password.as_deref(), Some("secret"));
         assert_eq!(values[2].scheme, "socks5");
+    }
+
+    #[test]
+    fn parses_socks4_scheme_and_credentials() {
+        let values =
+            parse_proxy_text("socks4://1.2.3.4:1080\nsocks4://user:pass@5.6.7.8:1081").unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].scheme, "socks4");
+        assert_eq!(values[1].scheme, "socks4");
+        assert_eq!(values[1].username.as_deref(), Some("user"));
+        assert_eq!(values[1].password.as_deref(), Some("pass"));
     }
 
     #[test]

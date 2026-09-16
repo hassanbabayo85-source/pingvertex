@@ -104,6 +104,7 @@ fn pv2_brand_header() -> impl IntoView {
     }
 }
 
+#[allow(dead_code)]
 fn pv2_handwritten_note() -> impl IntoView {
     view! {
         <div class="pv2-handwritten" aria-hidden="true">
@@ -112,6 +113,7 @@ fn pv2_handwritten_note() -> impl IntoView {
     }
 }
 
+#[allow(dead_code)]
 fn pv2_illustration_footer() -> impl IntoView {
     view! {
         <div class="pv2-illustration">
@@ -199,7 +201,6 @@ pub fn ForgotPasswordPage() -> impl IntoView {
     view! {
         <div class="pv2-shell">
             <div class="pv2-dots" aria-hidden="true"></div>
-            {pv2_handwritten_note()}
 
             <div class="pv2-card">
                 {pv2_brand_header()}
@@ -269,7 +270,6 @@ pub fn ForgotPasswordPage() -> impl IntoView {
                 </p>
             </div>
 
-            {pv2_illustration_footer()}
         </div>
     }
 }

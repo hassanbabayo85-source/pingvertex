@@ -174,12 +174,14 @@ fn parse_port(port_str: &str) -> Result<u16, String> {
 
 /// Converts a scheme string into `domain::ProxyScheme`.
 ///
-/// NOTE: `domain::ProxyScheme` only has `Http`, `Https`, `Socks5` variants
-/// (no `Socks4`), so "socks4" is rejected as an invalid scheme here.
+/// `"socks"` is an alias for `"socks5"` (matching the shorthand used by
+/// most proxy lists). `"socks4"` is accepted explicitly and maps to the
+/// SOCKS4/SOCKS4a protocol, which is IPv4-only by design.
 fn parse_scheme(s: &str) -> Result<ProxyScheme, String> {
     match s.to_lowercase().as_str() {
         "http" => Ok(ProxyScheme::Http),
         "https" => Ok(ProxyScheme::Https),
+        "socks4" => Ok(ProxyScheme::Socks4),
         "socks" | "socks5" => Ok(ProxyScheme::Socks5),
         _ => Err(format!("invalid scheme '{}'", s)),
     }
@@ -315,16 +317,30 @@ https://user:pass@1.2.3.4:8083
     fn csv_supports_ipv6_and_all_protocols() {
         let input = "[2001:4860:4860::8888]:8080
 https://1.2.3.4:8443
+socks4://1.2.3.4:1080
 socks5://1.2.3.4:1080
 socks://user:pass@1.2.3.4:1081
 ";
         let entries = parse_csv(input).unwrap();
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 5);
         assert_eq!(entries[0].host, "2001:4860:4860::8888");
         assert_eq!(entries[0].scheme, ProxyScheme::Http);
         assert_eq!(entries[1].scheme, ProxyScheme::Https);
-        assert_eq!(entries[2].scheme, ProxyScheme::Socks5);
-        assert_eq!(entries[3].username.as_deref(), Some("user"));
+        assert_eq!(entries[2].scheme, ProxyScheme::Socks4);
+        assert_eq!(entries[3].scheme, ProxyScheme::Socks5);
+        assert_eq!(entries[4].username.as_deref(), Some("user"));
+    }
+
+    #[test]
+    fn csv_accepts_socks4_with_credentials() {
+        let input = "socks4://user:pass@1.2.3.4:1080\nsocks4://5.6.7.8:1081\n";
+        let entries = parse_csv(input).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].scheme, ProxyScheme::Socks4);
+        assert_eq!(entries[0].username.as_deref(), Some("user"));
+        assert_eq!(entries[0].password.as_deref(), Some("pass"));
+        assert_eq!(entries[1].scheme, ProxyScheme::Socks4);
+        assert!(entries[1].username.is_none());
     }
 
     #[test]
@@ -343,5 +359,12 @@ socks://user:pass@1.2.3.4:1081
         .unwrap();
         let err = parse_json(&input).unwrap_err();
         assert!(err.contains("maximum allowed is 500"));
+    }
+
+    #[test]
+    fn json_accepts_socks4_scheme() {
+        let input = r#"[{"host":"1.2.3.4","port":1080,"scheme":"socks4"}]"#;
+        let entries = parse_json(input).unwrap();
+        assert_eq!(entries[0].scheme, ProxyScheme::Socks4);
     }
 }
