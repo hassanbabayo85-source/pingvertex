@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use crate::api::proxy_checks::{
-    self, ProxyInput, ProxyJob, ProxyResult, ProxyResultBody, MAX_JSON_BYTES, MAX_PROXIES,
+    self, ProxyInput, ProxyJob, ProxyPreview, ProxyResult, ProxyResultBody, MAX_JSON_BYTES,
+    MAX_PROXIES,
 };
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
@@ -218,6 +221,8 @@ pub fn ProxyChecksPage() -> impl IntoView {
     let busy = RwSignal::new(false);
     let timed_out = RwSignal::new(false);
     let poll_generation = RwSignal::new(0u64);
+    let preview = RwSignal::new(None::<ProxyPreview>);
+    let preview_busy = RwSignal::new(false);
 
     let submit_items = Callback::new(move |items: Vec<ProxyInput>| {
         error.set(None);
@@ -228,6 +233,35 @@ pub fn ProxyChecksPage() -> impl IntoView {
         }
         if items.len() > MAX_PROXIES {
             input_error.set(Some("Maximum 500 proxies per job.".into()));
+            return;
+        }
+
+        // If a fresh preview is available, restrict the submission to
+        // only the entries it accepted. This is how duplicate suppression
+        // actually happens on the wire: the preview endpoint classifies
+        // every unit, and here we map its accepted positions back to the
+        // original parsed input (which still carries credentials the
+        // summary deliberately omitted). Without a fresh preview, we
+        // submit everything as before — no behavior regression.
+        let items = match preview.get_untracked() {
+            Some(p) => {
+                let accepted: HashSet<usize> =
+                    p.accepted.iter().map(|e| e.position).collect();
+                items
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| accepted.contains(&(i + 1)))
+                    .map(|(_, item)| item)
+                    .collect::<Vec<ProxyInput>>()
+            }
+            None => items,
+        };
+
+        if items.is_empty() {
+            input_error.set(Some(
+                "None of the entered proxies are valid and unique. Fix the input and try again."
+                    .into(),
+            ));
             return;
         }
 
@@ -526,6 +560,8 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                         uploaded_filename.set(None);
                                         uploaded_proxy_count.set(0);
                                         input_error.set(None);
+                                        // Any edit invalidates the previous preview.
+                                        preview.set(None);
                                     }
                                 ></textarea>
                             </div>
@@ -541,11 +577,101 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                 }
                             }}
 
-                            <button class="btn btn-primary proxy-check-button" type="submit" disabled=move || busy.get()>
-                                <span>"◉"</span>
-                                {move || if busy.get() { "Checking…" } else { "Check Proxies" }}
-                            </button>
+                            <div class="proxy-submit-row">
+                                <button
+                                    class="btn"
+                                    type="button"
+                                    disabled=move || preview_busy.get() || input.get().trim().is_empty()
+                                    on:click=move |_| {
+                                        error.set(None);
+                                        input_error.set(None);
+                                        let content = input.get_untracked();
+                                        if content.trim().is_empty() {
+                                            input_error.set(Some("Enter at least one proxy.".into()));
+                                            return;
+                                        }
+                                        let format = if input_mode.get_untracked() == "json" { "json" } else { "csv" };
+                                        preview_busy.set(true);
+                                        spawn_local(async move {
+                                            match proxy_checks::preview(format, &content).await {
+                                                Ok(p) => {
+                                                    preview.set(Some(p));
+                                                }
+                                                Err(e) => {
+                                                    preview.set(None);
+                                                    input_error.set(Some(format!("Preview failed: {}", e)));
+                                                }
+                                            }
+                                            preview_busy.set(false);
+                                        });
+                                    }
+                                >
+                                    {move || if preview_busy.get() { "Previewing…" } else { "Preview" }}
+                                </button>
+                                <button class="btn btn-primary proxy-check-button" type="submit" disabled=move || busy.get()>
+                                    <span>"◉"</span>
+                                    {move || if busy.get() { "Checking…" } else { "Check Proxies" }}
+                                </button>
+                            </div>
                         </form>
+
+                        {move || preview.get().map(|p| {
+                            let rejected_len = p.rejected.len();
+                            let duplicates_len = p.duplicates.len();
+                            view! {
+                                <section class="card proxy-preview-card">
+                                    <div class="section-heading">
+                                        <h3>"Import summary"</h3>
+                                        <span class="muted">"Backend validation, before submission"</span>
+                                    </div>
+                                    <div class="proxy-preview-counts">
+                                        <div><span>"TOTAL"</span><strong>{p.total}</strong></div>
+                                        <div><span>"ACCEPTED"</span><strong class="up">{p.accepted.len()}</strong></div>
+                                        <div><span>"DUPLICATES"</span><strong>{p.duplicate_count}</strong></div>
+                                        <div><span>"INVALID"</span><strong class="down">{p.invalid}</strong></div>
+                                        <div><span>"REJECTED"</span><strong class="down">{p.rejected_count}</strong></div>
+                                    </div>
+                                    {if rejected_len > 0 {
+                                        let items = p.rejected.iter().take(50).map(|r| {
+                                            view! {
+                                                <li>
+                                                    <code>{format!("line {}", r.position)}</code>
+                                                    " — " {r.reason.clone()}
+                                                </li>
+                                            }
+                                        }).collect_view();
+                                        view! {
+                                            <details class="proxy-preview-details">
+                                                <summary>{format!("{} rejected", rejected_len)}</summary>
+                                                <ul>{items}</ul>
+                                            </details>
+                                        }.into_any()
+                                    } else { ().into_any() }}
+                                    {if duplicates_len > 0 {
+                                        let items = p.duplicates.iter().take(50).map(|d| {
+                                            view! {
+                                                <li>
+                                                    <code>{format!("line {}", d.position)}</code>
+                                                    " — duplicate of line "
+                                                    <code>{d.first_seen_at}</code>
+                                                </li>
+                                            }
+                                        }).collect_view();
+                                        view! {
+                                            <details class="proxy-preview-details">
+                                                <summary>{format!("{} duplicates", duplicates_len)}</summary>
+                                                <ul>{items}</ul>
+                                            </details>
+                                        }.into_any()
+                                    } else { ().into_any() }}
+                                    <p class="proxy-preview-hint muted">
+                                        "Clicking Check Proxies will submit only the "
+                                        <strong>{p.accepted.len()}</strong>
+                                        " accepted proxies."
+                                    </p>
+                                </section>
+                            }
+                        })}
 
                         {move || input_error.get().map(|message| view! {
                             <div class="form-error" role="alert">{message}</div>

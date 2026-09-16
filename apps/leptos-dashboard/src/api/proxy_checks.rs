@@ -64,6 +64,66 @@ pub struct ProxyResults {
     pub offset: u32,
 }
 
+// ---------------------------------------------------------------------------
+// PART 2 — Preview types + function
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ProxyPreview {
+    pub total: usize,
+    pub valid: usize,
+    pub invalid: usize,
+    pub duplicate_count: usize,
+    pub rejected_count: usize,
+    pub accepted: Vec<ProxyPreviewEntry>,
+    pub rejected: Vec<RejectedProxy>,
+    pub duplicates: Vec<DuplicateProxy>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ProxyPreviewEntry {
+    /// 1-based position of this entry in the input.
+    pub position: usize,
+    pub host: String,
+    pub port: u16,
+    pub scheme: String,
+    pub has_credentials: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct RejectedProxy {
+    pub position: usize,
+    pub raw: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct DuplicateProxy {
+    pub position: usize,
+    pub raw: String,
+    pub first_seen_at: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PreviewRequest<'a> {
+    format: &'a str,
+    content: &'a str,
+}
+
+/// Calls the backend preview endpoint. `format` is `"csv"` or `"json"`.
+/// Returns a summary struct — the backend is authoritative on what
+/// counts as valid / duplicate / rejected.
+pub async fn preview(
+    format: &str,
+    content: &str,
+) -> Result<ProxyPreview, crate::api::client::ApiError> {
+    post_json(
+        "/proxy-checks/preview",
+        &PreviewRequest { format, content },
+    )
+    .await
+}
+
 pub async fn create(
     req: &CreateProxyCheckRequest,
 ) -> Result<ProxyJob, crate::api::client::ApiError> {

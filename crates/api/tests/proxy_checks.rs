@@ -637,3 +637,185 @@ async fn pending_proxy_job_can_be_canceled_but_cannot_be_canceled_twice() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
+
+// ---------------------------------------------------------------------------
+// PART 2 — Preview endpoint tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn preview_csv_reports_summary_without_creating_a_job() {
+    let app = build_test_app();
+
+    let body = serde_json::json!({
+        "format": "csv",
+        "content": "1.2.3.4:8080\n1.2.3.4:8080\nnot-a-proxy\n10.0.0.1:8080\n8.8.8.8:443\n"
+    })
+    .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/proxy-checks/preview")
+                .header("Authorization", "Bearer test-token")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // 5 input lines: 2 accepted + 1 duplicate + 1 invalid + 1 private-IP rejected
+    assert_eq!(json["total"], 5);
+    assert_eq!(json["accepted"].as_array().unwrap().len(), 2);
+    assert_eq!(json["duplicate_count"], 1);
+    assert_eq!(json["invalid"], 1);
+    assert_eq!(json["rejected_count"], 2);
+    assert_eq!(json["valid"], 3);
+
+    // Accepted entries must never carry credentials fields.
+    for entry in json["accepted"].as_array().unwrap() {
+        assert!(entry.get("username").is_none());
+        assert!(entry.get("password").is_none());
+        assert!(entry.get("has_credentials").is_some());
+        assert!(entry.get("position").is_some());
+    }
+}
+
+#[tokio::test]
+async fn preview_json_reports_summary() {
+    let app = build_test_app();
+
+    let body = serde_json::json!({
+        "format": "json",
+        "content": r#"[{"host":"1.2.3.4","port":8080,"scheme":"Http"},{"host":"8.8.8.8","port":443,"scheme":"Https"}]"#
+    })
+    .to_string();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/proxy-checks/preview")
+                .header("Authorization", "Bearer test-token")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+    assert_eq!(json["total"], 2);
+    assert_eq!(json["accepted"].as_array().unwrap().len(), 2);
+    assert_eq!(json["invalid"], 0);
+}
+
+#[tokio::test]
+async fn preview_rejects_unknown_format() {
+    let app = build_test_app();
+
+    let body = serde_json::json!({
+        "format": "xml",
+        "content": "<proxy/>"
+    })
+    .to_string();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/proxy-checks/preview")
+                .header("Authorization", "Bearer test-token")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn preview_requires_authentication() {
+    let app = build_test_app();
+
+    let body = serde_json::json!({
+        "format": "csv",
+        "content": "1.2.3.4:8080"
+    })
+    .to_string();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/proxy-checks/preview")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn preview_does_not_consume_daily_quota() {
+    // Submit 5 jobs to fill the quota, then hit preview — preview must
+    // still succeed and must NOT be blocked by the quota.
+    let app = build_test_app();
+
+    for _ in 0..5 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/proxy-checks")
+                    .header("Authorization", "Bearer test-token")
+                    .header(CONTENT_TYPE, "text/csv")
+                    .body(Body::from("1.2.3.4:8080\n"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let body = serde_json::json!({
+        "format": "csv",
+        "content": "8.8.8.8:443"
+    })
+    .to_string();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/proxy-checks/preview")
+                .header("Authorization", "Bearer test-token")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
