@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is broken or behaves differently than documented
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If this is a **security vulnerability**, stop here and follow [SECURITY.md](../../SECURITY.md) instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a monitor with ...
+        2. Wait for the first check
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part?
+      options:
+        - API
+        - Worker / scheduler
+        - Agent
+        - Dashboard (Leptos)
+        - Database / migrations
+        - RUM SDK
+        - Docker / deployment
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "v0.1.0, or commit sha"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS: Ubuntu 24.04
+        Deployment: docker compose / bare cargo
+        Rust: 1.85.0
+        PostgreSQL: 16.6
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact secrets, tokens, and real hostnames before pasting.
+      render: shell

@@ -1,0 +1,9 @@
+# Default owner for everything in the repo.
+* @hassanbabayo85-source
+
+# Security-sensitive areas — keep these reviewed by a maintainer.
+/crates/shared/src/ssrf.rs   @hassanbabayo85-source
+/crates/domain/              @hassanbabayo85-source
+/migrations/                 @hassanbabayo85-source
+/.github/workflows/          @hassanbabayo85-source
+/SECURITY.md                 @hassanbabayo85-source
