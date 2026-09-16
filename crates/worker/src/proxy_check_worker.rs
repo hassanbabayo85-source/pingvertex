@@ -120,12 +120,34 @@ impl ProxyCheckWorker {
             // durable job + entry identity is available. This prevents a bulk
             // proxy job from being charged once for many entries and keeps
             // retries idempotent per logical proxy attempt.
+            //
+            // Escape hatch: when PROXY_CHECK_BILLING_DISABLED=true we hand
+            // `None` to the executor, which makes it run every entry
+            // through check_single_entry without touching the PAYG layer.
+            // This is intended for development / diagnostics only — a
+            // production deployment must never set it.
+            let billing_disabled =
+                std::env::var("PROXY_CHECK_BILLING_DISABLED").as_deref() == Ok("true");
+
+            if billing_disabled {
+                tracing::warn!(
+                    job_id = %job_id,
+                    "PROXY_CHECK_BILLING_DISABLED=true — running proxy checks WITHOUT PAYG metering"
+                );
+            }
+
+            let metering_opt = if billing_disabled {
+                None
+            } else {
+                Some(self.metering.clone())
+            };
+
             let result = run_proxy_check_job(
                 &*self.repository,
                 running_job,
                 entries,
                 &self.worker_id,
-                Some(self.metering.clone()),
+                metering_opt,
             )
             .await;
 
