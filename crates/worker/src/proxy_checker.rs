@@ -845,10 +845,20 @@ where
 /// panic or a propagated `Result` — one bad proxy entry must never stop
 /// the rest of the job from being checked.
 async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
+    // IPv6 hosts MUST be bracketed when embedded in a URL, otherwise
+    // Url::parse rejects the string. `ProxyHost` stores IPv6 literals
+    // without brackets (per the "strip during normalization" rule in
+    // proxy_import), so we re-add them here for the URL only.
+    let host = entry.host().as_str();
+    let host_in_url = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
     let target = format!(
         "{}://{}:{}",
         proxy_scheme_str(entry.scheme()),
-        entry.host().as_str(),
+        host_in_url,
         entry.port()
     );
 
