@@ -47,6 +47,7 @@ pub struct ProxyResult {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct ProxyResultBody {
+    // ---- Legacy fields -----------------------------------------------
     pub reachable: bool,
     pub latency_ms: Option<u32>,
     pub supports_https: bool,
@@ -54,6 +55,69 @@ pub struct ProxyResultBody {
     pub anonymity: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+
+    // ---- PART 3 fields -----------------------------------------------
+    // All are `Option<T>` with `#[serde(default)]`, so responses from
+    // servers that predate PART 3 deserialize cleanly.
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub failure_kind: Option<String>,
+    #[serde(default)]
+    pub connection_latency_ms: Option<u32>,
+    #[serde(default)]
+    pub tls_handshake_latency_ms: Option<u32>,
+    #[serde(default)]
+    pub ttfb_ms: Option<u32>,
+    #[serde(default)]
+    pub total_time_ms: Option<u32>,
+    #[serde(default)]
+    pub http_status_code: Option<u16>,
+}
+
+impl ProxyResultBody {
+    /// Three-way outcome, mirroring the domain-layer helper: derive a
+    /// value from the legacy fields when `outcome` is absent (i.e. for
+    /// rows produced before PART 3).
+    pub fn effective_outcome(&self) -> &str {
+        if let Some(o) = self.outcome.as_deref() {
+            return o;
+        }
+        if self.reachable {
+            return "working";
+        }
+        match self.error_code.as_deref() {
+            Some(code) if code.starts_with("TARGET_") => "working_target_unreachable",
+            _ => "proxy_failed",
+        }
+    }
+
+    /// `true` when the proxy itself is alive — regardless of whether the
+    /// target through it worked. Use this to decide whether a proxy is
+    /// usable; use `is_fully_working` to decide whether to mark it
+    /// "fully verified".
+    pub fn is_alive(&self) -> bool {
+        matches!(
+            self.effective_outcome(),
+            "working" | "working_target_unreachable"
+        )
+    }
+
+    /// `true` only when the proxy AND the target both worked.
+    pub fn is_fully_working(&self) -> bool {
+        self.effective_outcome() == "working"
+    }
+
+    /// `true` only when the failure was on the target side.
+    pub fn is_target_failure(&self) -> bool {
+        self.effective_outcome() == "working_target_unreachable"
+    }
+
+    /// Best-effort total time, falling back to the legacy `latency_ms`
+    /// on pre-PART-3 responses.
+    pub fn effective_total_time_ms(&self) -> Option<u32> {
+        self.total_time_ms.or(self.latency_ms)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -399,5 +463,68 @@ mod tests {
     fn rejects_json_over_1mb() {
         let huge = "x".repeat(MAX_JSON_BYTES + 1);
         assert!(parse_json_input(&huge).is_err());
+    }
+
+    // -- PART 3 — ProxyResultBody backward-compat helpers --
+
+    fn body_with(
+        reachable: bool,
+        outcome: Option<&str>,
+        error_code: Option<&str>,
+    ) -> ProxyResultBody {
+        ProxyResultBody {
+            reachable,
+            latency_ms: Some(120),
+            supports_https: false,
+            country_code: None,
+            anonymity: None,
+            error_code: error_code.map(|s| s.to_string()),
+            error_message: None,
+            outcome: outcome.map(|s| s.to_string()),
+            failure_kind: None,
+            connection_latency_ms: None,
+            tls_handshake_latency_ms: None,
+            ttfb_ms: None,
+            total_time_ms: None,
+            http_status_code: None,
+        }
+    }
+
+    #[test]
+    fn effective_outcome_prefers_explicit_value() {
+        let b = body_with(false, Some("working_target_unreachable"), None);
+        assert_eq!(b.effective_outcome(), "working_target_unreachable");
+        assert!(b.is_alive());
+        assert!(!b.is_fully_working());
+        assert!(b.is_target_failure());
+    }
+
+    #[test]
+    fn effective_outcome_derives_from_legacy_fields_when_absent() {
+        // Pre-PART-3 row: no `outcome` field, `reachable=false`, and
+        // `error_code` carries the TARGET_ prefix.
+        let b = body_with(false, None, Some("TARGET_TIMEOUT"));
+        assert_eq!(b.effective_outcome(), "working_target_unreachable");
+        assert!(b.is_alive(), "target failure is not a dead proxy");
+        assert!(b.is_target_failure());
+
+        // And a plain proxy failure.
+        let b = body_with(false, None, Some("CONNECTION_REFUSED"));
+        assert_eq!(b.effective_outcome(), "proxy_failed");
+        assert!(!b.is_alive());
+
+        // And a full success.
+        let b = body_with(true, None, None);
+        assert_eq!(b.effective_outcome(), "working");
+        assert!(b.is_alive());
+        assert!(b.is_fully_working());
+    }
+
+    #[test]
+    fn effective_total_time_falls_back_to_legacy_latency() {
+        let mut b = body_with(true, None, None);
+        assert_eq!(b.effective_total_time_ms(), Some(120));
+        b.total_time_ms = Some(200);
+        assert_eq!(b.effective_total_time_ms(), Some(200));
     }
 }

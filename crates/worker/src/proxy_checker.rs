@@ -41,6 +41,7 @@ use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use base64::Engine;
 use domain::ProxyScheme;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
+use domain::enums::{ProxyCheckOutcome, ProxyFailureKind};
 use domain::value_objects::{ProxyCredentials, ProxyResult};
 use rustls::pki_types::ServerName;
 use tokio::{
@@ -89,7 +90,7 @@ fn elapsed_ms(started: Instant) -> u32 {
     started.elapsed().as_millis().try_into().unwrap_or(u32::MAX)
 }
 
-fn error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
+fn legacy_error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
     let lower = message.to_ascii_lowercase();
     if lower.contains("ssrf blocked") {
         return "PRIVATE_IP_BLOCKED";
@@ -130,6 +131,219 @@ fn error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
     }
 }
 
+/// Aggregated result of checking a single proxy entry.
+///
+/// This is the intermediate shape between the raw protocol helpers
+/// (which only know "did this step succeed or not") and the final
+/// `ProxyResult` (which is what the DB stores and the API serves).
+/// It exists to answer the two questions PART 3 requires us to keep
+/// separate:
+///
+///   * `proxy_ok`  — did the proxy itself work? (TCP + handshake + auth)
+///   * `target_ok` — did the target through the proxy work? (only
+///     meaningful if `proxy_ok` is true)
+///
+/// From those two bits we derive:
+///
+///   * (true,  true ) -> Working
+///   * (true,  false) -> WorkingTargetUnreachable
+///   * (false, _    ) -> ProxyFailed
+#[derive(Debug, Clone)]
+struct CheckAttempt {
+    proxy_ok: bool,
+    target_ok: bool,
+    supports_https: bool,
+    connection_latency_ms: Option<u32>,
+    tls_handshake_latency_ms: Option<u32>,
+    ttfb_ms: Option<u32>,
+    http_status_code: Option<u16>,
+    failure_kind: Option<ProxyFailureKind>,
+    error_code: Option<String>,
+    error_message: Option<String>,
+}
+
+impl CheckAttempt {
+    fn new() -> Self {
+        Self {
+            proxy_ok: false,
+            target_ok: false,
+            supports_https: false,
+            connection_latency_ms: None,
+            tls_handshake_latency_ms: None,
+            ttfb_ms: None,
+            http_status_code: None,
+            failure_kind: None,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    fn outcome(&self) -> ProxyCheckOutcome {
+        match (self.proxy_ok, self.target_ok) {
+            (true, true) => ProxyCheckOutcome::Working,
+            (true, false) => ProxyCheckOutcome::WorkingTargetUnreachable,
+            (false, _) => ProxyCheckOutcome::ProxyFailed,
+        }
+    }
+
+    /// Mark the whole attempt as successful — proxy and target both worked.
+    fn succeed(&mut self) {
+        self.proxy_ok = true;
+        self.target_ok = true;
+    }
+
+    /// Mark a proxy-side failure. Implies the target never got a chance
+    /// to be reached.
+    fn fail_proxy(&mut self, kind: ProxyFailureKind, code: &str, message: String) {
+        self.proxy_ok = false;
+        self.target_ok = false;
+        self.failure_kind = Some(kind);
+        self.error_code = Some(code.to_string());
+        self.error_message = Some(message);
+    }
+
+    /// Mark a target-side failure. The proxy itself is FINE — this is
+    /// exactly the case PART 3 must not treat as a dead proxy.
+    fn fail_target(&mut self, kind: ProxyFailureKind, code: &str, message: String) {
+        self.proxy_ok = true;
+        self.target_ok = false;
+        self.failure_kind = Some(kind);
+        self.error_code = Some(format!("TARGET_{code}"));
+        self.error_message = Some(message);
+    }
+
+    /// Attach informational error info to an otherwise-successful
+    /// attempt (e.g. the proxy HTTP check worked but its HTTPS tunnel
+    /// did not). Does NOT change the outcome.
+    fn note_warning(&mut self, code: &str, message: String) {
+        self.error_code = Some(code.to_string());
+        self.error_message = Some(message);
+    }
+}
+
+fn duration_ms(d: Duration) -> u32 {
+    d.as_millis().try_into().unwrap_or(u32::MAX)
+}
+
+/// Fallback classification of a proxy-side failure message into a
+/// structured `ProxyFailureKind`. Used by the HTTP proxy path, where
+/// the underlying helpers only produce `String` errors.
+fn classify_proxy_message(message: &str) -> ProxyFailureKind {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("timed out") || lower.contains("timeout") {
+        ProxyFailureKind::Timeout
+    } else if lower.contains("connection refused") {
+        ProxyFailureKind::ConnectionRefused
+    } else if lower.contains("tls") {
+        ProxyFailureKind::TlsFailure
+    } else if lower.contains("authentication") || lower.contains("auth") {
+        ProxyFailureKind::AuthFailed
+    } else if lower.contains("dns") || lower.contains("resolve") {
+        ProxyFailureKind::DnsFailure
+    } else {
+        ProxyFailureKind::ProtocolFailure
+    }
+}
+
+/// Stable string code for a proxy-side failure, matching the codes the
+/// pre-PART-3 `error_code` function produced so existing consumers
+/// (dashboard humanize logic, `attempted` billing predicate) keep
+/// working unchanged.
+fn proxy_failure_code(scheme: &ProxyScheme, kind: ProxyFailureKind) -> &'static str {
+    match kind {
+        ProxyFailureKind::AuthFailed => "AUTH_FAILED",
+        ProxyFailureKind::ConnectionRefused => "CONNECTION_REFUSED",
+        ProxyFailureKind::DnsFailure => "DNS_FAILED",
+        ProxyFailureKind::TlsFailure => "TLS_FAILED",
+        ProxyFailureKind::Timeout => "CONNECTION_TIMEOUT",
+        ProxyFailureKind::ProtocolFailure => match scheme {
+            ProxyScheme::Http => "HTTP_PROXY_FAILED",
+            ProxyScheme::Https => "HTTPS_PROXY_FAILED",
+            ProxyScheme::Socks4 => "SOCKS4_FAILED",
+            ProxyScheme::Socks5 => "SOCKS5_FAILED",
+        },
+        _ => "HTTP_PROXY_FAILED",
+    }
+}
+
+/// Classify a SOCKS handshake failure message into a structured kind.
+fn classify_socks_error(message: &str) -> ProxyFailureKind {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("timed out") || lower.contains("timeout") {
+        ProxyFailureKind::Timeout
+    } else if lower.contains("authentication") {
+        ProxyFailureKind::AuthFailed
+    } else {
+        ProxyFailureKind::ProtocolFailure
+    }
+}
+
+/// Convert an `io::Error` from a TCP connect attempt into a
+/// `(kind, code, message)` triple.
+fn classify_connect_io_error(err: &std::io::Error) -> (ProxyFailureKind, &'static str, String) {
+    if err.kind() == std::io::ErrorKind::ConnectionRefused {
+        (
+            ProxyFailureKind::ConnectionRefused,
+            "CONNECTION_REFUSED",
+            err.to_string(),
+        )
+    } else {
+        (
+            ProxyFailureKind::ProtocolFailure,
+            "CONNECTION_FAILED",
+            err.to_string(),
+        )
+    }
+}
+
+fn fail_connect_timeout(attempt: &mut CheckAttempt) {
+    attempt.fail_proxy(
+        ProxyFailureKind::Timeout,
+        "CONNECTION_TIMEOUT",
+        format!("connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"),
+    );
+}
+
+fn build_proxy_result(
+    entry: &ProxyEntry,
+    started: Instant,
+    attempt: CheckAttempt,
+) -> ProxyResult {
+    // Compute the outcome BEFORE moving any fields out of `attempt`.
+    // `attempt.outcome()` borrows `self`, and several of the fields we
+    // move into the result (`error_code`, `error_message`) are
+    // non-Copy — reading `outcome` after moving them would be a partial
+    // move error.
+    let outcome = attempt.outcome();
+    let reachable = outcome.fully_working();
+    let total_time_ms = elapsed_ms(started);
+
+    let mut safe_error = attempt.error_message;
+    if let Some(message) = safe_error.as_mut() {
+        message.truncate(512);
+    }
+
+    ProxyResult {
+        host: entry.host().as_str().to_string(),
+        port: entry.port(),
+        scheme: proxy_scheme_str(entry.scheme()).to_string(),
+        reachable,
+        latency_ms: Some(total_time_ms),
+        supports_https: attempt.supports_https,
+        anonymity: None,
+        country_code: None,
+        error_code: attempt.error_code,
+        error_message: safe_error,
+        outcome: Some(outcome),
+        failure_kind: attempt.failure_kind,
+        connection_latency_ms: attempt.connection_latency_ms,
+        tls_handshake_latency_ms: attempt.tls_handshake_latency_ms,
+        ttfb_ms: attempt.ttfb_ms,
+        total_time_ms: Some(total_time_ms),
+        http_status_code: attempt.http_status_code,
+    }
+}
+
 fn proxy_result(
     entry: &ProxyEntry,
     started: Instant,
@@ -143,7 +357,7 @@ fn proxy_result(
     }
     let error_code = safe_error
         .as_deref()
-        .map(|e| error_code(entry.scheme(), e).to_string());
+        .map(|e| legacy_error_code(entry.scheme(), e).to_string());
     ProxyResult {
         host: entry.host().as_str().to_string(),
         port: entry.port(),
@@ -155,6 +369,15 @@ fn proxy_result(
         country_code: None,
         error_code,
         error_message: safe_error,
+        // PART 3 fields — placeholders for now. Block B will populate
+        // these with actual measurements and structured classification.
+        outcome: None,
+        failure_kind: None,
+        connection_latency_ms: None,
+        tls_handshake_latency_ms: None,
+        ttfb_ms: None,
+        total_time_ms: None,
+        http_status_code: None,
     }
 }
 
@@ -190,12 +413,17 @@ where
     Ok(())
 }
 
-async fn read_http_header<S>(stream: &mut S, timeout_duration: Duration) -> Result<String, String>
+async fn read_http_header<S>(
+    stream: &mut S,
+    timeout_duration: Duration,
+) -> Result<(String, Duration), String>
 where
     S: AsyncRead + Unpin,
 {
+    let start = Instant::now();
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
+    let mut first_byte_time: Option<Duration> = None;
 
     loop {
         let n = timeout(timeout_duration, stream.read(&mut chunk))
@@ -205,6 +433,10 @@ where
 
         if n == 0 {
             return Err("proxy closed connection before completing response headers".to_string());
+        }
+
+        if first_byte_time.is_none() {
+            first_byte_time = Some(start.elapsed());
         }
 
         if buf.len().saturating_add(n) > MAX_PROXY_RESPONSE_HEADER_BYTES {
@@ -217,7 +449,9 @@ where
         }
     }
 
-    String::from_utf8(buf).map_err(|_| "proxy response was not valid UTF-8".to_string())
+    let text =
+        String::from_utf8(buf).map_err(|_| "proxy response was not valid UTF-8".to_string())?;
+    Ok((text, first_byte_time.unwrap_or_default()))
 }
 
 fn parse_status_code(header: &str) -> Result<u16, String> {
@@ -251,11 +485,47 @@ fn proxy_authorization_header(creds: Option<&ProxyCredentials>) -> String {
     }
 }
 
+/// Outcome of a successful HTTP-level verification step.
+#[derive(Debug)]
+struct HttpVerifySuccess {
+    status: u16,
+    /// Time from when this verify step started to when the first
+    /// response byte was read. Closest thing to a true TTFB in this
+    /// codebase.
+    ttfb: Duration,
+}
+
+/// Failure of an HTTP-level verification step, split by WHO failed:
+/// the proxy's authentication, the proxy's protocol handling, or the
+/// target through the proxy. The distinction is what PART 3 is about.
+#[derive(Debug)]
+enum VerifyHttpError {
+    /// Proxy rejected credentials (HTTP 401/407).
+    ///
+    /// Carries the TTFB measured while reading the proxy's reply —
+    /// even on failure, we DID get a well-formed HTTP response back,
+    /// and the user needs to see how long it took.
+    Auth { message: String, ttfb: Duration },
+    /// Proxy spoke HTTP poorly (bad status line, oversized headers,
+    /// connection closed early, malformed UTF-8, write failed).
+    /// No TTFB is carried: the failure may have happened before any
+    /// response byte arrived.
+    Proxy(String),
+    /// Proxy returned a non-success status for a well-formed request.
+    /// The proxy is alive; the target through it did not work.
+    /// Carries TTFB for the same reason as `Auth`.
+    Target {
+        status: u16,
+        message: String,
+        ttfb: Duration,
+    },
+}
+
 async fn verify_http_proxy_absolute_form<S>(
     stream: &mut S,
     creds: Option<&ProxyCredentials>,
     timeout_duration: Duration,
-) -> Result<(), String>
+) -> Result<HttpVerifySuccess, VerifyHttpError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -264,27 +534,35 @@ where
         "GET http://{HTTPS_VERIFY_TARGET_HOST}/ HTTP/1.1\r\nHost: {HTTPS_VERIFY_TARGET_HOST}\r\nUser-Agent: PingVertex/1.0\r\nConnection: close\r\n{auth}\r\n\r\n"
     );
 
-    write_all_timeout(stream, request.as_bytes(), timeout_duration).await?;
-    let header = read_http_header(stream, timeout_duration).await?;
-    let status = parse_status_code(&header)?;
+    write_all_timeout(stream, request.as_bytes(), timeout_duration)
+        .await
+        .map_err(VerifyHttpError::Proxy)?;
+    let (header, ttfb) = read_http_header(stream, timeout_duration)
+        .await
+        .map_err(VerifyHttpError::Proxy)?;
+    let status = parse_status_code(&header).map_err(VerifyHttpError::Proxy)?;
 
     if status == 401 || status == 407 {
-        return Err(format!(
-            "proxy authentication failed with HTTP status {status}"
-        ));
+        return Err(VerifyHttpError::Auth {
+            message: format!("proxy authentication failed with HTTP status {status}"),
+            ttfb,
+        });
     }
     if !(200..400).contains(&status) {
-        return Err(format!("proxy returned HTTP status {status}"));
+        return Err(VerifyHttpError::Target {
+            status,
+            message: format!("proxy returned HTTP status {status}"),
+            ttfb,
+        });
     }
-
-    Ok(())
+    Ok(HttpVerifySuccess { status, ttfb })
 }
 
 async fn verify_http_connect_tunnel<S>(
     stream: &mut S,
     creds: Option<&ProxyCredentials>,
     timeout_duration: Duration,
-) -> Result<(), String>
+) -> Result<HttpVerifySuccess, VerifyHttpError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -294,20 +572,28 @@ where
         "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nUser-Agent: PingVertex/1.0\r\nProxy-Connection: keep-alive\r\n{auth}\r\n\r\n"
     );
 
-    write_all_timeout(stream, request.as_bytes(), timeout_duration).await?;
-    let header = read_http_header(stream, timeout_duration).await?;
-    let status = parse_status_code(&header)?;
+    write_all_timeout(stream, request.as_bytes(), timeout_duration)
+        .await
+        .map_err(VerifyHttpError::Proxy)?;
+    let (header, ttfb) = read_http_header(stream, timeout_duration)
+        .await
+        .map_err(VerifyHttpError::Proxy)?;
+    let status = parse_status_code(&header).map_err(VerifyHttpError::Proxy)?;
 
     if status == 401 || status == 407 {
-        return Err(format!(
-            "proxy authentication failed with CONNECT status {status}"
-        ));
+        return Err(VerifyHttpError::Auth {
+            message: format!("proxy authentication failed with CONNECT status {status}"),
+            ttfb,
+        });
     }
     if !(200..300).contains(&status) {
-        return Err(format!("proxy returned CONNECT status {status}"));
+        return Err(VerifyHttpError::Target {
+            status,
+            message: format!("proxy returned CONNECT status {status}"),
+            ttfb,
+        });
     }
-
-    Ok(())
+    Ok(HttpVerifySuccess { status, ttfb })
 }
 
 async fn tls_handshake<S>(
@@ -571,226 +857,420 @@ async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
     let destination = match crate::ssrf::resolve_and_validate_public_destination(&target).await {
         Ok(destination) => destination,
         Err(err) => {
-            let result = proxy_result(entry, started, false, false, Some(err.clone()));
-            let code = result.error_code.as_deref().unwrap_or_default();
-            let attempted = code != "PRIVATE_IP_BLOCKED" && code != "INVALID_PROXY";
-            return (result, attempted);
+            let mut attempt = CheckAttempt::new();
+            let (kind, code) = if err.to_ascii_lowercase().contains("ssrf blocked") {
+                (ProxyFailureKind::SsrfBlocked, "PRIVATE_IP_BLOCKED")
+            } else {
+                (ProxyFailureKind::InvalidInput, "INVALID_PROXY")
+            };
+            attempt.fail_proxy(kind, code, err);
+            let result = build_proxy_result(entry, started, attempt);
+            // Input was rejected before any network attempt — do NOT
+            // charge PAYG for it (this is the existing `attempted` bit).
+            return (result, false);
         }
     };
 
     let connect_timeout = Duration::from_secs(PER_ENTRY_TIMEOUT_SECS);
     let protocol_timeout = Duration::from_secs(PROTOCOL_TIMEOUT_SECS);
 
-    let (reachable, supports_https, error) = match entry.scheme() {
+    let attempt = match entry.scheme() {
         ProxyScheme::Http => {
-            match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
-                Ok(Ok(mut stream)) => {
-                    match verify_http_proxy_absolute_form(
-                        &mut stream,
-                        entry.credentials(),
-                        protocol_timeout,
-                    )
-                    .await
-                    {
-                        Err(err) => (false, false, Some(err)),
-                        Ok(()) => {
-                            match timeout(
-                                connect_timeout,
-                                TcpStream::connect(destination.socket_addr),
-                            )
-                            .await
-                            {
-                                Ok(Ok(mut tunnel_stream)) => {
-                                    match verify_http_connect_tunnel(
-                                        &mut tunnel_stream,
-                                        entry.credentials(),
-                                        protocol_timeout,
-                                    )
-                                    .await
-                                    {
-                                        Ok(()) => match tls_handshake(
-                                            tunnel_stream,
-                                            HTTPS_VERIFY_TARGET_HOST,
-                                            protocol_timeout,
-                                        )
-                                        .await
-                                        {
-                                            Ok(()) => (true, true, None),
-                                            Err(err) => (
-                                                true,
-                                                false,
-                                                Some(format!("HTTPS target TLS failed: {err}")),
-                                            ),
-                                        },
-                                        Err(err) => (
-                                            true,
-                                            false,
-                                            Some(format!("HTTPS tunnel failed: {err}")),
-                                        ),
-                                    }
-                                }
-                                Ok(Err(err)) => (
-                                    true,
-                                    false,
-                                    Some(format!("HTTPS tunnel connection failed: {err}")),
-                                ),
-                                Err(_) => (
-                                    true,
-                                    false,
-                                    Some("HTTPS tunnel connection timed out".to_string()),
-                                ),
-                            }
-                        }
-                    }
-                }
-                Ok(Err(err)) => (false, false, Some(err.to_string())),
-                Err(_) => (
-                    false,
-                    false,
-                    Some(format!(
-                        "connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"
-                    )),
-                ),
-            }
+            check_http_proxy(entry, &destination, connect_timeout, protocol_timeout).await
         }
         ProxyScheme::Https => {
-            match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
-                Ok(Ok(tcp)) => {
-                    let connector = match crate::proxy_tls::tls_connector() {
-                        Ok(c) => c,
-                        Err(err) => {
-                            return (
-                                proxy_result(entry, started, false, false, Some(err.to_string())),
-                                true,
-                            );
-                        }
-                    };
-                    let server_name = match ServerName::try_from(entry.host().as_str().to_string())
-                    {
-                        Ok(name) => name,
-                        Err(err) => {
-                            return (
-                                proxy_result(entry, started, false, false, Some(err.to_string())),
-                                true,
-                            );
-                        }
-                    };
-
-                    match timeout(protocol_timeout, connector.connect(server_name, tcp)).await {
-                        Ok(Ok(mut proxy_tls)) => {
-                            if let Err(err) = verify_http_connect_tunnel(
-                                &mut proxy_tls,
-                                entry.credentials(),
-                                protocol_timeout,
-                            )
-                            .await
-                            {
-                                (false, false, Some(err))
-                            } else if let Err(err) =
-                                tls_handshake(proxy_tls, HTTPS_VERIFY_TARGET_HOST, protocol_timeout)
-                                    .await
-                            {
-                                (false, false, Some(err))
-                            } else {
-                                (true, true, None)
-                            }
-                        }
-                        Ok(Err(err)) => (false, false, Some(format!("TLS to proxy failed: {err}"))),
-                        Err(_) => (
-                            false,
-                            false,
-                            Some("TLS handshake with proxy timed out".to_string()),
-                        ),
-                    }
-                }
-                Ok(Err(err)) => (false, false, Some(err.to_string())),
-                Err(_) => (
-                    false,
-                    false,
-                    Some(format!(
-                        "connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"
-                    )),
-                ),
-            }
+            check_https_proxy(entry, &destination, connect_timeout, protocol_timeout).await
         }
         ProxyScheme::Socks4 => {
-            match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
-                Ok(Ok(mut stream)) => {
-                    if let Err(err) = verify_socks4_proxy(
-                        &mut stream,
-                        entry.credentials(),
-                        HTTPS_VERIFY_TARGET_HOST,
-                        HTTPS_VERIFY_TARGET_PORT,
-                        protocol_timeout,
-                    )
-                    .await
-                    {
-                        (false, false, Some(err))
-                    } else if let Err(err) =
-                        tls_handshake(stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await
-                    {
-                        (
-                            true,
-                            false,
-                            Some(format!(
-                                "SOCKS4 tunnel connected but TLS to target failed: {err}"
-                            )),
-                        )
-                    } else {
-                        (true, true, None)
-                    }
-                }
-                Ok(Err(err)) => (false, false, Some(err.to_string())),
-                Err(_) => (
-                    false,
-                    false,
-                    Some(format!(
-                        "connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"
-                    )),
-                ),
-            }
+            check_socks4_proxy(entry, &destination, connect_timeout, protocol_timeout).await
         }
         ProxyScheme::Socks5 => {
-            match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
-                Ok(Ok(mut stream)) => {
-                    if let Err(err) = verify_socks5_proxy(
-                        &mut stream,
-                        entry.credentials(),
-                        HTTPS_VERIFY_TARGET_HOST,
-                        HTTPS_VERIFY_TARGET_PORT,
-                        protocol_timeout,
-                    )
-                    .await
-                    {
-                        (false, false, Some(err))
-                    } else if let Err(err) =
-                        tls_handshake(stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await
-                    {
-                        (
-                            true,
-                            false,
-                            Some(format!(
-                                "SOCKS5 tunnel connected but TLS to target failed: {err}"
-                            )),
-                        )
-                    } else {
-                        (true, true, None)
-                    }
-                }
-                Ok(Err(err)) => (false, false, Some(err.to_string())),
-                Err(_) => (
-                    false,
-                    false,
-                    Some(format!(
-                        "connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"
-                    )),
-                ),
-            }
+            check_socks5_proxy(entry, &destination, connect_timeout, protocol_timeout).await
         }
     };
 
-    let result = proxy_result(entry, started, reachable, supports_https, error);
+    let result = build_proxy_result(entry, started, attempt);
     (result, true)
+}
+
+async fn check_http_proxy(
+    entry: &ProxyEntry,
+    destination: &crate::ssrf::ResolvedDestination,
+    connect_timeout: Duration,
+    protocol_timeout: Duration,
+) -> CheckAttempt {
+    let mut attempt = CheckAttempt::new();
+
+    // --- TCP connect to proxy ---
+    let t0 = Instant::now();
+    let mut stream =
+        match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                let (kind, code, msg) = classify_connect_io_error(&err);
+                attempt.fail_proxy(kind, code, msg);
+                return attempt;
+            }
+            Err(_) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                fail_connect_timeout(&mut attempt);
+                return attempt;
+            }
+        };
+    attempt.connection_latency_ms = Some(elapsed_ms(t0));
+
+    // --- HTTP absolute-form GET ---
+    match verify_http_proxy_absolute_form(&mut stream, entry.credentials(), protocol_timeout)
+        .await
+    {
+        Ok(success) => {
+            attempt.ttfb_ms = Some(duration_ms(success.ttfb));
+            attempt.http_status_code = Some(success.status);
+            attempt.succeed();
+        }
+        Err(VerifyHttpError::Auth { message, ttfb }) => {
+            attempt.ttfb_ms = Some(duration_ms(ttfb));
+            attempt.fail_proxy(ProxyFailureKind::AuthFailed, "AUTH_FAILED", message);
+            return attempt;
+        }
+        Err(VerifyHttpError::Proxy(message)) => {
+            let kind = classify_proxy_message(&message);
+            let code = proxy_failure_code(entry.scheme(), kind);
+            attempt.fail_proxy(kind, code, message);
+            return attempt;
+        }
+        Err(VerifyHttpError::Target {
+            status,
+            message,
+            ttfb,
+        }) => {
+            attempt.http_status_code = Some(status);
+            attempt.ttfb_ms = Some(duration_ms(ttfb));
+            attempt.fail_target(ProxyFailureKind::TargetHttpError, "HTTP_ERROR", message);
+            return attempt;
+        }
+    }
+
+    // --- HTTP worked. Now test HTTPS capability via a CONNECT tunnel. ---
+    // A failure in this section is a TARGET-side warning (the proxy is
+    // still Working); it only affects `supports_https`.
+    let mut tunnel_stream =
+        match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => {
+                attempt.note_warning(
+                    "TARGET_CONNECT_FAILED",
+                    format!("HTTPS tunnel connection failed: {err}"),
+                );
+                return attempt;
+            }
+            Err(_) => {
+                attempt.note_warning(
+                    "TARGET_CONNECT_TIMEOUT",
+                    "HTTPS tunnel connection timed out".to_string(),
+                );
+                return attempt;
+            }
+        };
+
+    match verify_http_connect_tunnel(&mut tunnel_stream, entry.credentials(), protocol_timeout)
+        .await
+    {
+        Ok(_success) => {}
+        Err(VerifyHttpError::Auth { message, .. }) => {
+            attempt.note_warning(
+                "TARGET_CONNECT_AUTH_FAILED",
+                format!("HTTPS tunnel authentication failed: {message}"),
+            );
+            return attempt;
+        }
+        Err(VerifyHttpError::Proxy(message)) => {
+            attempt.note_warning(
+                "TARGET_CONNECT_FAILED",
+                format!("HTTPS tunnel failed: {message}"),
+            );
+            return attempt;
+        }
+        Err(VerifyHttpError::Target {
+            status, message, ..
+        }) => {
+            attempt.note_warning(
+                "TARGET_CONNECT_HTTP_ERROR",
+                format!("HTTPS tunnel returned HTTP {status}: {message}"),
+            );
+            return attempt;
+        }
+    }
+
+    // --- TLS handshake through tunnel to target ---
+    let t0 = Instant::now();
+    match tls_handshake(tunnel_stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await {
+        Ok(()) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.supports_https = true;
+        }
+        Err(err) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.note_warning(
+                "TARGET_TLS_FAILED",
+                format!("HTTPS target TLS failed: {err}"),
+            );
+        }
+    }
+
+    attempt
+}
+
+async fn check_https_proxy(
+    entry: &ProxyEntry,
+    destination: &crate::ssrf::ResolvedDestination,
+    connect_timeout: Duration,
+    protocol_timeout: Duration,
+) -> CheckAttempt {
+    let mut attempt = CheckAttempt::new();
+
+    // --- TCP connect ---
+    let t0 = Instant::now();
+    let tcp = match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(err)) => {
+            attempt.connection_latency_ms = Some(elapsed_ms(t0));
+            let (kind, code, msg) = classify_connect_io_error(&err);
+            attempt.fail_proxy(kind, code, msg);
+            return attempt;
+        }
+        Err(_) => {
+            attempt.connection_latency_ms = Some(elapsed_ms(t0));
+            fail_connect_timeout(&mut attempt);
+            return attempt;
+        }
+    };
+    attempt.connection_latency_ms = Some(elapsed_ms(t0));
+
+    // --- TLS handshake to proxy ---
+    let connector = match crate::proxy_tls::tls_connector() {
+        Ok(c) => c,
+        Err(err) => {
+            attempt.fail_proxy(ProxyFailureKind::Other, "TLS_FAILED", err.to_string());
+            return attempt;
+        }
+    };
+    let server_name = match ServerName::try_from(entry.host().as_str().to_string()) {
+        Ok(n) => n,
+        Err(err) => {
+            attempt.fail_proxy(ProxyFailureKind::InvalidInput, "INVALID_PROXY", err.to_string());
+            return attempt;
+        }
+    };
+    let t0 = Instant::now();
+    let mut proxy_tls = match timeout(protocol_timeout, connector.connect(server_name, tcp)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(err)) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.fail_proxy(
+                ProxyFailureKind::TlsFailure,
+                "TLS_FAILED",
+                format!("TLS to proxy failed: {err}"),
+            );
+            return attempt;
+        }
+        Err(_) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.fail_proxy(
+                ProxyFailureKind::Timeout,
+                "CONNECTION_TIMEOUT",
+                "TLS handshake with proxy timed out".to_string(),
+            );
+            return attempt;
+        }
+    };
+    attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+    // TCP + TLS to proxy both worked — the proxy is alive up to here.
+    attempt.proxy_ok = true;
+
+    // --- CONNECT tunnel to target ---
+    match verify_http_connect_tunnel(&mut proxy_tls, entry.credentials(), protocol_timeout).await {
+        Ok(success) => {
+            attempt.ttfb_ms = Some(duration_ms(success.ttfb));
+            attempt.http_status_code = Some(success.status);
+        }
+        Err(VerifyHttpError::Auth { message, ttfb }) => {
+            attempt.ttfb_ms = Some(duration_ms(ttfb));
+            attempt.fail_proxy(ProxyFailureKind::AuthFailed, "AUTH_FAILED", message);
+            return attempt;
+        }
+        Err(VerifyHttpError::Proxy(message)) => {
+            attempt.fail_proxy(
+                ProxyFailureKind::ProtocolFailure,
+                "HTTPS_PROXY_FAILED",
+                format!("CONNECT through proxy failed: {message}"),
+            );
+            return attempt;
+        }
+        Err(VerifyHttpError::Target {
+            status,
+            message,
+            ttfb,
+        }) => {
+            attempt.http_status_code = Some(status);
+            attempt.ttfb_ms = Some(duration_ms(ttfb));
+            attempt.fail_target(ProxyFailureKind::TargetHttpError, "CONNECT_HTTP_ERROR", message);
+            return attempt;
+        }
+    }
+
+    // --- TLS handshake through tunnel to target ---
+    let t0 = Instant::now();
+    match tls_handshake(proxy_tls, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await {
+        Ok(()) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.supports_https = true;
+            attempt.succeed();
+        }
+        Err(err) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.fail_target(
+                ProxyFailureKind::TlsFailure,
+                "TLS_FAILED",
+                format!("TLS to target through proxy failed: {err}"),
+            );
+        }
+    }
+
+    attempt
+}
+
+async fn check_socks4_proxy(
+    entry: &ProxyEntry,
+    destination: &crate::ssrf::ResolvedDestination,
+    connect_timeout: Duration,
+    protocol_timeout: Duration,
+) -> CheckAttempt {
+    let mut attempt = CheckAttempt::new();
+
+    let t0 = Instant::now();
+    let mut stream =
+        match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                let (kind, code, msg) = classify_connect_io_error(&err);
+                attempt.fail_proxy(kind, code, msg);
+                return attempt;
+            }
+            Err(_) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                fail_connect_timeout(&mut attempt);
+                return attempt;
+            }
+        };
+    attempt.connection_latency_ms = Some(elapsed_ms(t0));
+
+    match verify_socks4_proxy(
+        &mut stream,
+        entry.credentials(),
+        HTTPS_VERIFY_TARGET_HOST,
+        HTTPS_VERIFY_TARGET_PORT,
+        protocol_timeout,
+    )
+    .await
+    {
+        Ok(()) => {
+            attempt.proxy_ok = true;
+        }
+        Err(err) => {
+            let kind = classify_socks_error(&err);
+            let code = proxy_failure_code(entry.scheme(), kind);
+            attempt.fail_proxy(kind, code, err);
+            return attempt;
+        }
+    }
+
+    let t0 = Instant::now();
+    match tls_handshake(stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await {
+        Ok(()) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.supports_https = true;
+            attempt.succeed();
+        }
+        Err(err) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.fail_target(
+                ProxyFailureKind::TlsFailure,
+                "TLS_FAILED",
+                format!("SOCKS4 tunnel connected but TLS to target failed: {err}"),
+            );
+        }
+    }
+
+    attempt
+}
+
+async fn check_socks5_proxy(
+    entry: &ProxyEntry,
+    destination: &crate::ssrf::ResolvedDestination,
+    connect_timeout: Duration,
+    protocol_timeout: Duration,
+) -> CheckAttempt {
+    let mut attempt = CheckAttempt::new();
+
+    let t0 = Instant::now();
+    let mut stream =
+        match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                let (kind, code, msg) = classify_connect_io_error(&err);
+                attempt.fail_proxy(kind, code, msg);
+                return attempt;
+            }
+            Err(_) => {
+                attempt.connection_latency_ms = Some(elapsed_ms(t0));
+                fail_connect_timeout(&mut attempt);
+                return attempt;
+            }
+        };
+    attempt.connection_latency_ms = Some(elapsed_ms(t0));
+
+    match verify_socks5_proxy(
+        &mut stream,
+        entry.credentials(),
+        HTTPS_VERIFY_TARGET_HOST,
+        HTTPS_VERIFY_TARGET_PORT,
+        protocol_timeout,
+    )
+    .await
+    {
+        Ok(()) => {
+            attempt.proxy_ok = true;
+        }
+        Err(err) => {
+            let kind = classify_socks_error(&err);
+            let code = proxy_failure_code(entry.scheme(), kind);
+            attempt.fail_proxy(kind, code, err);
+            return attempt;
+        }
+    }
+
+    let t0 = Instant::now();
+    match tls_handshake(stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await {
+        Ok(()) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.supports_https = true;
+            attempt.succeed();
+        }
+        Err(err) => {
+            attempt.tls_handshake_latency_ms = Some(elapsed_ms(t0));
+            attempt.fail_target(
+                ProxyFailureKind::TlsFailure,
+                "TLS_FAILED",
+                format!("SOCKS5 tunnel connected but TLS to target failed: {err}"),
+            );
+        }
+    }
+
+    attempt
 }
 
 /// Runs every entry of `job` through `check_single_entry`, persisting
@@ -1142,8 +1622,13 @@ mod tests {
         let result =
             verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
 
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("size limit"));
+        let err = result.expect_err("oversized headers must fail");
+        match err {
+            VerifyHttpError::Proxy(msg) => {
+                assert!(msg.contains("size limit"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Proxy error, got {other:?}"),
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1367,4 +1852,584 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    // ---------------------------------------------------------------
+    // PART 3 — CheckAttempt, classification helpers, VerifyHttpError
+    // ---------------------------------------------------------------
+
+    // -- CheckAttempt: outcome derivation --
+
+    #[test]
+    fn check_attempt_working_when_proxy_and_target_ok() {
+        let mut a = CheckAttempt::new();
+        a.succeed();
+        assert_eq!(a.outcome(), ProxyCheckOutcome::Working);
+        assert!(a.outcome().proxy_is_alive());
+        assert!(a.outcome().fully_working());
+        assert!(a.failure_kind.is_none());
+        assert!(a.error_code.is_none());
+    }
+
+    #[test]
+    fn check_attempt_target_failure_keeps_proxy_alive() {
+        // THE central PART 3 invariant: when the proxy succeeded but the
+        // target through it did not, the outcome must be
+        // WorkingTargetUnreachable — the proxy is NOT dead.
+        let mut a = CheckAttempt::new();
+        a.proxy_ok = true;
+        a.fail_target(
+            ProxyFailureKind::Timeout,
+            "TIMEOUT",
+            "target timed out".to_string(),
+        );
+
+        assert_eq!(a.outcome(), ProxyCheckOutcome::WorkingTargetUnreachable);
+        assert!(a.outcome().proxy_is_alive(), "target failure must not kill the proxy");
+        assert!(!a.outcome().fully_working());
+        assert!(a.outcome().is_target_failure());
+        assert_eq!(a.failure_kind, Some(ProxyFailureKind::Timeout));
+        // Target failures get prefixed so pre-PART-3 rows can be
+        // retroactively classified by the domain helper.
+        assert_eq!(a.error_code.as_deref(), Some("TARGET_TIMEOUT"));
+    }
+
+    #[test]
+    fn check_attempt_proxy_failure_marks_proxy_dead() {
+        let mut a = CheckAttempt::new();
+        a.fail_proxy(
+            ProxyFailureKind::ConnectionRefused,
+            "CONNECTION_REFUSED",
+            "refused".to_string(),
+        );
+
+        assert_eq!(a.outcome(), ProxyCheckOutcome::ProxyFailed);
+        assert!(!a.outcome().proxy_is_alive());
+        assert!(!a.outcome().fully_working());
+        assert!(!a.outcome().is_target_failure());
+        assert_eq!(a.error_code.as_deref(), Some("CONNECTION_REFUSED"));
+        // Proxy failures do NOT get the TARGET_ prefix.
+        assert!(!a.error_code.as_deref().unwrap().starts_with("TARGET_"));
+    }
+
+    #[test]
+    fn check_attempt_note_warning_keeps_outcome_working() {
+        // The HTTP proxy path sets a warning when the HTTP check worked
+        // but the HTTPS tunnel through it did not. That must NOT flip
+        // the outcome — the proxy is still Working, just not
+        // HTTPS-capable.
+        let mut a = CheckAttempt::new();
+        a.succeed();
+        a.note_warning(
+            "TARGET_TLS_FAILED",
+            "TLS handshake through proxy failed".to_string(),
+        );
+
+        assert_eq!(a.outcome(), ProxyCheckOutcome::Working);
+        assert!(a.outcome().fully_working());
+        assert!(a.failure_kind.is_none(), "warning must not become a failure kind");
+        assert_eq!(a.error_code.as_deref(), Some("TARGET_TLS_FAILED"));
+    }
+
+    // -- classify_socks_error --
+
+    #[test]
+    fn classify_socks_error_maps_timeout() {
+        assert_eq!(
+            classify_socks_error("timed out reading from proxy"),
+            ProxyFailureKind::Timeout
+        );
+        assert_eq!(
+            classify_socks_error("Timed out waiting for response"),
+            ProxyFailureKind::Timeout
+        );
+    }
+
+    #[test]
+    fn classify_socks_error_maps_auth_failure() {
+        assert_eq!(
+            classify_socks_error("SOCKS5 username/password authentication failed"),
+            ProxyFailureKind::AuthFailed
+        );
+    }
+
+    #[test]
+    fn classify_socks_error_defaults_to_protocol_failure() {
+        assert_eq!(
+            classify_socks_error("SOCKS5 connect reply had invalid version"),
+            ProxyFailureKind::ProtocolFailure
+        );
+        assert_eq!(
+            classify_socks_error("random thing"),
+            ProxyFailureKind::ProtocolFailure
+        );
+    }
+
+    // -- classify_connect_io_error --
+
+    #[test]
+    fn classify_connect_io_error_maps_connection_refused() {
+        let err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        let (kind, code, _msg) = classify_connect_io_error(&err);
+        assert_eq!(kind, ProxyFailureKind::ConnectionRefused);
+        assert_eq!(code, "CONNECTION_REFUSED");
+    }
+
+    #[test]
+    fn classify_connect_io_error_maps_other_to_protocol_failure() {
+        let err = std::io::Error::new(std::io::ErrorKind::Other, "boom");
+        let (kind, code, _msg) = classify_connect_io_error(&err);
+        assert_eq!(kind, ProxyFailureKind::ProtocolFailure);
+        assert_eq!(code, "CONNECTION_FAILED");
+    }
+
+    // -- proxy_failure_code --
+
+    #[test]
+    fn proxy_failure_code_is_scheme_aware_for_protocol_failures() {
+        assert_eq!(
+            proxy_failure_code(&ProxyScheme::Http, ProxyFailureKind::ProtocolFailure),
+            "HTTP_PROXY_FAILED"
+        );
+        assert_eq!(
+            proxy_failure_code(&ProxyScheme::Https, ProxyFailureKind::ProtocolFailure),
+            "HTTPS_PROXY_FAILED"
+        );
+        assert_eq!(
+            proxy_failure_code(&ProxyScheme::Socks4, ProxyFailureKind::ProtocolFailure),
+            "SOCKS4_FAILED"
+        );
+        assert_eq!(
+            proxy_failure_code(&ProxyScheme::Socks5, ProxyFailureKind::ProtocolFailure),
+            "SOCKS5_FAILED"
+        );
+    }
+
+    #[test]
+    fn proxy_failure_code_is_scheme_independent_for_common_kinds() {
+        for scheme in [
+            ProxyScheme::Http,
+            ProxyScheme::Https,
+            ProxyScheme::Socks4,
+            ProxyScheme::Socks5,
+        ] {
+            assert_eq!(
+                proxy_failure_code(&scheme, ProxyFailureKind::Timeout),
+                "CONNECTION_TIMEOUT"
+            );
+            assert_eq!(
+                proxy_failure_code(&scheme, ProxyFailureKind::AuthFailed),
+                "AUTH_FAILED"
+            );
+            assert_eq!(
+                proxy_failure_code(&scheme, ProxyFailureKind::ConnectionRefused),
+                "CONNECTION_REFUSED"
+            );
+            assert_eq!(
+                proxy_failure_code(&scheme, ProxyFailureKind::TlsFailure),
+                "TLS_FAILED"
+            );
+            assert_eq!(
+                proxy_failure_code(&scheme, ProxyFailureKind::DnsFailure),
+                "DNS_FAILED"
+            );
+        }
+    }
+
+    // -- verify_http_* — Auth / Target / Proxy distinction --
+
+    /// Spawns a fake TCP server that replies with the given raw bytes
+    /// after reading whatever the client sends, and returns its address.
+    async fn spawn_fake_http_server(status_line: &'static [u8]) -> std::net::SocketAddr {
+        let listener = TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(status_line).await;
+                let _ = stream.flush().await;
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn verify_http_proxy_absolute_form_returns_auth_on_407() {
+        let addr = spawn_fake_http_server(
+            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
+        )
+        .await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Err(VerifyHttpError::Auth { message: msg, .. }) => {
+                assert!(msg.contains("407"), "unexpected message: {msg}");
+            }
+            other => panic!("expected VerifyHttpError::Auth, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_http_proxy_absolute_form_returns_target_on_500() {
+        let addr = spawn_fake_http_server(
+            b"HTTP/1.1 500 Internal Server Error\r\n\r\n",
+        )
+        .await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Err(VerifyHttpError::Target {
+                status, message, ..
+            }) => {
+                assert_eq!(status, 500);
+                assert!(message.contains("500"), "unexpected message: {message}");
+            }
+            other => panic!("expected VerifyHttpError::Target, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_http_proxy_absolute_form_success_reports_status_and_ttfb() {
+        let addr = spawn_fake_http_server(b"HTTP/1.1 200 OK\r\n\r\n").await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Ok(success) => {
+                assert_eq!(success.status, 200);
+                // TTFB is measured from when read_http_header starts; on
+                // localhost it must be tiny but non-negative.
+                assert!(success.ttfb.as_nanos() > 0);
+            }
+            other => panic!("expected Ok(HttpVerifySuccess), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_http_connect_tunnel_returns_auth_on_407() {
+        let addr = spawn_fake_http_server(
+            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
+        )
+        .await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Err(VerifyHttpError::Auth { .. }) => {}
+            other => panic!("expected VerifyHttpError::Auth, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_http_connect_tunnel_returns_target_on_502() {
+        let addr = spawn_fake_http_server(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Err(VerifyHttpError::Target { status, .. }) => {
+                assert_eq!(status, 502);
+            }
+            other => panic!("expected VerifyHttpError::Target, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_http_connect_tunnel_returns_proxy_on_bad_status_line() {
+        // A response that does not start with "HTTP/" is a protocol
+        // failure on the proxy's side, not a target failure.
+        let addr = spawn_fake_http_server(b"GARBAGE\r\n\r\n").await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result =
+            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        match result {
+            Err(VerifyHttpError::Proxy(_)) => {}
+            other => panic!("expected VerifyHttpError::Proxy, got {other:?}"),
+        }
+    }
+
+    // -- Integration: the target-failure-is-not-a-dead-proxy invariant,
+    //    via the real build_proxy_result helper. --
+
+    #[test]
+    fn build_proxy_result_target_failure_has_working_outcome_and_target_code() {
+        let host = ProxyHost::new("8.8.8.8").unwrap();
+        let entry = ProxyEntry::new(
+            domain::shared::ids::ProxyEntryId::new(),
+            domain::shared::ids::ProxyCheckJobId::new(),
+            host,
+            8080,
+            ProxyScheme::Http,
+            None,
+        )
+        .unwrap();
+
+        let mut a = CheckAttempt::new();
+        a.proxy_ok = true;
+        a.fail_target(
+            ProxyFailureKind::Timeout,
+            "TIMEOUT",
+            "target timed out".to_string(),
+        );
+        let started = Instant::now();
+        let result = build_proxy_result(&entry, started, a);
+
+        // Legacy `reachable` still reflects "fully verified" — false
+        // here, because the target did not work.
+        assert!(!result.reachable);
+        // But the new outcome / helper say the proxy is alive.
+        assert_eq!(
+            result.effective_outcome(),
+            ProxyCheckOutcome::WorkingTargetUnreachable
+        );
+        assert!(result.is_alive());
+        assert!(result.is_target_failure());
+        assert_eq!(result.error_code.as_deref(), Some("TARGET_TIMEOUT"));
+    }
+
+    #[test]
+    fn build_proxy_result_success_has_working_outcome_and_no_failure_kind() {
+        let host = ProxyHost::new("8.8.8.8").unwrap();
+        let entry = ProxyEntry::new(
+            domain::shared::ids::ProxyEntryId::new(),
+            domain::shared::ids::ProxyCheckJobId::new(),
+            host,
+            8080,
+            ProxyScheme::Http,
+            None,
+        )
+        .unwrap();
+
+        let mut a = CheckAttempt::new();
+        a.succeed();
+        a.http_status_code = Some(200);
+        a.ttfb_ms = Some(15);
+        a.connection_latency_ms = Some(5);
+        let started = Instant::now();
+        let result = build_proxy_result(&entry, started, a);
+
+        assert!(result.reachable);
+        assert_eq!(result.effective_outcome(), ProxyCheckOutcome::Working);
+        assert!(result.is_alive());
+        assert!(result.is_fully_working());
+        assert!(!result.is_target_failure());
+        assert_eq!(result.effective_failure_kind(), None);
+        assert_eq!(result.http_status_code, Some(200));
+        assert_eq!(result.ttfb_ms, Some(15));
+        assert_eq!(result.connection_latency_ms, Some(5));
+    }
+
+
+    // ---------------------------------------------------------------
+    // PART 3 — integration tests: check_http_proxy end-to-end
+    //
+    // These drive the real `check_http_proxy` against a local fake TCP
+    // server, proving that the target-vs-proxy distinction survives all
+    // the way through the pipeline (not just inside CheckAttempt).
+    // ---------------------------------------------------------------
+
+    /// Spawns a fake proxy server that replies with `response_bytes` for
+    /// each accepted TCP connection, up to `expected_connections` times.
+    /// Returns the listener address.
+    async fn spawn_fake_proxy_server(
+        response_bytes: &'static [u8],
+        expected_connections: usize,
+    ) -> std::net::SocketAddr {
+        let listener = TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for _ in 0..expected_connections {
+                let (mut stream, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(response_bytes).await;
+                let _ = stream.flush().await;
+                // Drop the stream to close it — the client will see EOF
+                // on any further reads (e.g. from tls_handshake).
+            }
+        });
+        addr
+    }
+
+    fn fake_dest(addr: std::net::SocketAddr) -> crate::ssrf::ResolvedDestination {
+        crate::ssrf::ResolvedDestination {
+            url: url::Url::parse("http://fake-proxy/").unwrap(),
+            host: "fake-proxy".to_string(),
+            socket_addr: addr,
+        }
+    }
+
+    fn make_http_entry() -> ProxyEntry {
+        let host = ProxyHost::new("fake-proxy").unwrap();
+        ProxyEntry::new(
+            domain::shared::ids::ProxyEntryId::new(),
+            domain::shared::ids::ProxyCheckJobId::new(),
+            host,
+            80,
+            ProxyScheme::Http,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn check_http_proxy_reports_target_failure_on_500_response() {
+        // THE central PART 3 scenario, proved end-to-end: the fake proxy
+        // speaks HTTP correctly but returns 500. The proxy itself is
+        // alive; only the target through it failed.
+        let addr =
+            spawn_fake_proxy_server(b"HTTP/1.1 500 Internal Server Error\r\n\r\n", 1).await;
+        let dest = fake_dest(addr);
+        let entry = make_http_entry();
+
+        let attempt = check_http_proxy(
+            &entry,
+            &dest,
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(
+            attempt.proxy_ok,
+            "a well-formed HTTP response means the proxy is alive, even if the status is 500"
+        );
+        assert!(!attempt.target_ok);
+        assert_eq!(
+            attempt.outcome(),
+            ProxyCheckOutcome::WorkingTargetUnreachable
+        );
+        assert_eq!(attempt.http_status_code, Some(500));
+        assert_eq!(
+            attempt.failure_kind,
+            Some(ProxyFailureKind::TargetHttpError)
+        );
+        assert_eq!(attempt.error_code.as_deref(), Some("TARGET_HTTP_ERROR"));
+        assert!(
+            attempt.connection_latency_ms.is_some(),
+            "connection latency must be measured"
+        );
+        assert!(attempt.ttfb_ms.is_some(), "ttfb must be measured");
+    }
+
+    #[tokio::test]
+    async fn check_http_proxy_reports_proxy_failure_on_connection_refused() {
+        // Bind a port, capture its address, then drop the listener so
+        // that any subsequent connect is refused by the OS.
+        let listener =
+            TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+                .await
+                .unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let dest = fake_dest(addr);
+        let entry = make_http_entry();
+
+        let attempt = check_http_proxy(
+            &entry,
+            &dest,
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(!attempt.proxy_ok);
+        assert!(!attempt.target_ok);
+        assert_eq!(attempt.outcome(), ProxyCheckOutcome::ProxyFailed);
+        assert_eq!(
+            attempt.failure_kind,
+            Some(ProxyFailureKind::ConnectionRefused)
+        );
+        assert_eq!(
+            attempt.error_code.as_deref(),
+            Some("CONNECTION_REFUSED")
+        );
+        // Connection latency is still recorded — we measured the
+        // attempt, even though it failed.
+        assert!(attempt.connection_latency_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn check_http_proxy_reports_auth_failure_on_407() {
+        let addr = spawn_fake_proxy_server(
+            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
+            1,
+        )
+        .await;
+        let dest = fake_dest(addr);
+        let entry = make_http_entry();
+
+        let attempt = check_http_proxy(
+            &entry,
+            &dest,
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(
+            !attempt.proxy_ok,
+            "407 is an authentication failure — a proxy-side failure"
+        );
+        assert_eq!(attempt.outcome(), ProxyCheckOutcome::ProxyFailed);
+        assert_eq!(attempt.failure_kind, Some(ProxyFailureKind::AuthFailed));
+        assert_eq!(attempt.error_code.as_deref(), Some("AUTH_FAILED"));
+    }
+
+    #[tokio::test]
+    async fn check_http_proxy_marks_working_when_200_and_tls_tunnel_fails() {
+        // The fake server will accept TWO connections: one for the
+        // absolute-form HTTP GET (reply 200), one for the CONNECT tunnel
+        // (reply 200). The subsequent TLS handshake will fail because
+        // our fake server does not speak TLS — that must produce a
+        // WARNING on an otherwise-Working attempt, not flip the outcome.
+        let addr = spawn_fake_proxy_server(b"HTTP/1.1 200 OK\r\n\r\n", 2).await;
+        let dest = fake_dest(addr);
+        let entry = make_http_entry();
+
+        let attempt = check_http_proxy(
+            &entry,
+            &dest,
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )
+        .await;
+
+        assert!(
+            attempt.proxy_ok,
+            "200 on the absolute-form GET means the proxy is alive"
+        );
+        assert!(
+            attempt.target_ok,
+            "the target through the proxy returned a valid HTTP response"
+        );
+        assert_eq!(attempt.outcome(), ProxyCheckOutcome::Working);
+        assert_eq!(attempt.http_status_code, Some(200));
+        assert!(
+            !attempt.supports_https,
+            "TLS handshake over our fake stream must fail"
+        );
+        assert_eq!(
+            attempt.error_code.as_deref(),
+            Some("TARGET_TLS_FAILED")
+        );
+        assert!(
+            attempt.failure_kind.is_none(),
+            "a warning must not set a failure_kind"
+        );
+        // Both TTFB (from the HTTP GET) and connection latency are set.
+        assert!(attempt.ttfb_ms.is_some());
+        assert!(attempt.connection_latency_ms.is_some());
+    }
+
 }
