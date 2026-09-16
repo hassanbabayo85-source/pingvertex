@@ -6,6 +6,8 @@ pub enum ProxyScheme {
     Http,
     #[serde(rename = "https", alias = "Https", alias = "HTTPS")]
     Https,
+    #[serde(rename = "socks4", alias = "Socks4", alias = "SOCKS4")]
+    Socks4,
     #[serde(rename = "socks5", alias = "Socks5", alias = "SOCKS5")]
     Socks5,
 }

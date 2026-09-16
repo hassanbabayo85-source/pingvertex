@@ -42,6 +42,7 @@ fn proxy_scheme_to_db(scheme: &ProxyScheme) -> &'static str {
     match scheme {
         ProxyScheme::Http => "http",
         ProxyScheme::Https => "https",
+        ProxyScheme::Socks4 => "socks4",
         ProxyScheme::Socks5 => "socks5",
     }
 }
@@ -49,6 +50,7 @@ fn proxy_scheme_from_db(value: &str) -> RepoResult<ProxyScheme> {
     match value {
         "http" => Ok(ProxyScheme::Http),
         "https" => Ok(ProxyScheme::Https),
+        "socks4" => Ok(ProxyScheme::Socks4),
         "socks5" => Ok(ProxyScheme::Socks5),
         other => Err(format!("unsupported proxy scheme in database: {other}").into()),
     }

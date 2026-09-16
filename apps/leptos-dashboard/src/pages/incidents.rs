@@ -61,11 +61,12 @@ pub fn IncidentsPage() -> impl IntoView {
                                         {value.incident_summary.recent.into_iter().map(|incident| {
                                             let incident_id = incident.id.clone();
                                             let monitor_id = incident.monitor_id.clone();
+                                            let monitor_name = incident.monitor_name.clone();
                                             let status = if incident.acknowledged_at.is_some() { "acknowledged" } else { "open" };
                                             view! {
                                                 <tr>
                                                     <td><A href=format!("/incidents/{incident_id}") attr:class="incident-link mono">{incident_id}</A></td>
-                                                    <td><A href=format!("/monitors/{monitor_id}") attr:class="monitor-link mono">{monitor_id}</A></td>
+                                                    <td><A href=format!("/monitors/{monitor_id}") attr:class="monitor-link mono">{monitor_name}</A></td>
                                                     <td class="mono">{format_timestamp(&incident.started_at)}</td>
                                                     <td><StatusBadge status=status/></td>
                                                 </tr>

@@ -513,25 +513,6 @@ pub fn Layout() -> impl IntoView {
 
                     </div>
 
-                    <div
-                        class="topbar-search"
-                        attr:role="search"
-                        attr:aria-label="Search"
-                    >
-                        <span
-                            class="topbar-search-icon"
-                            attr:aria-hidden="true"
-                        >
-                            "⌕"
-                        </span>
-
-                        <span>
-                            "Search monitors, incidents, or anything..."
-                        </span>
-
-                        <kbd>"⌘ K"</kbd>
-                    </div>
-
                     <div class="topbar-actions">
 
                         <button
@@ -566,22 +547,6 @@ pub fn Layout() -> impl IntoView {
                         >
                             "?"
                         </button>
-
-                        <div class="topbar-workspace">
-
-                            <span class="workspace-avatar">
-                                "P"
-                            </span>
-
-                            <span class="workspace-name">
-                                "PingVertex Workspace"
-                            </span>
-
-                            <span attr:aria-hidden="true">
-                                "⌄"
-                            </span>
-
-                        </div>
 
                     </div>
 

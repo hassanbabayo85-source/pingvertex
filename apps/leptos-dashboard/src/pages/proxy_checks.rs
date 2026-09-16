@@ -18,6 +18,7 @@ enum ResultFilter {
     Failed,
     Http,
     Https,
+    Socks4,
     Socks5,
     HttpsCapable,
 }
@@ -30,6 +31,7 @@ impl ResultFilter {
             Self::Failed => "Failed",
             Self::Http => "HTTP",
             Self::Https => "HTTPS",
+            Self::Socks4 => "SOCKS4",
             Self::Socks5 => "SOCKS5",
             Self::HttpsCapable => "HTTPS-capable",
         }
@@ -52,7 +54,7 @@ fn human_error_code(code: &str) -> &'static str {
         "CONNECTION_TIMEOUT" | "TARGET_TIMEOUT" => "The proxy connection timed out.",
         "AUTH_FAILED" => "The proxy rejected its credentials.",
         "TLS_FAILED" => "The proxy TLS connection could not be established.",
-        "HTTP_PROXY_FAILED" | "HTTPS_PROXY_FAILED" | "SOCKS5_FAILED" => {
+        "HTTP_PROXY_FAILED" | "HTTPS_PROXY_FAILED" | "SOCKS4_FAILED" | "SOCKS5_FAILED" => {
             "The proxy protocol check failed."
         }
         _ => "The proxy could not be reached.",
@@ -61,19 +63,10 @@ fn human_error_code(code: &str) -> &'static str {
 
 fn humanize_api_error(message: String) -> String {
     for code in [
-        "PROXY_PRIVATE_IP_BLOCKED",
-        "PRIVATE_IP_BLOCKED",
-        "JOB_FAILED",
-        "DNS_FAILED",
-        "INVALID_PROXY",
-        "CONNECTION_REFUSED",
-        "CONNECTION_TIMEOUT",
-        "TARGET_TIMEOUT",
-        "AUTH_FAILED",
-        "TLS_FAILED",
-        "HTTP_PROXY_FAILED",
-        "HTTPS_PROXY_FAILED",
-        "SOCKS5_FAILED",
+        "PROXY_PRIVATE_IP_BLOCKED", "PRIVATE_IP_BLOCKED", "JOB_FAILED", "DNS_FAILED",
+        "INVALID_PROXY", "CONNECTION_REFUSED", "CONNECTION_TIMEOUT", "TARGET_TIMEOUT",
+        "AUTH_FAILED", "TLS_FAILED", "HTTP_PROXY_FAILED", "HTTPS_PROXY_FAILED",
+        "SOCKS4_FAILED", "SOCKS5_FAILED",
     ] {
         if message.contains(code) {
             return human_error_code(code).to_string();
@@ -100,15 +93,13 @@ fn matches_filter(row: &ProxyResult, filter: ResultFilter) -> bool {
         ResultFilter::Failed => body.is_some_and(|r| !r.reachable),
         ResultFilter::Http => row.scheme.eq_ignore_ascii_case("http"),
         ResultFilter::Https => row.scheme.eq_ignore_ascii_case("https"),
+        ResultFilter::Socks4 => row.scheme.eq_ignore_ascii_case("socks4"),
         ResultFilter::Socks5 => row.scheme.eq_ignore_ascii_case("socks5"),
         ResultFilter::HttpsCapable => body.is_some_and(|r| r.supports_https),
     }
 }
 
 fn csv_cell(value: &str) -> String {
-    // RFC 4180 quoting plus spreadsheet-formula hardening. Hosts and errors
-    // normally come from server-validated data, but exports must remain safe
-    // if a future backend field ever contains a formula-like value.
     let value = if matches!(value.as_bytes().first(), Some(b'=' | b'+' | b'-' | b'@')) {
         format!("'{}", value)
     } else {
@@ -132,12 +123,9 @@ fn result_to_csv(rows: &[ProxyResult]) -> String {
             row.port.to_string(),
             csv_cell(&row.scheme),
             body.is_some_and(|r| r.reachable).to_string(),
-            body.and_then(|r| r.latency_ms)
-                .map(|v| v.to_string())
-                .unwrap_or_default(),
+            body.and_then(|r| r.latency_ms).map(|v| v.to_string()).unwrap_or_default(),
             body.is_some_and(|r| r.supports_https).to_string(),
-            body.and_then(|r| r.country_code.clone())
-                .unwrap_or_default(),
+            body.and_then(|r| r.country_code.clone()).unwrap_or_default(),
             body.and_then(|r| r.error_code.clone()).unwrap_or_default(),
         ];
         out.push_str(&fields.join(","));
@@ -156,9 +144,7 @@ fn download_csv(rows: &[ProxyResult], filename: &str) -> Result<(), String> {
         .map_err(|_| "Could not create the CSV download.".to_string())?;
 
     let window = web_sys::window().ok_or("Browser window is unavailable.")?;
-    let document = window
-        .document()
-        .ok_or("Browser document is unavailable.")?;
+    let document = window.document().ok_or("Browser document is unavailable.")?;
     let anchor = document
         .create_element("a")
         .map_err(|_| "Could not prepare the CSV download.".to_string())?
@@ -252,14 +238,11 @@ pub fn ProxyChecksPage() -> impl IntoView {
         let generation = poll_generation.get_untracked();
 
         spawn_local(async move {
-            match proxy_checks::create(&proxy_checks::CreateProxyCheckRequest { proxies: items })
-                .await
-            {
+            match proxy_checks::create(&proxy_checks::CreateProxyCheckRequest { proxies: items }).await {
                 Ok(created) => {
                     let id = created.id.clone();
                     job.set(Some(created));
 
-                    // Required immediate GET after job creation.
                     match proxy_checks::get(&id).await {
                         Ok(current) => {
                             let terminal = is_terminal(&current.status);
@@ -274,18 +257,12 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
                     }
 
-                    let should_poll = job
-                        .get_untracked()
-                        .as_ref()
-                        .is_some_and(|current| !is_terminal(&current.status));
+                    let should_poll = job.get_untracked().as_ref().is_some_and(|current| !is_terminal(&current.status));
 
                     if should_poll {
                         for _attempt in 0..MAX_POLL_ATTEMPTS {
                             TimeoutFuture::new(POLL_INTERVAL_MS).await;
-
-                            if poll_generation.get_untracked() != generation {
-                                return;
-                            }
+                            if poll_generation.get_untracked() != generation { return; }
 
                             match proxy_checks::get(&id).await {
                                 Ok(current) => {
@@ -295,26 +272,19 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                     if terminal {
                                         match proxy_checks::all_results(&id).await {
                                             Ok(rows) => results.set(rows),
-                                            Err(e) => {
-                                                error.set(Some(humanize_api_error(e.to_string())))
-                                            }
+                                            Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
                                         }
                                         return;
                                     }
 
-                                    // While running, load the first page for fast
-                                    // feedback; terminal state loads all pages.
                                     match proxy_checks::results(&id, 100, 0, None, None).await {
                                         Ok(page) => results.set(page.items),
-                                        Err(e) => {
-                                            error.set(Some(humanize_api_error(e.to_string())))
-                                        }
+                                        Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
                                     }
                                 }
                                 Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
                             }
                         }
-
                         if poll_generation.get_untracked() == generation {
                             timed_out.set(true);
                         }
@@ -339,10 +309,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
     let on_file_change = {
         move |ev: leptos::ev::Event| {
             let target = event_target::<HtmlInputElement>(&ev);
-            let Some(file) = target.files().and_then(|files| files.get(0)) else {
-                return;
-            };
-
+            let Some(file) = target.files().and_then(|files| files.get(0)) else { return; };
             let name = file.name().to_ascii_lowercase();
             let is_json = name.ends_with(".json");
             let is_csv = name.ends_with(".csv");
@@ -369,25 +336,17 @@ pub fn ProxyChecksPage() -> impl IntoView {
                     return;
                 }
 
-                let text = String::from_utf8(bytes)
-                    .map_err(|_| "The selected file is not valid UTF-8.".to_string());
+                let text = String::from_utf8(bytes).map_err(|_| "The selected file is not valid UTF-8.".to_string());
 
                 match text {
                     Ok(text) => {
                         input.set(text.clone());
                         input_mode.set(if is_json { "json".into() } else { "csv".into() });
-                        let parsed = if is_json {
-                            proxy_checks::parse_json_input(&text)
-                        } else {
-                            proxy_checks::parse_proxy_text(&text)
-                        };
+                        let parsed = if is_json { proxy_checks::parse_json_input(&text) } else { proxy_checks::parse_proxy_text(&text) };
                         match parsed {
                             Ok(items) => {
                                 uploaded_filename.set(Some(file.name()));
                                 uploaded_proxy_count.set(items.len());
-
-                                // submit_items owns the busy lifecycle while the
-                                // job is being created and polled.
                                 submit_items.run(items)
                             }
                             Err(message) => {
@@ -406,9 +365,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
     };
 
     let refresh = move |_| {
-        let Some(current) = job.get_untracked() else {
-            return;
-        };
+        let Some(current) = job.get_untracked() else { return; };
         let id = current.id;
         spawn_local(async move {
             match proxy_checks::get(&id).await {
@@ -423,9 +380,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
     };
 
     let cancel = move |_| {
-        let Some(current) = job.get_untracked() else {
-            return;
-        };
+        let Some(current) = job.get_untracked() else { return; };
         poll_generation.update(|value| *value = value.wrapping_add(1));
         let id = current.id;
         spawn_local(async move {
@@ -445,15 +400,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
     let export = move |filter: ResultFilter| {
         let rows = results.get_untracked();
-        let selected = rows
-            .iter()
-            .filter(|row| matches_filter(row, filter))
-            .cloned()
-            .collect::<Vec<_>>();
+        let selected = rows.iter().filter(|row| matches_filter(row, filter)).cloned().collect::<Vec<_>>();
         if selected.is_empty() {
-            error.set(Some(
-                "There are no results to export for this selection.".into(),
-            ));
+            error.set(Some("There are no results to export for this selection.".into()));
             return;
         }
         let filename = format!("proxy-check-{}.csv", safe_filename_suffix(filter));
@@ -464,14 +413,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
     let copy_working = move |_| {
         let rows = results.get_untracked();
-        let working = rows
-            .iter()
+        let working = rows.iter()
             .filter(|row| row.result.as_ref().is_some_and(|r| r.reachable))
-            .map(|row| {
-                // Credentials are deliberately absent from result DTOs, so
-                // this copy operation can never expose stored credentials.
-                format!("{}://{}:{}", row.scheme, row.host, row.port)
-            })
+            .map(|row| format!("{}://{}:{}", row.scheme, row.host, row.port))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -489,11 +433,38 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
     view! {
         <div class="feature-page proxy-check-page">
-            <header class="page-header">
-                <div>
-                    <span class="eyebrow">"TOOLS"</span>
-                    <h1>"Proxy Checker"</h1>
-                    <p class="muted">"Check up to 500 public proxies with server-side SSRF protection."</p>
+            // Hero Header
+            <header class="page-header proxy-hero-header">
+                <div class="proxy-hero-left">
+                    <div class="proxy-hero-icon">"🛡️"</div>
+                    <div class="proxy-hero-text">
+                        <span class="eyebrow">"TOOLS"</span>
+                        <h1>"Proxy Checker"</h1>
+                        <p>"Check up to 500 public proxies with server-side SSRF protection.<br/>Fast. Secure. Reliable."</p>
+                    </div>
+                </div>
+                <div class="proxy-hero-badges">
+                    <div class="proxy-feature-badge badge-indigo">
+                        <span class="badge-icon">"🛡️"</span>
+                        <div class="badge-text">
+                            <strong>"SSRF Protection"</strong>
+                            <span>"Prevents server-side attacks"</span>
+                        </div>
+                    </div>
+                    <div class="proxy-feature-badge badge-green">
+                        <span class="badge-icon">"⚡"</span>
+                        <div class="badge-text">
+                            <strong>"High Performance"</strong>
+                            <span>"Up to 500 proxies per job"</span>
+                        </div>
+                    </div>
+                    <div class="proxy-feature-badge badge-green">
+                        <span class="badge-icon">"📊"</span>
+                        <div class="badge-text">
+                            <strong>"Real-time Results"</strong>
+                            <span>"Detailed status & logs"</span>
+                        </div>
+                    </div>
                 </div>
             </header>
 
@@ -501,122 +472,127 @@ pub fn ProxyChecksPage() -> impl IntoView {
                 <div class="error" role="alert">{message}</div>
             })}
 
-            <section class="card proxy-input-card proxy-input-card-premium">
-                <div class="proxy-input-hero">
-                    <div>
-                        <span class="proxy-section-kicker">"PROXY SOURCE"</span>
-                        <h2>"Add proxies to inspect"</h2>
-                        <p class="muted">
-                            "Upload a CSV/JSON list or paste proxy endpoints. Up to 500 proxies per job."
-                        </p>
-                    </div>
-                    <div class="proxy-source-orb" aria-hidden="true">
-                        <span>"↗"</span>
-                    </div>
-                </div>
-
-                <div class="proxy-input-tabs" role="tablist" aria-label="Proxy input format">
-                    <button
-                        type="button"
-                        class:active=move || input_mode.get() == "paste"
-                        on:click=move |_| input_mode.set("paste".into())
-                    >
-                        <span class="proxy-tab-icon">"⌨"</span>
-                        " Paste"
-                    </button>
-
-                    <label class="btn proxy-file-button">
-                        <span class="proxy-tab-icon">"CSV"</span>
-                        " Upload CSV"
-                        <input type="file" accept=".csv,text/csv" on:change=on_file_change />
-                    </label>
-
-                    <label class="btn proxy-file-button">
-                        <span class="proxy-tab-icon">"JSON"</span>
-                        " Upload JSON"
-                        <input type="file" accept=".json,application/json" on:change=on_file_change />
-                    </label>
-                </div>
-
-                {move || uploaded_filename.get().map(|filename| view! {
-                    <div class="proxy-uploaded-file">
-                        <div class="proxy-file-icon">"▤"</div>
-                        <div class="proxy-file-details">
-                            <strong>{filename.clone()}</strong>
-                            <span>
-                                {format!(
-                                    "{} file · {} proxies detected",
-                                    if filename.to_ascii_lowercase().ends_with(".json") { "JSON" } else { "CSV" },
-                                    uploaded_proxy_count.get()
-                                )}
-                            </span>
-                        </div>
-                        <div class="proxy-file-state">
-                            <span class="proxy-file-dot"></span>
-                            " Ready"
-                        </div>
-                    </div>
-                })}
-
-                <form on:submit=submit class="stack-form">
-                    <label for="proxy-list">"Paste proxies"</label>
-                    <div class="proxy-editor-shell">
-                        <div class="proxy-editor-bar">
-                            <span></span><span></span><span></span>
-                            <small>"PROXY LIST"</small>
-                        </div>
-                        <textarea
-                            id="proxy-list"
-                            rows="10"
-                            spellcheck="false"
-                            autocomplete="off"
-                            prop:value=input
-                            placeholder="http://1.2.3.4:8080&#10;socks5://2.3.4.5:1080"
-                            on:input=move |e| {
-                                input.set(event_target_value(&e));
-                                input_mode.set("paste".into());
-                                uploaded_filename.set(None);
-                                uploaded_proxy_count.set(0);
-                                input_error.set(None);
-                            }
-                        ></textarea>
-                    </div>
-
-                    {move || {
-                        let (count, preview_error) = parse_input_for_preview(&input.get());
-                        view! {
-                            <div class="proxy-input-meta proxy-input-meta-premium">
-                                <span>
-                                    <strong>{count}</strong>
-                                    " proxies detected"
-                                </span>
-                                <span class="proxy-input-limit">"MAX 500"</span>
-                                {preview_error.map(|message| view! {
-                                    <span class="proxy-inline-error">{message}</span>
-                                })}
+            // Main Layout: Input + Quick Info Sidebar
+            <div class="proxy-layout">
+                <div class="proxy-main-column">
+                    <section class="card proxy-input-card proxy-input-card-premium">
+                        <div class="proxy-input-hero">
+                            <div>
+                                <span class="proxy-section-kicker">"PROXY SOURCE"</span>
+                                <h2>"Add proxies to inspect"</h2>
+                                <p class="muted">"Upload a CSV/JSON list or paste proxy endpoints. Up to 500 proxies per job."</p>
                             </div>
-                        }
-                    }}
+                            <div class="proxy-source-orb" aria-hidden="true"><span>"↗"</span></div>
+                        </div>
 
-                    <button class="btn btn-primary proxy-check-button" type="submit" disabled=move || busy.get()>
-                        <span>"◉"</span>
-                        {move || if busy.get() { "Checking…" } else { "Check Proxies" }}
-                    </button>
-                </form>
+                        <div class="proxy-input-tabs" role="tablist" aria-label="Proxy input format">
+                            <button type="button" class:active=move || input_mode.get() == "paste" on:click=move |_| input_mode.set("paste".into())>
+                                <span class="proxy-tab-icon">"⌨"</span> " Paste"
+                            </button>
+                            <label class="btn proxy-file-button">
+                                <span class="proxy-tab-icon">"CSV"</span> " Upload CSV"
+                                <input type="file" accept=".csv,text/csv" on:change=on_file_change />
+                            </label>
+                            <label class="btn proxy-file-button">
+                                <span class="proxy-tab-icon">"JSON"</span> " Upload JSON"
+                                <input type="file" accept=".json,application/json" on:change=on_file_change />
+                            </label>
+                        </div>
 
-                {move || input_error.get().map(|message| view! {
-                    <div class="form-error" role="alert">{message}</div>
-                })}
-            </section>
+                        {move || uploaded_filename.get().map(|filename| view! {
+                            <div class="proxy-uploaded-file">
+                                <div class="proxy-file-icon">"▤"</div>
+                                <div class="proxy-file-details">
+                                    <strong>{filename.clone()}</strong>
+                                    <span>{format!("{} file · {} proxies detected", if filename.to_ascii_lowercase().ends_with(".json") { "JSON" } else { "CSV" }, uploaded_proxy_count.get())}</span>
+                                </div>
+                                <div class="proxy-file-state"><span class="proxy-file-dot"></span> " Ready"</div>
+                            </div>
+                        })}
 
+                        <form on:submit=submit class="stack-form">
+                            <label for="proxy-list">"Paste proxies"</label>
+                            <div class="proxy-editor-shell">
+                                <div class="proxy-editor-bar">
+                                    <span></span><span></span><span></span>
+                                    <small>"PROXY LIST"</small>
+                                </div>
+                                <textarea id="proxy-list" rows="10" spellcheck="false" autocomplete="off"
+                                    prop:value=input
+                                    placeholder="http://1.2.3.4:8080&#10;socks4://2.3.4.5:1080&#10;socks5://3.4.5.6:1080"
+                                    on:input=move |e| {
+                                        input.set(event_target_value(&e));
+                                        input_mode.set("paste".into());
+                                        uploaded_filename.set(None);
+                                        uploaded_proxy_count.set(0);
+                                        input_error.set(None);
+                                    }
+                                ></textarea>
+                            </div>
+
+                            {move || {
+                                let (count, preview_error) = parse_input_for_preview(&input.get());
+                                view! {
+                                    <div class="proxy-input-meta proxy-input-meta-premium">
+                                        <span><strong>{count}</strong> " proxies detected"</span>
+                                        <span class="proxy-input-limit">"MAX 500"</span>
+                                        {preview_error.map(|message| view! { <span class="proxy-inline-error">{message}</span> })}
+                                    </div>
+                                }
+                            }}
+
+                            <button class="btn btn-primary proxy-check-button" type="submit" disabled=move || busy.get()>
+                                <span>"◉"</span>
+                                {move || if busy.get() { "Checking…" } else { "Check Proxies" }}
+                            </button>
+                        </form>
+
+                        {move || input_error.get().map(|message| view! {
+                            <div class="form-error" role="alert">{message}</div>
+                        })}
+                    </section>
+                </div>
+
+                <div class="proxy-sidebar-column">
+                    <div class="proxy-quick-info">
+                        <div class="proxy-quick-info-header">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            "Quick Info"
+                        </div>
+                        <div class="proxy-quick-info-item">
+                            <span>"📊 Max Proxies"</span>
+                            <strong>"500"</strong>
+                        </div>
+                        <div class="proxy-quick-info-item">
+                            <span>"⏱ Timeout"</span>
+                            <strong>"30s per proxy"</strong>
+                        </div>
+                        <div class="proxy-quick-info-item">
+                            <span>"🌐 Protocol Support"</span>
+                            <strong>"HTTP / HTTPS / SOCKS4 / SOCKS5"</strong>
+                        </div>
+                        <div class="proxy-quick-info-item">
+                            <span>"🛡 SSRF Protection"</span>
+                            <span class="proxy-badge-enabled">"Enabled"</span>
+                        </div>
+                    </div>
+
+                    <div class="proxy-help-card">
+                        <div class="proxy-help-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </div>
+                        <h3 style="margin: 0 0 8px; font-size: 0.9rem; color: var(--pv-text);">"Need help?"</h3>
+                        <p>"Check our documentation for more details about proxy checking."</p>
+                        <button class="btn">"View Docs →"</button>
+                    </div>
+                </div>
+            </div>
+
+            // Progress Card
             {move || job.get().map(|current| {
                 let status = current.status.clone();
-                let progress = if current.total_count == 0 {
-                    0
-                } else {
-                    ((current.checked_count as f64 / current.total_count as f64) * 100.0)
-                        .round()
-                        .clamp(0.0, 100.0) as u32
+                let progress = if current.total_count == 0 { 0 } else {
+                    ((current.checked_count as f64 / current.total_count as f64) * 100.0).round().clamp(0.0, 100.0) as u32
                 };
                 let terminal = is_terminal(&status);
                 view! {
@@ -629,15 +605,10 @@ pub fn ProxyChecksPage() -> impl IntoView {
                             <div class="proxy-actions">
                                 <button class="btn" type="button" on:click=refresh>"Refresh"</button>
                                 {if !terminal {
-                                    view! {
-                                        <button class="btn btn-danger" type="button" on:click=cancel disabled=move || busy.get()>"Cancel"</button>
-                                    }.into_any()
-                                } else {
-                                    ().into_any()
-                                }}
+                                    view! { <button class="btn btn-danger" type="button" on:click=cancel disabled=move || busy.get()>"Cancel"</button> }.into_any()
+                                } else { ().into_any() }}
                             </div>
                         </div>
-
                         <div class="proxy-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow=progress.to_string()>
                             <div class="proxy-progress-fill" style=move || format!("width: {}%;", progress)></div>
                         </div>
@@ -648,43 +619,23 @@ pub fn ProxyChecksPage() -> impl IntoView {
                             <span><strong>{current.failed_count}</strong>" Failed"</span>
                             <span><strong>{format!("{}%", progress)}</strong>" Progress"</span>
                         </div>
-                        {if status == "failed" {
-                            current.failure_code.clone().map(|code| {
-                                let message = match code.as_str() {
-                                    "PAYG_BALANCE_EXHAUSTED" => "PAYG balance exhausted. Top up the wallet to resume proxy checks.",
-                                    _ => "The proxy check job failed. Refresh to see whether it can be retried.",
-                                };
-                                view! { <div class="error" role="alert">{message}</div> }
-                            }).into_any()
-                        } else {
-                            ().into_any()
-                        }}
                     </section>
                 }
             })}
 
             {move || timed_out.get().then(|| view! {
-                <div class="error" role="status">
-                    "The UI stopped polling after 5 minutes. The job may still be running; use Refresh when you return."
-                </div>
+                <div class="error" role="status">"The UI stopped polling after 5 minutes. The job may still be running; use Refresh when you return."</div>
             })}
 
+            // Summary & Results (Only show if a job exists)
             {move || if job.get().is_some() {
                 let rows = results.get();
                 let total = job.get().map(|j| j.total_count as usize).unwrap_or(rows.len());
                 let working = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| b.reachable)).count();
                 let failed = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| !b.reachable)).count();
-                let https = rows
-                    .iter()
-                    .filter(|r| r.result.as_ref().is_some_and(|b| b.supports_https))
-                    .count();
-                let latencies = rows.iter().filter_map(|r| r.result.as_ref().and_then(|b| b.latency_ms));
-                let latency_values = latencies.collect::<Vec<_>>();
-                let avg_latency = if latency_values.is_empty() {
-                    "—".into()
-                } else {
-                    format!("{} ms", latency_values.iter().copied().map(u64::from).sum::<u64>() / latency_values.len() as u64)
-                };
+                let https = rows.iter().filter(|r| r.result.as_ref().is_some_and(|b| b.supports_https)).count();
+                let latency_values = rows.iter().filter_map(|r| r.result.as_ref().and_then(|b| b.latency_ms)).collect::<Vec<_>>();
+                let avg_latency = if latency_values.is_empty() { "—".into() } else { format!("{} ms", latency_values.iter().copied().map(u64::from).sum::<u64>() / latency_values.len() as u64) };
 
                 view! {
                     <section class="proxy-summary">
@@ -697,10 +648,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
                     <section class="card proxy-results-card">
                         <div class="section-heading">
-                            <div>
-                                <h2>"Results"</h2>
-                                <span class="muted">{format!("{} loaded", rows.len())}</span>
-                            </div>
+                            <div><h2>"Results"</h2><span class="muted">{format!("{} loaded", rows.len())}</span></div>
                             <div class="proxy-export-actions">
                                 <button class="btn" type="button" on:click=move |_| export(ResultFilter::All)>"Export All"</button>
                                 <button class="btn" type="button" on:click=move |_| export(ResultFilter::Working)>"Export Working"</button>
@@ -710,22 +658,10 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         </div>
 
                         <div class="proxy-filters" role="toolbar" aria-label="Result filters">
-                            {[
-                                ResultFilter::All,
-                                ResultFilter::Working,
-                                ResultFilter::Failed,
-                                ResultFilter::Http,
-                                ResultFilter::Https,
-                                ResultFilter::Socks5,
-                                ResultFilter::HttpsCapable,
-                            ].into_iter().map(|filter| {
+                            {[ResultFilter::All, ResultFilter::Working, ResultFilter::Failed, ResultFilter::Http, ResultFilter::Https, ResultFilter::Socks4, ResultFilter::Socks5, ResultFilter::HttpsCapable].into_iter().map(|filter| {
                                 let label = filter.label();
                                 view! {
-                                    <button
-                                        type="button"
-                                        class:active=move || active_filter.get() == filter
-                                        on:click=move |_| active_filter.set(filter)
-                                    >{label}</button>
+                                    <button type="button" class:active=move || active_filter.get() == filter on:click=move |_| active_filter.set(filter)>{label}</button>
                                 }
                             }).collect_view()}
                         </div>
@@ -735,89 +671,32 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                 .filter(|row| matches_filter(row, active_filter.get()))
                                 .map(|row| {
                                     let body = row.result.clone();
-
-                                    let status = body
-                                        .as_ref()
-                                        .map(|r| if r.reachable { "WORKING" } else { "FAILED" })
-                                        .unwrap_or("PENDING");
-
-                                    let status_class = match status {
-                                        "WORKING" => "working",
-                                        "FAILED" => "failed",
-                                        _ => "pending",
-                                    };
-
-                                    let latency = body
-                                        .as_ref()
-                                        .and_then(|r| r.latency_ms)
-                                        .map(|v| format!("{} ms", v))
-                                        .unwrap_or_else(|| "—".into());
-
+                                    let status = body.as_ref().map(|r| if r.reachable { "WORKING" } else { "FAILED" }).unwrap_or("PENDING");
+                                    let status_class = match status { "WORKING" => "working", "FAILED" => "failed", _ => "pending" };
+                                    let latency = body.as_ref().and_then(|r| r.latency_ms).map(|v| format!("{} ms", v)).unwrap_or_else(|| "—".into());
                                     let https = body.as_ref().is_some_and(|r| r.supports_https);
-                                    let country = body
-                                        .as_ref()
-                                        .and_then(|r| r.country_code.clone())
-                                        .unwrap_or_else(|| "—".into());
-
-                                    let anonymity = body
-                                        .as_ref()
-                                        .and_then(|r| r.anonymity.clone())
-                                        .unwrap_or_else(|| "—".into());
-
-                                    let error_text = body
-                                        .as_ref()
-                                        .filter(|r| !r.reachable)
-                                        .map(result_error)
-                                        .unwrap_or_else(|| "Connection healthy".into());
-
-                                    let endpoint = format!(
-                                        "{}://{}:{}",
-                                        row.scheme,
-                                        row.host,
-                                        row.port
-                                    );
+                                    let country = body.as_ref().and_then(|r| r.country_code.clone()).unwrap_or_else(|| "—".into());
+                                    let anonymity = body.as_ref().and_then(|r| r.anonymity.clone()).unwrap_or_else(|| "—".into());
+                                    let error_text = body.as_ref().filter(|r| !r.reachable).map(result_error).unwrap_or_else(|| "Connection healthy".into());
+                                    let endpoint = format!("{}://{}:{}", row.scheme, row.host, row.port);
 
                                     view! {
                                         <article class=format!("proxy-result-card proxy-result-{}", status_class)>
                                             <div class="proxy-result-top">
-                                                <div class="proxy-result-status">
-                                                    <span class="proxy-status-dot"></span>
-                                                    <strong>{status}</strong>
-                                                </div>
+                                                <div class="proxy-result-status"><span class="proxy-status-dot"></span><strong>{status}</strong></div>
                                                 <span class="proxy-result-scheme">{row.scheme.clone()}</span>
                                             </div>
-
                                             <div class="proxy-endpoint">
                                                 <span class="proxy-endpoint-prefix">"PROXY"</span>
                                                 <code>{endpoint}</code>
                                             </div>
-
                                             <div class="proxy-result-metrics">
-                                                <div>
-                                                    <span>"LATENCY"</span>
-                                                    <strong>{latency}</strong>
-                                                </div>
-                                                <div>
-                                                    <span>"HTTPS"</span>
-                                                    <strong class:proxy-positive=https>
-                                                        {if https { "Supported" } else { "No" }}
-                                                    </strong>
-                                                </div>
-                                                <div>
-                                                    <span>"COUNTRY"</span>
-                                                    <strong>{country}</strong>
-                                                </div>
-                                                <div>
-                                                    <span>"ANONYMITY"</span>
-                                                    <strong>{anonymity}</strong>
-                                                </div>
+                                                <div><span>"LATENCY"</span><strong>{latency}</strong></div>
+                                                <div><span>"HTTPS"</span><strong class:proxy-positive=https>{if https { "Supported" } else { "No" }}</strong></div>
+                                                <div><span>"COUNTRY"</span><strong>{country}</strong></div>
+                                                <div><span>"ANONYMITY"</span><strong>{anonymity}</strong></div>
                                             </div>
-
-                                            <div class=if status == "WORKING" {
-                                                "proxy-result-message proxy-result-message-success"
-                                            } else {
-                                                "proxy-result-message proxy-result-message-error"
-                                            }>
+                                            <div class=if status == "WORKING" { "proxy-result-message proxy-result-message-success" } else { "proxy-result-message proxy-result-message-error" }>
                                                 <span>{if status == "WORKING" { "✓" } else { "!" }}</span>
                                                 <span>{error_text}</span>
                                             </div>
@@ -831,6 +710,8 @@ pub fn ProxyChecksPage() -> impl IntoView {
             } else {
                 ().into_any()
             }}
+
+            // Removed the static "Recent Results" table completely
         </div>
     }
 }
@@ -867,6 +748,10 @@ mod tests {
         assert!(matches_filter(&working_http, ResultFilter::HttpsCapable));
         assert!(matches_filter(&failed_socks, ResultFilter::Failed));
         assert!(matches_filter(&failed_socks, ResultFilter::Socks5));
+
+        let failed_socks4 = row(false, "socks4", false);
+        assert!(matches_filter(&failed_socks4, ResultFilter::Socks4));
+        assert!(!matches_filter(&failed_socks4, ResultFilter::Socks5));
     }
 
     #[test]
@@ -880,13 +765,7 @@ mod tests {
 
     #[test]
     fn error_codes_are_humanized() {
-        assert_eq!(
-            human_error_code("PROXY_PRIVATE_IP_BLOCKED"),
-            "This proxy points to a private or restricted address."
-        );
-        assert_eq!(
-            human_error_code("JOB_FAILED"),
-            "The proxy check could not be completed."
-        );
+        assert_eq!(human_error_code("PROXY_PRIVATE_IP_BLOCKED"), "This proxy points to a private or restricted address.");
+        assert_eq!(human_error_code("JOB_FAILED"), "The proxy check could not be completed.");
     }
 }

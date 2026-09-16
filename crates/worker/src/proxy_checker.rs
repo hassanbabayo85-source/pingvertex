@@ -16,6 +16,12 @@
 //! - HTTPS proxies are first connected over TLS to the proxy, then
 //!   verified with a CONNECT tunnel to `example.com:443` and a TLS
 //!   handshake through that tunnel.
+//! - SOCKS4/4a proxies are verified with a SOCKS4a CONNECT handshake to
+//!   `example.com:443`, then a TLS handshake through the tunnel. SOCKS4a
+//!   is used rather than plain SOCKS4 so that the proxy server — not this
+//!   worker — resolves `example.com`, which is what a real user of the
+//!   proxy would expect. (SOCKS4/4a is IPv4-only by protocol design;
+//!   `example.com` has A records, so this works.)
 //! - SOCKS5 proxies are verified with a full SOCKS5 handshake to
 //!   `example.com:443`, then a TLS handshake through the tunnel.
 //!
@@ -74,6 +80,7 @@ fn proxy_scheme_str(scheme: &ProxyScheme) -> &'static str {
     match scheme {
         ProxyScheme::Http => "http",
         ProxyScheme::Https => "https",
+        ProxyScheme::Socks4 => "socks4",
         ProxyScheme::Socks5 => "socks5",
     }
 }
@@ -118,6 +125,7 @@ fn error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
     match scheme {
         ProxyScheme::Http => "HTTP_PROXY_FAILED",
         ProxyScheme::Https => "HTTPS_PROXY_FAILED",
+        ProxyScheme::Socks4 => "SOCKS4_FAILED",
         ProxyScheme::Socks5 => "SOCKS5_FAILED",
     }
 }
@@ -320,6 +328,101 @@ where
         .map_err(|e| format!("TLS handshake failed: {e}"))?;
 
     Ok(())
+}
+
+/// Verifies a SOCKS4 (or, by extension, SOCKS4a) proxy.
+///
+/// SOCKS4 has no native hostname support in the original spec; the widely
+/// deployed SOCKS4a extension (which almost every real-world SOCKS4
+/// server implements) passes the destination hostname in place of the
+/// DSTIP field, using the sentinel address `0.0.0.x` (with `x` nonzero)
+/// to signal "this is a SOCKS4a request; the hostname follows". We emit a
+/// SOCKS4a request because the verification target is a hostname
+/// (`example.com`), which means the proxy — not this worker — does the
+/// DNS resolution, exactly as a real user of the proxy would want.
+///
+/// Protocol reference (SOCKS4a):
+///   Request:  VN=4, CD=1 (CONNECT), DSTPORT (2 bytes BE),
+///             DSTIP (4 bytes = 0.0.0.x, x nonzero), USERID (NUL-terminated),
+///             then DOMAIN (NUL-terminated).
+///   Response: exactly 8 bytes: VN=0, CD (0x5A=granted, 0x5B=rejected,
+///             0x5C=identd-unreachable, 0x5D=identd-mismatch),
+///             DSTPORT (2 bytes), DSTIP (4 bytes).
+///
+/// AUTHENTICATION: SOCKS4 has no password field. The USERID field is the
+/// only place a "username" can be transmitted. If credentials are present
+/// we send `username` as USERID and silently drop `password` — the
+/// protocol has nowhere to carry it. This matches every other SOCKS4
+/// client in the wild.
+///
+/// The connection to the proxy itself is pinned to the already-validated
+/// `SocketAddr` by the caller; this function does no DNS of its own.
+async fn verify_socks4_proxy<S>(
+    stream: &mut S,
+    creds: Option<&ProxyCredentials>,
+    target_host: &str,
+    target_port: u16,
+    timeout_duration: Duration,
+) -> Result<(), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let host_bytes = target_host.as_bytes();
+    if host_bytes.len() > 255 {
+        // SOCKS4a hostnames are short in practice; a bound keeps the
+        // Vec::with_capacity below honest and rejects anything absurd.
+        return Err("target host too long for SOCKS4a".to_string());
+    }
+
+    let userid: &[u8] = match creds {
+        Some(c) => c.username().as_bytes(),
+        None => b"",
+    };
+    if userid.len() > 255 {
+        return Err("SOCKS4 USERID too long".to_string());
+    }
+
+    // Build SOCKS4a CONNECT request. See doc comment above for the exact
+    // byte layout and why DSTIP is 0.0.0.1 rather than a real address.
+    let mut request =
+        Vec::with_capacity(1 + 1 + 2 + 4 + userid.len() + 1 + host_bytes.len() + 1);
+    request.push(0x04); // VN
+    request.push(0x01); // CD = CONNECT
+    request.extend_from_slice(&target_port.to_be_bytes());
+    request.extend_from_slice(&[0, 0, 0, 1]); // DSTIP = 0.0.0.1 (SOCKS4a sentinel)
+    request.extend_from_slice(userid);
+    request.push(0x00); // USERID NUL terminator
+    request.extend_from_slice(host_bytes);
+    request.push(0x00); // DOMAIN NUL terminator
+
+    write_all_timeout(stream, &request, timeout_duration).await?;
+
+    let mut response = [0u8; 8];
+    read_exact_timeout(stream, &mut response, timeout_duration).await?;
+
+    let vn = response[0];
+    let cd = response[1];
+
+    if vn != 0x00 {
+        return Err(format!(
+            "SOCKS4 server returned invalid version byte 0x{vn:02x} (expected 0x00)"
+        ));
+    }
+
+    match cd {
+        0x5A => Ok(()), // 90 — request granted
+        0x5B => Err("SOCKS4 request rejected or failed by the proxy".to_string()), // 91
+        0x5C => Err(
+            "SOCKS4 request rejected: proxy could not reach identd on the client".to_string(),
+        ), // 92
+        0x5D => Err(
+            "SOCKS4 request rejected: identd on the client could not confirm the USERID"
+                .to_string(),
+        ), // 93
+        other => Err(format!(
+            "SOCKS4 server returned unrecognized reply code 0x{other:02x}"
+        )),
+    }
 }
 
 async fn verify_socks5_proxy<S>(
@@ -598,6 +701,43 @@ async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
                             false,
                             Some("TLS handshake with proxy timed out".to_string()),
                         ),
+                    }
+                }
+                Ok(Err(err)) => (false, false, Some(err.to_string())),
+                Err(_) => (
+                    false,
+                    false,
+                    Some(format!(
+                        "connection timed out after {PER_ENTRY_TIMEOUT_SECS}s"
+                    )),
+                ),
+            }
+        }
+        ProxyScheme::Socks4 => {
+            match timeout(connect_timeout, TcpStream::connect(destination.socket_addr)).await {
+                Ok(Ok(mut stream)) => {
+                    if let Err(err) = verify_socks4_proxy(
+                        &mut stream,
+                        entry.credentials(),
+                        HTTPS_VERIFY_TARGET_HOST,
+                        HTTPS_VERIFY_TARGET_PORT,
+                        protocol_timeout,
+                    )
+                    .await
+                    {
+                        (false, false, Some(err))
+                    } else if let Err(err) =
+                        tls_handshake(stream, HTTPS_VERIFY_TARGET_HOST, protocol_timeout).await
+                    {
+                        (
+                            true,
+                            false,
+                            Some(format!(
+                                "SOCKS4 tunnel connected but TLS to target failed: {err}"
+                            )),
+                        )
+                    } else {
+                        (true, true, None)
                     }
                 }
                 Ok(Err(err)) => (false, false, Some(err.to_string())),
@@ -1004,5 +1144,227 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("size limit"));
+    }
+
+    // ---------------------------------------------------------------
+    // SOCKS4 / SOCKS4a protocol tests.
+    //
+    // These verify the EXACT wire bytes verify_socks4_proxy sends and
+    // how it interprets each reply code. This matters because SOCKS4 is
+    // a hand-rolled protocol here — a wrong byte offset would silently
+    // break every real SOCKS4 proxy in production. The fake server reads
+    // a length the test computes up front (fixed header + USERID + NUL +
+    // DOMAIN + NUL), replies with 8 bytes, and hands the captured
+    // request back over a oneshot channel so assertions run in the test
+    // task, not the spawned task (avoids the classic "assertion in
+    // spawned task silently swallowed" test bug).
+    // ---------------------------------------------------------------
+
+    /// Drives `verify_socks4_proxy` against a fake server that replies
+    /// with the supplied 8-byte response, and returns the request bytes
+    /// the function actually wrote.
+    ///
+    /// `request_len` is computed by the caller from the exact `userid`
+    /// and `target_host` it plans to pass in, since SOCKS4a is not
+    /// length-prefixed.
+    async fn run_socks4_case(
+        reply: [u8; 8],
+        creds: Option<ProxyCredentials>,
+        target_host: &str,
+        request_len: usize,
+    ) -> (Result<(), String>, Vec<u8>) {
+        let listener = TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
+
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut request = vec![0u8; request_len];
+                if stream.read_exact(&mut request).await.is_ok() {
+                    let _ = stream.write_all(&reply).await;
+                    let _ = stream.flush().await;
+                }
+                let _ = tx.send(request);
+            }
+        });
+
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let result = verify_socks4_proxy(
+            &mut stream,
+            creds.as_ref(),
+            target_host,
+            443,
+            Duration::from_secs(2),
+        )
+        .await;
+
+        let request = rx.await.expect("fake server must capture the request");
+        (result, request)
+    }
+
+    #[tokio::test]
+    async fn socks4_proxy_verification_accepts_granted_reply_and_sends_socks4a_request() {
+        // Layout for no credentials + "example.com":
+        //   VN(1) + CD(1) + DSTPORT(2) + DSTIP(4)         = 8
+        //   USERID("") + NUL                              = 1
+        //   DOMAIN("example.com" = 11 bytes) + NUL        = 12
+        //   total                                         = 21
+        const REQUEST_LEN: usize = 21;
+
+        let (result, request) = run_socks4_case(
+            [0x00, 0x5A, 0x00, 0x50, 0, 0, 0, 0],
+            None,
+            "example.com",
+            REQUEST_LEN,
+        )
+        .await;
+
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+
+        assert_eq!(request[0], 0x04, "VN must be 0x04");
+        assert_eq!(request[1], 0x01, "CD must be 0x01 (CONNECT)");
+        assert_eq!(
+            &request[2..4],
+            &443u16.to_be_bytes(),
+            "DSTPORT must be 443, big-endian"
+        );
+        assert_eq!(
+            &request[4..8],
+            &[0, 0, 0, 1],
+            "DSTIP must be the SOCKS4a sentinel 0.0.0.1"
+        );
+        assert_eq!(request[8], 0x00, "USERID must be empty + NUL terminator");
+        assert_eq!(
+            &request[9..20],
+            b"example.com",
+            "DOMAIN must carry the target hostname"
+        );
+        assert_eq!(request[20], 0x00, "DOMAIN must be NUL-terminated");
+    }
+
+    #[tokio::test]
+    async fn socks4_proxy_verification_sends_username_as_userid_and_ignores_password() {
+        // Layout with USERID = "user" (4 bytes):
+        //   8 (fixed) + 4 + 1 (USERID NUL) + 11 + 1 (DOMAIN NUL) = 25
+        const REQUEST_LEN: usize = 25;
+        const PASSWORD_SENTINEL: &str = "secret-should-never-appear-on-the-wire";
+
+        let creds =
+            ProxyCredentials::new("user", PASSWORD_SENTINEL).expect("valid credentials");
+
+        let (result, request) = run_socks4_case(
+            [0x00, 0x5A, 0x00, 0x50, 0, 0, 0, 0],
+            Some(creds),
+            "example.com",
+            REQUEST_LEN,
+        )
+        .await;
+
+        assert!(result.is_ok(), "expected Ok, got {result:?}");
+
+        assert_eq!(
+            &request[8..13],
+            b"user\0",
+            "USERID must be the username followed by a NUL"
+        );
+
+        // The SOCKS4 protocol has no password field. If this assertion
+        // ever fires, verify_socks4_proxy has started transmitting the
+        // password somewhere it does not belong — a silent credential
+        // leak to any third-party SOCKS4 proxy operator.
+        let needle = PASSWORD_SENTINEL.as_bytes();
+        assert!(
+            !request.windows(needle.len()).any(|w| w == needle),
+            "password must NEVER appear anywhere in a SOCKS4 request"
+        );
+    }
+
+    #[tokio::test]
+    async fn socks4_proxy_verification_rejects_all_failure_reply_codes() {
+        const REQUEST_LEN: usize = 21;
+
+        // 0x5B — request rejected or failed.
+        let (result, _) = run_socks4_case(
+            [0x00, 0x5B, 0, 0, 0, 0, 0, 0],
+            None,
+            "example.com",
+            REQUEST_LEN,
+        )
+        .await;
+        let err = result.expect_err("0x5B must be rejected");
+        assert!(
+            err.contains("rejected or failed"),
+            "unexpected 0x5B error: {err}"
+        );
+
+        // 0x5C — proxy could not reach identd on the client.
+        let (result, _) = run_socks4_case(
+            [0x00, 0x5C, 0, 0, 0, 0, 0, 0],
+            None,
+            "example.com",
+            REQUEST_LEN,
+        )
+        .await;
+        let err = result.expect_err("0x5C must be rejected");
+        assert!(
+            err.contains("identd on the client"),
+            "unexpected 0x5C error: {err}"
+        );
+
+        // 0x5D — identd could not confirm the USERID.
+        let (result, _) = run_socks4_case(
+            [0x00, 0x5D, 0, 0, 0, 0, 0, 0],
+            None,
+            "example.com",
+            REQUEST_LEN,
+        )
+        .await;
+        let err = result.expect_err("0x5D must be rejected");
+        assert!(
+            err.contains("could not confirm the USERID"),
+            "unexpected 0x5D error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn socks4_proxy_verification_rejects_invalid_version_byte() {
+        // A well-behaved SOCKS4 server always returns VN=0x00 in the
+        // reply. Anything else means this is not really a SOCKS4 server
+        // (or the reply is misaligned), and we must not accept it.
+        let (result, _) = run_socks4_case(
+            [0x05, 0x5A, 0, 0, 0, 0, 0, 0],
+            None,
+            "example.com",
+            21,
+        )
+        .await;
+
+        let err = result.expect_err("reply VN=0x05 must be rejected");
+        assert!(
+            err.contains("invalid version byte"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn socks4_proxy_verification_rejects_unrecognized_reply_code() {
+        // 0x99 is not one of 0x5A/0x5B/0x5C/0x5D. We must fail closed
+        // rather than treating an unknown byte as success.
+        let (result, _) = run_socks4_case(
+            [0x00, 0x99, 0, 0, 0, 0, 0, 0],
+            None,
+            "example.com",
+            21,
+        )
+        .await;
+
+        let err = result.expect_err("reply CD=0x99 must be rejected");
+        assert!(
+            err.contains("unrecognized reply code"),
+            "unexpected error: {err}"
+        );
     }
 }

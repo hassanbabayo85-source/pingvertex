@@ -129,6 +129,7 @@ fn pv2_brand_header() -> impl IntoView {
 
 /// Zanen kwamfutoci/duniya + jerin fasali huɗu a kasan katin, iri ɗaya a
 /// kan sassa uku domin shafukan su yi daidai da juna.
+#[allow(dead_code)]
 fn pv2_illustration_footer() -> impl IntoView {
     view! {
         <div class="pv2-illustration">
@@ -367,7 +368,6 @@ pub fn LoginPage() -> impl IntoView {
                 </p>
             </div>
 
-            {pv2_illustration_footer()}
         </div>
     }
 }
