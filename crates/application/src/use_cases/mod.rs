@@ -232,3 +232,9 @@ pub use charge_for_usage::{
 pub use meter_usage::{MeterUsageInput, MeterUsageUseCase};
 pub mod list_external_monitors;
 pub use list_external_monitors::*;
+
+// Task 6 — subscription checkout:
+pub mod initiate_subscription_checkout;
+pub mod verify_subscription_checkout;
+pub use initiate_subscription_checkout::*;
+pub use verify_subscription_checkout::*;

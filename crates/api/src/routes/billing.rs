@@ -44,6 +44,24 @@ pub fn router() -> Router<AppState> {
             post(crate::handlers::cancel_add_on),
         )
         .route("/billing/summary", get(crate::handlers::billing_summary))
+        // ─── Task 6 — subscription checkout + lifecycle ────────────────
+        // Coexist with the PAYG surface above; no route overlap.
+        .route(
+            "/billing/subscription/checkout",
+            post(crate::handlers::subscription_billing::initiate_subscription_checkout),
+        )
+        .route(
+            "/billing/subscription/checkout/{id}/verify",
+            post(crate::handlers::subscription_billing::verify_subscription_checkout),
+        )
+        .route(
+            "/billing/subscription",
+            get(crate::handlers::subscription_billing::get_subscription),
+        )
+        .route(
+            "/billing/subscription/cancel",
+            post(crate::handlers::subscription_billing::cancel_subscription_endpoint),
+        )
 }
 
 /// Unauthenticated billing webhook routes.

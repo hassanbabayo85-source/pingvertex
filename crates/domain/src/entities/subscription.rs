@@ -75,6 +75,19 @@ impl Subscription {
         }
     }
 
+    /// Task 6: like `new`, but with a caller-computed period end
+    /// (calendar month/year), instead of a hardcoded 30 days.
+    pub fn new_with_period(
+        id: SubscriptionId,
+        tenant_id: TenantId,
+        plan_tier: PlanTier,
+        current_period_ends_at: DateTime<Utc>,
+    ) -> Self {
+        let mut s = Self::new(id, tenant_id, plan_tier);
+        s.current_period_ends_at = Some(current_period_ends_at);
+        s
+    }
+
     /// Creates a new subscription that starts in a trial period. The
     /// caller decides the trial length (no fixed duration is baked into
     /// the domain).
@@ -112,6 +125,70 @@ impl Subscription {
         self.cancel_at_period_end = false;
         self.updated_at = Utc::now();
         Ok(())
+    }
+
+    /// Applies a server-verified successful payment for a calendar
+    /// billing period.
+    ///
+    /// Identical to `apply_verified_payment` except the period end is
+    /// supplied by the caller (computed by `domain::billing_period::period_end_from`)
+    /// instead of being hardcoded to 30 days. This is the Task 6
+    /// subscription-checkout activation path; `apply_verified_payment`
+    /// is retained unchanged for legacy callers.
+    pub fn apply_verified_payment_with_period(
+        &mut self,
+        plan_tier: PlanTier,
+        period_end: DateTime<Utc>,
+    ) -> Result<(), DomainError> {
+        if self.status == SubscriptionStatus::Canceled {
+            return Err(DomainError::InvalidSubscriptionTransition(
+                "cannot apply verified payment to a canceled subscription".to_owned(),
+            ));
+        }
+        if period_end <= Utc::now() {
+            return Err(DomainError::InvalidSubscriptionTransition(
+                "subscription period end must be in the future".to_owned(),
+            ));
+        }
+
+        self.plan_tier = plan_tier;
+        self.status = SubscriptionStatus::Active;
+        self.trial_ends_at = None;
+        self.grace_period_ends_at = None;
+        self.current_period_ends_at = Some(period_end);
+        self.canceled_at = None;
+        self.cancel_at_period_end = false;
+        self.updated_at = Utc::now();
+        Ok(())
+    }
+
+    /// Task 6 — lazily finalizes the paid period when it has elapsed.
+    ///
+    /// Because Task 6 uses one-time payments (no native recurring), the
+    /// customer's subscription does NOT auto-renew: it either expires
+    /// (no renewal) or is canceled at period end (customer requested).
+    /// This is safe to call from any read path; it is a no-op unless
+    /// the subscription is `Active` and `current_period_ends_at` has
+    /// elapsed.
+    pub fn finalize_period_end(
+        &mut self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SubscriptionStatus>, DomainError> {
+        if self.status != SubscriptionStatus::Active {
+            return Ok(None);
+        }
+        match self.current_period_ends_at {
+            Some(end) if end <= now => {
+                self.status = if self.cancel_at_period_end {
+                    SubscriptionStatus::Canceled
+                } else {
+                    SubscriptionStatus::Expired
+                };
+                self.updated_at = now;
+                Ok(Some(self.status))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Moves an `Active` subscription into its grace period after a

@@ -224,6 +224,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
     .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
     .with_checkout_session_repository(PostgresCheckoutSessionRepository::new(pool.clone()))
+    .with_plan_price_repository(infra::PostgresPlanPriceRepository::new(pool.clone()))
+    .with_subscription_billing_record_repository(
+        infra::PostgresSubscriptionBillingRecordRepository::new(pool.clone()),
+    )
     .with_payment_provider(billing_provider)
     .with_billing_webhook_idempotency_repository(PostgresBillingWebhookIdempotencyRepository::new(
         pool.clone(),

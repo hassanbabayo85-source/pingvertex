@@ -72,6 +72,11 @@ pub struct AppState {
     pub subscription_repository: Arc<dyn SubscriptionRepository>,
     pub payment_provider: Arc<dyn PaymentProvider>,
     pub checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
+    /// Task 6 — server-side plan prices. Defaults to Noop (returns None).
+    pub plan_price_repository: Arc<dyn application::ports::PlanPriceRepository>,
+    /// Task 6 — append-only subscription billing records (idempotency).
+    pub subscription_billing_record_repository:
+        Arc<dyn application::ports::SubscriptionBillingRecordRepository>,
     pub billing_webhook_secret: Option<Arc<str>>,
     pub billing_webhook_idempotency_repository: Arc<dyn BillingWebhookIdempotencyRepository>,
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
@@ -578,6 +583,57 @@ impl PaymentProvider for NoopPaymentProvider {
 
     async fn verify_payment(&self, _provider_checkout_id: &str) -> RepoResult<PaymentVerification> {
         Err(std::io::Error::other("billing provider is not configured").into())
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopPlanPriceRepository;
+
+#[async_trait]
+impl application::ports::PlanPriceRepository for NoopPlanPriceRepository {
+    async fn find_effective(
+        &self,
+        _plan_tier: domain::PlanTier,
+        _currency: domain::money::Currency,
+        _billing_interval: domain::money::BillingInterval,
+    ) -> application::ports::PlanPriceRepoResult<Option<domain::entities::PlanPrice>> {
+        Ok(None)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSubscriptionBillingRecordRepository;
+
+#[async_trait]
+impl application::ports::SubscriptionBillingRecordRepository
+    for NoopSubscriptionBillingRecordRepository
+{
+    async fn try_insert(
+        &self,
+        _record: &application::ports::SubscriptionBillingRecord,
+    ) -> application::ports::subscription_billing_record_repository::RepoResult<
+        application::ports::InsertBillingRecordOutcome,
+    > {
+        Err("subscription billing record repository is not configured".into())
+    }
+
+    async fn mark_succeeded(
+        &self,
+        _provider: &str,
+        _provider_reference: &str,
+        _provider_payment_id: &str,
+    ) -> application::ports::subscription_billing_record_repository::RepoResult<bool> {
+        Ok(false)
+    }
+
+    async fn find_by_provider_reference(
+        &self,
+        _provider: &str,
+        _provider_reference: &str,
+    ) -> application::ports::subscription_billing_record_repository::RepoResult<
+        Option<application::ports::SubscriptionBillingRecord>,
+    > {
+        Ok(None)
     }
 }
 
@@ -1567,6 +1623,10 @@ impl AppState {
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             payment_provider: Arc::new(NoopPaymentProvider),
             checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
+            plan_price_repository: Arc::new(NoopPlanPriceRepository),
+            subscription_billing_record_repository: Arc::new(
+                NoopSubscriptionBillingRecordRepository,
+            ),
             billing_webhook_secret: None,
             billing_webhook_idempotency_repository: Arc::new(
                 NoopBillingWebhookIdempotencyRepository,
@@ -1674,6 +1734,10 @@ impl AppState {
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             payment_provider: Arc::new(NoopPaymentProvider),
             checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
+            plan_price_repository: Arc::new(NoopPlanPriceRepository),
+            subscription_billing_record_repository: Arc::new(
+                NoopSubscriptionBillingRecordRepository,
+            ),
             billing_webhook_secret: None,
             billing_webhook_idempotency_repository: Arc::new(
                 NoopBillingWebhookIdempotencyRepository,
@@ -1779,6 +1843,22 @@ impl AppState {
         R: CheckoutSessionRepository + 'static,
     {
         self.checkout_session_repository = Arc::new(checkout_session_repository);
+        self
+    }
+
+    pub fn with_plan_price_repository<R>(mut self, repository: R) -> Self
+    where
+        R: application::ports::PlanPriceRepository + 'static,
+    {
+        self.plan_price_repository = Arc::new(repository);
+        self
+    }
+
+    pub fn with_subscription_billing_record_repository<R>(mut self, repository: R) -> Self
+    where
+        R: application::ports::SubscriptionBillingRecordRepository + 'static,
+    {
+        self.subscription_billing_record_repository = Arc::new(repository);
         self
     }
 
