@@ -11,8 +11,7 @@ use infra::{
     PostgresBulkMonitorImportRepository, PostgresCheckRepository,
     PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
     PostgresHistoryRetentionRepository, PostgresIncidentRepository,
-    PostgresMaintenanceWindowRepository, PostgresMonitorIntervalPolicyRepository,
-    PostgresMonitorRepository, PostgresNotificationChannelRepository,
+    PostgresMaintenanceWindowRepository,     PostgresMonitorRepository, PostgresNotificationChannelRepository,
     PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
     PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
@@ -147,10 +146,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         monitor_repository.clone(),
         Arc::new(PostgresTenantMembershipRepository::new(pool.clone())),
         Arc::new(PostgresAuditLogEntryRepository::new(pool.clone())),
-        wallet_repository.clone(),
-        Arc::new(PostgresMonitorIntervalPolicyRepository::new(pool.clone())),
         tenant_repository.clone(),
-        pricing_config_repository.clone(),
+        std::sync::Arc::new(infra::PostgresEntitlementResolver::new(pool.clone())),
     );
     let bulk_import_cancel = cancel_token.clone();
     tokio::spawn(async move {
@@ -313,7 +310,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository, metering.clone());
+    // TASK 5 — metering is now optional on ProxyCheckWorker. Keep it
+    // wired during the migration so one-time proxy jobs continue to
+    // charge PAYG; TASK 8 will decide whether to remove it permanently.
+    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository)
+        .with_metering(metering.clone());
     let proxy_check_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy_check_worker.run_forever(proxy_check_cancel).await {

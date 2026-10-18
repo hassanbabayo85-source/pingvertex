@@ -17,19 +17,28 @@ const PROXY_JOB_MAX_RETRIES: u32 = 3;
 #[derive(Clone)]
 pub struct ProxyCheckWorker {
     repository: Arc<dyn ProxyCheckJobRepository>,
-    metering: Arc<MeterUsageUseCase>,
+    metering: Option<Arc<MeterUsageUseCase>>,
     worker_id: String,
 }
 impl ProxyCheckWorker {
-    pub fn new(
-        repository: Arc<dyn ProxyCheckJobRepository>,
-        metering: Arc<MeterUsageUseCase>,
-    ) -> Self {
+    /// TASK 5 — the worker no longer requires a `MeterUsageUseCase`.
+    /// By default it runs proxy checks without PAYG metering, so wallet
+    /// balance can no longer authorize (or reject) a check. Call
+    /// `.with_metering(...)` to re-enable PAYG metering during the
+    /// transition; TASK 8 will decide whether to keep this at all.
+    pub fn new(repository: Arc<dyn ProxyCheckJobRepository>) -> Self {
         Self {
             repository,
-            metering,
+            metering: None,
             worker_id: Uuid::new_v4().to_string(),
         }
+    }
+
+    /// Opts the worker back into PAYG metering for this run. Kept for
+    /// the Task 8 transition window; not required for correctness.
+    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
+        self.metering = Some(metering);
+        self
     }
 
     pub async fn run_once(&self) -> Result<()> {
@@ -121,26 +130,11 @@ impl ProxyCheckWorker {
             // proxy job from being charged once for many entries and keeps
             // retries idempotent per logical proxy attempt.
             //
-            // Escape hatch: when PROXY_CHECK_BILLING_DISABLED=true we hand
-            // `None` to the executor, which makes it run every entry
-            // through check_single_entry without touching the PAYG layer.
-            // This is intended for development / diagnostics only — a
-            // production deployment must never set it.
-            let billing_disabled =
-                std::env::var("PROXY_CHECK_BILLING_DISABLED").as_deref() == Ok("true");
-
-            if billing_disabled {
-                tracing::warn!(
-                    job_id = %job_id,
-                    "PROXY_CHECK_BILLING_DISABLED=true — running proxy checks WITHOUT PAYG metering"
-                );
-            }
-
-            let metering_opt = if billing_disabled {
-                None
-            } else {
-                Some(self.metering.clone())
-            };
+            // TASK 5 — metering is now optional (`self.metering: Option`).
+            // The default is `None`, so proxy checks run without touching
+            // the PAYG layer. `.with_metering(...)` opts back in for
+            // development or for the Task 8 transition window.
+            let metering_opt = self.metering.clone();
 
             let result = run_proxy_check_job(
                 &*self.repository,
