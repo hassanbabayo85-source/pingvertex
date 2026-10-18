@@ -1,8 +1,17 @@
-use chrono::Utc;
-use domain::{TenantMembership, shared::types::AuthenticatedUser};
+use std::sync::Arc;
 
+use chrono::Utc;
+use domain::{
+    TenantMembership,
+    entities::MAX_TEAM_MEMBERS,
+    shared::types::AuthenticatedUser,
+};
+
+use crate::errors::PlanLimitError;
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::ports::{
-    PasswordHasher, TenantInvitationRepository, TenantMembershipRepository, UserRepository,
+    EntitlementResolver, PasswordHasher, TenantInvitationRepository, TenantMembershipRepository,
+    UserRepository,
 };
 use crate::use_cases::{
     invitation_common::InvitationError, invitation_support::invitation_token_prefix,
@@ -17,11 +26,26 @@ use crate::use_cases::{
 /// - The authenticated user's email MUST match the invitation email.
 /// - The granted role is exactly the invited role — never more.
 /// - The invitation is single-use: `mark_accepted` only succeeds once.
+///
+/// TASK 4A — `max_team_members` quota:
+/// - When `entitlement_resolver` is wired, membership creation goes
+///   through `TenantMembershipRepository::save_if_within_quota`, which
+///   is atomic (`pg_advisory_xact_lock` + `COUNT` + `INSERT` inside one
+///   transaction). Concurrent acceptances across different tenants
+///   and different invitations are serialized per tenant.
+/// - If the quota is exhausted, the acceptance is rejected with a
+///   `PlanLimitError` and **the invitation remains pending** — the
+///   invited user can retry after the admin removes a member.
+/// - On success, `mark_accepted` is called **after** the membership
+///   is persisted. If `mark_accepted` fails (rare race), the user is
+///   still a member (the slot was taken) and retrying the same token
+///   hits the `find_by_tenant_and_user` guard below with `Conflict`.
 pub struct AcceptInvitationUseCase<IR, MR, UR, H> {
     invitation_repository: IR,
     membership_repository: MR,
     user_repository: UR,
     password_hasher: H,
+    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
 }
 
 impl<IR, MR, UR, H> AcceptInvitationUseCase<IR, MR, UR, H>
@@ -42,7 +66,18 @@ where
             membership_repository,
             user_repository,
             password_hasher,
+            entitlement_resolver: None,
         }
+    }
+
+    /// TASK 4A — installs the authoritative `EntitlementResolver` and
+    /// turns on atomic quota enforcement at acceptance time.
+    pub fn with_entitlement_resolver(
+        mut self,
+        resolver: Arc<dyn EntitlementResolver>,
+    ) -> Self {
+        self.entitlement_resolver = Some(resolver);
+        self
     }
 
     pub async fn execute(
@@ -98,14 +133,6 @@ where
 
         let now = Utc::now();
 
-        // Single-use first, then persist the membership. If the insert
-        // fails after this point, the invitation is consumed rather than
-        // allowing duplicate redemption.
-        self.invitation_repository
-            .mark_accepted(invitation.id, now)
-            .await
-            .map_err(InvitationError::Internal)?;
-
         let membership = TenantMembership {
             tenant_id: invitation.tenant_id,
             user_id: actor.user_id(),
@@ -114,10 +141,61 @@ where
             joined_at: Some(now),
         };
 
-        self.membership_repository
-            .create(&membership)
+        // ── TASK 4A: atomic quota check + insert (if wired) ─────
+        //
+        // IMPORTANT: this happens BEFORE `mark_accepted`. If the quota
+        // is exhausted, the invitation remains pending — the user can
+        // retry later after the tenant frees up a slot.
+        if let Some(resolver) = &self.entitlement_resolver {
+            let entitlements = resolver
+                .resolve(invitation.tenant_id)
+                .await
+                .map_err(InvitationError::Internal)?;
+
+            match self
+                .membership_repository
+                .save_if_within_quota(
+                    &membership,
+                    invitation.tenant_id,
+                    entitlements.max_team_members,
+                )
+                .await
+                .map_err(InvitationError::Internal)?
+            {
+                QuotaCheckOutcome::Saved => {}
+                QuotaCheckOutcome::QuotaExceeded => {
+                    return Err(InvitationError::Internal(Box::new(PlanLimitError::new(
+                        MAX_TEAM_MEMBERS,
+                        u64::from(entitlements.max_team_members),
+                        u64::from(entitlements.max_team_members),
+                        "upgrade_plan",
+                    ))));
+                }
+            }
+        } else {
+            // Backward-compatible path: no resolver wired → plain
+            // create (pre-TASK-4A behaviour).
+            self.membership_repository
+                .create(&membership)
+                .await
+                .map_err(InvitationError::Internal)?;
+        }
+
+        // Mark the invitation consumed only after the membership exists.
+        if let Err(e) = self
+            .invitation_repository
+            .mark_accepted(invitation.id, now)
             .await
-            .map_err(InvitationError::Internal)?;
+        {
+            // Membership was already persisted; invitation stays
+            // pending but the user is a member. Not fatal — retrying
+            // the same token hits `find_by_tenant_and_user` above.
+            tracing::warn!(
+                error = %e,
+                invitation_id = %invitation.id.into_uuid(),
+                "failed to mark invitation accepted after membership creation"
+            );
+        }
 
         Ok(membership)
     }

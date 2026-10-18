@@ -6,7 +6,7 @@ use std::sync::Arc;
 use application::dto::CreateMonitorRequest;
 use application::use_cases::{CreateMonitorError, CreateMonitorUseCase};
 use domain::shared::ids::UserId;
-use domain::{HttpMethod, PlanTier, RegionCode};
+use domain::{HttpMethod, RegionCode};
 use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 
 use uuid::Uuid;
@@ -117,23 +117,7 @@ async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
 async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let repository = InMemoryMonitorRepository::new();
     let tenant_id = tenant_id();
-    let starter = domain::Entitlements {
-        plan_tier: PlanTier::Starter,
-        entitlement_version: 1,
-        max_uptime_monitors: 30,
-        min_uptime_interval_seconds: 60,
-        max_regions_per_monitor: 2,
-        max_heartbeat_monitors: 10,
-        max_api_flow_monitors: 2,
-        max_api_flow_steps: 5,
-        max_proxy_entries_per_job: 500,
-        max_concurrent_proxy_jobs: 1,
-        max_recurring_proxy_monitors: 0,
-        min_recurring_proxy_interval_seconds: 300,
-        max_recurring_proxy_executions_per_month: 0,
-        max_rum_sites: 1,
-        max_rum_events_per_month: 25_000,
-    };
+    let starter = domain::Entitlements::starter_v1_fixture();
     let resolver = Arc::new(
         InMemoryEntitlementResolver::default().with_override(tenant_id, starter),
     );

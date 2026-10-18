@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use std::{error::Error, sync::Arc};
 
 use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 use domain::{
     entities::ApiKey,
     shared::ids::{ApiKeyId, TenantId},
@@ -88,6 +89,28 @@ pub trait ApiKeyRepository: Send + Sync {
     async fn touch_last_used(&self, id: ApiKeyId, at: DateTime<Utc>) -> RepoResult<()> {
         Ok(())
     }
+
+    /// TASK 4A — tenant-scoped count for quota enforcement.
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        Ok(self.list_by_tenant(tenant_id).await?.len() as u64)
+    }
+
+    /// TASK 4A — atomic count-then-create under `limit`.
+    ///
+    /// Same non-atomic default caveat as `StatusPageRepository::save_if_within_quota`.
+    async fn save_if_within_quota(
+        &self,
+        api_key: &ApiKey,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let count = self.count_for_tenant(tenant_id).await?;
+        if count >= u64::from(limit) {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+        self.create(api_key).await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
 }
 
 #[async_trait]
@@ -129,5 +152,20 @@ where
 
     async fn touch_last_used(&self, id: ApiKeyId, at: DateTime<Utc>) -> RepoResult<()> {
         (**self).touch_last_used(id, at).await
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        (**self).count_for_tenant(tenant_id).await
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        api_key: &ApiKey,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        (**self)
+            .save_if_within_quota(api_key, tenant_id, limit)
+            .await
     }
 }

@@ -23,23 +23,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
     let tenant_a = TenantId::new();
     let tenant_b = TenantId::new();
 
-    let starter = Entitlements {
-        plan_tier: PlanTier::Starter,
-        entitlement_version: 1,
-        max_uptime_monitors: 30,
-        min_uptime_interval_seconds: 60,
-        max_regions_per_monitor: 2,
-        max_heartbeat_monitors: 10,
-        max_api_flow_monitors: 2,
-        max_api_flow_steps: 5,
-        max_proxy_entries_per_job: 500,
-        max_concurrent_proxy_jobs: 1,
-        max_recurring_proxy_monitors: 0,
-        min_recurring_proxy_interval_seconds: 300,
-        max_recurring_proxy_executions_per_month: 0,
-        max_rum_sites: 1,
-        max_rum_events_per_month: 25_000,
-    };
+    let starter = Entitlements::starter_v1_fixture();
 
     let resolver = InMemoryEntitlementResolver::default().with_override(tenant_a, starter);
 
@@ -56,23 +40,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
 async fn remove_override_falls_back_to_free() {
     let tenant = TenantId::new();
     let resolver = InMemoryEntitlementResolver::default();
-    let starter = Entitlements {
-        plan_tier: PlanTier::Starter,
-        entitlement_version: 1,
-        max_uptime_monitors: 30,
-        min_uptime_interval_seconds: 60,
-        max_regions_per_monitor: 2,
-        max_heartbeat_monitors: 10,
-        max_api_flow_monitors: 2,
-        max_api_flow_steps: 5,
-        max_proxy_entries_per_job: 500,
-        max_concurrent_proxy_jobs: 1,
-        max_recurring_proxy_monitors: 0,
-        min_recurring_proxy_interval_seconds: 300,
-        max_recurring_proxy_executions_per_month: 0,
-        max_rum_sites: 1,
-        max_rum_events_per_month: 25_000,
-    };
+    let starter = Entitlements::starter_v1_fixture();
 
     resolver.set_override(tenant, starter);
     assert_eq!(

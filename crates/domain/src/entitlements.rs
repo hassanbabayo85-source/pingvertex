@@ -15,10 +15,12 @@
 // `pub use`-re-exported from `crate::entities`. Import them at that
 // level rather than reaching into the private module.
 use crate::entities::{
-    PlanEntitlement, MAX_API_FLOW_MONITORS, MAX_API_FLOW_STEPS, MAX_CONCURRENT_PROXY_JOBS,
-    MAX_HEARTBEAT_MONITORS, MAX_PROXY_ENTRIES_PER_JOB, MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH,
-    MAX_RECURRING_PROXY_MONITORS, MAX_REGIONS_PER_MONITOR, MAX_RUM_EVENTS_PER_MONTH, MAX_RUM_SITES,
-    MAX_UPTIME_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS, MIN_UPTIME_INTERVAL_SECONDS,
+    PlanEntitlement, MAX_API_FLOW_MONITORS, MAX_API_FLOW_STEPS, MAX_API_KEYS,
+    MAX_CONCURRENT_PROXY_JOBS, MAX_HEARTBEAT_MONITORS, MAX_PROXY_ENTRIES_PER_JOB,
+    MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH, MAX_RECURRING_PROXY_MONITORS,
+    MAX_REGIONS_PER_MONITOR, MAX_RUM_EVENTS_PER_MONTH, MAX_RUM_SITES, MAX_STATUS_PAGES,
+    MAX_TEAM_MEMBERS, MAX_UPTIME_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS,
+    MIN_UPTIME_INTERVAL_SECONDS,
 };
 use crate::enums::PlanTier;
 
@@ -72,6 +74,11 @@ pub struct Entitlements {
     // ── Real User Monitoring ───────────────────────────────────────
     pub max_rum_sites: u32,
     pub max_rum_events_per_month: u64,
+
+    // ── Tenant-scoped resource entitlements (TASK 4A) ──────────────
+    pub max_status_pages: u32,
+    pub max_api_keys: u32,
+    pub max_team_members: u32,
 }
 
 impl Entitlements {
@@ -188,6 +195,9 @@ impl Entitlements {
                 u64,
                 max_rum_events_per_month
             ),
+            max_status_pages: get!(MAX_STATUS_PAGES, u32, max_status_pages),
+            max_api_keys: get!(MAX_API_KEYS, u32, max_api_keys),
+            max_team_members: get!(MAX_TEAM_MEMBERS, u32, max_team_members),
         })
     }
 
@@ -195,14 +205,9 @@ impl Entitlements {
         matches!(self.plan_tier, PlanTier::Free)
     }
 
-    /// Testing-only convenience: returns a `Free` snapshot matching the
-    /// v1 seed from migration 0125. Production code MUST always go
-    /// through `PostgresEntitlementResolver`, never this.
-    ///
-    /// Exists so unit tests that exercise the resolver contract can
-    /// construct a valid `Free` snapshot without hardcoding every field
-    /// in every test file, and without being able to diverge from
-    /// production by accident.
+    /// v1 fixtures for every tier, matching migration 0125 (15 keys) plus
+    /// migration 0127 (3 new keys). Test-only.
+
     #[doc(hidden)]
     pub fn free_v1_fixture() -> Self {
         Self {
@@ -221,6 +226,105 @@ impl Entitlements {
             max_recurring_proxy_executions_per_month: 0,
             max_rum_sites: 0,
             max_rum_events_per_month: 0,
+            max_status_pages: 1,
+            max_api_keys: 1,
+            max_team_members: 1,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn starter_v1_fixture() -> Self {
+        Self {
+            plan_tier: PlanTier::Starter,
+            entitlement_version: 1,
+            max_uptime_monitors: 30,
+            min_uptime_interval_seconds: 60,
+            max_regions_per_monitor: 2,
+            max_heartbeat_monitors: 10,
+            max_api_flow_monitors: 2,
+            max_api_flow_steps: 5,
+            max_proxy_entries_per_job: 500,
+            max_concurrent_proxy_jobs: 1,
+            max_recurring_proxy_monitors: 0,
+            min_recurring_proxy_interval_seconds: 300,
+            max_recurring_proxy_executions_per_month: 0,
+            max_rum_sites: 1,
+            max_rum_events_per_month: 25_000,
+            max_status_pages: 2,
+            max_api_keys: 3,
+            max_team_members: 3,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn pro_v1_fixture() -> Self {
+        Self {
+            plan_tier: PlanTier::Pro,
+            entitlement_version: 1,
+            max_uptime_monitors: 80,
+            min_uptime_interval_seconds: 60,
+            max_regions_per_monitor: 3,
+            max_heartbeat_monitors: 30,
+            max_api_flow_monitors: 10,
+            max_api_flow_steps: 10,
+            max_proxy_entries_per_job: 2_000,
+            max_concurrent_proxy_jobs: 2,
+            max_recurring_proxy_monitors: 5,
+            min_recurring_proxy_interval_seconds: 300,
+            max_recurring_proxy_executions_per_month: 43_200,
+            max_rum_sites: 3,
+            max_rum_events_per_month: 100_000,
+            max_status_pages: 5,
+            max_api_keys: 10,
+            max_team_members: 10,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn business_v1_fixture() -> Self {
+        Self {
+            plan_tier: PlanTier::Business,
+            entitlement_version: 1,
+            max_uptime_monitors: 100,
+            min_uptime_interval_seconds: 30,
+            max_regions_per_monitor: 3,
+            max_heartbeat_monitors: 50,
+            max_api_flow_monitors: 30,
+            max_api_flow_steps: 15,
+            max_proxy_entries_per_job: 5_000,
+            max_concurrent_proxy_jobs: 3,
+            max_recurring_proxy_monitors: 10,
+            min_recurring_proxy_interval_seconds: 300,
+            max_recurring_proxy_executions_per_month: 86_400,
+            max_rum_sites: 10,
+            max_rum_events_per_month: 500_000,
+            max_status_pages: 15,
+            max_api_keys: 30,
+            max_team_members: 25,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn enterprise_v1_fixture() -> Self {
+        Self {
+            plan_tier: PlanTier::Enterprise,
+            entitlement_version: 1,
+            max_uptime_monitors: 1_000,
+            min_uptime_interval_seconds: 30,
+            max_regions_per_monitor: 10,
+            max_heartbeat_monitors: 500,
+            max_api_flow_monitors: 100,
+            max_api_flow_steps: 50,
+            max_proxy_entries_per_job: 20_000,
+            max_concurrent_proxy_jobs: 10,
+            max_recurring_proxy_monitors: 100,
+            min_recurring_proxy_interval_seconds: 300,
+            max_recurring_proxy_executions_per_month: 500_000,
+            max_rum_sites: 50,
+            max_rum_events_per_month: 5_000_000,
+            max_status_pages: 50,
+            max_api_keys: 100,
+            max_team_members: 100,
         }
     }
 }
@@ -255,6 +359,9 @@ mod tests {
             row(MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH, 0, 1),
             row(MAX_RUM_SITES, 0, 1),
             row(MAX_RUM_EVENTS_PER_MONTH, 0, 1),
+            row(MAX_STATUS_PAGES, 1, 1),
+            row(MAX_API_KEYS, 1, 1),
+            row(MAX_TEAM_MEMBERS, 1, 1),
         ]
     }
 
@@ -266,6 +373,9 @@ mod tests {
         assert_eq!(e.max_uptime_monitors, 20);
         assert_eq!(e.min_uptime_interval_seconds, 300);
         assert_eq!(e.max_recurring_proxy_monitors, 0);
+        assert_eq!(e.max_status_pages, 1);
+        assert_eq!(e.max_api_keys, 1);
+        assert_eq!(e.max_team_members, 1);
         assert!(e.is_free());
     }
 

@@ -2,6 +2,7 @@ use std::error::Error;
 
 use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::StatusPageRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use async_trait::async_trait;
 use domain::entities::{CreateStatusPage, CustomDomainVerification, StatusPage};
 use domain::shared::ids::{MonitorId, StatusPageId, TenantId, UserId};
@@ -411,6 +412,72 @@ impl StatusPageRepository for PostgresStatusPageRepository {
     /// No index backs this yet: a GIN index on `monitor_ids` would make this
     /// an index scan instead of a sequential scan, but adding one requires a
     /// new migration, so it is flagged here rather than silently skipped.
+    async fn save_if_within_quota(
+        &self,
+        status_page: &StatusPage,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("status_pages:{}", tenant_id.0))
+            .execute(&mut *tx)
+            .await?;
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM status_pages WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if count as u32 >= limit {
+            // Drop `tx` without commit — implicit rollback releases the lock.
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        let row = StatusPageRow::from_domain(status_page)?;
+        sqlx::query(
+            r#"
+            INSERT INTO status_pages (
+                id, user_id, tenant_id, name, subdomain,
+                custom_domain, custom_domain_token, custom_domain_requested_at,
+                custom_domain_verified_at, logo_url, primary_color, monitor_ids,
+                created_at, updated_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            "#,
+        )
+        .bind(row.id)
+        .bind(row.user_id)
+        .bind(row.tenant_id)
+        .bind(row.name)
+        .bind(row.subdomain)
+        .bind(row.custom_domain)
+        .bind(row.custom_domain_token)
+        .bind(row.custom_domain_requested_at)
+        .bind(row.custom_domain_verified_at)
+        .bind(row.logo_url)
+        .bind(row.primary_color)
+        .bind(row.monitor_ids)
+        .bind(row.created_at)
+        .bind(row.updated_at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM status_pages WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn find_all_referencing_monitor(
         &self,
         monitor_id: MonitorId,

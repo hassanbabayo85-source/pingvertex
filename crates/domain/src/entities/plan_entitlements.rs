@@ -31,6 +31,9 @@ pub const MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH: &str =
     "max_recurring_proxy_executions_per_month";
 pub const MAX_RUM_SITES: &str = "max_rum_sites";
 pub const MAX_RUM_EVENTS_PER_MONTH: &str = "max_rum_events_per_month";
+pub const MAX_STATUS_PAGES: &str = "max_status_pages";
+pub const MAX_API_KEYS: &str = "max_api_keys";
+pub const MAX_TEAM_MEMBERS: &str = "max_team_members";
 
 // ─── Entity ─────────────────────────────────────────────────────────
 
