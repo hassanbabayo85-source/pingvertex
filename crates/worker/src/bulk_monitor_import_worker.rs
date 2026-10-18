@@ -7,16 +7,14 @@ use std::{
 use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
     ports::{
-        AuditLogEntryRepository, BulkMonitorImportRepository, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository, TenantMembershipRepository, TenantRepository,
-        WalletRepository,
+        AuditLogEntryRepository, BulkMonitorImportRepository, EntitlementResolver,
+        MonitorRepository, TenantMembershipRepository, TenantRepository,
     },
     use_cases::{CreateMonitorError, CreateMonitorUseCase},
 };
 use chrono::{Duration as ChronoDuration, Utc};
 use domain::{
     TenantStatus,
-    enums::PlanTier,
     shared::{
         ids::{MonitorId, TenantId, UserId},
         types::{AuthenticatedUser, Permission, TenantContext},
@@ -32,10 +30,9 @@ pub struct BulkMonitorImportWorker {
     monitors: Arc<dyn MonitorRepository>,
     memberships: Arc<dyn TenantMembershipRepository>,
     audits: Arc<dyn AuditLogEntryRepository>,
-    wallets: Arc<dyn WalletRepository>,
-    interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
     tenant_repository: Arc<dyn TenantRepository>,
-    pricing_config_repository: Arc<dyn PricingConfigRepository>,
+    /// TASK 5 — authoritative subscription entitlement source.
+    entitlement_resolver: Arc<dyn EntitlementResolver>,
     worker_id: Uuid,
     poll_interval: Duration,
     lease_duration: Duration,
@@ -53,20 +50,16 @@ impl BulkMonitorImportWorker {
         monitors: Arc<dyn MonitorRepository>,
         memberships: Arc<dyn TenantMembershipRepository>,
         audits: Arc<dyn AuditLogEntryRepository>,
-        wallets: Arc<dyn WalletRepository>,
-        interval_policies: Arc<dyn MonitorIntervalPolicyRepository>,
         tenant_repository: Arc<dyn TenantRepository>,
-        pricing_config_repository: Arc<dyn PricingConfigRepository>,
+        entitlement_resolver: Arc<dyn EntitlementResolver>,
     ) -> Self {
         Self {
             jobs,
             monitors,
             memberships,
             audits,
-            wallets,
-            interval_policies,
             tenant_repository,
-            pricing_config_repository,
+            entitlement_resolver,
             worker_id: Uuid::new_v4(),
             poll_interval: Duration::from_secs(env_u64("BULK_IMPORT_POLL_SECONDS", 2, 1, 60)),
             lease_duration: Duration::from_secs(env_u64("BULK_IMPORT_LEASE_SECONDS", 60, 15, 600)),
@@ -246,16 +239,14 @@ impl BulkMonitorImportWorker {
             let can_create = membership.as_ref().is_some_and(|membership| {
                 membership.role.has_permission(Permission::CreateMonitor)
             });
-            let entitlement = self.resolve_entitlement_policy(tenant_id).await?;
-            let monitor_count = self.monitors.count_for_tenant(tenant_id).await? as u32;
-            let wallet_activated = self
-                .wallets
-                .find(tenant_id.0)
-                .await?
-                .is_some_and(|wallet| wallet.payg_activated_at.is_some());
-            let free_entitled = entitlement.is_free_plan
-                && !wallet_activated
-                && monitor_count <= entitlement.plan.max_monitors;
+            // TASK 5 — resolve subscription entitlements instead of
+            // wallet/pricing-config. The atomic quota is enforced by
+            // `CreateMonitorUseCase::execute_with_monitor_id` calling
+            // `save_if_within_quota`; the interval floor check below
+            // is a soft preflight that emits `skip_row` (better UX
+            // than `fail_row`) for the common "interval too short"
+            // case.
+            let entitlements = self.resolve_entitlements(tenant_id).await?;
 
             for (index, row) in rows.into_iter().enumerate() {
                 if index % self.pause_check_rows == 0 {
@@ -334,15 +325,13 @@ impl BulkMonitorImportWorker {
                         }
                     };
 
-                if free_entitled
-                    && payload.interval_seconds < entitlement.plan.min_check_interval_seconds
-                {
+                if payload.interval_seconds < entitlements.min_uptime_interval_seconds {
                     self.jobs
                         .skip_row(
                             row.id,
                             &format!(
-                                "free entitlement requires an interval of at least {} seconds",
-                                entitlement.plan.min_check_interval_seconds
+                                "subscription requires an interval of at least {} seconds",
+                                entitlements.min_uptime_interval_seconds
                             ),
                         )
                         .await?;
@@ -363,9 +352,7 @@ impl BulkMonitorImportWorker {
                     UuidIdGenerator::new(),
                     self.audits.clone(),
                 )
-                .with_wallet_repository(self.wallets.clone())
-                .with_interval_policy_repository(self.interval_policies.clone())
-                .with_pricing_config_repository(self.pricing_config_repository.clone())
+                .with_entitlement_resolver(self.entitlement_resolver.clone())
                 .with_tenant_repository(self.tenant_repository.clone());
 
                 match create
@@ -436,34 +423,12 @@ impl BulkMonitorImportWorker {
     }
 }
 
-struct TenantEntitlementPolicy {
-    plan: domain::Plan,
-    is_free_plan: bool,
-}
-
 impl BulkMonitorImportWorker {
-    async fn resolve_entitlement_policy(
+    async fn resolve_entitlements(
         &self,
         tenant_id: TenantId,
-    ) -> Result<TenantEntitlementPolicy, Box<dyn Error + Send + Sync>> {
-        let config = self
-            .pricing_config_repository
-            .find_active_config()
-            .await?
-            .ok_or_else(|| "active PAYG pricing config missing".to_owned())?;
-        let mut plan = domain::Plan::for_tier(PlanTier::Free);
-        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
-        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
-        plan.history_retention_days = config.free_tier.retention_days;
-        let wallet_activated = self
-            .wallets
-            .find(tenant_id.0)
-            .await?
-            .is_some_and(|wallet| wallet.payg_activated_at.is_some());
-        Ok(TenantEntitlementPolicy {
-            plan,
-            is_free_plan: !wallet_activated,
-        })
+    ) -> Result<domain::Entitlements, Box<dyn Error + Send + Sync>> {
+        self.entitlement_resolver.resolve(tenant_id).await
     }
 }
 
