@@ -18,7 +18,7 @@ use uuid::Uuid;
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 const MONITOR_COLUMNS: &str = "id, user_id, tenant_id, regions, name, url, method, expected_status, \
-    interval_seconds, timeout_seconds, enabled, is_public, ssl_check_enabled, \
+    interval_seconds, timeout_seconds, enabled, entitlement_suspended, is_public, ssl_check_enabled, \
     ssl_expiry_warning_days, kind, tcp_port, dns_record_type, dns_expected_value, \
     heartbeat_token, heartbeat_interval_seconds, heartbeat_grace_period_seconds, \
     last_heartbeat_at, created_at, updated_at";
@@ -51,6 +51,7 @@ struct MonitorRow {
     interval_seconds: i32,
     timeout_seconds: i32,
     enabled: bool,
+    entitlement_suspended: bool,
     is_public: bool,
     ssl_check_enabled: bool,
     ssl_expiry_warning_days: i32,
@@ -119,6 +120,7 @@ impl MonitorRow {
             timeout_seconds: i32::try_from(i64::from(monitor.timeout_seconds))
                 .expect("timeout_seconds exceeds i32 capacity"),
             enabled: monitor.enabled,
+            entitlement_suspended: monitor.entitlement_suspended,
             is_public: monitor.is_public,
             ssl_check_enabled: monitor.ssl_check_enabled,
             ssl_expiry_warning_days: i32::try_from(i64::from(monitor.ssl_expiry_warning_days))
@@ -172,6 +174,7 @@ impl MonitorRow {
             interval_seconds: self.interval_seconds.try_into()?,
             timeout_seconds: self.timeout_seconds.try_into()?,
             enabled: self.enabled,
+            entitlement_suspended: self.entitlement_suspended,
             is_public: self.is_public,
             ssl_check_enabled: self.ssl_check_enabled,
             ssl_expiry_warning_days: self.ssl_expiry_warning_days.try_into()?,
@@ -350,6 +353,7 @@ impl PostgresMonitorRepository {
                 interval_seconds,
                 timeout_seconds,
                 enabled,
+                entitlement_suspended,
                 ssl_check_enabled,
                 ssl_expiry_warning_days,
                 kind,
@@ -363,7 +367,7 @@ impl PostgresMonitorRepository {
                 created_at,
                 updated_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
             ON CONFLICT (id) DO UPDATE SET
                 user_id = EXCLUDED.user_id,
                 tenant_id = EXCLUDED.tenant_id,
@@ -375,6 +379,7 @@ impl PostgresMonitorRepository {
                 interval_seconds = EXCLUDED.interval_seconds,
                 timeout_seconds = EXCLUDED.timeout_seconds,
                 enabled = EXCLUDED.enabled,
+                entitlement_suspended = EXCLUDED.entitlement_suspended,
                 ssl_check_enabled = EXCLUDED.ssl_check_enabled,
                 ssl_expiry_warning_days = EXCLUDED.ssl_expiry_warning_days,
                 kind = EXCLUDED.kind,
@@ -399,6 +404,7 @@ impl PostgresMonitorRepository {
         .bind(row.interval_seconds)
         .bind(row.timeout_seconds)
         .bind(row.enabled)
+        .bind(row.entitlement_suspended)
         .bind(row.ssl_check_enabled)
         .bind(row.ssl_expiry_warning_days)
         .bind(row.kind)
@@ -1149,6 +1155,29 @@ impl MonitorRepository for PostgresMonitorRepository {
         };
         tx.commit().await?;
         Ok(count as u64)
+    }
+
+    async fn set_entitlement_suspended_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        monitor_ids: &[MonitorId],
+        suspended: bool,
+    ) -> RepoResult<u64> {
+        if monitor_ids.is_empty() {
+            return Ok(0);
+        }
+        let ids: Vec<Uuid> = monitor_ids.iter().map(|id| id.0).collect();
+        let result = sqlx::query(
+            "UPDATE monitors \
+             SET entitlement_suspended = $3, updated_at = now() \
+             WHERE tenant_id = $1 AND id = ANY($2)",
+        )
+        .bind(tenant_id.0)
+        .bind(&ids)
+        .bind(suspended)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     async fn set_billing_block(

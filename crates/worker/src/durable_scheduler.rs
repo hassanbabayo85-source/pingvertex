@@ -7,13 +7,12 @@ use std::{
 use rand::{Rng, rng};
 
 use application::ports::{
-    MonitorRepository, PricingConfigRepository, SchedulingRepository, TenantRepository,
-    WalletRepository,
+    EntitlementResolver, MonitorRepository, SchedulingRepository, TenantRepository,
 };
 use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use async_trait::async_trait;
 use chrono::Utc;
-use domain::{Monitor, TenantStatus, enums::PlanTier};
+use domain::{Monitor, TenantStatus};
 use tokio::{sync::Mutex, task::JoinSet};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -143,8 +142,9 @@ pub struct DurableScheduler<R, E> {
     execution_retry_base: Duration,
     tenant_repository: Option<Arc<dyn TenantRepository>>,
     monitor_repository: Option<Arc<dyn MonitorRepository>>,
-    wallet_repository: Option<Arc<dyn WalletRepository>>,
-    pricing_config_repository: Option<Arc<dyn PricingConfigRepository>>,
+    /// TASK 5 — resolves the tenant's subscription entitlements. When
+    /// absent, the scheduler fails safe (skips monitor checks).
+    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
     max_concurrency_per_tenant: usize,
     due_claim_limit_per_tenant: usize,
     deterministic_spread_seconds: u64,
@@ -202,8 +202,7 @@ where
             ),
             tenant_repository: None,
             monitor_repository: None,
-            wallet_repository: None,
-            pricing_config_repository: None,
+            entitlement_resolver: None,
             max_concurrency_per_tenant: 4,
             due_claim_limit_per_tenant: 4,
             deterministic_spread_seconds: 5,
@@ -222,20 +221,21 @@ where
     pub fn with_tenant_repository(
         mut self,
         tenant_repository: Arc<dyn TenantRepository>,
-        pricing_config_repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         self.tenant_repository = Some(tenant_repository);
-        self.pricing_config_repository = Some(pricing_config_repository);
         self
     }
 
+    /// TASK 5 — installs the monitor repository used for the
+    /// over-entitlement check, and the subscription entitlement resolver
+    /// that replaces the old wallet/PAYG gate.
     pub fn with_entitlement_repositories(
         mut self,
         monitor_repository: Arc<dyn MonitorRepository>,
-        wallet_repository: Arc<dyn WalletRepository>,
+        entitlement_resolver: Arc<dyn EntitlementResolver>,
     ) -> Self {
         self.monitor_repository = Some(monitor_repository);
-        self.wallet_repository = Some(wallet_repository);
+        self.entitlement_resolver = Some(entitlement_resolver);
         self
     }
 
@@ -262,36 +262,30 @@ where
         self
     }
 
-    async fn resolve_free_entitlement(
+    /// TASK 5 — resolves the tenant's subscription entitlements.
+    ///
+    /// Returns `Ok(None)` when the resolver is not wired (fail-safe: the
+    /// caller skips the execution rather than running unmetered forever).
+    /// A resolver error is logged and also returns `Ok(None)` for the
+    /// same fail-safe reason.
+    async fn resolve_entitlements(
         &self,
         tenant_id: domain::TenantId,
-    ) -> Result<Option<domain::Plan>> {
-        let (Some(monitor_repository), Some(wallet_repository), Some(pricing_config_repository)) = (
-            &self.monitor_repository,
-            &self.wallet_repository,
-            &self.pricing_config_repository,
-        ) else {
+    ) -> Result<Option<domain::Entitlements>> {
+        let Some(resolver) = &self.entitlement_resolver else {
             return Ok(None);
         };
-
-        let wallet_activated = wallet_repository
-            .find(tenant_id.0)
-            .await?
-            .is_some_and(|wallet| wallet.payg_activated_at.is_some());
-        if wallet_activated {
-            return Ok(None);
+        match resolver.resolve(tenant_id).await {
+            Ok(entitlements) => Ok(Some(entitlements)),
+            Err(err) => {
+                warn!(
+                    tenant_id = %tenant_id.0,
+                    error = %err,
+                    "failed to resolve entitlements; scheduler will skip due monitors for this tenant"
+                );
+                Ok(None)
+            }
         }
-
-        let Some(config) = pricing_config_repository.find_active_config().await? else {
-            return Ok(None);
-        };
-        let mut plan = domain::Plan::for_tier(PlanTier::Free);
-        plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
-        plan.min_check_interval_seconds = config.free_tier.interval_seconds;
-        plan.history_retention_days = config.free_tier.retention_days;
-
-        let monitor_count = monitor_repository.count_for_tenant(tenant_id).await? as u32;
-        Ok((monitor_count <= plan.max_monitors).then_some(plan))
     }
 
     pub async fn run(self) -> Result<()> {
@@ -592,7 +586,6 @@ where
                     metrics::histogram!("scheduler_lag_seconds").record(lag);
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
-                    let metering = self.metering.clone();
                     let execution_limiter = self.execution_limiter.clone();
                     let execution_min_interval = self.execution_min_interval;
                     let execution_retry_limit = self.execution_retry_limit;
@@ -629,32 +622,68 @@ where
                         continue;
                     }
 
-                    let free_plan = self
-                        .resolve_free_entitlement(claim.monitor.tenant_id)
+                    // TASK 5 — resolve subscription entitlements (replaces
+                    // the old wallet/PAYG gate).
+                    let entitlements = self
+                        .resolve_entitlements(claim.monitor.tenant_id)
                         .await
                         .unwrap_or_else(|error| {
                             warn!(
                                 monitor_id = %claim.monitor.id.0,
                                 error = %error,
-                                "failed to resolve scheduler entitlement; using PAYG path"
+                                "failed to resolve scheduler entitlement; skipping execution"
                             );
                             None
                         });
-                    let account_type = tenant_status
-                        .as_ref()
-                        .map(|(_, account_type)| *account_type);
+
+                    // Defense in depth: if the tenant currently has more
+                    // monitors than the plan allows, skip this claim now.
+                    // (Reconciliation should already have suspended it.)
+                    if let (Some(ent), Some(mon_repo)) =
+                        (&entitlements, &self.monitor_repository)
+                    {
+                        let total = mon_repo
+                            .count_for_tenant(claim.monitor.tenant_id)
+                            .await
+                            .unwrap_or(0);
+                        if total > u64::from(ent.max_uptime_monitors) {
+                            metrics::counter!(
+                                "checks_skipped_total",
+                                "reason" => "over_entitlement"
+                            )
+                            .increment(1);
+                            metrics::counter!("scheduler_entitlement_skips_total").increment(1);
+                            scheduling_repository
+                                .complete_claim_with_spread(
+                                    claim.monitor.id,
+                                    lease_owner,
+                                    deterministic_spread_seconds,
+                                )
+                                .await?;
+                            continue;
+                        }
+                    }
+
                     let monitor = claim.monitor;
 
                     tasks.spawn(async move {
-                        let request_id =
+                        let _request_id =
                             format!("monitor-check:{}:{}", monitor.id.0, claim.execution_id);
-                        let result = if let Some(plan) = free_plan {
-                            if monitor.interval_seconds < plan.min_check_interval_seconds {
-                                metrics::counter!("scheduler_entitlement_skips_total").increment(1);
-                                metrics::counter!("payg_scheduler_entitlement_skips_total")
+                        // TASK 5 — wallet no longer authorizes monitor
+                        // execution. The DB claim filter excludes suspended
+                        // monitors, so if we're here the monitor is
+                        // entitled to run. Usage metering is omitted from
+                        // this path; TASK 8 decides whether to re-introduce
+                        // analytics-only recording.
+                        let result: Result<()> = if let Some(ent) = entitlements {
+                            if monitor.interval_seconds < ent.min_uptime_interval_seconds {
+                                metrics::counter!("scheduler_entitlement_skips_total")
                                     .increment(1);
-                                metrics::counter!("checks_skipped_total", "reason" => "free_entitlement")
-                                    .increment(1);
+                                metrics::counter!(
+                                    "checks_skipped_total",
+                                    "reason" => "interval_below_plan"
+                                )
+                                .increment(1);
                                 if let Err(err) = scheduling_repository
                                     .complete_claim_with_spread(
                                         monitor.id,
@@ -666,13 +695,16 @@ where
                                     error!(
                                         monitor_id = %monitor.id.0,
                                         error = %err,
-                                        "failed to release entitlement-skipped claim"
+                                        "failed to release interval-skipped claim"
                                     );
                                 }
                                 return Ok::<(), Box<dyn Error + Send + Sync>>(());
                             }
-                            metrics::counter!("checks_free_total", "kind" => domain::monitor_operation(monitor.kind, false).as_str())
-                                .increment(1);
+                            metrics::counter!(
+                                "checks_executed_total",
+                                "kind" => domain::monitor_operation(monitor.kind, false).as_str()
+                            )
+                            .increment(1);
                             match execute_with_controls(
                                 executor.clone(),
                                 monitor.clone(),
@@ -686,101 +718,25 @@ where
                             {
                                 Ok(outcome) => {
                                     if outcome.error.is_some() {
-                                        metrics::counter!("checks_failed_total", "kind" => "monitor")
-                                            .increment(1);
-                                    }
-                                    Ok(())
-                                }
-                                Err(error) => Err(error),
-                            }
-                        } else if let Some(metering) = metering {
-                            match metering
-                                .execute_classified_attempt(
-                                    MeterUsageInput {
-                                        tenant_id: monitor.tenant_id.0,
-                                        operation: domain::monitor_operation(monitor.kind, false)
-                                            .as_str()
-                                            .to_owned(),
-                                        units: if matches!(monitor.kind, domain::MonitorKind::Flow) {
-                                            domain::entities::api_flow::MAX_STEPS as i64
-                                        } else {
-                                            1
-                                        },
-                                        request_id: request_id.clone(),
-                                        monitor_id: Some(monitor.id.0),
-                                        execution_id: Some(claim.execution_id),
-                                        pricing_context: Some(application::ports::PricingContext {
-                                            monitor_kind: Some(monitor.kind),
-                                            region: monitor.regions.first().cloned(),
-                                            quantity: 1,
-                                            account_type,
-                                        }),
-                                    },
-                                    || {
-                                        let executor = executor.clone();
-                                        let monitor = monitor.clone();
-                                        async move {
-                                            execute_with_controls(
-                                                executor.clone(),
-                                                monitor.clone(),
-                                                execution_limiter.clone(),
-                                                execution_min_interval,
-                                                execution_retry_limit,
-                                                execution_retry_base,
-                                                jitter,
-                                            )
-                                            .await
-                                            .map(
-                                                |outcome| MeteredAttempt {
-                                                    attempted: outcome.attempted,
-                                                    error: outcome.error,
-                                                    egress_bytes: outcome.egress_bytes,
-                                                    actual_units: outcome.steps_executed,
-                                                },
-                                            )
-                                        }
-                                    },
-                                )
-                                .await
-                            {
-                                Ok((charge_result, attempt)) => {
-                                    if charge_result.transaction.is_some() {
-                                        metrics::counter!("checks_charged_total", "kind" => "monitor")
-                                            .increment(1);
-                                    }
-                                    bill_network_egress(
-                                        metering.as_ref(),
-                                        monitor.tenant_id.0,
-                                        monitor.id.0,
-                                        claim.execution_id,
-                                        monitor.kind,
-                                        monitor.regions.first().cloned(),
-                                        account_type,
-                                        attempt.egress_bytes,
-                                        format!(
-                                            "monitor-egress:{}:{}",
-                                            monitor.id.0, claim.execution_id
-                                        ),
-                                    )
-                                    .await;
-                                    Ok(())
-                                },
-                                Err(application::ChargeForUsageError::OperationNotAttempted(
-                                    reason,
-                                )) => {
-                                    metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
+                                        metrics::counter!(
+                                            "checks_failed_total",
+                                            "kind" => "monitor"
+                                        )
                                         .increment(1);
-                                    warn!(
-                                        monitor_id = %monitor.id.0,
-                                        reason = %reason,
-                                        "monitor execution did not reach a billable attempt"
-                                    );
+                                    }
                                     Ok(())
                                 }
-                                Err(err) => Err(Box::new(err) as Box<dyn Error + Send + Sync>),
+                                Err(err) => Err(err),
                             }
                         } else {
-                            Err("PAYG metering is not configured".into())
+                            // Resolver not wired OR resolution failed —
+                            // fail safe by skipping.
+                            metrics::counter!(
+                                "checks_skipped_total",
+                                "reason" => "no_entitlement_resolver"
+                            )
+                            .increment(1);
+                            Ok(())
                         };
 
                         if let Err(err) = &result {

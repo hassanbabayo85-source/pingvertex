@@ -54,6 +54,13 @@ pub struct Monitor {
     pub interval_seconds: u32,
     pub timeout_seconds: u32,
     pub enabled: bool,
+    /// TASK 5 — backend-set flag indicating that the current subscription
+    /// does not permit this monitor. Scheduling must skip a suspended
+    /// monitor, but `enabled` (the customer's own choice) is never
+    /// modified by this field's lifecycle. Cleared automatically when
+    /// the tenant's entitlement again permits the monitor.
+    #[serde(default)]
+    pub entitlement_suspended: bool,
     /// Whether this monitor is exposed on the unauthenticated public status
     /// page. Defaults to `false` — an owner must explicitly opt in.
     pub is_public: bool,
@@ -210,6 +217,7 @@ impl Monitor {
             interval_seconds: input.interval_seconds,
             timeout_seconds: input.timeout_seconds,
             enabled: true,
+            entitlement_suspended: false,
             is_public: false,
             regions,
             ssl_check_enabled: true,
@@ -369,6 +377,22 @@ impl Monitor {
     pub fn disable(&mut self) {
         self.enabled = false;
         self.updated_at = Utc::now();
+    }
+
+    /// TASK 5 — backend flag: suspended because the current
+    /// subscription does not permit this monitor. Never touched by
+    /// user-facing enable/disable actions (`enable`/`disable` above).
+    pub fn set_entitlement_suspended(&mut self, suspended: bool) {
+        self.entitlement_suspended = suspended;
+        self.updated_at = Utc::now();
+    }
+
+    /// TASK 5 — the state actually used by schedulers and workers.
+    /// Both the customer's choice (`enabled`) and the backend's
+    /// entitlement decision (`!entitlement_suspended`) must be true
+    /// for the monitor to run.
+    pub fn is_effectively_enabled(&self) -> bool {
+        self.enabled && !self.entitlement_suspended
     }
 
     /// Records a heartbeat ping, updating `last_heartbeat_at` to now.

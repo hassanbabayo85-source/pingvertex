@@ -254,6 +254,31 @@ impl MonitorRepository for InMemoryMonitorRepository {
         Ok(changed)
     }
 
+    async fn set_entitlement_suspended_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        monitor_ids: &[MonitorId],
+        suspended: bool,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        if monitor_ids.is_empty() {
+            return Ok(0);
+        }
+        let ids = monitor_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let mut monitors = self.monitors.write().unwrap();
+        let mut changed = 0u64;
+        for monitor in monitors.values_mut() {
+            if monitor.tenant_id != tenant_id || !ids.contains(&monitor.id) {
+                continue;
+            }
+            if monitor.entitlement_suspended != suspended {
+                monitor.entitlement_suspended = suspended;
+                monitor.updated_at = chrono::Utc::now();
+                changed += 1;
+            }
+        }
+        Ok(changed)
+    }
+
     async fn set_billing_block(
         &self,
         monitor_id: MonitorId,
