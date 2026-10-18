@@ -325,7 +325,7 @@ impl PostgresMonitorRepository {
     /// check, inside the same transaction so the check and the write are
     /// atomic together.
     ///
-    /// NOTE (observed, not touched — out of B13's scope): this INSERT's
+    /// NOTE (observed, not touched — out of the scope): this INSERT's
     /// column list does not include `is_public`, even though `MonitorRow`
     /// carries it and `MONITOR_COLUMNS`/`SELECT` reads it back. That
     /// predates this worker and is unrelated to quota atomicity; flagging
@@ -567,7 +567,7 @@ impl MonitorRepository for PostgresMonitorRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<Monitor>> {
-        // PART 8 — cursor pagination at the SQL layer. We fetch
+        // Cursor pagination at the SQL layer. We fetch
         // `limit + 1` rows ("peek one ahead") to determine whether a next
         // page exists without a second COUNT query, then drop the extra
         // row before returning.
@@ -883,9 +883,9 @@ impl MonitorRepository for PostgresMonitorRepository {
     }
 
     async fn find_public(&self) -> RepoResult<Vec<Monitor>> {
-        // Yana dawo da monitors da `is_public = true` KAWAI. Ba mu bukatar
-        // assertions a nan domin sabis din public baya bukatar bayanan cikin
-        // gida na assertion rules.
+        // Returns ONLY monitors with `is_public = true`. Assertions are not
+        // needed here because the public service does not expose internal
+        // assertion rules.
         let query = format!(
             "SELECT {MONITOR_COLUMNS} FROM monitors WHERE is_public = true ORDER BY created_at DESC"
         );

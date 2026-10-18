@@ -43,7 +43,7 @@ pub trait ApiKeyRepository: Send + Sync {
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<ApiKey>>;
 
-    /// PART 8 — cursor-paginated variant of `list_by_tenant`.
+    /// Cursor-paginated variant of `list_by_tenant`.
     ///
     /// Default impl paginates in memory (correct for `InMemoryApiKeyRepository`).
     /// `PostgresApiKeyRepository` overrides it with SQL-level `LIMIT` so

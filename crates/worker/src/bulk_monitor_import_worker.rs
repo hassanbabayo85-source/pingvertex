@@ -471,10 +471,13 @@ fn is_permanent(error: &CreateMonitorError) -> bool {
     matches!(
         error,
         CreateMonitorError::Forbidden
-            | CreateMonitorError::QuotaExceeded { .. }
+            | CreateMonitorError::PlanLimitExceeded(_)
             | CreateMonitorError::TooManyAssertions { .. }
-            | CreateMonitorError::IntervalBelowPlanMinimum { .. }
             | CreateMonitorError::TenantSuspended
+            // A missing resolver is a deployment bug, not a transient
+            // error. Retrying will never fix it — fail the job and let
+            // operators see the log.
+            | CreateMonitorError::EntitlementResolverMissing
     )
 }
 

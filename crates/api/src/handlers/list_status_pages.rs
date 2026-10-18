@@ -21,7 +21,7 @@ use crate::{
 ///
 /// `GET /api/v1/status-pages?limit=50&cursor=<opaque>`
 ///
-/// Response body is a JSON array (unchanged from before PART 8, so
+/// Response body is a JSON array (unchanged, so
 /// existing clients keep working). When more pages exist, an
 /// `X-Next-Cursor` response header carries the opaque cursor to pass
 /// back via `?cursor=`. Absence of the header = "last page".

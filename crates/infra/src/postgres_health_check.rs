@@ -2,7 +2,7 @@ use application::ports::{HealthCheckPort, HealthCheckResult};
 use async_trait::async_trait;
 use sqlx::PgPool;
 
-/// B34: Postgres-backed `HealthCheckPort` used by the readiness endpoint
+/// Postgres-backed `HealthCheckPort` used by the readiness endpoint
 /// (`GET /ready`) to confirm the API can actually reach its database,
 /// as opposed to `GET /health` (liveness), which intentionally has zero
 /// dependencies and only proves the process itself is up.

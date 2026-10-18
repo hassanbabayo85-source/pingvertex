@@ -62,9 +62,9 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
     async fn save(&self, report: &DiagnosticReport) -> RepoResult<()> {
         let row = DiagnosticReportRow::from_domain(report);
 
-        // Kowanne check yana da diagnostic report guda daya kadai (duba
-        // unique index a migration 0015). Idan aka sake kokarin ajiyewa
-        // domin wannan check_id, mu sabunta maimakon mu gaza.
+        // Each check has exactly one diagnostic report (see the unique index
+        // in migration 0015). If a save is retried for the same check_id, we
+        // update instead of failing.
         sqlx::query(
             r#"
             INSERT INTO diagnostic_reports (
@@ -114,7 +114,7 @@ impl DiagnosticReportRepository for PostgresDiagnosticReportRepository {
         Ok(row.map(DiagnosticReportRow::into_domain))
     }
 
-    /// B35: single-batch load for a page of checks. Replaces the default
+    /// Single-batch load for a page of checks. Replaces the default
     /// one-query-per-check loop and removes the N+1 hit on
     /// `GET /api/v1/checks` and `GET /api/v1/monitors/{id}/checks`.
     async fn find_by_check_ids(

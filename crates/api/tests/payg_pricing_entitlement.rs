@@ -1,4 +1,4 @@
-//! Task 2 acceptance test: `GET /payg/pricing` exposes the tenant's
+//! Acceptance test: `GET /payg/pricing` exposes the tenant's
 //! current free-tier entitlement so the frontend never hardcodes it.
 //!
 //! Seeds a custom `PricingConfig` (with free-tier values different from
@@ -6,7 +6,7 @@
 //! calls the handler directly, and asserts that the response's
 //! `free_tier` block reflects the seeded DB values verbatim.
 //!
-//! Before Task 2, the frontend pages `pricing.rs` and `billing.rs`
+//! Previously, the frontend pages `pricing.rs` and `billing.rs`
 //! hardcoded "10 monitors at a 5-minute minimum interval", so a change to
 //! the DB free-tier config could not change what the UI showed.
 

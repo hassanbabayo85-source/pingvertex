@@ -108,8 +108,8 @@ fn pv2_chart_icon() -> impl IntoView {
     }
 }
 
-/// Sunan alama "PingVertex" + tagline, ana amfani dashi a kan sassa uku
-/// (login, forgot password, create account) domin daidaito na gani.
+/// The "PingVertex" brand name plus tagline, shared across all three screens
+/// (login, forgot password, create account) for visual consistency.
 fn pv2_brand_header() -> impl IntoView {
     view! {
         <div class="pv2-logo-row">
@@ -127,8 +127,8 @@ fn pv2_brand_header() -> impl IntoView {
     }
 }
 
-/// Zanen kwamfutoci/duniya + jerin fasali huɗu a kasan katin, iri ɗaya a
-/// kan sassa uku domin shafukan su yi daidai da juna.
+/// The device/globe illustration plus the four-feature list at the foot of
+/// the card, identical across all three screens so the pages stay consistent.
 #[allow(dead_code)]
 fn pv2_illustration_footer() -> impl IntoView {
     view! {

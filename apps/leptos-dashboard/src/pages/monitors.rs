@@ -41,7 +41,7 @@ pub fn MonitorsPage() -> impl IntoView {
     let refresh_in_flight = RwSignal::new(false);
     let navigate_new = navigate.clone();
 
-    // URL ɗin da ke zuwa daga dashboard metric cards (misali /monitors?status=up)
+    // The URL arriving from the dashboard metric cards (e.g. /monitors?status=up)
     let query = use_query_map();
     Effect::new(move |_| {
         let url_status = query

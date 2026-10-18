@@ -66,14 +66,14 @@ impl Incident {
         self.resolved_at.is_none()
     }
 
-    /// Yana amincewa da incident. Yana sanya `acknowledged_at` da `acknowledged_by`.
+    /// Acknowledges the incident. Sets `acknowledged_at` and `acknowledged_by`.
     pub fn acknowledge(&mut self, user_id: UserId, now: DateTime<Utc>) {
         self.acknowledged_at = Some(now);
         self.acknowledged_by = Some(user_id);
         self.updated_at = now;
     }
 
-    /// Yana sanya alamar cewa incident ɗin ya faru a lokacin maintenance window.
+    /// Marks the incident as having occurred during a maintenance window.
     pub fn mark_occurred_during_maintenance(&mut self) {
         self.occurred_during_maintenance = true;
     }

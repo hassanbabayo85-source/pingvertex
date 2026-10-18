@@ -1,4 +1,4 @@
-//! PART 4 — Financial concurrency tests.
+//! Financial concurrency tests.
 //!
 //! Five invariants that must hold under concurrent load:
 //!
@@ -44,17 +44,17 @@ async fn setup_tenant_wallet(
     let user_id = UserId::new();
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
-         VALUES ($1, $2, 'not-a-real-hash', 'PART4 Concurrency', NOW(), NOW())
+         VALUES ($1, $2, 'not-a-real-hash', 'Concurrency Test', NOW(), NOW())
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(user_id.0)
-    .bind(format!("{}@part4-concurrency.test", user_id.0))
+    .bind(format!("{}@concurrency.test", user_id.0))
     .execute(pool)
     .await
     .expect("insert test user");
 
     let tenant_repo = PostgresTenantRepository::new(pool.clone());
-    let tenant = domain::Tenant::new(TenantId::new(), "PART4 Concurrency Tenant", user_id).unwrap();
+    let tenant = domain::Tenant::new(TenantId::new(), "Concurrency Test Tenant", user_id).unwrap();
     tenant_repo.create(&tenant).await.unwrap();
 
     let wallet = Arc::new(PostgresWalletRepository::new(pool.clone()));
@@ -93,7 +93,7 @@ async fn double_capture_debits_wallet_once() {
             1_000,
             1,
             "USD",
-            &format!("part4-cap-{}", Uuid::new_v4()),
+            &format!("cap-{}", Uuid::new_v4()),
             Utc::now() + Duration::minutes(15),
         )
         .await
@@ -151,7 +151,7 @@ async fn double_top_up_credits_wallet_once() {
     };
     let (tenant_id, wallet) = setup_tenant_wallet(&pool, 0).await;
 
-    let key = format!("part4-topup-{}", Uuid::new_v4());
+    let key = format!("topup-{}", Uuid::new_v4());
 
     let mut tasks = JoinSet::new();
     for _ in 0..4 {
@@ -310,7 +310,7 @@ async fn concurrent_wallet_reservations_cannot_overspend() {
     let mut tasks = JoinSet::new();
     for i in 0..4 {
         let w = wallet.clone();
-        let request_id = format!("part4-overspend-{}-{}", i, Uuid::new_v4());
+        let request_id = format!("overspend-{}-{}", i, Uuid::new_v4());
         tasks.spawn(async move {
             w.reserve(
                 tenant_id,
@@ -355,7 +355,7 @@ async fn concurrent_wallet_reservations_cannot_overspend() {
 }
 
 // ===========================================================================
-// PART 14 — adversarial concurrency + financial invariant tests
+// Adversarial concurrency + financial invariant tests
 // ===========================================================================
 
 /// 100 concurrent beacons with the SAME request_id: exactly one
@@ -368,7 +368,7 @@ async fn hundred_concurrent_same_request_id_debits_exactly_once() {
     };
     let (tenant_id, wallet) = setup_tenant_wallet(&pool, 1_000).await;
 
-    let shared_request_id = format!("part14-hundred-same-{}", Uuid::new_v4());
+    let shared_request_id = format!("hundred-same-{}", Uuid::new_v4());
     const N: usize = 100;
     const AMOUNT: i64 = 10;
 
@@ -464,7 +464,7 @@ async fn hundred_concurrent_distinct_request_ids_against_same_wallet() {
     let mut tasks = JoinSet::new();
     for i in 0..N {
         let w = wallet.clone();
-        let req = format!("part14-hundred-distinct-{}-{}", i, Uuid::new_v4());
+        let req = format!("hundred-distinct-{}-{}", i, Uuid::new_v4());
         tasks.spawn(async move {
             let outcome = w
                 .reserve(
@@ -538,7 +538,7 @@ async fn simultaneous_refund_and_top_up_both_apply_once() {
     };
     wallet.create_top_up_session(&session).await.unwrap();
     wallet
-        .complete_top_up_session(tenant_id, &checkout_id, "provider-pay-part14")
+        .complete_top_up_session(tenant_id, &checkout_id, "provider-pay-ref")
         .await
         .unwrap();
     wallet
@@ -546,7 +546,7 @@ async fn simultaneous_refund_and_top_up_both_apply_once() {
             tenant_id,
             seed_top_up,
             WalletTransactionType::TopUp,
-            &format!("topup:provider-pay-part14:{}", Uuid::new_v4()),
+            &format!("topup:provider-pay-ref:{}", Uuid::new_v4()),
             Some("seed top-up"),
         )
         .await
@@ -560,12 +560,12 @@ async fn simultaneous_refund_and_top_up_both_apply_once() {
     let refund_amount = 2_000_i64;
     let new_top_up_amount = 3_000_i64;
     let refund_id = format!("refund-{}", Uuid::new_v4());
-    let new_top_up_key = format!("part14-newtopup-{}", Uuid::new_v4());
+    let new_top_up_key = format!("newtopup-{}", Uuid::new_v4());
 
     let wallet_r = wallet.clone();
     let refund_task = tokio::spawn(async move {
         wallet_r
-            .record_verified_refund(tenant_id, "provider-pay-part14", refund_amount, &refund_id)
+            .record_verified_refund(tenant_id, "provider-pay-ref", refund_amount, &refund_id)
             .await
     });
     let wallet_t = wallet.clone();
@@ -624,7 +624,7 @@ async fn simultaneous_refund_and_top_up_both_apply_once() {
 /// Financial invariant under a mixed workload:
 ///   initial + credits - captures - refunds - adjustments == current
 ///
-/// This is the explicit test for the PART 14 SECURITY INVARIANT. The
+/// This is the explicit test for the SECURITY INVARIANT. The
 /// reconciliation worker checks the same identity at runtime; this test
 /// proves it holds across every operation kind on a fresh wallet.
 #[tokio::test]

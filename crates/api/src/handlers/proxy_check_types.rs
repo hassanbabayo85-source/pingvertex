@@ -79,9 +79,8 @@ pub struct ProxyCheckResultsHttpResponse {
     pub offset: u32,
 }
 
-
 // ---------------------------------------------------------------------------
-// PART 2 — Preview endpoint HTTP types
+// Preview endpoint HTTP types
 // ---------------------------------------------------------------------------
 
 /// Response returned by `POST /api/v1/proxy-checks/preview`. Purely a

@@ -1,4 +1,4 @@
-//! PART 7 — Debug redaction regression tests (application DTOs).
+//! Debug redaction regression tests (application DTOs).
 //!
 //! Every DTO that carries a password, JWT, TOTP code, backup code,
 //! reset token, or OAuth id_token must render `[REDACTED]` for those

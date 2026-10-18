@@ -16,7 +16,7 @@ use crate::{error::ApiError, state::AppState, validation::parse_monitor_id};
 
 /// Full incident response exposed to the authenticated API.
 ///
-/// Includes the B23 tracking fields:
+/// Includes the tracking fields:
 /// - `started_at` as `first_seen`
 /// - `last_seen_at`
 /// - `duration_ms` (open: started_at → now, resolved: started_at → resolved_at)

@@ -11,7 +11,7 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// Persistence port for `Tenant`.
 ///
 /// Deliberately limited to create/read plus `list_all` for background
-/// workers like B22. There is still no `update` or `delete` here because
+/// background workers. There is still no `update` or `delete` here because
 /// tenant deletion is a much larger lifecycle operation.
 #[async_trait]
 pub trait TenantRepository: Send + Sync {

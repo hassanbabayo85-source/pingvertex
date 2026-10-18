@@ -274,7 +274,7 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<StatusPage>> {
-        // PART 8 — SQL-level cursor pagination; see
+        // SQL-level cursor pagination; see
         // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
         // full explanation of the `peek one ahead` technique and the
         // keyset predicate.
@@ -405,14 +405,12 @@ impl StatusPageRepository for PostgresStatusPageRepository {
         rows.into_iter().map(StatusPageRow::into_domain).collect()
     }
 
-    /// B34: uses the JSONB containment operator (`@>`) against
+    /// Uses the JSONB containment operator (`@>`) against
     /// `monitor_ids` — e.g. `monitor_ids @> '["<uuid>"]'` — to find every
     /// status page (across all tenants) that references `monitor_id`.
-    /// No index backs this yet (see this worker's HANDOVER.md "Known
-    /// Issues"): a GIN index on `monitor_ids` would make this an index
-    /// scan instead of a sequential scan, but adding one requires a new
-    /// migration this worker did not create — flagged, not silently
-    /// skipped.
+    /// No index backs this yet: a GIN index on `monitor_ids` would make this
+    /// an index scan instead of a sequential scan, but adding one requires a
+    /// new migration, so it is flagged here rather than silently skipped.
     async fn find_all_referencing_monitor(
         &self,
         monitor_id: MonitorId,

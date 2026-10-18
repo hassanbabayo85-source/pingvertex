@@ -18,7 +18,7 @@ pub trait AddOnSubscriptionRepository: Send + Sync {
     ) -> RepoResult<Vec<AddOnSubscription>>;
     async fn update(&self, a: &AddOnSubscription) -> RepoResult<()>;
 
-    /// PART 8 — cursor-paginated variant of `list_active_by_tenant`.
+    /// Cursor-paginated variant of `list_active_by_tenant`.
     async fn list_active_by_tenant_paginated(
         &self,
         tenant_id: TenantId,
@@ -30,7 +30,7 @@ pub trait AddOnSubscriptionRepository: Send + Sync {
         }))
     }
 
-    /// PART 8 — cursor-paginated variant of `list_by_tenant_and_type`.
+    /// Cursor-paginated variant of `list_by_tenant_and_type`.
     async fn list_by_tenant_and_type_paginated(
         &self,
         tenant_id: TenantId,

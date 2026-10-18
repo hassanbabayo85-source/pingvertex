@@ -22,7 +22,7 @@ use crate::{
     routes::{
         admin, api_flows, api_keys, audit, auth, billing, checks, dashboard, health, help,
         internal_agents, invitations, members, monitors, notifications, pricing, proxy_checks,
-        public, rum_dashboard, status_pages, subscription, support, wallet,
+        public, recurring_proxy_monitors, rum_dashboard, status_pages, subscription, support, wallet,
     },
     state::AppState,
 };
@@ -154,6 +154,17 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
                 .burst_size(3)
                 .finish()
                 .expect("valid proxy check rate-limit configuration"),
+        ))
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
+    let recurring_proxy_monitor_routes = recurring_proxy_monitors::router()
+        .layer(GovernorLayer::new(
+            GovernorConfigBuilder::default()
+                .per_millisecond(17)
+                .burst_size(10)
+                .finish()
+                .expect("valid recurring proxy monitor rate-limit configuration"),
         ))
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -448,6 +459,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
         .nest("/api/v1", proxy_check_routes)
+        .nest("/api/v1", recurring_proxy_monitor_routes)
         .nest("/api/v1", status_page_routes)
         .nest("/api/v1", rum_dashboard_routes)
         .nest("/api/v1", custom_domain_routes)
@@ -488,7 +500,7 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 }
 
 pub fn build_internal_agent_router(app_state: AppState) -> Router {
-    // PART 5 — agent_auth now needs `State<AppState>` (the agent
+    // `agent_auth` now needs `State<AppState>` (the agent
     // registry lives there), so it is wired via `from_fn_with_state`.
     let internal_agent_routes = internal_agents::router()
         .layer(GovernorLayer::new(
@@ -556,6 +568,10 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
+    let recurring_proxy_monitor_routes = recurring_proxy_monitors::router()
+        .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
+        .with_state(app_state.clone());
+
     let status_page_routes = status_pages::router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -614,15 +630,13 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
-    // NOTE (H10): deliberately still NO `GovernorLayer` here, consistent
+    // NOTE: deliberately still NO `GovernorLayer` here, consistent
     // with every other route in `build_test_router` — this test router
     // exists precisely so the E2E suite ISN'T subject to IP-based rate
     // limiting (which would make unrelated tests flaky/order-dependent
-    // under `oneshot()`). Isolated rate-limit coverage for pricing lives in
-    // `crates/api/tests/pricing_rate_limit.rs`, which uses the new
-    // `build_pricing_only_router_with_rate_limit` below instead of this
-    // function — mirroring how `build_auth_only_router_with_rate_limit`
-    // already does the same for `auth_routes`.
+    // under `oneshot()`). Isolated billing rate-limit coverage lives in
+    // `crates/api/tests/pricing_rate_limit.rs`, which uses the dedicated
+    // `build_billing_only_router_with_rate_limit` helper instead.
     let pricing_routes = pricing::router().with_state(app_state.clone());
 
     let help_routes = help::router().with_state(app_state.clone());
@@ -679,6 +693,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .nest("/api/v1", notification_test_routes)
         .nest("/api/v1", api_flow_routes)
         .nest("/api/v1", proxy_check_routes)
+        .nest("/api/v1", recurring_proxy_monitor_routes)
         .nest("/api/v1", status_page_routes)
         .nest("/api/v1", rum_dashboard_routes)
         .nest("/api/v1", custom_domain_routes)
@@ -732,34 +747,34 @@ pub fn build_auth_only_router_with_rate_limit(auth_state: AuthState) -> Router {
     Router::new().nest("/api/v1/auth", auth_routes)
 }
 
-/// H10: minimal router exposing ONLY `pricing_routes`, with the same
-/// production `GovernorLayer` wired onto it in `build_router` above,
+/// Minimal router exposing ONLY the billing routes with the same
+/// production `GovernorLayer` wired onto them in `build_router` above,
 /// for isolated E2E rate-limit testing.
 ///
-/// Mirrors `build_auth_only_router_with_rate_limit` immediately above it
-/// (same shape, same reason for existing): `build_test_router` deliberately
-/// omits `GovernorLayer` from every route group so the rest of the E2E
-/// suite isn't flaky/order-dependent under IP-based rate limiting, which
-/// means that shared harness structurally cannot be used to verify this
-/// behavior. This constructor exists solely so
-/// `crates/api/tests/pricing_rate_limit.rs` can exercise the real limiter
-/// end-to-end without affecting any other test.
-pub fn build_pricing_only_router_with_rate_limit(app_state: AppState) -> Router {
-    let pricing_routes = pricing::router()
+/// `build_test_router` deliberately omits `GovernorLayer` from route groups
+/// so the rest of the E2E suite is not flaky/order-dependent under
+/// IP-based rate limiting. This constructor allows the real production
+/// billing limiter to be tested end-to-end without affecting other tests.
+pub fn build_billing_only_router_with_rate_limit(
+    app_state: AppState,
+    auth_state: AuthState,
+) -> Router {
+    let billing_routes = billing::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
-                .per_second(2)
-                .burst_size(30)
+                .per_millisecond(17)
+                .burst_size(10)
                 .finish()
-                .expect("valid pricing rate-limit configuration"),
+                .expect("valid billing rate-limit configuration"),
         ))
+        .route_layer(from_fn_with_state(auth_state, jwt_auth))
         .with_state(app_state);
 
-    Router::new().nest("/api/v1", pricing_routes)
+    Router::new().nest("/api/v1", billing_routes)
 }
 
 // =====================================================================
-// PART 12 #7 — URI redaction for tracing spans
+// URI redaction for tracing spans
 // =====================================================================
 
 /// Custom `MakeSpan` for `TraceLayer` that redacts credential-bearing

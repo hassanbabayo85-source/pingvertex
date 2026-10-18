@@ -117,7 +117,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
     let pricing_units = RwSignal::new("2".to_owned());
     let pricing_reason = RwSignal::new(String::new());
 
-    // 🟡 MATAKI NA 3: Sabbin Signals domin Pricing da Usage
+    // Signals for pricing and usage.
     let active_pricing = RwSignal::new(None::<String>);
     let pricing_logs = RwSignal::new(None::<String>);
     let selected_company_usage = RwSignal::new(None::<(String, String)>);
@@ -143,7 +143,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
                     audit_to,
                 );
 
-                // 🟡 MATAKI NA 3: Ɗauko farashin da ke aiki da kuma audit logs
+                // Fetch the active pricing and the audit logs.
                 if let Ok(v) =
                     client::get_json::<serde_json::Value>("/admin/pricing/configs/active").await
                 {
@@ -160,7 +160,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
         }
     });
 
-    // 🟡 MATAKI NA 3: Function domin ɗauko amfanin kamfani (Company Usage)
+    // Fetch company usage.
     let fetch_company_usage = move |id: String, name: String| {
         spawn_local(async move {
             match client::get_json::<serde_json::Value>(&format!("/admin/companies/{}/usage", id))
@@ -191,7 +191,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
 
             {move || if allowed.get() {
                 view! {
-                    // 🟡 MATAKI NA 3: Nuna cikakken bayanin amfanin kamfani idan an zaɓa
+                    // Show the full company usage details when one is selected.
                     {move || selected_company_usage.get().map(|(name, usage_data)| {
                         view! {
                             <div class="card" style="margin-bottom: 2rem; border-left: 4px solid var(--primary-color);">
@@ -241,7 +241,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                             });
                                         };
 
-                                        // 🟡 MATAKI NA 3: Sanya sunan kamfani ya zama Clickable domin ganin Usage
+                                        // Make the company name clickable to view its usage.
                                         let usage_id = company.id.clone();
                                         let usage_name = company.name.clone();
                                         let on_company_click = move |e: leptos::ev::MouseEvent| {
@@ -283,7 +283,7 @@ pub fn PlatformAdminPage() -> impl IntoView {
                             </div>
                         </div>
 
-                        // 🟡 MATAKI NA 3: Nuna Active Pricing da Audit Logs kafin form ɗin
+                        // Show active pricing and audit logs above the form.
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                             <div>
                                 <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">"Active Pricing Configuration"</h3>

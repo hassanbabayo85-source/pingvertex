@@ -9,7 +9,7 @@ use sqlx::PgPool;
 
 type TxResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Postgres implementation of `SubscriptionUsageTransaction` (H12 —
+/// Postgres implementation of `SubscriptionUsageTransaction` (
 /// Proration Service).
 ///
 /// Closes the previously-open `subscription_usage_periods` row (if any),

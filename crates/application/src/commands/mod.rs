@@ -31,7 +31,7 @@ pub mod delete_api_key;
 pub use create_api_key::*;
 pub use delete_api_key::*;
 
-// B12 — Subscription Lifecycle:
+// Subscription Lifecycle:
 pub mod begin_grace_period;
 pub mod cancel_subscription;
 pub mod expire_subscription;
@@ -41,12 +41,12 @@ pub use cancel_subscription::*;
 pub use expire_subscription::*;
 pub use finalize_scheduled_cancellation::*;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod initiate_checkout;
 pub mod verify_checkout;
 pub use initiate_checkout::*;
 pub use verify_checkout::*;
 
-// B15 — Billing Webhooks:
+// Billing Webhooks:
 pub mod process_billing_webhook;
 pub use process_billing_webhook::*;

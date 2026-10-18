@@ -1,58 +1,22 @@
 mod common;
 use common::*;
 
+use std::sync::Arc;
+
 use application::dto::CreateMonitorRequest;
 use application::use_cases::{CreateMonitorError, CreateMonitorUseCase};
-use domain::HttpMethod;
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use domain::{HttpMethod, PlanTier, RegionCode};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 
 use uuid::Uuid;
 
-#[tokio::test]
-async fn create_monitor_persists_monitor() {
-    let repository = InMemoryMonitorRepository::new();
-    let use_case =
-        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
-    let user_id = UserId(Uuid::new_v4());
+// ── Helpers ─────────────────────────────────────────────────────────
 
-    let request = CreateMonitorRequest {
+fn req(name: impl Into<String>, interval_seconds: u32) -> CreateMonitorRequest {
+    CreateMonitorRequest {
         regions: Vec::new(),
-        name: "Google".into(),
-        url: "https://google.com".into(),
-        method: HttpMethod::Get,
-        expected_status: 200,
-        interval_seconds: 300,
-        timeout_seconds: 10,
-        assertions: vec![],
-        is_public: false,
-        ssl_check_enabled: true,
-        ssl_expiry_warning_days: 14,
-        kind: domain::MonitorKind::Http,
-        tcp_port: None,
-        dns_record_type: None,
-        dns_expected_value: None,
-        heartbeat_interval_seconds: None,
-        heartbeat_grace_period_seconds: None,
-    };
-
-    let monitor = use_case
-        .execute(request, auth_user(user_id, tenant_id()))
-        .await
-        .unwrap();
-    assert_eq!(monitor.name.as_str(), "Google");
-}
-
-#[tokio::test]
-async fn free_tier_enforces_300_second_minimum_and_10_monitor_quota() {
-    let repository = InMemoryMonitorRepository::new();
-    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo());
-    let user_id = UserId(Uuid::new_v4());
-    let tenant_id = tenant_id();
-
-    let request = |name: String, interval_seconds: u32| CreateMonitorRequest {
-        regions: Vec::new(),
-        name,
+        name: name.into(),
         url: "https://example.com".into(),
         method: HttpMethod::Get,
         expected_status: 200,
@@ -68,151 +32,176 @@ async fn free_tier_enforces_300_second_minimum_and_10_monitor_quota() {
         dns_expected_value: None,
         heartbeat_interval_seconds: None,
         heartbeat_grace_period_seconds: None,
-    };
+    }
+}
 
-    let below_minimum = use_case
-        .execute(
-            request("free-299".into(), 299),
-            auth_user(user_id, tenant_id),
-        )
-        .await;
-    assert!(matches!(
-        below_minimum,
-        Err(CreateMonitorError::IntervalBelowPlanMinimum { min: 300 })
-    ));
+fn resolver_default() -> Arc<InMemoryEntitlementResolver> {
+    Arc::new(InMemoryEntitlementResolver::default())
+}
 
-    for index in 0..10 {
+// ── Tests ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn create_monitor_persists_monitor() {
+    let repository = InMemoryMonitorRepository::new();
+    let use_case =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
+            .with_entitlement_resolver(resolver_default());
+
+    let user_id = UserId(Uuid::new_v4());
+    let monitor = use_case
+        .execute(req("Google", 300), auth_user(user_id, tenant_id()))
+        .await
+        .unwrap();
+    assert_eq!(monitor.name.as_str(), "Google");
+}
+
+#[tokio::test]
+async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
+    let repository = InMemoryMonitorRepository::new();
+    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
+        .with_entitlement_resolver(resolver_default());
+
+    let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
+
+    let err = use_case
+        .execute(req("free-299", 299), auth_user(user_id, tenant_id))
+        .await
+        .unwrap_err();
+
+    match err {
+        CreateMonitorError::PlanLimitExceeded(pl) => {
+            assert_eq!(pl.quota, "min_uptime_interval_seconds");
+            assert_eq!(pl.allowed, 300);
+            assert_eq!(pl.current, 299);
+            assert_eq!(pl.action, "upgrade_plan");
+            assert_eq!(pl.code(), "plan_limit_reached");
+        }
+        other => panic!("expected PlanLimitExceeded for interval, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
+    let repository = InMemoryMonitorRepository::new();
+    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
+        .with_entitlement_resolver(resolver_default());
+
+    let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
+
+    for i in 0..20 {
         use_case
-            .execute(
-                request(format!("free-{index}"), 300),
-                auth_user(user_id, tenant_id),
-            )
+            .execute(req(format!("free-{i}"), 300), auth_user(user_id, tenant_id))
             .await
-            .unwrap();
+            .unwrap_or_else(|e| panic!("create #{} should succeed: {e:?}", i));
     }
 
-    let over_quota = use_case
-        .execute(
-            request("free-11".into(), 300),
-            auth_user(user_id, tenant_id),
-        )
-        .await;
-    assert!(matches!(
-        over_quota,
-        Err(CreateMonitorError::QuotaExceeded { limit: 10 })
-    ));
+    let err = use_case
+        .execute(req("free-21", 300), auth_user(user_id, tenant_id))
+        .await
+        .unwrap_err();
+
+    match err {
+        CreateMonitorError::PlanLimitExceeded(pl) => {
+            assert_eq!(pl.quota, "max_uptime_monitors");
+            assert_eq!(pl.allowed, 20);
+            assert_eq!(pl.code(), "plan_limit_reached");
+        }
+        other => panic!("expected PlanLimitExceeded for count, got {other:?}"),
+    }
 }
 
 #[tokio::test]
-async fn funded_payg_wallet_has_no_product_monitor_ceiling_and_allows_fast_interval() {
-    use application::ports::WalletRepository;
-    use domain::WalletTransactionType;
-    use infra::InMemoryWalletRepository;
+async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let repository = InMemoryMonitorRepository::new();
-    let wallet = std::sync::Arc::new(InMemoryWalletRepository::default());
-    let tid = tenant_id();
-    wallet.get_or_create(tid.0, "USD").await.unwrap();
-    wallet
-        .credit(
-            tid.0,
-            5_000_000,
-            WalletTransactionType::TopUp,
-            "test-payg-fund",
-            Some("test"),
-        )
-        .await
-        .unwrap();
-    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_wallet_repository(wallet);
-    let uid = UserId(Uuid::new_v4());
-    let request = CreateMonitorRequest {
-        regions: Vec::new(),
-        name: "fast".into(),
-        url: "https://example.com".into(),
-        method: HttpMethod::Get,
-        expected_status: 200,
-        interval_seconds: 30,
-        timeout_seconds: 10,
-        assertions: vec![],
-        is_public: false,
-        ssl_check_enabled: true,
-        ssl_expiry_warning_days: 14,
-        kind: domain::MonitorKind::Http,
-        tcp_port: None,
-        dns_record_type: None,
-        dns_expected_value: None,
-        heartbeat_interval_seconds: None,
-        heartbeat_grace_period_seconds: None,
+    let tenant_id = tenant_id();
+    let starter = domain::Entitlements {
+        plan_tier: PlanTier::Starter,
+        entitlement_version: 1,
+        max_uptime_monitors: 30,
+        min_uptime_interval_seconds: 60,
+        max_regions_per_monitor: 2,
+        max_heartbeat_monitors: 10,
+        max_api_flow_monitors: 2,
+        max_api_flow_steps: 5,
+        max_proxy_entries_per_job: 500,
+        max_concurrent_proxy_jobs: 1,
+        max_recurring_proxy_monitors: 0,
+        min_recurring_proxy_interval_seconds: 300,
+        max_recurring_proxy_executions_per_month: 0,
+        max_rum_sites: 1,
+        max_rum_events_per_month: 25_000,
     };
+    let resolver = Arc::new(
+        InMemoryEntitlementResolver::default().with_override(tenant_id, starter),
+    );
+    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
+        .with_entitlement_resolver(resolver);
+
+    let user_id = UserId(Uuid::new_v4());
+
+    // 60s is allowed for Starter.
     use_case
-        .execute(request, auth_user(uid, tid))
+        .execute(req("starter-1", 60), auth_user(user_id, tenant_id))
         .await
         .unwrap();
+
+    // 59s is below the Starter floor.
+    let err = use_case
+        .execute(req("starter-2", 59), auth_user(user_id, tenant_id))
+        .await
+        .unwrap_err();
+    match err {
+        CreateMonitorError::PlanLimitExceeded(pl) => {
+            assert_eq!(pl.quota, "min_uptime_interval_seconds");
+            assert_eq!(pl.allowed, 60);
+            assert_eq!(pl.current, 59);
+        }
+        other => panic!("expected PlanLimitExceeded for interval, got {other:?}"),
+    }
 }
 
 #[tokio::test]
-async fn exhausted_payg_wallet_does_not_fall_back_to_free_entitlement() {
-    use application::ports::WalletRepository;
-    use domain::WalletTransactionType;
-    use infra::InMemoryWalletRepository;
-
+async fn free_tier_rejects_more_than_one_region() {
     let repository = InMemoryMonitorRepository::new();
-    let wallet = std::sync::Arc::new(InMemoryWalletRepository::default());
-    let tid = tenant_id();
-    wallet.get_or_create(tid.0, "USD").await.unwrap();
-    wallet
-        .credit(
-            tid.0,
-            2,
-            WalletTransactionType::TopUp,
-            "sticky-payg-fund",
-            None,
-        )
-        .await
-        .unwrap();
-    let reservation = wallet
-        .reserve(
-            tid.0,
-            2,
-            "http_check.monitoring",
-            2,
-            1,
-            "USD",
-            "sticky-payg-charge",
-            chrono::Utc::now() + chrono::Duration::minutes(1),
-        )
-        .await
-        .unwrap();
-    wallet
-        .capture(reservation.reservation.id, None, &[], None)
-        .await
-        .unwrap();
-
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_wallet_repository(wallet);
+        .with_entitlement_resolver(resolver_default());
 
-    let request = CreateMonitorRequest {
-        regions: Vec::new(),
-        name: "exhausted-payg".into(),
-        url: "https://example.com".into(),
-        method: HttpMethod::Get,
-        expected_status: 200,
-        interval_seconds: 30,
-        timeout_seconds: 10,
-        assertions: vec![],
-        is_public: false,
-        ssl_check_enabled: true,
-        ssl_expiry_warning_days: 14,
-        kind: domain::MonitorKind::Http,
-        tcp_port: None,
-        dns_record_type: None,
-        dns_expected_value: None,
-        heartbeat_interval_seconds: None,
-        heartbeat_grace_period_seconds: None,
-    };
+    let user_id = UserId(Uuid::new_v4());
+    let tenant_id = tenant_id();
 
-    use_case
-        .execute(request, auth_user(UserId(Uuid::new_v4()), tid))
+    let mut request = req("multi-region", 300);
+    request.regions = vec![
+        RegionCode::new("us-east").unwrap(),
+        RegionCode::new("eu-west").unwrap(),
+    ];
+
+    let err = use_case
+        .execute(request, auth_user(user_id, tenant_id))
         .await
-        .expect("an exhausted PAYG wallet remains PAYG; it must not fall back to Free");
+        .unwrap_err();
+    match err {
+        CreateMonitorError::PlanLimitExceeded(pl) => {
+            assert_eq!(pl.quota, "max_regions_per_monitor");
+            assert_eq!(pl.allowed, 1);
+            assert_eq!(pl.current, 2);
+        }
+        other => panic!("expected PlanLimitExceeded for regions, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn missing_entitlement_resolver_fails_closed() {
+    let repository = InMemoryMonitorRepository::new();
+    // Note: NO `.with_entitlement_resolver(...)` call.
+    let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo());
+
+    let err = use_case
+        .execute(req("no-resolver", 300), auth_user(UserId(Uuid::new_v4()), tenant_id()))
+        .await
+        .unwrap_err();
+
+    matches!(err, CreateMonitorError::EntitlementResolverMissing);
 }

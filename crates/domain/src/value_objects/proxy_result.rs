@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 /// Safe, client-facing result data for one proxy check.
 /// No credentials or decrypted secret material is ever represented here.
 ///
-/// # Backward compatibility (PART 3 migration)
+/// # Backward compatibility (migration)
 ///
-/// PART 3 added seven new fields. Every one of them is `Option<T>`, and
+/// Added seven new fields. Every one of them is `Option<T>`, and
 /// every one of them is serialized by serde with its natural `Option`
-/// default (`None`) — which means JSONB rows written BEFORE PART 3,
+/// default (`None`) — which means JSONB rows written BEFORE
 /// which do not carry these keys, deserialize cleanly with `None`. No
 /// data migration is required, and no old row will fail to load.
 ///
@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 ///
 ///   * [`ProxyResult::effective_outcome`] to distinguish "proxy is dead"
 ///     from "proxy is fine but the target was unreachable". The whole
-///     point of PART 3 is that a target failure is NOT a dead proxy.
+/// point of is that a target failure is NOT a dead proxy.
 ///   * [`ProxyResult::effective_failure_kind`] to get a structured reason
 ///     without matching on the free-form `error_code` string.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub struct ProxyResult {
     /// `true` when the proxy AND the target through it both succeeded.
     pub reachable: bool,
     /// Legacy total-latency field. Retained for backward compatibility;
-    /// new code should read [`ProxyResult::total_time_ms`] (PART 3) and
+    /// new code should read [`ProxyResult::total_time_ms`] and
     /// treat this as its legacy alias.
     pub latency_ms: Option<u32>,
     pub supports_https: bool,
@@ -47,16 +47,16 @@ pub struct ProxyResult {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
 
-    // ---- PART 3 additions --------------------------------------------
+    // ---- additions --------------------------------------------
     /// Three-way classification — `Working` / `WorkingTargetUnreachable`
-    /// / `ProxyFailed`. `None` on rows written before PART 3; use
+    /// / `ProxyFailed`. `None` on rows written previously; use
     /// [`ProxyResult::effective_outcome`] to get a value in that case.
     #[serde(default)]
     pub outcome: Option<ProxyCheckOutcome>,
 
     /// Structured failure reason. `None` on success and on rows written
-    /// before PART 3. Use [`ProxyResult::effective_failure_kind`] to get
-    /// a value that also covers pre-PART-3 rows.
+    /// previously. Use [`ProxyResult::effective_failure_kind`] to get
+    /// a value that also covers legacy rows.
     #[serde(default)]
     pub failure_kind: Option<ProxyFailureKind>,
 
@@ -96,11 +96,11 @@ pub struct ProxyResult {
 }
 
 impl ProxyResult {
-    /// Three-way outcome, working around pre-PART-3 rows that predate
+    /// Three-way outcome, working around legacy rows that predate
     /// the `outcome` field by deriving it from the legacy `reachable`
     /// and `error_code` fields.
     ///
-    /// Pre-PART-3 derivation rule:
+    /// Legacy derivation rule:
     ///   * `reachable == true`                     -> `Working`
     ///   * `reachable == false`, code starts with
     ///     `TARGET_`                               -> `WorkingTargetUnreachable`
@@ -144,7 +144,7 @@ impl ProxyResult {
         self.effective_outcome().is_target_failure()
     }
 
-    /// Structured failure kind, working around pre-PART-3 rows that
+    /// Structured failure kind, working around legacy rows that
     /// predate the `failure_kind` field by mapping the legacy
     /// `error_code` string onto the closest matching variant.
     ///
@@ -177,8 +177,8 @@ impl ProxyResult {
         })
     }
 
-    /// Best-effort total time, preferring the PART 3 field but falling
-    /// back to the legacy `latency_ms` when reading a pre-PART-3 row.
+    /// Best-effort total time, preferring the field but falling
+    /// back to the legacy `latency_ms` when reading a legacy row.
     pub fn effective_total_time_ms(&self) -> Option<u32> {
         self.total_time_ms.or(self.latency_ms)
     }
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn pre_part3_row_with_target_prefix_maps_to_target_failure() {
-        // Simulates a JSONB row written before PART 3: `outcome` is
+        // Simulates a JSONB row written previously: `outcome` is
         // absent, `reachable` is false, and the legacy error_code
         // carries the TARGET_ prefix.
         let r = ProxyResult {
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn deserializing_pre_part3_json_yields_none_for_new_fields() {
-        // Simulates a JSONB row written before PART 3.
+        // Simulates a JSONB row written previously.
         let json = r#"{
             "host":"1.2.3.4",
             "port":8080,

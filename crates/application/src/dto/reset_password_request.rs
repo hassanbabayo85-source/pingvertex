@@ -6,7 +6,7 @@ pub struct ResetPasswordRequest {
     pub new_password: String,
 }
 
-/// PART 7 — manual Debug that redacts the reset token and new password.
+/// Manual Debug that redacts the reset token and new password.
 impl std::fmt::Debug for ResetPasswordRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ResetPasswordRequest")

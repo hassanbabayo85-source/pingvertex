@@ -17,11 +17,11 @@ pub fn AddOnsPage() -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
 
-    // Gyara: Amfani da RwSignal don ajiye active add-ons maimakon Resource
+    // Use an RwSignal to hold the active add-ons rather than a Resource.
     let active_add_ons = RwSignal::new(None::<Vec<billing::AddOn>>);
     let summary_error = RwSignal::new(None::<String>);
 
-    // Function don ɗauko jerin add-ons da ke aiki
+    // Fetch the list of active add-ons.
     let fetch_summary = move || {
         spawn_local(async move {
             match billing::summary().await {
@@ -31,7 +31,7 @@ pub fn AddOnsPage() -> impl IntoView {
         });
     };
 
-    // Kira fetch_summary a farkon buɗe shafin
+    // Call fetch_summary when the page first opens.
     Effect::new(move |_| {
         fetch_summary();
     });
@@ -49,7 +49,7 @@ pub fn AddOnsPage() -> impl IntoView {
             if let Err(e) = billing::cancel_add_on(&id).await {
                 error.set(Some(format!("Failed to cancel: {}", e)));
             } else {
-                fetch_summary(); // Sake ɗauko jerin bayan an soke
+                fetch_summary(); // Re-fetch the list after cancelling
             }
             busy.set(false);
         });
@@ -61,8 +61,8 @@ pub fn AddOnsPage() -> impl IntoView {
             if let Err(e) = billing::verify_add_on(&id).await {
                 error.set(Some(format!("Verification failed: {}", e)));
             } else {
-                fetch_summary(); // Sake ɗauko jerin idan ya tabbata
-                result.set(None); // Ɓoye sanarwar biyan kuɗi
+                fetch_summary(); // Re-fetch the list once confirmed
+                result.set(None); // Hide the payment notice
             }
             busy.set(false);
         });

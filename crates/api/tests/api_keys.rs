@@ -633,7 +633,7 @@ async fn external_endpoint_rejects_a_malformed_or_unknown_key() {
 }
 
 // ---------------------------------------------------------------------------
-// New B31 tests — scope enforcement per endpoint, revoked/expired keys
+// Scope enforcement per endpoint, revoked/expired keys
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

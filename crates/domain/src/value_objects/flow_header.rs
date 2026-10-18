@@ -1,4 +1,4 @@
-//! PART 8 — Sensitivity-aware HTTP header value object for API flow steps.
+//! Sensitivity-aware HTTP header value object for API flow steps.
 //!
 //! A `FlowHeader` is a name/value pair plus an explicit `secret`
 //! classification. The classification drives three separate behaviors:
@@ -144,7 +144,7 @@ impl FlowHeader {
     }
 }
 
-/// PART 8 — manual `Debug` that redacts `value` when `secret == true`.
+/// Manual `Debug` that redacts `value` when `secret == true`.
 ///
 /// Deriving `Debug` here would defeat the whole point of the value
 /// object: any `tracing::info!(?flow)` or `format!("{flow:?}")` would

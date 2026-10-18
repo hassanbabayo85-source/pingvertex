@@ -27,7 +27,7 @@ pub trait SupportTicketRepository: Send + Sync {
         status: domain::enums::SupportTicketStatus,
     ) -> RepoResult<()>;
 
-    /// PART 8 — cursor-paginated variant of `list_user_tickets`.
+    /// Cursor-paginated variant of `list_user_tickets`.
     async fn list_user_tickets_paginated(
         &self,
         tenant_id: TenantId,
@@ -40,7 +40,7 @@ pub trait SupportTicketRepository: Send + Sync {
         }))
     }
 
-    /// PART 8 — cursor-paginated variant of `list_tenant_tickets`.
+    /// Cursor-paginated variant of `list_tenant_tickets`.
     async fn list_tenant_tickets_paginated(
         &self,
         tenant_id: TenantId,

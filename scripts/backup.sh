@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PingVertex — Postgres backup script (B38).
+# PingVertex — Postgres backup script.
 #
 # Usage:
 #   ./scripts/backup.sh [output-dir]

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// PART 3 — three-way outcome classification for a proxy check.
+/// Three-way outcome classification for a proxy check.
 ///
 /// The legacy `ProxyResult.reachable` field conflates two distinct
 /// questions into one boolean:

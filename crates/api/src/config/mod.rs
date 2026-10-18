@@ -1,9 +1,9 @@
 use std::env;
 
-/// Mafi ƙarancin tsayin JWT_SECRET (a cikin bytes) da ake karɓa.
+/// Minimum accepted JWT_SECRET length, in bytes.
 ///
-/// 32 bytes (256 bits) shi ne mafi ƙarancin da ake bukata domin HS256
-/// signing ya kasance mai wuyar ƙeta (brute-force resistant).
+/// 32 bytes (256 bits) is the minimum required for HS256 signing to be
+/// brute-force resistant.
 const MIN_JWT_SECRET_LEN: usize = 32;
 
 /// Default TCP port for the internal-agent mTLS listener. Overridable via
@@ -27,18 +27,18 @@ const DEFAULT_MTLS_SERVER_KEY_PATH: &str = "certs/api/server-key.pem";
 /// rather than letting an invalid value panic deep inside
 /// `router::cors_layer()` after all of that has already happened. NOTE:
 /// `router::cors_layer()` still independently reads+parses this same env
-/// var to actually build the `CorsLayer` — see this worker's HANDOVER.md
+/// var to actually build the `CorsLayer` — see the CORS notes in
 /// "Deviations from prompt" for why that duplication was kept instead of
 /// threading the validated value through `AppState`.
 const DEFAULT_CORS_ALLOWED_ORIGIN: &str = "http://localhost:3000";
 
-/// Jerin sanannun sirrin da AKA TAɓA turo su a bayyane (leaked) ko wanda
-/// aka sani a matsayin placeholder/example. Ba a taɓa yarda a yi amfani
-/// da su a runtime, koda sun cika tsayin da ake bukata.
+/// Secrets that are known to have been leaked, or that are well-known
+/// placeholder/example values. These are never accepted at runtime, even
+/// when they satisfy the minimum length requirement.
 ///
-/// NOTE: sirrin da aka samu a cikin `.env` da aka gano a cikin security
-/// audit din 2026-08-11 an haɗa shi a nan domin tabbatar da cewa BA ZAI
-/// SAKE aiki ba, ko da wani ya manta ya juya shi a wani environment.
+/// NOTE: the secret found in `.env` during the 2026-08-11 security audit is
+/// listed here so that it can NEVER work again, even if someone forgets to
+/// rotate it in some environment.
 const KNOWN_LEAKED_OR_EXAMPLE_SECRETS: &[&str] = &[
     "changeme",
     "secret",
@@ -52,7 +52,7 @@ const KNOWN_LEAKED_OR_EXAMPLE_SECRETS: &[&str] = &[
     "fd0d36442c07ce13ec97bd4f11d2fd515a80405be2df3558a13c7371d332364335f63012e84219051ecb4a096c037125955c81a1b59bc13a3acb5beb9659cbc5",
 ];
 
-/// PART 6 — Environments where a `Noop*` implementation of a
+/// Environments where a `Noop*` implementation of a
 /// security-relevant dependency (Redis-backed session invalidation,
 /// TOTP cache, distributed rate limiter) is acceptable.
 ///
@@ -110,7 +110,7 @@ pub struct Config {
     pub cors_allowed_origin: String,
 }
 
-/// PART 6 — custom Debug that redacts every secret-bearing field.
+/// Custom Debug that redacts every secret-bearing field.
 /// The default `#[derive(Debug)]` would print `jwt_secret` and the
 /// password embedded in `database_url` verbatim in any
 /// `tracing::error!(config = ?config, ...)` line.
@@ -129,7 +129,7 @@ impl std::fmt::Debug for Config {
     }
 }
 
-/// Kurakuran da za a iya samu wajen loda/tabbatar da configuration.
+/// Errors that can occur while loading or validating configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
     MissingDatabaseUrl,
@@ -177,10 +177,10 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// Tabbatar da cewa JWT secret ɗin ya isa ya zama amintacce.
+/// Validates that the JWT secret is strong enough to be safe.
 ///
-/// Fail-closed: idan sirrin bai cika ka'idoji ba, aikin zai dawo da Err
-/// maimakon ya ƙyale app ɗin ya tashi da sirri mai rauni.
+/// Fail-closed: if the secret does not meet the rules, this returns Err
+/// rather than letting the app start with a weak secret.
 fn validate_jwt_secret(secret: &str) -> Result<(), ConfigError> {
     if secret.trim().is_empty() {
         return Err(ConfigError::MissingJwtSecret);
@@ -204,11 +204,10 @@ fn validate_jwt_secret(secret: &str) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// Tabbatar da cewa CORS_ALLOWED_ORIGIN ya zama darajar `HeaderValue` mai
-/// inganci — daidai da abin da `router::cors_layer()` zai gwada
-/// parse-awa daga baya, amma a nan muna gwadawa TUN FARKO domin app ɗin
-/// ya ƙi tashi da saƙo mai bayyana kafin a fara ƙirƙirar DB pool, Redis,
-/// ciphers, da sauransu.
+/// Validates that CORS_ALLOWED_ORIGIN is a valid `HeaderValue` — exactly
+/// what `router::cors_layer()` will later try to parse, except that we check
+/// it UP FRONT so the app refuses to start with a clear message before any
+/// DB pool, Redis connection, ciphers, and so on are created.
 fn validate_cors_allowed_origin(value: &str) -> Result<(), ConfigError> {
     value
         .parse::<axum::http::HeaderValue>()
@@ -257,21 +256,21 @@ pub fn cors_allowed_origin_from_env() -> String {
 }
 
 impl Config {
-    /// Loda configuration daga environment variables.
+    /// Loads configuration from environment variables.
     ///
     /// # Panics
-    /// Yana `panic!` idan configuration ɗin bai inganta ba (missing ko
-    /// weak JWT secret). Wannan hali ne da ake so a nan: mun fi son app
-    /// ɗin ya ƙi tashi (fail closed) maimakon ya yi aiki da sirri mai
-    /// rauni ko wanda aka riga aka sani an leaked shi.
+    /// `panic!`s if the configuration is invalid (a missing or weak JWT
+    /// secret). That behaviour is intentional here: we would much rather the
+    /// app refuse to start (fail closed) than run with a weak or
+    /// known-leaked secret.
     pub fn from_env() -> Self {
         dotenvy::dotenv().ok();
 
         Self::try_from_env().unwrap_or_else(|err| panic!("invalid configuration: {err}"))
     }
 
-    /// Sigar da ba ta yin `panic!` — ana amfani da ita a cikin tests, kuma
-    /// tana bawa masu kira damar sarrafa kuskuren yadda suke so.
+    /// The non-panicking variant — used in tests, and it lets callers
+    /// handle the error however they prefer.
     pub fn try_from_env() -> Result<Self, ConfigError> {
         let database_url = env::var("DATABASE_URL").map_err(|_| ConfigError::MissingDatabaseUrl)?;
 
@@ -352,12 +351,12 @@ mod tests {
             "your-256-bit-secret",
             "example",
         ] {
-            // Mun sanya su su zama tsayi 32+ don tabbatar da cewa an
-            // toshe su ne saboda sun yi daidai da sanannun sirrin da aka
-            // sani, ba don gajarta ba.
+            // Pad these to 32+ characters so we prove they are rejected
+            // for matching a known-weak secret, not merely for being
+            // too short.
             let padded = format!("{weak}{}", "x".repeat(32usize.saturating_sub(weak.len())));
-            // Amma dole a gwada ainihin darajar ma (case-insensitive),
-            // domin shi ne yadda list ɗin ke aiki.
+            // But the raw value must be tested too (case-insensitively),
+            // because that is how the list actually works.
             let result = validate_jwt_secret(weak);
             assert!(
                 matches!(

@@ -90,7 +90,7 @@ pub struct BrowserDeviceBreakdown {
 
 /// One country's session count. `country_code` will only ever be
 /// non-`None` for sessions ingested AFTER geo-IP lookup was wired in and
-/// configured (`GEOIP_DB_PATH`) — see `HANDOVER.md`. Before that (or if
+/// configured (`GEOIP_DB_PATH`). Before that (or if
 /// geo-IP lookup fails for a given IP), sessions have `country_code =
 /// NULL`, which surfaces here as a row with `country_code: None` rather
 /// than being silently dropped, so the caller can see "unknown" as its
@@ -103,7 +103,7 @@ pub struct GeoBreakdownRow {
 
 /// One bucket of a performance-over-time chart. Buckets are fixed at
 /// one-hour granularity (`date_trunc('hour', created_at)`) — see
-/// `HANDOVER.md` for why configurable bucket width was deliberately not
+/// the rationale for why configurable bucket width was deliberately not
 /// implemented in this pass.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PerformanceTrendPoint {

@@ -30,11 +30,11 @@ pub const MAX_BODY_LENGTH: usize = 65536;
 /// Hard cap on the byte length of the url template.
 pub const MAX_URL_TEMPLATE_LENGTH: usize = 2048;
 
-/// PART 9 — hard cap on the number of variable extractions a single step
+/// Hard cap on the number of variable extractions a single step
 /// may carry. `extract` is a client-supplied, unbounded `Vec`.
 pub const MAX_EXTRACTIONS: usize = 10;
 
-/// PART 9 — hard cap on the number of assertions a single step may carry.
+/// Hard cap on the number of assertions a single step may carry.
 /// `assertions` is a client-supplied, unbounded `Vec`.
 pub const MAX_ASSERTIONS_PER_STEP: usize = 20;
 
@@ -117,7 +117,7 @@ impl ApiFlowStep {
         })
     }
 
-    /// PART 9 — conservative byte-size estimate for the step's JSON
+    /// Conservative byte-size estimate for the step's JSON
     /// representation. Used by `ApiFlow` to enforce a total-size cap
     /// without pulling `serde_json` into the domain crate.
     ///

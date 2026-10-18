@@ -5,7 +5,7 @@ use axum::{
 };
 
 pub fn router() -> Router<AppState> {
-    // Mun cire tsohon /pricing/quote. Wannan ya zama empty router domin kar ya karya main router.
+    // The old /pricing/quote was removed. This is now an empty router so the main router is not broken.
     Router::new()
 }
 
@@ -34,7 +34,7 @@ pub fn admin_router_reads() -> Router<AppState> {
 /// Mutating admin pricing routes. In addition to JWT, the caller must
 /// have completed a TOTP/backup-code step-up within
 /// `RECENT_MFA_TTL_SECONDS` — enforced by the `require_recent_mfa`
-/// middleware layered in `router.rs`. This is the invariant PART 2 of
+/// middleware layered in `router.rs`. This is the invariant of
 /// the platform-admin hardening task requires: a plain session JWT
 /// must never be sufficient to change platform-wide pricing.
 pub fn admin_router_writes() -> Router<AppState> {

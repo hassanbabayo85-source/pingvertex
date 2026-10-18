@@ -48,7 +48,7 @@ pub use telegram_notification_service::TelegramNotificationService;
 pub use uuid_id_generator::UuidIdGenerator;
 pub use webhook_notification_service::WebhookNotificationService;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod disabled_billing_provider;
 pub mod fake_billing_provider;
 pub use disabled_billing_provider::DisabledBillingProvider;

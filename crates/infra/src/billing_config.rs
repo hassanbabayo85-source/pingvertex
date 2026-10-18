@@ -31,7 +31,7 @@ pub struct BillingConfig {
     pub webhook_secret: Option<String>,
 }
 
-/// PART 6 — custom Debug that redacts secrets.
+/// Custom Debug that redacts secrets.
 impl std::fmt::Debug for BillingConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BillingConfig")

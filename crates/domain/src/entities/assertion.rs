@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// cap used elsewhere in the domain and comfortably covers real assertions.
 pub const MAX_ASSERTION_STRING_LENGTH: usize = 2048;
 
-/// PART 9 — hard cap on the byte length of a regex pattern. Kept smaller
+/// Hard cap on the byte length of a regex pattern. Kept smaller
 /// than `MAX_ASSERTION_STRING_LENGTH` because regex compilation is
 /// expensive and a long pathological pattern can pin a worker thread.
 pub const MAX_REGEX_PATTERN_LENGTH: usize = 512;
@@ -69,7 +69,7 @@ impl Assertion {
             ));
         }
 
-        // PART 9 — regex patterns are compiled on every check; cap the
+        // Regex patterns are compiled on every check; cap the
         // pattern length separately so a pathological pattern cannot pin
         // a worker thread or blow up the regex engine's memory.
         if matches!(self.operator, AssertionOperator::RegexMatch)
@@ -81,7 +81,7 @@ impl Assertion {
                 ));
             }
 
-            // PART 10 — the pattern must actually compile. This moves the
+            // The pattern must actually compile. This moves the
             // "this is an invalid regex" failure from the worker hot path
             // (where it would waste CPU on every check) to the request
             // boundary, where the client can fix it and retry. We do NOT

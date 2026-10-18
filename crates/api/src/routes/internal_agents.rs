@@ -71,7 +71,7 @@ async fn claim_checks(
     State(state): State<AppState>,
     Extension(agent): Extension<AuthenticatedAgent>,
 ) -> Result<Json<ClaimResponse>, ApiError> {
-    // PART 5 — agent_id and region come from the SERVER-SIDE identity
+    // `agent_id` and region come from the SERVER-SIDE identity
     // (`AuthenticatedAgent`), which the `agent_auth` middleware
     // constructed from the certificate CN + registry lookup. Neither
     // value can be influenced by anything the client sent.

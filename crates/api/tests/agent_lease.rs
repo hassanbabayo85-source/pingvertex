@@ -291,7 +291,7 @@ async fn build_app_with_lease_repo(
     )
     .with_agent_lease_repository(lease_repo)
     .with_agent_registry({
-        // PART 5 — yadda test ɗin yake aiki: agent-1 a us-east.
+        // How this test works: agent-1 in us-east.
         let reg = infra::InMemoryAgentRegistry::new();
         reg.register(domain::Agent::new("agent-1", "us-east"));
         reg

@@ -162,24 +162,24 @@ async fn returns_failure_when_body_assertion_fails() {
     let err_msg = result.error.unwrap();
     assert!(
         err_msg.contains("assertions sun gaza"),
-        "Kuskuren ya ƙunshi 'assertions sun gaza': {err_msg}"
+        "Error should mention failed assertions: {err_msg}"
     );
 }
 
-// ── Sabbin gwaje-gwaje na TLS certificate checking (SEC-independent — sabon
+// ── Tests for TLS certificate checking (SEC-independent — new
 // fasali ne, ba wani security fix ba) ──
 //
-// NOTE akan tsarin gwajin da ke ƙasa: mun gwada `maybe_fetch_cert_info`
-// KAI TSAYE (ba ta hanyar `check_monitor` gaba ɗaya ba), domin
-// `check_monitor` yana amfani da ainihin
+// NOTE on the tests below: we exercise `maybe_fetch_cert_info`
+// DIRECTLY (rather than through `check_monitor` as a whole), because
+// `check_monitor` uses the real
 // `crate::ssrf::resolve_and_validate_destination`, wanda — daidai kamar
-// yadda aka tsara shi domin toshe SSRF — yana KIN duk wani adireshin
-// loopback/127.0.0.1 kai tsaye. Wannan yana nufin ba za a taɓa iya kiran
+// which is designed to block SSRF — it REJECTS any
+// loopback/127.0.0.1 address outright. That means it can never reach a
 // `check_monitor` (ba `check_monitor_with_validator` ba) akan wani local
-// test server ba, koda HTTP ko HTTPS ne. Wannan salon gwajin (kiran
-// `maybe_fetch_cert_info` kai tsaye da wani socket_addr da aka riga aka
-// warware) daidai yake da yadda `tls_cert.rs`'s own tests da
-// `check_monitor_with_validator` duka biyu ke gujewa wannan matsala.
+// local test server, over HTTP or HTTPS. This testing approach (calling
+// `maybe_fetch_cert_info` directly with an already-resolved socket_addr)
+// is the same way `tls_cert.rs`'s own tests and
+// `check_monitor_with_validator` both sidestep the problem.
 mod cert_checking {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener};
     use std::sync::Arc;

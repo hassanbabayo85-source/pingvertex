@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 // NOTE: this file intentionally defines its own local Noop scaffolding
 // rather than sharing it with `status_pages.rs`, following the same
-// precedent already used across `crates/api/tests/*.rs` (see B32's
-// HANDOVER.md "Deviations" section) — it avoids reproducing (and risking
+// precedent already used across `crates/api/tests/*.rs` (see the
+// the test-helper convention) — it avoids reproducing (and risking
 // a transcription error in) the large existing test file.
 
 #[derive(Clone, Default)]

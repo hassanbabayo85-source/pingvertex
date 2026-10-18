@@ -186,7 +186,7 @@ where
                 ));
             }
 
-            // PART 14: currency validation. The Paystack handler already
+            // Currency validation. The Paystack handler already
             // checks this against "USD" before building the command, but
             // the internal `/billing/webhook` endpoint also reaches this
             // code path, and a future second provider may not. Without

@@ -6,7 +6,7 @@ pub type HealthCheckResult<T> = Result<T, Box<dyn std::error::Error + Send + Syn
 /// dependency (the database) is actually reachable — used by the
 /// readiness endpoint (`GET /ready`) to distinguish "process is up"
 /// (liveness, `GET /health`) from "process can actually serve requests"
-/// (readiness). B34.
+/// (readiness).
 #[async_trait]
 pub trait HealthCheckPort: Send + Sync {
     /// Returns `Ok(())` if the dependency is reachable, `Err` otherwise.

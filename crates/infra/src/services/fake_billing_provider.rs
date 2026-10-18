@@ -8,7 +8,7 @@ use uuid::Uuid;
 ///
 /// `create_checkout` always succeeds; `verify_payment` always returns
 /// `Paid`. This is intentionally simplistic: production deployments must
-/// not use this provider. It exists so B14's HTTP and application layers
+/// not use this provider. It exists so the HTTP and application layers
 /// can be exercised without any third-party account or secrets.
 #[derive(Debug, Clone, Default)]
 pub struct FakeBillingProvider;

@@ -8,7 +8,7 @@ pub type CheckoutRepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Persistence port for checkout sessions.
 ///
-/// Only `create`, `find_by_id`, and `update` are needed for B14. The
+/// Only `create`, `find_by_id`, and `update` are needed. The
 /// verification endpoint receives the internal checkout session id, not
 /// the provider's checkout id, so no provider-id lookup is required.
 #[async_trait]

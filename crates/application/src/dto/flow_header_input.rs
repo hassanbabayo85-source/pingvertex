@@ -1,4 +1,4 @@
-//! PART 8 — application-layer header DTO.
+//! Application-layer header DTO.
 //!
 //! SECURITY: `value` is plaintext (or a template). If `secret == true`
 //! the value will be encrypted at rest before persistence; the `Debug`

@@ -29,7 +29,8 @@ sqlx = { version = "0.8.6", default-features = false, features = [
     "chrono",
     "rust_decimal",
     "macros",
-    "migrate"
+    "migrate",
+    "json"
 ] }
 # --- Notification adapters ---
 lettre = { version = "0.11.23", default-features = false, features = [

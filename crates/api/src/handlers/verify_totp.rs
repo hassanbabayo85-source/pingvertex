@@ -30,7 +30,7 @@ pub async fn verify_totp(
         .await
         .map_err(|err| ApiError::unauthorized(err.to_string()))?;
 
-    // Iri daya da `login.rs`: JWT yana zaune KAWAI a cikin httpOnly
+    // Same as `login.rs`: the JWT lives ONLY in the httpOnly
     // cookie, ba a cikin JSON body ba.
     let cookie = shared::cookie::access_token_cookie(&response.access_token);
 

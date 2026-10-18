@@ -139,7 +139,7 @@ impl User {
     }
 
     /// Replaces this user's password hash — the sole mutation performed
-    /// by a successful `ResetPasswordUseCase` redemption (B6). Does not
+    /// by a successful `ResetPasswordUseCase` redemption. Does not
     /// touch any other field (role/status/TOTP/etc are left exactly as
     /// they were); callers are responsible for persisting the change via
     /// `UserRepository::update` and for handling session invalidation
@@ -165,7 +165,7 @@ impl User {
     }
 }
 
-/// PART 7 — manual Debug that never prints `password_hash` or the
+/// Manual Debug that never prints `password_hash` or the
 /// (encrypted) `totp_secret`. Derived `Debug` would have leaked both.
 impl std::fmt::Debug for User {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

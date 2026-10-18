@@ -62,7 +62,7 @@ pub async fn update_status_page(
         })?
         .ok_or_else(|| ApiError::not_found("status page not found"))?;
 
-    // B34: previously never invalidated — a status page's cached public
+    // Previously never invalidated — a status page's cached public
     // response (see `handlers::public_status_page::render_public_status_page`)
     // would keep serving stale monitor selection / name / logo / color
     // for up to the cache's full 45s TTL after every edit. Best-effort,

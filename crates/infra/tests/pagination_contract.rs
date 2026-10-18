@@ -1,4 +1,4 @@
-//! PART 8 — Pagination contract regression tests.
+//! Pagination contract regression tests.
 //!
 //! These tests prove the invariant:
 //!

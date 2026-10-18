@@ -6,13 +6,13 @@
 **/*.crt
 **/secrets/**
 
-# Babban abu da ba a bukata
+# Large artefacts that are not needed
 target/
 .git/
 project.zip
 cors.txt
 Cargo.lock
 
-# Docs masu girma (za mu duba daban idan an bukata)
+# Large doc assets (reviewed separately when needed)
 docs/**/*.png
 docs/**/*.jpg

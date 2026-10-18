@@ -1,13 +1,13 @@
 # Architecture Decisions (ADR)
 
-Wannan fayil yana adana manyan architectural decisions na project.
+This file records the project's significant architectural decisions.
 
-Ba documentation bane.
+It is not general documentation.
 
-Dalilin sa shi ne:
-- Mu tuna dalilin da yasa muka zaɓi wata hanya.
-- Kada mu maimaita kuskure.
-- Idan project ya girma, mu san asalin design.
+Its purpose is to:
+- Remember why a particular approach was chosen.
+- Avoid repeating past mistakes.
+- Preserve the original design rationale as the project grows.
 
 ---
 
@@ -30,9 +30,9 @@ Accepted.
 
 Decision:
 
-Ba za mu yi amfani da primitive types idan akwai business rule ba.
+We do not use primitive types where a business rule applies.
 
-Misali:
+Example:
 
 String  -> MonitorName
 String  -> Url
@@ -60,8 +60,8 @@ Infrastructure zai yi implementation.
 
 Reason:
 
-Sauƙin testing.
-Sauƙin canza database.
+Easier testing.
+Easier to swap the database.
 
 Status:
 
@@ -74,16 +74,16 @@ Accepted.
 
 Decision:
 
-Ba za mu yi amfani da builder crates ba (derive_builder, typed-builder, bon, da makamantansu).
+We do not use builder crates (derive_builder, typed-builder, bon, and similar).
 
-Za mu rubuta builder da kanmu idan ana buƙata.
+We write builders by hand when one is needed.
 
 Reason:
 
-- Ƙarancin dependencies
-- Sauƙin debugging
-- Cikakken iko akan API
-- Compile time mafi kyau
+- Fewer dependencies
+- Easier debugging
+- Full control over the API
+- Better compile times
 
 Status:
 

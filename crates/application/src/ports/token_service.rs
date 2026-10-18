@@ -9,7 +9,7 @@ type ServiceResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// issued for, plus WHEN it was issued (unix seconds, from the token's
 /// `iat` claim).
 ///
-/// `issued_at` was added for B6 (password-reset session invalidation):
+/// `issued_at` exists for password-reset session invalidation:
 /// `jwt_auth` compares it against a per-user "invalidated_before" marker
 /// (`application::session_invalidated_at_cache_key`) written to Redis by
 /// `ResetPasswordUseCase`, so a token signed under an old password stops

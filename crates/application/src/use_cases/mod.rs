@@ -18,6 +18,15 @@ pub mod create_maintenance_window;
 pub mod create_monitor;
 pub mod create_notification_channel;
 pub mod create_status_page;
+pub mod create_recurring_proxy_monitor;
+pub mod list_recurring_proxy_monitors;
+pub mod get_recurring_proxy_monitor;
+pub mod update_recurring_proxy_monitor;
+pub mod enable_recurring_proxy_monitor;
+pub mod disable_recurring_proxy_monitor;
+pub mod delete_recurring_proxy_monitor;
+pub mod list_recurring_proxy_checks;
+pub mod get_latest_recurring_proxy_check;
 pub mod delete_api_flow;
 pub mod delete_api_key;
 pub mod delete_monitor;
@@ -77,7 +86,7 @@ pub mod verify_checkout;
 pub mod verify_email;
 pub mod verify_totp_and_login;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod create_support_ticket;
 pub mod get_help_article;
 pub mod get_support_ticket;
@@ -106,6 +115,15 @@ pub use create_maintenance_window::*;
 pub use create_monitor::*;
 pub use create_notification_channel::*;
 pub use create_status_page::*;
+pub use create_recurring_proxy_monitor::*;
+pub use list_recurring_proxy_monitors::*;
+pub use get_recurring_proxy_monitor::*;
+pub use update_recurring_proxy_monitor::*;
+pub use enable_recurring_proxy_monitor::*;
+pub use disable_recurring_proxy_monitor::*;
+pub use delete_recurring_proxy_monitor::*;
+pub use list_recurring_proxy_checks::*;
+pub use get_latest_recurring_proxy_check::*;
 pub use delete_api_flow::*;
 pub use delete_api_key::*;
 pub use delete_monitor::*;
@@ -163,7 +181,7 @@ pub use verify_totp_and_login::*;
 pub mod calculate_payg_preview;
 pub mod calculate_pricing_quote;
 
-// H12 — Proration Service:
+// Proration Service:
 pub mod calculate_subscription_cycle_cost;
 pub mod update_subscription_usage;
 pub use calculate_subscription_cycle_cost::*;
@@ -177,7 +195,7 @@ pub use change_subscription_plan::*;
 pub use generate_invoice::*;
 pub use verify_addon_checkout::*;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub use create_support_ticket::{CreateSupportTicketError, CreateSupportTicketUseCase};
 pub use get_help_article::GetHelpArticleUseCase;
 pub use get_support_ticket::GetSupportTicketUseCase;

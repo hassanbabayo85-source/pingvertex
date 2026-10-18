@@ -4,7 +4,7 @@ services:
   # these are unset). Always deploy with:
   #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
   #
-  # PART 3 (DB hardening): the postgres service now also receives the
+  # DB hardening: the postgres service now also receives the
   # three role passwords so the first-init bootstrap script can create
   # the `pingvertex_migrator` / `pingvertex_app` / `pingvertex_worker`
   # roles. The migrate / api / worker services each connect under their
@@ -17,7 +17,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: uptime_monitor
-      # PART 3 — passed to docker/postgres-init/01-bootstrap-roles.sh
+      # Passed to docker/postgres-init/01-bootstrap-roles.sh
       # (runs once on first DB initialization).
       POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}
@@ -43,7 +43,7 @@ services:
     image: redis:7.4-alpine
     container_name: uptime-monitor-redis
     restart: unless-stopped
-    # PART 13 follow-up: drop to the redis user directly. The image's
+    # Follow-up: drop to the redis user directly. The image's
     # entrypoint uses `setpriv` to drop from root to `redis`, which
     # requires CAP_SETUID/CAP_SETGID — but `cap_drop: [ALL]` removed
     # them, so the container crash-looped with `setpriv: setresuid
@@ -84,7 +84,7 @@ services:
     # not require a `docker compose build` to be picked up. Without this,
     # Docker caches the image built from Dockerfile.migrate (which COPYs
     # `migrations/` at build time), and a freshly added migration silently
-    # never runs — exactly what happened during PART 3 verification.
+    # never runs — exactly what happened during verification.
     volumes:
       - ./migrations:/app/migrations:ro
     entrypoint: ["sh", "-c"]
@@ -120,11 +120,11 @@ services:
       RUST_BACKTRACE: "1"
       REDIS_URL: redis://redis:6379
     ports:
-      # PART 13 — only the local dev convenience binding is kept here.
+      # Only the local dev convenience binding is kept here.
       # docker-compose.prod.yml clears even this with `ports: !reset []`,
       # so that in production the ONLY ingress path is Caddy on :443.
       - "127.0.0.1:3000:3000"
-      # PART 13 — the mTLS port 3443 is deliberately NOT published. It is
+      # The mTLS port 3443 is deliberately NOT published. It is
       # reachable only via the `pv_agent_mtls` internal network (see the
       # `networks:` block at the bottom of this file), by the agent
       # container. Publishing it here would expose the mTLS endpoint to
@@ -232,20 +232,20 @@ services:
     environment:
       AGENT_API_BASE_URL: https://api:3443/internal/v1
       AGENT_ID: agent-us-east-1
-      # PART 5 — region is authoritative on the SERVER side (see
+      # Region is authoritative on the SERVER side (see
       # migrations/0122_agent_registry.sql). This value is only used by
       # the agent to fill the informational X-Agent-Region header; the
       # API rejects any request whose header does not match the
       # registered region, and never trusts this value on its own.
       AGENT_REGION: us-east
       RUST_LOG: info
-    # PART 5 — client-key.pem is deliberately NOT baked into the image
+    # client-key.pem is deliberately NOT baked into the image
     # (see Dockerfile.agent). It is bind-mounted here from a location
     # OUTSIDE the repository. Point AGENT_CLIENT_KEY_PATH_HOST at a
     # securely-managed file on the host (e.g. `/etc/pingvertex/agents/...`).
     volumes:
       - type: bind
-        # PART 13 — the previous `:-` default pointed at `./secrets/...`
+        # The previous `:-` default pointed at `./secrets/...`
         # inside the repository. `:?` makes the variable mandatory, so
         # the container will refuse to start if the operator has not
         # explicitly pointed this at a file OUTSIDE the repo. This is
@@ -291,7 +291,7 @@ volumes:
   frontend_dist:
   redis_data:
 
-# PART 13 — internal network for the agent ↔ API mTLS channel.
+# Internal network for the agent ↔ API mTLS channel.
 #
 # `internal: true` means this network has NO gateway to the outside
 # world: a container attached to it cannot reach the host or the

@@ -1,15 +1,15 @@
-//! B3 — HTTP-layer integration tests for register / login / logout /
+//! HTTP-layer integration tests for register / login / logout /
 //! session validation.
 //!
 //! Scope note: register/login/logout and the `jwt_auth` session-validation
 //! middleware were already implemented (including argon2 hashing, JWT
-//! expiration, generic error messages, and TOTP support) before B3 ran.
-//! B3 added the HTTP-level integration test coverage; it did not change
-//! any production auth code. See HANDOVER.md "Deviations from prompt"
+//! expiration, generic error messages, and TOTP support) already existed.
+//! These add the HTTP-level integration test coverage; they do not change
+//! any production auth code. See the auth test notes
 //! for the one small infra addition (`InMemoryUserRepository`) that
 //! required.
 //!
-//! B4 — added: per-account login brute-force lockout tests, an
+//! Also covered: per-account login brute-force lockout tests, an
 //! IP-based rate-limit burst test, and (via `login_user.rs` /
 //! `login.rs`) a fix so login error messages never distinguish
 //! "wrong password" / "nonexistent email" / "account suspended" / "cache
@@ -19,10 +19,10 @@
 //! default, since the lockout tests need failed-attempt counts to
 //! actually persist across requests within one test.
 //!
-//! H2 — added: forgot-password / resend-verification rate limiting tests
+//! Also covered: forgot-password / resend-verification rate limiting tests
 //! using `InMemoryRateLimiter` (simulating Redis-backed behavior).
 //!
-//! H3 — updated: `InMemoryPendingAuthCache` now implements the atomic
+//! `InMemoryPendingAuthCache` implements the atomic
 //! `getdel` method and `NoopBackupCodeRepository` returns `bool` from
 //! `mark_used`.
 
@@ -473,7 +473,7 @@ async fn login_endpoint_sets_session_cookie_on_success() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let set_cookie = set_cookie_header(&resp);
-    // PART 6 — in secure mode (the default when ENVIRONMENT is not one of
+    // In secure mode (the default when ENVIRONMENT is not one of
     // the explicit dev values) the cookie name is `__Host-access_token`.
     // In dev mode the legacy `access_token` name is kept. Accept both.
     assert!(
@@ -553,7 +553,7 @@ async fn login_endpoint_locks_account_after_repeated_failures() {
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
 
-// ------------------- H2: Forgot-password rate limiting -------------------
+// ------------------- Forgot-password rate limiting -------------------
 
 #[tokio::test]
 async fn forgot_password_first_three_requests_allowed_then_rejected() {
@@ -625,7 +625,7 @@ async fn forgot_password_fails_closed_when_rate_limiter_unavailable() {
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
-// ------------------- H2: Resend-verification rate limiting -------------------
+// ------------------- Resend-verification rate limiting -------------------
 
 #[tokio::test]
 async fn resend_verification_first_three_requests_allowed_then_rejected() {

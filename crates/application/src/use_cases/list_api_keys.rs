@@ -40,7 +40,7 @@ impl ListApiKeysUseCase {
         self.api_key_repository.list_by_tenant(tenant_id).await
     }
 
-    /// PART 8 — cursor-paginated entry point for `GET /api/v1/api-keys`.
+    /// Cursor-paginated entry point for `GET /api/v1/api-keys`.
     /// Same `ManageApiKeys` permission gate as `execute`.
     pub async fn execute_paginated(
         &self,

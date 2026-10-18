@@ -83,7 +83,7 @@ impl AcknowledgeIncidentUseCase {
     /// `acting_user_id` directly instead of an `AuthenticatedUser`.
     ///
     /// Added for the API-key-authenticated public surface
-    /// (`POST /api/v1/external/incidents/{id}/acknowledge`, B31). The
+    /// (`POST /api/v1/external/incidents/{id}/acknowledge`). The
     /// audit log records `acting_user_id` (the API key's
     /// `ApiKeyPrincipal::user_id`, i.e. the key's creator) exactly like
     /// `CreateApiKeyUseCase` treats that field: an audit trail, not an

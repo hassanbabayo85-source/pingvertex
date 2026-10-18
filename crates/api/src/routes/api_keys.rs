@@ -23,7 +23,7 @@ pub fn router() -> Router<AppState> {
 }
 
 /// The public API surface authenticated via `X-API-Key` instead of a
-/// session (B31). Kept on its own `Router` so `router.rs` can layer
+/// session. Kept on its own `Router` so `router.rs` can layer
 /// `api_key_auth` (authentication only) once for the whole group.
 ///
 /// Unlike the original single-endpoint shape of this router (just

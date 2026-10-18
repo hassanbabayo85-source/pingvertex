@@ -249,11 +249,11 @@ pub enum DomainError {
     #[error("invalid or expired pending 2FA token")]
     InvalidPendingTwoFactorToken,
 
-    // B5 — Email verification:
+    // Email verification:
     #[error("invalid or expired verification token")]
     InvalidOrExpiredVerificationToken,
 
-    // B11 — Plan / Subscription / Entitlement model:
+    // Plan / Subscription / Entitlement model:
     #[error("invalid plan tier: {0}")]
     InvalidPlanTier(String),
     #[error("invalid tenant account type: {0}")]
@@ -261,7 +261,7 @@ pub enum DomainError {
     #[error("invalid tenant status: {0}")]
     InvalidTenantStatus(String),
 
-    // B12 — Subscription Lifecycle:
+    // Subscription Lifecycle:
     #[error("invalid subscription status: {0}")]
     InvalidSubscriptionStatus(String),
 
@@ -271,15 +271,15 @@ pub enum DomainError {
     #[error("scheduled cancellation requires a current period end")]
     ScheduledCancellationMissingPeriodEnd,
 
-    // B14 — Billing Provider Abstraction & Checkout:
+    // Billing Provider Abstraction & Checkout:
     #[error("invalid checkout status: {0}")]
     InvalidCheckoutStatus(String),
 
-    // B15 — Billing Webhooks:
+    // Billing Webhooks:
     #[error("invalid billing webhook event type: {0}")]
     InvalidBillingWebhookEventType(String),
 
-    // H12 — Proration Service:
+    // Proration Service:
     #[error("subscription usage monitors must be greater than zero")]
     SubscriptionUsageMonitorsZero,
 
@@ -378,7 +378,7 @@ pub enum DomainError {
     #[error("RUM resource error URL cannot exceed 2048 characters")]
     RumResourceUrlTooLong,
 
-    // PART 9 — Resource limits at domain boundary:
+    // Resource limits at domain boundary:
     #[error("a monitor cannot have more than 4 regions")]
     TooManyRegionsPerMonitor,
 

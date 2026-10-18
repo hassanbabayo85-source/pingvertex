@@ -1,4 +1,4 @@
-//! H16 Task B regression tests: every background worker that accepts a
+//! Regression tests: every background worker that accepts a
 //! `CancellationToken` must actually stop its `run_forever` loop once
 //! that token is cancelled, within a bounded time — not hang forever
 //! waiting on the next tick. Each test cancels the token BEFORE the

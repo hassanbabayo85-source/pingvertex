@@ -49,9 +49,8 @@ pub async fn create_monitor(
         state.id_generator,
         state.audit_log_entry_repository.clone(),
     )
-    .with_wallet_repository(state.wallet_repository.clone())
-    .with_interval_policy_repository(state.monitor_interval_policy_repository.clone())
-    .with_pricing_config_repository(state.pricing_config_repository.clone());
+    .with_entitlement_resolver(state.entitlement_resolver.clone())
+    .with_tenant_repository(state.platform_tenant_repository.clone());
 
     let monitor = use_case
         .execute(request, authenticated_user)
@@ -60,18 +59,16 @@ pub async fn create_monitor(
             CreateMonitorError::Forbidden => {
                 ApiError::forbidden("you do not have permission to create monitors")
             }
-            CreateMonitorError::QuotaExceeded { limit } => ApiError::too_many_requests(format!(
-                "monitor limit reached: your Free entitlement allows at most {limit} monitors; fund the PAYG wallet to add more"
-            )),
+            CreateMonitorError::PlanLimitExceeded(plan_err) => {
+                ApiError::from_plan_limit(plan_err)
+            }
             CreateMonitorError::TooManyAssertions { limit } => ApiError::bad_request(format!(
                 "too many assertions: a monitor allows at most {limit} assertions"
             )),
-            CreateMonitorError::IntervalBelowPlanMinimum { min } => ApiError::bad_request(format!(
-                "interval must be at least {min} seconds under the current billing eligibility"
-            )),
-            CreateMonitorError::TenantSuspended => {
-                ApiError::forbidden("tenant is suspended")
-            },
+            CreateMonitorError::TenantSuspended => ApiError::forbidden("tenant is suspended"),
+            CreateMonitorError::EntitlementResolverMissing => {
+                ApiError::internal("entitlement resolver is not configured")
+            }
             CreateMonitorError::Other(err) => {
                 let msg = err.to_string();
                 let is_validation_error = msg.contains("invalid")

@@ -7,7 +7,7 @@ pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Persistence port for `Subscription`.
 ///
-/// B11 limited this to create and lookup-by-tenant. B12 adds `update`
+/// Originally limited to create and lookup-by-tenant; now also `update`
 /// for lifecycle transitions (trial, grace period, expiry, cancellation)
 /// — there is still no `delete`, since a subscription's terminal states
 /// (`Expired`, `Canceled`) are represented as data, not row removal.

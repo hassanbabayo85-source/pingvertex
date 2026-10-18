@@ -49,7 +49,7 @@ pub trait MaintenanceWindowRepository: Send + Sync {
         unimplemented!()
     }
 
-    /// PART 8 — cursor-paginated variant of `list_by_monitor`.
+    /// Cursor-paginated variant of `list_by_monitor`.
     async fn list_by_monitor_paginated(
         &self,
         monitor_id: MonitorId,

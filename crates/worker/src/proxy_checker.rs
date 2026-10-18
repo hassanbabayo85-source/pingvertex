@@ -136,7 +136,7 @@ fn legacy_error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
 /// This is the intermediate shape between the raw protocol helpers
 /// (which only know "did this step succeed or not") and the final
 /// `ProxyResult` (which is what the DB stores and the API serves).
-/// It exists to answer the two questions PART 3 requires us to keep
+/// It exists to answer the two questions we must keep
 /// separate:
 ///
 ///   * `proxy_ok`  — did the proxy itself work? (TCP + handshake + auth)
@@ -203,7 +203,7 @@ impl CheckAttempt {
     }
 
     /// Mark a target-side failure. The proxy itself is FINE — this is
-    /// exactly the case PART 3 must not treat as a dead proxy.
+    /// exactly the case that must not be treated as a dead proxy.
     fn fail_target(&mut self, kind: ProxyFailureKind, code: &str, message: String) {
         self.proxy_ok = true;
         self.target_ok = false;
@@ -246,7 +246,7 @@ fn classify_proxy_message(message: &str) -> ProxyFailureKind {
 }
 
 /// Stable string code for a proxy-side failure, matching the codes the
-/// pre-PART-3 `error_code` function produced so existing consumers
+/// legacy `error_code` function produced so existing consumers
 /// (dashboard humanize logic, `attempted` billing predicate) keep
 /// working unchanged.
 fn proxy_failure_code(scheme: &ProxyScheme, kind: ProxyFailureKind) -> &'static str {
@@ -304,11 +304,7 @@ fn fail_connect_timeout(attempt: &mut CheckAttempt) {
     );
 }
 
-fn build_proxy_result(
-    entry: &ProxyEntry,
-    started: Instant,
-    attempt: CheckAttempt,
-) -> ProxyResult {
+fn build_proxy_result(entry: &ProxyEntry, started: Instant, attempt: CheckAttempt) -> ProxyResult {
     // Compute the outcome BEFORE moving any fields out of `attempt`.
     // `attempt.outcome()` borrows `self`, and several of the fields we
     // move into the result (`error_code`, `error_message`) are
@@ -369,7 +365,7 @@ fn proxy_result(
         country_code: None,
         error_code,
         error_message: safe_error,
-        // PART 3 fields — placeholders for now. Block B will populate
+        // Proxy-diagnostic fields — placeholders for now. They are populated
         // these with actual measurements and structured classification.
         outcome: None,
         failure_kind: None,
@@ -497,7 +493,7 @@ struct HttpVerifySuccess {
 
 /// Failure of an HTTP-level verification step, split by WHO failed:
 /// the proxy's authentication, the proxy's protocol handling, or the
-/// target through the proxy. The distinction is what PART 3 is about.
+/// target through the proxy. That distinction is the whole point.
 #[derive(Debug)]
 enum VerifyHttpError {
     /// Proxy rejected credentials (HTTP 401/407).
@@ -670,8 +666,7 @@ where
 
     // Build SOCKS4a CONNECT request. See doc comment above for the exact
     // byte layout and why DSTIP is 0.0.0.1 rather than a real address.
-    let mut request =
-        Vec::with_capacity(1 + 1 + 2 + 4 + userid.len() + 1 + host_bytes.len() + 1);
+    let mut request = Vec::with_capacity(1 + 1 + 2 + 4 + userid.len() + 1 + host_bytes.len() + 1);
     request.push(0x04); // VN
     request.push(0x01); // CD = CONNECT
     request.extend_from_slice(&target_port.to_be_bytes());
@@ -698,9 +693,9 @@ where
     match cd {
         0x5A => Ok(()), // 90 — request granted
         0x5B => Err("SOCKS4 request rejected or failed by the proxy".to_string()), // 91
-        0x5C => Err(
-            "SOCKS4 request rejected: proxy could not reach identd on the client".to_string(),
-        ), // 92
+        0x5C => {
+            Err("SOCKS4 request rejected: proxy could not reach identd on the client".to_string())
+        } // 92
         0x5D => Err(
             "SOCKS4 request rejected: identd on the client could not confirm the USERID"
                 .to_string(),
@@ -844,7 +839,7 @@ where
 /// reported as `reachable: false` with a descriptive `error`, never as a
 /// panic or a propagated `Result` — one bad proxy entry must never stop
 /// the rest of the job from being checked.
-async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
+pub(crate) async fn check_single_entry(entry: &ProxyEntry) -> (ProxyResult, bool) {
     // IPv6 hosts MUST be bracketed when embedded in a URL, otherwise
     // Url::parse rejects the string. `ProxyHost` stores IPv6 literals
     // without brackets (per the "strip during normalization" rule in
@@ -931,8 +926,7 @@ async fn check_http_proxy(
     attempt.connection_latency_ms = Some(elapsed_ms(t0));
 
     // --- HTTP absolute-form GET ---
-    match verify_http_proxy_absolute_form(&mut stream, entry.credentials(), protocol_timeout)
-        .await
+    match verify_http_proxy_absolute_form(&mut stream, entry.credentials(), protocol_timeout).await
     {
         Ok(success) => {
             attempt.ttfb_ms = Some(duration_ms(success.ttfb));
@@ -1069,7 +1063,11 @@ async fn check_https_proxy(
     let server_name = match ServerName::try_from(entry.host().as_str().to_string()) {
         Ok(n) => n,
         Err(err) => {
-            attempt.fail_proxy(ProxyFailureKind::InvalidInput, "INVALID_PROXY", err.to_string());
+            attempt.fail_proxy(
+                ProxyFailureKind::InvalidInput,
+                "INVALID_PROXY",
+                err.to_string(),
+            );
             return attempt;
         }
     };
@@ -1125,7 +1123,11 @@ async fn check_https_proxy(
         }) => {
             attempt.http_status_code = Some(status);
             attempt.ttfb_ms = Some(duration_ms(ttfb));
-            attempt.fail_target(ProxyFailureKind::TargetHttpError, "CONNECT_HTTP_ERROR", message);
+            attempt.fail_target(
+                ProxyFailureKind::TargetHttpError,
+                "CONNECT_HTTP_ERROR",
+                message,
+            );
             return attempt;
         }
     }
@@ -1747,8 +1749,7 @@ mod tests {
         const REQUEST_LEN: usize = 25;
         const PASSWORD_SENTINEL: &str = "secret-should-never-appear-on-the-wire";
 
-        let creds =
-            ProxyCredentials::new("user", PASSWORD_SENTINEL).expect("valid credentials");
+        let creds = ProxyCredentials::new("user", PASSWORD_SENTINEL).expect("valid credentials");
 
         let (result, request) = run_socks4_case(
             [0x00, 0x5A, 0x00, 0x50, 0, 0, 0, 0],
@@ -1829,13 +1830,8 @@ mod tests {
         // A well-behaved SOCKS4 server always returns VN=0x00 in the
         // reply. Anything else means this is not really a SOCKS4 server
         // (or the reply is misaligned), and we must not accept it.
-        let (result, _) = run_socks4_case(
-            [0x05, 0x5A, 0, 0, 0, 0, 0, 0],
-            None,
-            "example.com",
-            21,
-        )
-        .await;
+        let (result, _) =
+            run_socks4_case([0x05, 0x5A, 0, 0, 0, 0, 0, 0], None, "example.com", 21).await;
 
         let err = result.expect_err("reply VN=0x05 must be rejected");
         assert!(
@@ -1848,13 +1844,8 @@ mod tests {
     async fn socks4_proxy_verification_rejects_unrecognized_reply_code() {
         // 0x99 is not one of 0x5A/0x5B/0x5C/0x5D. We must fail closed
         // rather than treating an unknown byte as success.
-        let (result, _) = run_socks4_case(
-            [0x00, 0x99, 0, 0, 0, 0, 0, 0],
-            None,
-            "example.com",
-            21,
-        )
-        .await;
+        let (result, _) =
+            run_socks4_case([0x00, 0x99, 0, 0, 0, 0, 0, 0], None, "example.com", 21).await;
 
         let err = result.expect_err("reply CD=0x99 must be rejected");
         assert!(
@@ -1864,7 +1855,7 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // PART 3 — CheckAttempt, classification helpers, VerifyHttpError
+    // CheckAttempt, classification helpers, VerifyHttpError
     // ---------------------------------------------------------------
 
     // -- CheckAttempt: outcome derivation --
@@ -1882,7 +1873,7 @@ mod tests {
 
     #[test]
     fn check_attempt_target_failure_keeps_proxy_alive() {
-        // THE central PART 3 invariant: when the proxy succeeded but the
+        // THE central invariant: when the proxy succeeded but the
         // target through it did not, the outcome must be
         // WorkingTargetUnreachable — the proxy is NOT dead.
         let mut a = CheckAttempt::new();
@@ -1894,11 +1885,14 @@ mod tests {
         );
 
         assert_eq!(a.outcome(), ProxyCheckOutcome::WorkingTargetUnreachable);
-        assert!(a.outcome().proxy_is_alive(), "target failure must not kill the proxy");
+        assert!(
+            a.outcome().proxy_is_alive(),
+            "target failure must not kill the proxy"
+        );
         assert!(!a.outcome().fully_working());
         assert!(a.outcome().is_target_failure());
         assert_eq!(a.failure_kind, Some(ProxyFailureKind::Timeout));
-        // Target failures get prefixed so pre-PART-3 rows can be
+        // Target failures get prefixed so legacy rows can be
         // retroactively classified by the domain helper.
         assert_eq!(a.error_code.as_deref(), Some("TARGET_TIMEOUT"));
     }
@@ -1936,7 +1930,10 @@ mod tests {
 
         assert_eq!(a.outcome(), ProxyCheckOutcome::Working);
         assert!(a.outcome().fully_working());
-        assert!(a.failure_kind.is_none(), "warning must not become a failure kind");
+        assert!(
+            a.failure_kind.is_none(),
+            "warning must not become a failure kind"
+        );
         assert_eq!(a.error_code.as_deref(), Some("TARGET_TLS_FAILED"));
     }
 
@@ -2067,10 +2064,8 @@ mod tests {
 
     #[tokio::test]
     async fn verify_http_proxy_absolute_form_returns_auth_on_407() {
-        let addr = spawn_fake_http_server(
-            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
-        )
-        .await;
+        let addr =
+            spawn_fake_http_server(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
         let mut stream = TcpStream::connect(addr).await.unwrap();
         let result =
             verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
@@ -2084,10 +2079,7 @@ mod tests {
 
     #[tokio::test]
     async fn verify_http_proxy_absolute_form_returns_target_on_500() {
-        let addr = spawn_fake_http_server(
-            b"HTTP/1.1 500 Internal Server Error\r\n\r\n",
-        )
-        .await;
+        let addr = spawn_fake_http_server(b"HTTP/1.1 500 Internal Server Error\r\n\r\n").await;
         let mut stream = TcpStream::connect(addr).await.unwrap();
         let result =
             verify_http_proxy_absolute_form(&mut stream, None, Duration::from_secs(2)).await;
@@ -2121,13 +2113,10 @@ mod tests {
 
     #[tokio::test]
     async fn verify_http_connect_tunnel_returns_auth_on_407() {
-        let addr = spawn_fake_http_server(
-            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
-        )
-        .await;
+        let addr =
+            spawn_fake_http_server(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
         let mut stream = TcpStream::connect(addr).await.unwrap();
-        let result =
-            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        let result = verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
         match result {
             Err(VerifyHttpError::Auth { .. }) => {}
             other => panic!("expected VerifyHttpError::Auth, got {other:?}"),
@@ -2138,8 +2127,7 @@ mod tests {
     async fn verify_http_connect_tunnel_returns_target_on_502() {
         let addr = spawn_fake_http_server(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
         let mut stream = TcpStream::connect(addr).await.unwrap();
-        let result =
-            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        let result = verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
         match result {
             Err(VerifyHttpError::Target { status, .. }) => {
                 assert_eq!(status, 502);
@@ -2154,8 +2142,7 @@ mod tests {
         // failure on the proxy's side, not a target failure.
         let addr = spawn_fake_http_server(b"GARBAGE\r\n\r\n").await;
         let mut stream = TcpStream::connect(addr).await.unwrap();
-        let result =
-            verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
+        let result = verify_http_connect_tunnel(&mut stream, None, Duration::from_secs(2)).await;
         match result {
             Err(VerifyHttpError::Proxy(_)) => {}
             other => panic!("expected VerifyHttpError::Proxy, got {other:?}"),
@@ -2233,9 +2220,8 @@ mod tests {
         assert_eq!(result.connection_latency_ms, Some(5));
     }
 
-
     // ---------------------------------------------------------------
-    // PART 3 — integration tests: check_http_proxy end-to-end
+    // Integration tests: check_http_proxy end-to-end
     //
     // These drive the real `check_http_proxy` against a local fake TCP
     // server, proving that the target-vs-proxy distinction survives all
@@ -2293,11 +2279,10 @@ mod tests {
 
     #[tokio::test]
     async fn check_http_proxy_reports_target_failure_on_500_response() {
-        // THE central PART 3 scenario, proved end-to-end: the fake proxy
+        // THE central scenario, proved end-to-end: the fake proxy
         // speaks HTTP correctly but returns 500. The proxy itself is
         // alive; only the target through it failed.
-        let addr =
-            spawn_fake_proxy_server(b"HTTP/1.1 500 Internal Server Error\r\n\r\n", 1).await;
+        let addr = spawn_fake_proxy_server(b"HTTP/1.1 500 Internal Server Error\r\n\r\n", 1).await;
         let dest = fake_dest(addr);
         let entry = make_http_entry();
 
@@ -2335,10 +2320,9 @@ mod tests {
     async fn check_http_proxy_reports_proxy_failure_on_connection_refused() {
         // Bind a port, capture its address, then drop the listener so
         // that any subsequent connect is refused by the OS.
-        let listener =
-            TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-                .await
-                .unwrap();
+        let listener = TcpListener::bind((IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
@@ -2360,10 +2344,7 @@ mod tests {
             attempt.failure_kind,
             Some(ProxyFailureKind::ConnectionRefused)
         );
-        assert_eq!(
-            attempt.error_code.as_deref(),
-            Some("CONNECTION_REFUSED")
-        );
+        assert_eq!(attempt.error_code.as_deref(), Some("CONNECTION_REFUSED"));
         // Connection latency is still recorded — we measured the
         // attempt, even though it failed.
         assert!(attempt.connection_latency_ms.is_some());
@@ -2371,11 +2352,8 @@ mod tests {
 
     #[tokio::test]
     async fn check_http_proxy_reports_auth_failure_on_407() {
-        let addr = spawn_fake_proxy_server(
-            b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n",
-            1,
-        )
-        .await;
+        let addr =
+            spawn_fake_proxy_server(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n", 1).await;
         let dest = fake_dest(addr);
         let entry = make_http_entry();
 
@@ -2429,10 +2407,7 @@ mod tests {
             !attempt.supports_https,
             "TLS handshake over our fake stream must fail"
         );
-        assert_eq!(
-            attempt.error_code.as_deref(),
-            Some("TARGET_TLS_FAILED")
-        );
+        assert_eq!(attempt.error_code.as_deref(), Some("TARGET_TLS_FAILED"));
         assert!(
             attempt.failure_kind.is_none(),
             "a warning must not set a failure_kind"
@@ -2441,5 +2416,4 @@ mod tests {
         assert!(attempt.ttfb_ms.is_some());
         assert!(attempt.connection_latency_ms.is_some());
     }
-
 }

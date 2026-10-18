@@ -1,4 +1,4 @@
-//! H5 — Backend Cookie/Auth End-to-End Tests.
+//! Backend Cookie/Auth End-to-End Tests.
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},

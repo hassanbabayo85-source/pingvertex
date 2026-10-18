@@ -116,9 +116,9 @@ where
             joined_at: Some(now),
         };
 
-        // Ajiye User + Tenant + TenantMembership a matsayin AIKI GUDA ƊAYA
-        // (atomic). Idan wani sashi ya gaza, ba za a ajiye komai ba — babu
-        // yiwuwar samun "orphaned user" mara tenant kamar da.
+        // Persist User + Tenant + TenantMembership as ONE atomic operation.
+        // If any part fails, nothing is persisted — an "orphaned user" with no
+        // tenant can no longer occur.
         self.registration_transaction
             .register_user_with_tenant(&user, &tenant, &membership)
             .await?;

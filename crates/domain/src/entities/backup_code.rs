@@ -63,11 +63,11 @@ impl Ownable for BackupCode {
 }
 
 // The `Debug` impls in this file sit after `mod tests` because they are
-// the credential-redaction boundary added in PART 7 and were kept at the
+// the credential-redaction boundary added and were kept at the
 // bottom to keep that PART's diff focused on the impls themselves. The
 // ordering is a style preference; the lint is suppressed explicitly here
 // rather than reorganising the file, so the diff stays minimal and the
-// redaction review (PART 7) remains easy to re-audit.
+// redaction review remains easy to re-audit.
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
@@ -104,7 +104,7 @@ mod tests {
     }
 }
 
-/// PART 7 — manual Debug that redacts `code_hash`.
+/// Manual Debug that redacts `code_hash`.
 impl std::fmt::Debug for BackupCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackupCode")

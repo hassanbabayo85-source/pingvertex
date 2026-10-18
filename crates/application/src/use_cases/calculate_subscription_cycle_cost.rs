@@ -34,14 +34,14 @@ impl Error for CalculateSubscriptionCycleCostError {
     }
 }
 
-/// H12 — Proration Service: billing-time integration point.
+/// Proration Service: billing-time integration point.
 ///
 /// Sums `calculate_period_cost` across every `SubscriptionUsagePeriod`
 /// that touched `[cycle_start, cycle_end)`, instead of charging a single
 /// flat rate for whatever usage happens to be current when billing runs.
-/// Intended to be called by whatever future worker builds the actual
+/// Intended to be called by whatever future code builds the actual
 /// invoice-generation flow — no such flow exists yet in this codebase
-/// (out of scope for H12; see HANDOVER.md).
+/// (out of scope here).
 pub struct CalculateSubscriptionCycleCostUseCase {
     usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
     pricing_config_repository: Arc<dyn PricingConfigRepository>,

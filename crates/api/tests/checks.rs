@@ -233,9 +233,9 @@ impl TokenService for NoopTokenService {
         &self,
         _: &str,
     ) -> Result<application::ports::VerifiedToken, Box<dyn std::error::Error + Send + Sync>> {
-        // FIX: Tsayayyen UserId (nil UUID) don kowane buƙata ya kasance iri ɗaya.
-        // Wannan yana tabbatar da cewa POST da GET a gwaji suna da mai amfani iri ɗaya,
-        // don haka monitor ɗin da aka ƙirƙira zai kasance mallakar wannan mai amfanin.
+        // A fixed UserId (the nil UUID) so every request resolves to the same user.
+        // This guarantees the POST and GET in a test share one user, so the monitor
+        // that is created is owned by that same user.
         Ok(application::ports::VerifiedToken {
             user_id: domain::UserId::from_uuid(uuid::Uuid::nil()),
             issued_at: 0,
@@ -248,7 +248,7 @@ impl TokenService for NoopTokenService {
 // ---------------------------------------------------------------------------
 
 async fn build_test_app() -> axum::Router {
-    // InMemoryMonitorRepository yana da cikakkiyar aiki na MonitorRepository,
+    // InMemoryMonitorRepository is a complete implementation of MonitorRepository,
     // gami da find_by_id_for_user() da ownership checks.
     let monitor_repo = InMemoryMonitorRepository::new();
 
@@ -328,7 +328,7 @@ async fn list_checks_returns_ok() {
 async fn list_monitor_checks_returns_ok() {
     let app = build_test_app().await;
 
-    // Fara ƙirƙirar monitor ta hanyar amfani da router ɗin da muka gina.
+    // First create a monitor through the router we built.
     let create_response = app
         .clone()
         .oneshot(
@@ -362,7 +362,7 @@ async fn list_monitor_checks_returns_ok() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let monitor_id = json["id"].as_str().unwrap();
 
-    // Yanzu neman checks na wannan monitor
+    // Now request the checks for that monitor
     let response = app
         .oneshot(
             Request::builder()

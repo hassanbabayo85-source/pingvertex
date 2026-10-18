@@ -1,4 +1,4 @@
-//! PART 8 — shared pagination plumbing for API handlers.
+//! Shared pagination plumbing for API handlers.
 //!
 //! Every list endpoint exposes the same query parameters and the same
 //! `X-Next-Cursor` response header. Keeping these in one place means the

@@ -11,7 +11,7 @@ use domain::shared::types::AuthenticatedUser;
 
 use crate::{error::ApiError, handlers::types::MonitorResponse, state::AppState};
 
-/// PART 8 — query parameters for cursor-based pagination.
+/// Query parameters for cursor-based pagination.
 ///
 /// Both are optional: an empty request gets the first `DEFAULT_PAGE_SIZE`
 /// monitors. `limit` is clamped into `[1, MAX_PAGE_SIZE]` by
@@ -34,7 +34,7 @@ pub const NEXT_CURSOR_HEADER: HeaderName = HeaderName::from_static("x-next-curso
 /// `GET /api/v1/monitors?limit=50&cursor=<opaque>`
 ///
 /// Response body is a JSON array of monitors (unchanged from before
-/// PART 8, so existing clients keep working). When more pages exist, an
+/// so existing clients keep working). When more pages exist, an
 /// `X-Next-Cursor` response header carries the opaque cursor to pass
 /// back via `?cursor=`. Absence of the header means "last page".
 pub async fn list_monitors(

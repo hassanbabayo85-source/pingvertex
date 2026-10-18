@@ -714,7 +714,7 @@ async fn refund_payment_propagates_status_false_as_error() {
 }
 
 // ============================================================================
-// Task 5 completion matrix
+// Completion matrix
 // ----------------------------------------------------------------------------
 // Adds coverage for the matrix rows the original contract file omitted:
 // malformed JSON responses, unknown transactions, provider rejections on

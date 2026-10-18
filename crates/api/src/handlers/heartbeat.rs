@@ -25,7 +25,7 @@ use crate::state::AppState;
 /// gives each monitored service its own independent quota regardless of
 /// source IP.
 ///
-/// PART 12 #3: this is now enforced via `state.rate_limiter` — the same
+/// This is enforced via `state.rate_limiter` — the same
 /// `RateLimiter` port the RUM ingest endpoint uses — which in production
 /// is `infra::RedisRateLimiter` with a real per-key TTL. This replaces
 /// the previous per-process, never-pruned `HashMap` bucket which (a)
@@ -43,7 +43,7 @@ const MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
 /// Bucket size (seconds) applied to a client-supplied `Idempotency-Key`.
 ///
-/// PART 12 #9: an `Idempotency-Key` is only treated as identifying the
+/// An `Idempotency-Key` is only treated as identifying the
 /// SAME request within a single bucket of this size. Past the bucket
 /// boundary, the same key value identifies a NEW request — so a client
 /// that caches or reuses an idempotency key cannot silently suppress
@@ -129,12 +129,12 @@ async fn record_heartbeat_inner(
     raw_token: &str,
     headers: &HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
-    // (1) PART 12 #2: reject malformed tokens BEFORE any rate-limit or DB
+    // (1) Reject malformed tokens BEFORE any rate-limit or DB
     // work. Only well-formed `HeartbeatToken`s ever reach the limiter, so
     // an attacker cannot grow the limiter's key space with junk.
     let token = HeartbeatToken::new(raw_token).map_err(|_| StatusCode::NOT_FOUND)?;
 
-    // (2) PART 12 #3: distributed, TTL-bounded per-token rate limit.
+    // (2) Distributed, TTL-bounded per-token rate limit.
     // Fail CLOSED on limiter unavailability, matching rum_ingest.
     let allowed = match state
         .rate_limiter
@@ -153,7 +153,7 @@ async fn record_heartbeat_inner(
         }
     };
     if !allowed {
-        // PART 12 #7: no token in the log line.
+        // No token in the log line.
         warn!("heartbeat rate limit exceeded for a token");
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -232,9 +232,9 @@ async fn record_heartbeat_inner(
 ///   Within one bucket the same key is deduplicated; in a new bucket the
 ///   same key identifies a distinct request. This bounds how long a
 ///   stale/reused key can suppress a legitimate future heartbeat
-///   (PART 12 #9).
+///   invariant.
 ///
-/// The token is NEVER part of the request_id (PART 12 #7 invariant).
+/// The token is NEVER part of the request_id (logging invariant).
 fn build_request_id(
     monitor_id: &domain::shared::ids::MonitorId,
     headers: &HeaderMap,

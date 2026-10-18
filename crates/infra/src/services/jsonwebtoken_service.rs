@@ -17,7 +17,7 @@ pub struct JsonWebTokenService {
     secret: String,
 }
 
-/// PART 6 — custom Debug that redacts the signing secret.
+/// Custom Debug that redacts the signing secret.
 impl std::fmt::Debug for JsonWebTokenService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JsonWebTokenService")

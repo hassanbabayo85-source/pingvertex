@@ -5,8 +5,8 @@ use crate::errors::DomainError;
 use crate::shared::ids::{MaintenanceWindowId, MonitorId, TenantId};
 use crate::shared::policies::TenantOwned;
 
-/// Tsawon lokaci inda monitor zai iya kasawa ba tare da an tura
-/// notification ba (amma har yanzu ana rubuta incident a database).
+/// A period during which a monitor may fail without a notification being
+/// sent (an incident is still recorded in the database).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaintenanceWindow {
     pub id: MaintenanceWindowId,
@@ -66,7 +66,7 @@ impl MaintenanceWindow {
         })
     }
 
-    /// Idan lokacin yanzu yana cikin wannan window.
+    /// Whether the given time falls inside this window.
     pub fn is_active_at(&self, now: DateTime<Utc>) -> bool {
         now >= self.starts_at && now <= self.ends_at
     }

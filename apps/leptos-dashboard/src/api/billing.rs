@@ -116,12 +116,12 @@ pub async fn add_on(req: &AddOnRequest) -> Result<AddOn, ApiError> {
     client::post_json("/billing/addons", req).await
 }
 
-// 🟡 MATAKI NA 3: An gano gibin Frontend - Ƙara function na soke Add-On (Cancel Add-on)
+// Cancel an add-on subscription.
 pub async fn cancel_add_on(id: &str) -> Result<(), ApiError> {
     client::post_json("/billing/addons/cancel", &serde_json::json!({ "id": id })).await
 }
 
-// 🟡 MATAKI NA 3: An gano gibin Frontend - Ƙara function na tantance Add-On (Verify Add-on)
+// Verify an add-on subscription.
 pub async fn verify_add_on(id: &str) -> Result<(), ApiError> {
     client::post_json("/billing/addons/verify", &serde_json::json!({ "id": id })).await
 }
@@ -145,7 +145,7 @@ pub async fn invoices() -> Result<Vec<Invoice>, ApiError> {
     client::get_json("/billing/invoices").await
 }
 
-// 🟡 MATAKI NA 3: An gano gibin Frontend - Ƙara function na ɗauko cikakken Invoice guda ɗaya
+// Fetch a single invoice in full.
 pub async fn get_invoice_details(id: &str) -> Result<Invoice, ApiError> {
     client::get_json(&format!("/billing/invoices/{}", id)).await
 }

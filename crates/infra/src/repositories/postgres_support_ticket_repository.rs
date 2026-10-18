@@ -118,7 +118,7 @@ impl SupportTicketRepository for PostgresSupportTicketRepository {
         user_id: UserId,
         page: PageRequest,
     ) -> RepoResult<Page<SupportTicket>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id, ticket_number, tenant_id, created_by, subject, category, status, \
                     created_at, updated_at \
@@ -159,7 +159,7 @@ impl SupportTicketRepository for PostgresSupportTicketRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<SupportTicket>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id, ticket_number, tenant_id, created_by, subject, category, status, \
                     created_at, updated_at \

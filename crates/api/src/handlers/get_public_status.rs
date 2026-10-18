@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::{handlers::types::PublicMonitorResponse, state::AppState};
 
-/// B34: TTL for the cached `GET /public/status` (list) response. Shorter
+/// TTL for the cached `GET /public/status` (list) response. Shorter
 /// than the per-status-page cache's 45s (see
 /// `handlers::public_status_page::render_public_status_page`) since this
 /// endpoint aggregates every public monitor across the whole deployment
@@ -24,7 +24,7 @@ const PUBLIC_STATUS_LIST_CACHE_TTL_SECONDS: u64 = 30;
 /// `user_id`, `assertions`, or any other owner-only/internal data — see
 /// `PublicMonitorResponse` for the exact (safe) shape returned.
 ///
-/// B34: now cache-backed via `state.status_page_cache`, the same cache
+/// Now cache-backed via `state.status_page_cache`, the same cache
 /// already used by `render_public_status_page`. Previously this handler
 /// queried Postgres on every single request — `find_public()` plus a
 /// `list_by_monitor` for checks AND incidents AND maintenance windows PER

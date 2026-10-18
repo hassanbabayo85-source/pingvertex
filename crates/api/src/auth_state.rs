@@ -355,10 +355,10 @@ pub struct AuthState {
     pub email_verification_token_repository: Arc<dyn EmailVerificationTokenRepository>,
     pub email_verification_mailer: Arc<dyn EmailVerificationMailer>,
     pub rate_limiter: Arc<dyn RateLimiter>,
-    /// B6 — Password reset:
+    /// Password reset:
     pub reset_password_token_repository: Arc<dyn ResetPasswordTokenRepository>,
     pub password_reset_mailer: Arc<dyn PasswordResetMailer>,
-    /// B9 — Tenant invitations:
+    /// Tenant invitations:
     pub invitation_repository: Arc<dyn TenantInvitationRepository>,
     /// OAuth — Continue with Google / Apple:
     pub google_id_token_verifier: Arc<dyn IdTokenVerifier>,

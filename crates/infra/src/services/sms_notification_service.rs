@@ -163,7 +163,7 @@ mod tests {
     /// (kind check, missing-secret check, decrypt-failure propagation) —
     /// the same scope `TelegramNotificationService`/`DiscordNotificationService`/
     /// `SlackNotificationService` have (none of them unit-test the live HTTP
-    /// call either; see B27 HANDOVER.md "Deviations from prompt").
+    /// call either).
     struct PassthroughCipher;
 
     impl SecretCipher for PassthroughCipher {

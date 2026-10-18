@@ -72,9 +72,9 @@ fn parse_filters(query: &ListChecksViaApiKeyQuery) -> Result<CheckFilters, ApiEr
 /// `GET /api/v1/external/checks`
 ///
 /// Gated on `ApiKeyScope::MonitorRead`. There is no dedicated `check:*`
-/// scope in `ApiKeyScope` (B31's prompt named one, `check:read`, but the
+/// scope in `ApiKeyScope` (one was named, `check:read`, but the
 /// shipped enum from the earlier, undocumented API-key worker does not
-/// have it — see HANDOVER.md "Deviations from prompt" for why this
+/// have it — see the API key scope notes for why this
 /// worker did not add one). Checks are always read as history attached
 /// to a monitor, so reusing `MonitorRead` — rather than adding a new
 /// scope string to the `api_keys.scopes` column's existing, in-database

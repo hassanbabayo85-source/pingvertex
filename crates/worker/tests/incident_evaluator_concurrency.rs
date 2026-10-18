@@ -11,7 +11,7 @@ use sqlx::{PgPool, query};
 use uuid::Uuid;
 use worker::{IncidentEvaluator, IncidentManager};
 
-/// B23 concurrency regression test: simulates many concurrent check
+/// Concurrency regression test: simulates many concurrent check
 /// results for the SAME monitor all landing on the same instant, and
 /// confirms the incident-open path (threshold crossing +
 /// `IncidentManager::open_if_needed` + the database's partial unique

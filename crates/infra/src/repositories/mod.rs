@@ -11,6 +11,7 @@ pub mod in_memory_monitor_repository;
 pub mod in_memory_notification_channel_repository;
 pub mod in_memory_notification_outbox_repository;
 pub mod in_memory_proxy_check_job_repository;
+pub mod in_memory_recurring_proxy_monitor_repository;
 pub mod in_memory_registration_transaction;
 pub mod in_memory_reset_password_token_repository;
 pub mod in_memory_status_page_repository;
@@ -38,6 +39,7 @@ pub mod postgres_notification_outbox_repository;
 pub mod postgres_oauth_identity_repository;
 pub mod postgres_payment_repository;
 pub mod postgres_proxy_check_job_repository;
+pub mod postgres_recurring_proxy_monitor_repository;
 pub mod postgres_registration_transaction;
 pub mod postgres_reset_password_token_repository;
 pub mod postgres_status_page_repository;
@@ -46,7 +48,7 @@ pub mod postgres_tenant_invitation_repository;
 pub mod postgres_tenant_membership_repository;
 pub mod postgres_tenant_repository;
 pub mod postgres_user_repository;
-// H6 — Dashboard Overview:
+// Dashboard Overview:
 pub mod postgres_dashboard_repository;
 
 pub use in_memory_api_flow_repository::*;
@@ -61,6 +63,7 @@ pub use in_memory_monitor_repository::*;
 pub use in_memory_notification_channel_repository::*;
 pub use in_memory_notification_outbox_repository::InMemoryNotificationOutboxRepository;
 pub use in_memory_proxy_check_job_repository::*;
+pub use in_memory_recurring_proxy_monitor_repository::InMemoryRecurringProxyMonitorRepository;
 pub use in_memory_registration_transaction::InMemoryRegistrationTransaction;
 pub use in_memory_reset_password_token_repository::InMemoryResetPasswordTokenRepository;
 pub use in_memory_status_page_repository::*;
@@ -87,6 +90,7 @@ pub use postgres_notification_outbox_repository::PostgresNotificationOutboxRepos
 pub use postgres_oauth_identity_repository::PostgresOAuthIdentityRepository;
 pub use postgres_payment_repository::PostgresPaymentRepository;
 pub use postgres_proxy_check_job_repository::PostgresProxyCheckJobRepository;
+pub use postgres_recurring_proxy_monitor_repository::PostgresRecurringProxyMonitorRepository;
 pub use postgres_registration_transaction::PostgresRegistrationTransaction;
 pub use postgres_reset_password_token_repository::PostgresResetPasswordTokenRepository;
 pub use postgres_status_page_repository::PostgresStatusPageRepository;
@@ -95,24 +99,30 @@ pub use postgres_tenant_invitation_repository::PostgresTenantInvitationRepositor
 pub use postgres_tenant_membership_repository::PostgresTenantMembershipRepository;
 pub use postgres_tenant_repository::PostgresTenantRepository;
 pub use postgres_user_repository::*;
-// H6 — Dashboard Overview:
+// Dashboard Overview:
 pub use postgres_dashboard_repository::PostgresDashboardRepository;
 
-// B11 — Plan / Subscription / Entitlement model:
+// TASK 2 — Entitlement Resolver (single source of truth for quotas):
+pub mod in_memory_entitlement_resolver;
+pub mod postgres_entitlement_resolver;
+pub use in_memory_entitlement_resolver::InMemoryEntitlementResolver;
+pub use postgres_entitlement_resolver::PostgresEntitlementResolver;
+
+// Plan / Subscription / Entitlement model:
 pub mod in_memory_subscription_repository;
 pub mod postgres_subscription_repository;
 
 pub use in_memory_subscription_repository::InMemorySubscriptionRepository;
 pub use postgres_subscription_repository::PostgresSubscriptionRepository;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod in_memory_checkout_session_repository;
 pub mod postgres_checkout_session_repository;
 
 pub use in_memory_checkout_session_repository::InMemoryCheckoutSessionRepository;
 pub use postgres_checkout_session_repository::PostgresCheckoutSessionRepository;
 
-// B15 — Billing Webhooks:
+// Billing Webhooks:
 pub mod in_memory_billing_audit_log_repository;
 pub mod in_memory_billing_webhook_idempotency_repository;
 pub mod postgres_billing_audit_log_repository;
@@ -123,18 +133,18 @@ pub use in_memory_billing_webhook_idempotency_repository::InMemoryBillingWebhook
 pub use postgres_billing_audit_log_repository::PostgresBillingAuditLogRepository;
 pub use postgres_billing_webhook_idempotency_repository::PostgresBillingWebhookIdempotencyRepository;
 
-// B17 — Durable Scheduler:
+// Durable Scheduler:
 pub mod postgres_scheduling_repository;
 pub use postgres_scheduling_repository::PostgresSchedulingRepository;
 
-// B20 — Agent Execution & mTLS:
+// Agent Execution & mTLS:
 pub mod in_memory_agent_lease_repository;
 pub mod postgres_agent_lease_repository;
 
 pub use in_memory_agent_lease_repository::InMemoryAgentLeaseRepository;
 pub use postgres_agent_lease_repository::PostgresAgentLeaseRepository;
 
-// B22 — History Retention Enforcement:
+// History Retention Enforcement:
 pub mod in_memory_history_retention_repository;
 pub mod postgres_history_retention_repository;
 
@@ -145,7 +155,7 @@ pub mod postgres_pricing_config_repository;
 pub use in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;
 
-// H12 — Proration Service:
+// Proration Service:
 pub mod in_memory_subscription_usage_period_repository;
 pub mod in_memory_subscription_usage_transaction;
 pub mod postgres_subscription_usage_period_repository;
@@ -168,7 +178,7 @@ pub use postgres_add_on_subscription_repository::PostgresAddOnSubscriptionReposi
 pub use postgres_invoice_repository::PostgresInvoiceRepository;
 pub use postgres_subscription_plan_change_repository::PostgresSubscriptionPlanChangeRepository;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod in_memory_help_article_repository;
 pub mod in_memory_help_category_repository;
 pub mod in_memory_support_ticket_repository;
@@ -215,7 +225,7 @@ pub use in_memory_usage_event_repository::InMemoryUsageEventRepository;
 pub use postgres_payg_pricing_repository::PostgresPAYGPricingRepository;
 pub use postgres_usage_event_repository::PostgresUsageEventRepository;
 
-// PAYG Part 3 — durable CSV bulk import.
+// PAYG durable CSV bulk import.
 pub mod postgres_bulk_monitor_action_repository;
 pub mod postgres_bulk_monitor_import_repository;
 pub use postgres_bulk_monitor_action_repository::PostgresBulkMonitorActionRepository;

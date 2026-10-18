@@ -23,7 +23,7 @@ async fn worker_metrics_endpoint_requires_bearer_token() {
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), TEST_PORT);
 
-    // Part 1: no token configured -> /metrics should be 404.
+    // Case 1: no token configured -> /metrics should be 404.
     {
         let server = tokio::spawn(async move {
             let _ = worker::metrics::serve_metrics_on_with_token(addr, None).await;
@@ -45,7 +45,7 @@ async fn worker_metrics_endpoint_requires_bearer_token() {
     // Give the port a moment to be released.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    // Part 2: token configured -> wrong token 401, correct 200.
+    // Case 2: token configured -> wrong token 401, correct 200.
     let expected_token = "e2e-worker-metrics-test-token".to_string();
     let token_for_server = expected_token.clone();
     let server = tokio::spawn(async move {

@@ -1,4 +1,4 @@
-//! PART 4 — Integration tests for external monitor list pagination.
+//! Integration tests for external monitor list pagination.
 //!
 //! Validates:
 //! 1. Default page size (limit absent).

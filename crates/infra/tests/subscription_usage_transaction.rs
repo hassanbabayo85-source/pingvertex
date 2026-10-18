@@ -1,4 +1,4 @@
-//! H12 — Proration Service: DB-backed integration test for
+//! Proration Service: DB-backed integration test for
 //! `PostgresSubscriptionUsageTransaction` + `PostgresSubscriptionUsagePeriodRepository`.
 //!
 //! Mirrors `pricing_config_repository.rs`: ignored by default, requires a
@@ -11,7 +11,7 @@
 //! `crates/infra/tests/common` helpers already provide tenant/subscription
 //! fixtures, prefer wiring this test through those instead of the raw SQL
 //! below — left as raw SQL here because `tests/common`'s contents were not
-//! inspected as part of this worker's scope.
+//! inspected as part of this test suite's scope.
 
 use application::ports::{
     SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
@@ -59,7 +59,7 @@ async fn create_tenant_and_subscription(pool: &PgPool) -> (TenantId, Subscriptio
         "INSERT INTO tenants (id, name, owner_user_id, created_at) VALUES ($1, $2, $3, now())",
     )
     .bind(tenant_id.0)
-    .bind(format!("H12 Test Tenant {}", tenant_id.0))
+    .bind(format!("Usage Test Tenant {}", tenant_id.0))
     .bind(owner_user_id)
     .execute(pool)
     .await

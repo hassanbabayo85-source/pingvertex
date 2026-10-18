@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PART 13 — production network hardening verification.
+# Production network hardening verification.
 #
 # Run this on the production host AFTER `docker compose ... up -d`.
 #

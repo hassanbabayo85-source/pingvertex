@@ -37,7 +37,7 @@ pub trait EscalationPolicyRepository: Send + Sync {
         unimplemented!()
     }
 
-    /// PART 8 — cursor-paginated variant of `list_for_tenant`.
+    /// Cursor-paginated variant of `list_for_tenant`.
     async fn list_for_tenant_paginated(
         &self,
         tenant_id: TenantId,

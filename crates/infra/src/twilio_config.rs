@@ -32,7 +32,7 @@ pub struct TwilioConfig {
     pub from_number: String,
 }
 
-/// PART 6 — custom Debug that redacts the auth token.
+/// Custom Debug that redacts the auth token.
 impl std::fmt::Debug for TwilioConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TwilioConfig")

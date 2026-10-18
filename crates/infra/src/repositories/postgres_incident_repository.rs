@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B34: hard ceiling on `list_by_monitor`'s unfiltered result set. Same
+/// Hard ceiling on `list_by_monitor`'s unfiltered result set. Same
 /// reasoning as `PostgresCheckRepository::LIST_BY_MONITOR_LIMIT` — this
 /// method is reachable (indirectly, via the public status handlers) from
 /// unauthenticated endpoints and has no caller-supplied pagination. 200
@@ -250,7 +250,7 @@ impl IncidentRepository for PostgresIncidentRepository {
         Ok(row.map(IncidentRow::into_domain))
     }
 
-    /// B34: now bounded by `LIST_BY_MONITOR_LIMIT` — see the constant's
+    /// Now bounded by `LIST_BY_MONITOR_LIMIT` — see the constant's
     /// doc comment.
     async fn list_by_monitor(&self, monitor_id: MonitorId) -> RepoResult<Vec<Incident>> {
         let rows = sqlx::query_as::<_, IncidentRow>(&format!(

@@ -1,4 +1,4 @@
-//! B29 integration tests for the API flow engine.
+//! Integration tests for the API flow engine.
 //!
 //! - SSRF is blocked independently at every step (using the REAL
 //!   production `execute_flow`, real SSRF resolver).
@@ -12,7 +12,7 @@
 //!
 //! NOT covered here: the 60s total flow timeout (`FLOW_TOTAL_TIMEOUT_SECS`)
 //! is not exercised end-to-end, since doing so would require a real
-//! 60-second wait per test run. See HANDOVER.md Known Issues.
+//! 60-second wait per test run.
 
 use std::net::SocketAddr;
 

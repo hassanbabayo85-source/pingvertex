@@ -21,13 +21,13 @@ enum ResultFilter {
     /// filter for "which proxies can I actually use?".
     Working,
     /// Proxy is alive but the target through it was unreachable. Only
-    /// meaningful for the PART 3 outcome model.
+    /// meaningful for the outcome model.
     TargetFailed,
     /// Proxy itself failed. The only filter that means "dead proxy".
     ProxyFailed,
     /// Legacy alias retained for the old "Failed" label — matches any
     /// non-alive proxy OR any non-fully-working one, so that existing
-    /// tests and users keep seeing what they saw before PART 3.
+    /// tests and users keep seeing what they saw previously.
     Failed,
     Http,
     Https,
@@ -72,7 +72,7 @@ fn human_error_code(code: &str) -> &'static str {
         "HTTP_PROXY_FAILED" | "HTTPS_PROXY_FAILED" | "SOCKS4_FAILED" | "SOCKS5_FAILED" => {
             "The proxy protocol check failed."
         }
-        // PART 3 — the target through the proxy failed, but the proxy
+        // The target through the proxy failed, but the proxy
         // itself is alive. These must NOT be shown as "the proxy could
         // not be reached" — the proxy was reached successfully.
         "TARGET_TIMEOUT" | "TARGET_CONNECT_TIMEOUT" => {
@@ -83,22 +83,34 @@ fn human_error_code(code: &str) -> &'static str {
             "The target returned an unexpected response through this proxy."
         }
         "TARGET_CONNECT_FAILED" => "The proxy could not reach the target.",
-        "TARGET_CONNECT_AUTH_FAILED" => {
-            "The proxy rejected the CONNECT tunnel for this target."
-        }
+        "TARGET_CONNECT_AUTH_FAILED" => "The proxy rejected the CONNECT tunnel for this target.",
         _ => "The proxy could not be reached.",
     }
 }
 
 fn humanize_api_error(message: String) -> String {
     for code in [
-        "PROXY_PRIVATE_IP_BLOCKED", "PRIVATE_IP_BLOCKED", "JOB_FAILED", "DNS_FAILED",
-        "INVALID_PROXY", "CONNECTION_REFUSED", "CONNECTION_TIMEOUT", "TARGET_TIMEOUT",
-        "AUTH_FAILED", "TLS_FAILED", "HTTP_PROXY_FAILED", "HTTPS_PROXY_FAILED",
-        "SOCKS4_FAILED", "SOCKS5_FAILED",
-        "TARGET_TIMEOUT", "TARGET_TLS_FAILED", "TARGET_HTTP_ERROR",
-        "TARGET_CONNECT_FAILED", "TARGET_CONNECT_TIMEOUT",
-        "TARGET_CONNECT_HTTP_ERROR", "TARGET_CONNECT_AUTH_FAILED",
+        "PROXY_PRIVATE_IP_BLOCKED",
+        "PRIVATE_IP_BLOCKED",
+        "JOB_FAILED",
+        "DNS_FAILED",
+        "INVALID_PROXY",
+        "CONNECTION_REFUSED",
+        "CONNECTION_TIMEOUT",
+        "TARGET_TIMEOUT",
+        "AUTH_FAILED",
+        "TLS_FAILED",
+        "HTTP_PROXY_FAILED",
+        "HTTPS_PROXY_FAILED",
+        "SOCKS4_FAILED",
+        "SOCKS5_FAILED",
+        "TARGET_TIMEOUT",
+        "TARGET_TLS_FAILED",
+        "TARGET_HTTP_ERROR",
+        "TARGET_CONNECT_FAILED",
+        "TARGET_CONNECT_TIMEOUT",
+        "TARGET_CONNECT_HTTP_ERROR",
+        "TARGET_CONNECT_AUTH_FAILED",
     ] {
         if message.contains(code) {
             return human_error_code(code).to_string();
@@ -121,13 +133,11 @@ fn matches_filter(row: &ProxyResult, filter: ResultFilter) -> bool {
     let body = row.result.as_ref();
     match filter {
         ResultFilter::All => true,
-        // PART 3 — "Working" means the PROXY is alive. A target-side
+        // "Working" means the PROXY is alive. A target-side
         // failure must not hide a good proxy from the user.
         ResultFilter::Working => body.is_some_and(|r| r.is_alive()),
         ResultFilter::TargetFailed => body.is_some_and(|r| r.is_target_failure()),
-        ResultFilter::ProxyFailed => body.is_some_and(|r| {
-            r.effective_outcome() == "proxy_failed"
-        }),
+        ResultFilter::ProxyFailed => body.is_some_and(|r| r.effective_outcome() == "proxy_failed"),
         // Legacy "Failed" filter — kept as a superset of the previous
         // `!reachable` behaviour so existing tests/users are unchanged.
         ResultFilter::Failed => body.is_some_and(|r| !r.reachable),
@@ -164,13 +174,24 @@ fn result_to_csv(rows: &[ProxyResult]) -> String {
             csv_cell(&row.scheme),
             csv_cell(body.map(|r| r.effective_outcome()).unwrap_or("pending")),
             body.is_some_and(|r| r.reachable).to_string(),
-            body.and_then(|r| r.effective_total_time_ms()).map(|v| v.to_string()).unwrap_or_default(),
-            body.and_then(|r| r.connection_latency_ms).map(|v| v.to_string()).unwrap_or_default(),
-            body.and_then(|r| r.tls_handshake_latency_ms).map(|v| v.to_string()).unwrap_or_default(),
-            body.and_then(|r| r.ttfb_ms).map(|v| v.to_string()).unwrap_or_default(),
-            body.and_then(|r| r.http_status_code).map(|v| v.to_string()).unwrap_or_default(),
+            body.and_then(|r| r.effective_total_time_ms())
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            body.and_then(|r| r.connection_latency_ms)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            body.and_then(|r| r.tls_handshake_latency_ms)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            body.and_then(|r| r.ttfb_ms)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            body.and_then(|r| r.http_status_code)
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
             body.is_some_and(|r| r.supports_https).to_string(),
-            body.and_then(|r| r.country_code.clone()).unwrap_or_default(),
+            body.and_then(|r| r.country_code.clone())
+                .unwrap_or_default(),
             body.and_then(|r| r.error_code.clone()).unwrap_or_default(),
         ];
         out.push_str(&fields.join(","));
@@ -189,7 +210,9 @@ fn download_csv(rows: &[ProxyResult], filename: &str) -> Result<(), String> {
         .map_err(|_| "Could not create the CSV download.".to_string())?;
 
     let window = web_sys::window().ok_or("Browser window is unavailable.")?;
-    let document = window.document().ok_or("Browser document is unavailable.")?;
+    let document = window
+        .document()
+        .ok_or("Browser document is unavailable.")?;
     let anchor = document
         .create_element("a")
         .map_err(|_| "Could not prepare the CSV download.".to_string())?
@@ -287,8 +310,7 @@ pub fn ProxyChecksPage() -> impl IntoView {
         // submit everything as before — no behavior regression.
         let items = match preview.get_untracked() {
             Some(p) => {
-                let accepted: HashSet<usize> =
-                    p.accepted.iter().map(|e| e.position).collect();
+                let accepted: HashSet<usize> = p.accepted.iter().map(|e| e.position).collect();
                 items
                     .into_iter()
                     .enumerate()
@@ -314,7 +336,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
         let generation = poll_generation.get_untracked();
 
         spawn_local(async move {
-            match proxy_checks::create(&proxy_checks::CreateProxyCheckRequest { proxies: items }).await {
+            match proxy_checks::create(&proxy_checks::CreateProxyCheckRequest { proxies: items })
+                .await
+            {
                 Ok(created) => {
                     let id = created.id.clone();
                     job.set(Some(created));
@@ -333,12 +357,17 @@ pub fn ProxyChecksPage() -> impl IntoView {
                         Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
                     }
 
-                    let should_poll = job.get_untracked().as_ref().is_some_and(|current| !is_terminal(&current.status));
+                    let should_poll = job
+                        .get_untracked()
+                        .as_ref()
+                        .is_some_and(|current| !is_terminal(&current.status));
 
                     if should_poll {
                         for _attempt in 0..MAX_POLL_ATTEMPTS {
                             TimeoutFuture::new(POLL_INTERVAL_MS).await;
-                            if poll_generation.get_untracked() != generation { return; }
+                            if poll_generation.get_untracked() != generation {
+                                return;
+                            }
 
                             match proxy_checks::get(&id).await {
                                 Ok(current) => {
@@ -348,14 +377,18 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                     if terminal {
                                         match proxy_checks::all_results(&id).await {
                                             Ok(rows) => results.set(rows),
-                                            Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
+                                            Err(e) => {
+                                                error.set(Some(humanize_api_error(e.to_string())))
+                                            }
                                         }
                                         return;
                                     }
 
                                     match proxy_checks::results(&id, 100, 0, None, None).await {
                                         Ok(page) => results.set(page.items),
-                                        Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
+                                        Err(e) => {
+                                            error.set(Some(humanize_api_error(e.to_string())))
+                                        }
                                     }
                                 }
                                 Err(e) => error.set(Some(humanize_api_error(e.to_string()))),
@@ -385,7 +418,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
     let on_file_change = {
         move |ev: leptos::ev::Event| {
             let target = event_target::<HtmlInputElement>(&ev);
-            let Some(file) = target.files().and_then(|files| files.get(0)) else { return; };
+            let Some(file) = target.files().and_then(|files| files.get(0)) else {
+                return;
+            };
             let name = file.name().to_ascii_lowercase();
             let is_json = name.ends_with(".json");
             let is_csv = name.ends_with(".csv");
@@ -412,13 +447,18 @@ pub fn ProxyChecksPage() -> impl IntoView {
                     return;
                 }
 
-                let text = String::from_utf8(bytes).map_err(|_| "The selected file is not valid UTF-8.".to_string());
+                let text = String::from_utf8(bytes)
+                    .map_err(|_| "The selected file is not valid UTF-8.".to_string());
 
                 match text {
                     Ok(text) => {
                         input.set(text.clone());
                         input_mode.set(if is_json { "json".into() } else { "csv".into() });
-                        let parsed = if is_json { proxy_checks::parse_json_input(&text) } else { proxy_checks::parse_proxy_text(&text) };
+                        let parsed = if is_json {
+                            proxy_checks::parse_json_input(&text)
+                        } else {
+                            proxy_checks::parse_proxy_text(&text)
+                        };
                         match parsed {
                             Ok(items) => {
                                 uploaded_filename.set(Some(file.name()));
@@ -441,7 +481,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
     };
 
     let refresh = move |_| {
-        let Some(current) = job.get_untracked() else { return; };
+        let Some(current) = job.get_untracked() else {
+            return;
+        };
         let id = current.id;
         spawn_local(async move {
             match proxy_checks::get(&id).await {
@@ -456,7 +498,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
     };
 
     let cancel = move |_| {
-        let Some(current) = job.get_untracked() else { return; };
+        let Some(current) = job.get_untracked() else {
+            return;
+        };
         poll_generation.update(|value| *value = value.wrapping_add(1));
         let id = current.id;
         spawn_local(async move {
@@ -476,9 +520,15 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
     let export = move |filter: ResultFilter| {
         let rows = results.get_untracked();
-        let selected = rows.iter().filter(|row| matches_filter(row, filter)).cloned().collect::<Vec<_>>();
+        let selected = rows
+            .iter()
+            .filter(|row| matches_filter(row, filter))
+            .cloned()
+            .collect::<Vec<_>>();
         if selected.is_empty() {
-            error.set(Some("There are no results to export for this selection.".into()));
+            error.set(Some(
+                "There are no results to export for this selection.".into(),
+            ));
             return;
         }
         let filename = format!("proxy-check-{}.csv", safe_filename_suffix(filter));
@@ -489,7 +539,8 @@ pub fn ProxyChecksPage() -> impl IntoView {
 
     let copy_working = move |_| {
         let rows = results.get_untracked();
-        let working = rows.iter()
+        let working = rows
+            .iter()
             .filter(|row| row.result.as_ref().is_some_and(|r| r.reachable))
             .map(|row| format!("{}://{}:{}", row.scheme, row.host, row.port))
             .collect::<Vec<_>>()
@@ -839,9 +890,9 @@ pub fn ProxyChecksPage() -> impl IntoView {
                                 .filter(|row| matches_filter(row, active_filter.get()))
                                 .map(|row| {
                                     let body = row.result.clone();
-                                    // PART 3 — three-way status. Derive from
+                                    // Three-way status. Derive from
                                     // the effective_outcome so that both new
-                                    // (PART 3) and legacy rows render correctly.
+                                    // and legacy rows render correctly.
                                     let (status, status_class) = match body.as_ref().map(|r| r.effective_outcome()) {
                                         Some("working") => ("WORKING", "working"),
                                         Some("working_target_unreachable") => ("TARGET FAILED", "target-failed"),
@@ -991,7 +1042,7 @@ mod tests {
 
     #[test]
     fn target_failure_is_not_a_dead_proxy_in_filters() {
-        // The central PART 3 invariant, exercised through the UI filter
+        // The central invariant, exercised through the UI filter
         // logic: a target-side failure must appear under `Working`
         // (because the proxy is alive) AND under `TargetFailed`, but
         // NOT under `ProxyFailed`.
@@ -1027,7 +1078,7 @@ mod tests {
     #[test]
     fn csv_export_never_contains_credentials_fields() {
         let csv = result_to_csv(&[row(true, "http", true)]);
-        assert!(csv.contains("host,port,scheme,reachable"));
+        assert!(csv.starts_with("host,port,scheme,outcome,reachable,"));
         assert!(!csv.contains("username"));
         assert!(!csv.contains("password"));
         assert!(!csv.contains("credentials"));
@@ -1035,7 +1086,13 @@ mod tests {
 
     #[test]
     fn error_codes_are_humanized() {
-        assert_eq!(human_error_code("PROXY_PRIVATE_IP_BLOCKED"), "This proxy points to a private or restricted address.");
-        assert_eq!(human_error_code("JOB_FAILED"), "The proxy check could not be completed.");
+        assert_eq!(
+            human_error_code("PROXY_PRIVATE_IP_BLOCKED"),
+            "This proxy points to a private or restricted address."
+        );
+        assert_eq!(
+            human_error_code("JOB_FAILED"),
+            "The proxy check could not be completed."
+        );
     }
 }

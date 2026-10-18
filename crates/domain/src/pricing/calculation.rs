@@ -94,11 +94,11 @@ pub fn calculate_price(
     })
 }
 
-/// H12 — Proration Service.
+/// Proration Service.
 ///
 /// Computes the (prorated) cost contributed by ONE `SubscriptionUsagePeriod`
 /// to a given billing cycle `[cycle_start, cycle_end)`. Deliberately does
-/// NOT re-implement the pricing formula: it calls `calculate_price` (H8's
+/// NOT re-implement the pricing formula: it calls `calculate_price` (the
 /// full-cycle monthly quote for the period's usage) and then scales that
 /// monthly price by the fraction of the cycle the period actually
 /// overlaps. Full-cycle billing (the "monthly quote") is just the special
@@ -421,7 +421,7 @@ mod tests {
         );
     }
 
-    // H12 — Proration Service: calculate_period_cost
+    // Proration Service: calculate_period_cost
 
     #[test]
     fn calculate_period_cost_for_a_full_cycle_period_equals_monthly_price() {

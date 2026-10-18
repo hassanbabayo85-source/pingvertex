@@ -169,7 +169,7 @@ impl EscalationPolicyRepository for PostgresEscalationPolicyRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<EscalationPolicy>> {
-        // PART 8 — SQL-level cursor pagination; see
+        // SQL-level cursor pagination; see
         // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
         // full explanation.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(

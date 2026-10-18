@@ -181,7 +181,7 @@ async fn running_twice_is_idempotent() {
     assert_eq!(remaining[0], recent.id);
 }
 
-/// H16 Task A regression test: wraps `HistoryRetentionRepository` and
+/// Regression test: wraps `HistoryRetentionRepository` and
 /// records how many `delete_older_than_batch` calls are in flight at
 /// once. Proves `RetentionWorker::run_sweep`'s semaphore actually caps
 /// concurrent per-tenant work at `max_concurrent_tenants` — not just

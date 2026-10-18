@@ -5,7 +5,7 @@
 BEGIN;
 
 -- ----------------------------------------------------------------------------
--- Mataki 1: Ƙirƙira user_wallets ($50 = 50_000_000_000 nanoUSD)
+-- Step 1: create user_wallets ($50 = 50_000_000_000 nanoUSD)
 -- ----------------------------------------------------------------------------
 INSERT INTO user_wallets (
     id, tenant_id, currency, balance_units,
@@ -27,7 +27,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
     updated_at = now();
 
 -- ----------------------------------------------------------------------------
--- Mataki 2: Ƙirƙira wallet_settings
+-- Step 2: create wallet_settings
 -- ----------------------------------------------------------------------------
 INSERT INTO wallet_settings (tenant_id)
 SELECT t.id
@@ -36,7 +36,7 @@ WHERE t.name LIKE 'QA Tester % workspace'
 ON CONFLICT (tenant_id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
--- Mataki 3: Rubuta wallet_transactions (an ƙara tenant_id)
+-- Step 3: write wallet_transactions (tenant_id added)
 -- ----------------------------------------------------------------------------
 INSERT INTO wallet_transactions (
     id, wallet_id, tenant_id, transaction_type, amount_units, balance_after_units,

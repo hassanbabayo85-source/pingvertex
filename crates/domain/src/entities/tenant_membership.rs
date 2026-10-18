@@ -3,13 +3,12 @@ use chrono::{DateTime, Utc};
 use crate::shared::ids::{TenantId, UserId};
 use crate::shared::types::Role;
 
-/// Alakar wani user da wani tenant, tare da matsayin sa (`Role`) a
-/// cikin wannan tenant.
+/// The relationship between a user and a tenant, together with that user's
+/// role (`Role`) within the tenant.
 ///
-/// NOTE: `Role` (a `shared::types`) baya aiwatar da `Serialize`/
-/// `Deserialize` a yanzu, don haka wannan struct ma baya derive dinsu
-/// don kauce wa taɓa `role.rs` (ba a ambace shi cikin fayilolin da za
-/// a gyara ba).
+/// NOTE: `Role` (in `shared::types`) does not currently implement
+/// `Serialize`/`Deserialize`, so this struct does not derive them either,
+/// which avoids having to touch `role.rs`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TenantMembership {
     pub tenant_id: TenantId,

@@ -12,7 +12,7 @@ use crate::incident_evaluator::IncidentEvaluator;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B18 real HTTP/HTTPS executor for B17's `DurableScheduler`.
+/// Real HTTP/HTTPS executor for the `DurableScheduler`.
 ///
 /// Executes a monitor only when `monitor.kind == MonitorKind::Http`.
 /// Other monitor kinds are intentionally rejected so later check workers
@@ -44,7 +44,7 @@ impl crate::durable_scheduler::CheckExecutor for HttpCheckExecutor {
     async fn execute(&self, monitor: &Monitor) -> Result<CheckExecution> {
         if monitor.kind != MonitorKind::Http {
             return Err(format!(
-                "B18 HttpCheckExecutor only supports HTTP monitors, got {:?}",
+                "HttpCheckExecutor only supports HTTP monitors, got {:?}",
                 monitor.kind
             )
             .into());

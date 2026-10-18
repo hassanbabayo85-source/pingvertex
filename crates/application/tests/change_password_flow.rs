@@ -1,4 +1,4 @@
-//! H1 — application-layer coverage for `ChangePasswordUseCase`'s
+//! Application-layer coverage for `ChangePasswordUseCase`'s
 //! fail-closed session-invalidation fix.
 //!
 //! Mirrors `reset_password_flow.rs`'s style: real in-memory

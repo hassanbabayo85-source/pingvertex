@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::shared::ids::{AuditLogEntryId, UserId};
 
 /// Rikodin audit log na musamman ga canje-canjen pricing config.
-/// Yana biye da schema na `pricing_audit_logs` table.
+/// Mirrors the schema of the `pricing_audit_logs` table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PricingAuditLogEntry {
     pub id: AuditLogEntryId,

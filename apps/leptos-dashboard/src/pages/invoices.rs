@@ -7,7 +7,7 @@ pub fn InvoicesPage() -> impl IntoView {
     let rows = RwSignal::new(Vec::<billing::Invoice>::new());
     let error = RwSignal::new(None::<String>);
 
-    // 🟡 MATAKI NA 3: Signals domin riƙe cikakken invoice da aka zaɓa
+    // Signals holding the full invoice that is currently selected.
     let selected_invoice = RwSignal::new(None::<billing::Invoice>);
     let detail_error = RwSignal::new(None::<String>);
     let busy = RwSignal::new(false);
@@ -21,7 +21,7 @@ pub fn InvoicesPage() -> impl IntoView {
         })
     });
 
-    // 🟡 MATAKI NA 3: Function domin ɗauko cikakken bayanin invoice daga backend
+    // Fetch the full invoice details from the backend.
     let load_detail = move |id: String| {
         busy.set(true);
         detail_error.set(None);
@@ -93,7 +93,7 @@ pub fn InvoicesPage() -> impl IntoView {
                                 <th>"Total"</th>
                                 <th>"Status"</th>
                                 <th>"Created"</th>
-                                <th>"Action"</th> // Ƙarin fili don maɓallin Action
+                                <th>"Action"</th> // Extra column for the action button
                             </tr>
                         </thead>
                         <tbody>

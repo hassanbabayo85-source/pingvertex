@@ -1,7 +1,7 @@
 {$PINGVERTEX_DOMAIN:api.example.com} {
 	encode gzip
 
-	# Security headers (H7)
+	# Security headers
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Frame-Options "DENY"

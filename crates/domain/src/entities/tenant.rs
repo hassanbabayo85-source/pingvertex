@@ -60,7 +60,7 @@ impl std::str::FromStr for AccountType {
     }
 }
 
-/// Wata kungiya/asusun tenant a cikin tsarin multi-tenant.
+/// An organisation/tenant account within the multi-tenant system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tenant {
     pub id: TenantId,
@@ -75,7 +75,7 @@ impl Tenant {
     /// Max tsawon suna: haruffa 100.
     pub const MAX_NAME_LENGTH: usize = 100;
 
-    /// Kirkiri sabon Tenant tare da validation akan `name`.
+    /// Creates a new Tenant, validating `name`.
     pub fn new(
         id: TenantId,
         name: impl Into<String>,

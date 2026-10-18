@@ -26,7 +26,7 @@ type Result = std::result::Result<CheckResult, Box<dyn StdError + Send + Sync>>;
 const MAX_HTTP_RESPONSE_BODY_BYTES: usize = 1024 * 1024;
 
 /// The result of an HTTP/HTTPS check execution plus its canonical error
-/// classification. `CheckErrorKind` is the shared taxonomy from B18 and
+/// classification. `CheckErrorKind` is the shared taxonomy and
 /// is the field every active check worker must populate.
 #[derive(Debug, Clone)]
 pub struct HttpCheckOutcome {
@@ -309,7 +309,7 @@ where
 /// Backwards-compatible validator path used by existing tests in
 /// `crates/worker/tests/checker.rs`. Unlike `check_http_with_validator`,
 /// an unexpected HTTP status is represented without a `status_code` on the
-/// legacy `CheckResult` (preserving pre-B18 test expectations). All other
+/// legacy `CheckResult` (preserving earlier test expectations). All other
 /// behavior, including bounded body reading, is identical.
 pub async fn check_monitor_with_validator<F, Fut>(
     client: &Client,
@@ -356,7 +356,7 @@ where
 /// Shared response evaluation for both the production and validator paths.
 ///
 /// `include_status_on_mismatch` controls whether a wrong HTTP status is
-/// persisted on `CheckResult.status_code`. The B18 production path always
+/// persisted on `CheckResult.status_code`. The production path always
 /// captures the actual status (even when the check fails), while the legacy
 /// validator path keeps its historical shape for existing tests.
 async fn handle_http_response(
