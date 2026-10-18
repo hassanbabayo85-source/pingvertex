@@ -1,6 +1,6 @@
 use shared::ssrf::resolve_and_validate_destination;
 
-/// B26 task requirement: webhook sending must be SSRF-safe. The shared
+/// Requirement: webhook sending must be SSRF-safe. The shared
 /// SSRF validator rejects private/internal IPs before any outbound request
 /// is built. This test verifies the exact function that
 /// `WebhookNotificationService` calls on every send attempt.

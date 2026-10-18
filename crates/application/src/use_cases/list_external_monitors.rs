@@ -9,7 +9,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Lists monitors for external API key consumers.
 ///
-/// PART 4 — Security boundary: an authenticated tenant MUST NOT be able
+/// Security boundary: an authenticated tenant MUST NOT be able
 /// to force the API to load an unbounded amount of DB data in one
 /// request. This delegates to `find_all_for_tenant_paginated` to limit
 /// memory consumption to `MAX_PAGE_SIZE`.

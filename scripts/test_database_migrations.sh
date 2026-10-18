@@ -106,4 +106,4 @@ fi
 
 echo "[4/4] Current migration version"
 echo "Latest migration file: $LATEST_VERSION"
-echo "Worker 9 database migration tests: PASS"
+echo "Database migration tests: PASS"

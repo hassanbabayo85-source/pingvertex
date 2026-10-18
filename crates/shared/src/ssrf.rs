@@ -18,7 +18,7 @@ use url::Url;
 
 // -------- IP da Ayyukan Tacewa (Strictly RFC 6890 / 1918) --------
 
-/// Duba idan adireshin IPv4 na cikin jerin sassa masu zaman kansu ko na musamman.
+/// Checks whether an IPv4 address falls in a private or special-use range.
 fn is_private_ipv4(ip: Ipv4Addr) -> bool {
     let octets = ip.octets();
 
@@ -99,7 +99,7 @@ fn is_private_ipv4(ip: Ipv4Addr) -> bool {
     false
 }
 
-/// Duba idan adireshin IPv6 na cikin jerin sassa masu zaman kansu ko na musamman.
+/// Checks whether an IPv6 address falls in a private or special-use range.
 ///
 /// SECURITY: this also unwraps IPv6 encodings that carry an embedded IPv4
 /// address — `::ffff:a.b.c.d` (IPv4-mapped), the deprecated `::a.b.c.d`
@@ -169,7 +169,7 @@ fn is_private_ipv6(ip: Ipv6Addr) -> bool {
     false
 }
 
-/// Babban aikin da ke duba ko wani `IpAddr` na cikin jerin haramtattun sassa.
+/// The main entry point: checks whether an `IpAddr` falls in a blocked range.
 pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => is_private_ipv4(ipv4),
@@ -177,11 +177,11 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
-/// Destination da aka resolve kuma aka tabbatar da cewa public ce.
+/// A destination that has been resolved and confirmed to be public.
 ///
-/// `socket_addr` shi ne IP + port da aka yi validation a lokacin DNS lookup.
-/// Checker zai yi amfani da wannan address wajen pinning DNS, don haka
-/// request ɗin ba zai sake yin wani DNS lookup daban ba.
+/// `socket_addr` is the IP + port that was validated during the DNS lookup.
+/// The checker pins DNS to this address, so the request never performs a
+/// second, separate DNS lookup.
 #[derive(Debug, Clone)]
 pub struct ResolvedDestination {
     pub url: Url,
@@ -189,8 +189,8 @@ pub struct ResolvedDestination {
     pub socket_addr: SocketAddr,
 }
 
-/// Resolve URL sau ɗaya, tabbatar da duk IPs, sannan dawo da IP ɗin da
-/// request ɗin zai yi amfani da shi.
+/// Resolves the URL once, validates every IP, and returns the IP the
+/// request will actually use.
 pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDestination, String> {
     let url = Url::parse(url).map_err(|err| format!("invalid monitor URL: {err}"))?;
 
@@ -205,7 +205,7 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
 
     let allow_private = std::env::var("PINGVERTEX_SSRF_ALLOW_PRIVATE").as_deref() == Ok("true");
 
-    // Idan user ya saka IP kai tsaye, babu DNS lookup da ake bukata.
+    // If the user supplied a literal IP, no DNS lookup is needed.
     if let Ok(ip) = host.parse::<IpAddr>() {
         if !allow_private && is_private_ip(ip) {
             return Err(format!(
@@ -221,7 +221,7 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
     }
 
     // IMPORTANT:
-    // Wannan shi ne DNS lookup guda daya da muke dogaro da shi.
+    // This is the single DNS lookup the whole flow relies on.
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await
         .map_err(|err| format!("failed to resolve monitor host '{host}': {err}"))?
@@ -233,7 +233,7 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
         ));
     }
 
-    // Kada mu bar wani internal address ya shiga cikin resolved set.
+    // Never let an internal address into the resolved set.
     for addr in &addrs {
         if !allow_private && is_private_ip(addr.ip()) {
             return Err(format!(
@@ -243,7 +243,7 @@ pub async fn resolve_and_validate_destination(url: &str) -> Result<ResolvedDesti
         }
     }
 
-    // Mun tabbatar da address ɗin, don haka wannan shi ne address ɗin
+    // The address has been validated, so this is the address the
     // da za mu pin a reqwest client.
     let socket_addr = addrs[0];
 
@@ -313,7 +313,7 @@ pub async fn resolve_and_validate_public_destination(
 
 /// Backwards-compatible validation helper.
 ///
-/// Wannan yana tabbatar da destination amma ba ya dawo da address.
+/// This validates the destination but does not return the address.
 pub async fn validate_destination(url: &str) -> Result<(), String> {
     resolve_and_validate_destination(url).await.map(|_| ())
 }

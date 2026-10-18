@@ -7,7 +7,7 @@ pub struct RegisterRequest {
     pub password: String,
 }
 
-/// PART 7 — manual Debug that redacts the password.
+/// Manual Debug that redacts the password.
 impl std::fmt::Debug for RegisterRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RegisterRequest")

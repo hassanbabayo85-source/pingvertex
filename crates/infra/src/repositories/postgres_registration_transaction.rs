@@ -19,12 +19,12 @@ fn role_to_db(role: &Role) -> &'static str {
 
 /// Postgres implementation na `RegistrationTransaction`.
 ///
-/// Yana ajiye User + Tenant + TenantMembership a cikin `sqlx::Transaction`
-/// GUDA ƊAYA: idan ko ɗaya daga cikin INSERT ɗin nan uku ya gaza (misali,
-/// database connection ya faɗi tsakiyar aiki), `?` operator zai dawo da
-/// Error kafin a kai ga `tx.commit()`. Lokacin da `tx` ya fita daga scope
-/// ba tare da an yi `commit()` ba, sqlx yana yin ROLLBACK ta atomatik —
-/// wato ba za a taɓa samun "orphaned user" mara Tenant ba.
+/// Persists User + Tenant + TenantMembership inside a SINGLE
+/// `sqlx::Transaction`: if any one of the three INSERTs fails (for example,
+/// the database connection drops mid-operation), the `?` operator returns an
+/// Error before `tx.commit()` is reached. When `tx` goes out of scope without
+/// `commit()` having been called, sqlx performs an automatic ROLLBACK — so an
+/// "orphaned user" with no Tenant can never exist.
 #[derive(Debug, Clone)]
 pub struct PostgresRegistrationTransaction {
     pool: PgPool,
@@ -46,7 +46,7 @@ impl RegistrationTransaction for PostgresRegistrationTransaction {
     ) -> TxResult<()> {
         let mut tx = self.pool.begin().await?;
 
-        // 1. users — SQL ɗin daidai yake da PostgresUserRepository::create
+        // 1. users — the SQL is identical to PostgresUserRepository::create
         sqlx::query(
             r#"
             INSERT INTO users (
@@ -79,7 +79,7 @@ impl RegistrationTransaction for PostgresRegistrationTransaction {
         .execute(&mut *tx)
         .await?;
 
-        // 2. tenants — SQL ɗin daidai yake da PostgresTenantRepository::create
+        // 2. tenants — the SQL is identical to PostgresTenantRepository::create
         sqlx::query(
             "INSERT INTO tenants (id, name, owner_user_id, created_at) \
              VALUES ($1, $2, $3, $4)",
@@ -91,7 +91,7 @@ impl RegistrationTransaction for PostgresRegistrationTransaction {
         .execute(&mut *tx)
         .await?;
 
-        // 3. tenant_memberships — SQL ɗin daidai yake da
+        // 3. tenant_memberships — the SQL is identical to
         //    PostgresTenantMembershipRepository::create
         sqlx::query(
             "INSERT INTO tenant_memberships (tenant_id, user_id, role, invited_at, joined_at) \

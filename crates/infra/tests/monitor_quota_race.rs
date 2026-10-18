@@ -10,7 +10,7 @@ use infra::PostgresMonitorRepository;
 use serial_test::serial;
 use uuid::Uuid;
 
-/// B13 — Atomic Quota Enforcement regression test.
+/// Atomic Quota Enforcement regression test.
 ///
 /// Spawns far more concurrent `save_if_within_quota` calls for the SAME
 /// tenant than the quota allows, and asserts that exactly `LIMIT` of them

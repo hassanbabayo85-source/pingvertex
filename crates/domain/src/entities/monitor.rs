@@ -79,28 +79,28 @@ pub struct Monitor {
 impl Monitor {
     pub const MAX_ASSERTIONS: usize = 20;
 
-    /// PART 9 — hard cap on the number of regions a monitor may be checked from.
+    /// Hard cap on the number of regions a monitor may be checked from.
     /// Mirrors `ALLOWED_REGION_CODES.len()` so an attacker cannot force the API
     /// to persist an unbounded `Vec<RegionCode>`.
     pub const MAX_REGIONS_PER_MONITOR: usize = 4;
 
-    /// PART 9 — hard cap on the byte length of a monitor's DNS expected value.
+    /// Hard cap on the byte length of a monitor's DNS expected value.
     pub const MAX_DNS_EXPECTED_VALUE_LENGTH: usize = 2048;
 
-    /// PART 9 — hard cap on the byte length of a monitor's DNS record type.
+    /// Hard cap on the byte length of a monitor's DNS record type.
     /// (The set of valid record types is tiny — `A`, `AAAA`, `CNAME`, `MX`,
     /// `TXT`, `NS`, `SOA`, `PTR`, `SRV`, `CAA` — 32 bytes is generous and
     /// still bounds the field against abuse. TCP's only string field is the
     /// target `Host`, which is already capped at 253 bytes by `Host::new`.)
     pub const MAX_DNS_RECORD_TYPE_LENGTH: usize = 32;
 
-    /// PART 9 — minimum allowed heartbeat interval, in seconds.
+    /// Minimum allowed heartbeat interval, in seconds.
     pub const HEARTBEAT_INTERVAL_MIN_SECS: u32 = 30;
-    /// PART 9 — maximum allowed heartbeat interval, in seconds.
+    /// Maximum allowed heartbeat interval, in seconds.
     pub const HEARTBEAT_INTERVAL_MAX_SECS: u32 = 86_400;
-    /// PART 9 — minimum allowed heartbeat grace period, in seconds.
+    /// Minimum allowed heartbeat grace period, in seconds.
     pub const HEARTBEAT_GRACE_MIN_SECS: u32 = 30;
-    /// PART 9 — maximum allowed heartbeat grace period, in seconds.
+    /// Maximum allowed heartbeat grace period, in seconds.
     pub const HEARTBEAT_GRACE_MAX_SECS: u32 = 86_400;
 
     /// Creates a new monitor.
@@ -112,7 +112,7 @@ impl Monitor {
     /// see `MonitorKind::Flow`'s doc comment) — existing callers that
     /// never set `kind` (it defaults to `Http`) always succeed here,
     /// preserving full backward compatibility.
-    /// PART 9 — validate that a client-supplied DNS expected value is within
+    /// Validate that a client-supplied DNS expected value is within
     /// the hard byte cap.
     fn validate_dns_expected_value(value: Option<&str>) -> Result<(), DomainError> {
         if let Some(v) = value
@@ -123,7 +123,7 @@ impl Monitor {
         Ok(())
     }
 
-    /// PART 9 — validate that a client-supplied DNS record type is within
+    /// Validate that a client-supplied DNS record type is within
     /// the hard byte cap.
     fn validate_dns_record_type(value: Option<&str>) -> Result<(), DomainError> {
         if let Some(v) = value
@@ -134,7 +134,7 @@ impl Monitor {
         Ok(())
     }
 
-    /// PART 9 — cap the heartbeat interval to a bounded range.
+    /// Cap the heartbeat interval to a bounded range.
     fn validate_heartbeat_interval(value: Option<u32>) -> Result<(), DomainError> {
         if let Some(v) = value {
             if v < Self::HEARTBEAT_INTERVAL_MIN_SECS {
@@ -147,7 +147,7 @@ impl Monitor {
         Ok(())
     }
 
-    /// PART 9 — cap the heartbeat grace period to a bounded range.
+    /// Cap the heartbeat grace period to a bounded range.
     fn validate_heartbeat_grace_period(value: Option<u32>) -> Result<(), DomainError> {
         if let Some(v) = value {
             if v < Self::HEARTBEAT_GRACE_MIN_SECS {
@@ -160,7 +160,7 @@ impl Monitor {
         Ok(())
     }
 
-    /// PART 9 — cap the number of regions and deduplicate them (preserving
+    /// Cap the number of regions and deduplicate them (preserving
     /// insertion order) so persistence never writes the same region twice.
     fn validate_and_dedup_regions(
         regions: Vec<RegionCode>,
@@ -187,7 +187,7 @@ impl Monitor {
             input.heartbeat_grace_period_seconds,
         )?;
 
-        // PART 9 — validate attacker-controlled strings and cap collections.
+        // Validate attacker-controlled strings and cap collections.
         Self::validate_dns_expected_value(input.dns_expected_value.as_deref())?;
         Self::validate_dns_record_type(input.dns_record_type.as_deref())?;
         Self::validate_heartbeat_interval(input.heartbeat_interval_seconds)?;

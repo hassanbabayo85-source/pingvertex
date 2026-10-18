@@ -13,7 +13,7 @@ pub async fn health() -> StatusCode {
     StatusCode::OK
 }
 
-/// `GET /ready` — readiness. B34.
+/// `GET /ready` — readiness.
 ///
 /// Confirms the API can actually serve requests right now, starting with
 /// the one dependency every route ultimately needs: the database. An

@@ -7,7 +7,7 @@ use crate::{
 
 /// One reliably-delivered notification waiting in the outbox.
 ///
-/// `payload` is a JSON string containing the event payload. B26 defines
+/// `payload` is a JSON string containing the event payload. defines
 /// the payload schema as a serialized `Monitor` snapshot:
 /// `serde_json::to_string(&monitor)`. The sender deserializes it back
 /// into a `Monitor` and reconstructs the matching `NotificationEvent`
@@ -17,7 +17,7 @@ pub struct NotificationOutboxEntry {
     pub id: NotificationOutboxEntryId,
     pub channel_id: NotificationChannelId,
     pub event_kind: NotificationOutboxEventKind,
-    /// JSON-serialized `Monitor` snapshot (see B26 sender).
+    /// JSON-serialized `Monitor` snapshot (sender).
     pub payload: String,
     pub idempotency_key: String,
     pub status: NotificationOutboxStatus,

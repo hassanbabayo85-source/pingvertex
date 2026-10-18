@@ -75,7 +75,7 @@ impl TenantNotificationRateLimiter {
     }
 }
 
-/// Real `NotificationOutboxSender` used by B26.
+/// Real `NotificationOutboxSender`.
 ///
 /// Resolves the outbox entry's channel id, checks the per-tenant rate
 /// limiter, reconstructs the `NotificationEvent` from the persisted

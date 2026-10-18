@@ -83,7 +83,7 @@ pub struct CreditReservation {
     pub status: String,
     pub operation: String,
     /// Price snapshot captured when the reservation is created. Optional for
-    /// legacy reservations created before Worker 1 migration 0093.
+    /// legacy reservations created previously migration 0093.
     pub unit_price: Option<i64>,
     pub pricing_version: Option<i64>,
     pub currency: Option<String>,

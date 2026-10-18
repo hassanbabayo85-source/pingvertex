@@ -10,7 +10,7 @@ use crate::ports::{
     SubscriptionUsageTransaction,
 };
 
-/// Command for H12 — Proration Service: recomputes a tenant's usage
+/// Command for the Proration Service: recomputes a tenant's usage
 /// snapshot mid-billing-cycle.
 ///
 /// SECURITY (P0): this command intentionally carries NO plan tier or
@@ -79,7 +79,7 @@ impl From<Box<dyn Error + Send + Sync>> for UpdateSubscriptionUsageError {
     }
 }
 
-/// H12 — Proration Service.
+/// Proration Service.
 ///
 /// When a tenant's usage needs recomputing mid-cycle, applying the new
 /// config across the WHOLE billing month (or the OLD config across the

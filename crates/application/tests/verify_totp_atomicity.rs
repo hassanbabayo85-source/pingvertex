@@ -1,4 +1,4 @@
-//! H3 — application-layer concurrency tests for `VerifyTotpAndLoginUseCase`.
+//! Application-layer concurrency tests for `VerifyTotpAndLoginUseCase`.
 //!
 //! These tests prove the two atomicity guarantees required by the task:
 //!

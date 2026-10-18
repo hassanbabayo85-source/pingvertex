@@ -27,9 +27,8 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/api /usr/local/bin/api
 
-# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
-# non-root user domin rage blast radius idan aka sami wata
-# container-escape vulnerability.
+# Do not run the container as root — create a non-root user to reduce the
+# blast radius if a container-escape vulnerability is ever found.
 RUN groupadd -r app && useradd -r -g app -u 1000 appuser
 
 # mTLS internal-CA / server identity: only the server's own cert/key and
@@ -48,7 +47,7 @@ USER appuser
 EXPOSE 3000
 EXPOSE 3443
 
-# B38: liveness check — GET /health (zero-dependency, see
+# Liveness check — GET /health (zero-dependency, see
 # crates/api/src/handlers/health.rs). Docker restarts the container on
 # repeated failure; compose's `healthcheck:` override in
 # docker-compose.prod.yml also gates `depends_on: condition:

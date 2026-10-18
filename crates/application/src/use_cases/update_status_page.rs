@@ -105,7 +105,7 @@ where
     /// `acting_user_id` directly instead of an `AuthenticatedUser`.
     ///
     /// Added for the API-key-authenticated public surface
-    /// (`PUT /api/v1/external/status-pages/{id}`, B31) — see the doc
+    /// (`PUT /api/v1/external/status-pages/{id}`) — see the doc
     /// comment on `ListChecksUseCase::execute_for_tenant` for why a
     /// separate method exists instead of synthesizing an
     /// `AuthenticatedUser` from an `ApiKeyPrincipal`. `execute` above is

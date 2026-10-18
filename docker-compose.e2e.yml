@@ -1,4 +1,4 @@
-# E2E test overlay for docker-compose.yml (Worker B39).
+# E2E test overlay for docker-compose.yml.
 # - migrate: image added to satisfy compose validation, command no-ops.
 # - api/worker: SMTP/BILLING configured for Mailpit/fake billing.
 # - worker: PINGVERTEX_SSRF_ALLOW_PRIVATE=true (test-only).

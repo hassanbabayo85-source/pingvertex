@@ -18,13 +18,13 @@
 //! to the exact host that issued it. It will not be sent to any subdomains,
 //! and no subdomain can ever overwrite it for the parent domain.
 //!
-//! MATAKI NA 3 — Muna bin wannan qa'idar 100% kuma babu *legacy cookie* fallback.
+//! This rule is followed strictly and there is no *legacy cookie* fallback.
 
 use std::env;
 
 /// The single standard name for the session cookie.
 pub fn access_token_cookie_name() -> String {
-    // PART 3 - Mun cire fallback, ONLY __Host-access_token is valid in all secure environments.
+    // Mun cire fallback, ONLY __Host-access_token is valid in all secure environments.
     // However, the `__Host-` prefix literally requires HTTPS. For local
     // development (e.g. `http://localhost:3000`), the browser will silently
     // reject a `__Host-` cookie. Thus, we keep a non-prefixed name for local dev only.
@@ -47,14 +47,14 @@ pub fn is_secure_environment() -> bool {
 }
 
 /// Builds the `Set-Cookie` header string for a new session.
-/// MATAKI 3 - Tabbatar da Attributes 100%
+/// Enforces the required cookie attributes.
 pub fn access_token_cookie(token: &str) -> String {
     let name = access_token_cookie_name();
     if is_secure_environment() {
         // Production: __Host- prefix MUST have Secure, Path=/, and NO Domain.
         format!("{name}={token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400")
     } else {
-        // Local development over HTTP. Mun sauya zuwa SameSite=Lax don OAuth yayi aiki lafiya.
+        // Local development over HTTP. We use SameSite=Lax so OAuth works correctly.
         format!("{name}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400")
     }
 }

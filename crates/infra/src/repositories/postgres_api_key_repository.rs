@@ -138,7 +138,7 @@ impl ApiKeyRepository for PostgresApiKeyRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<ApiKey>> {
-        // PART 8 — cursor pagination at the SQL layer. `peek one ahead`
+        // Cursor pagination at the SQL layer. `peek one ahead`
         // (LIMIT limit+1) to determine whether a next page exists without
         // a second COUNT query; drop the extra row before returning.
         // Ordering `(created_at DESC, id DESC)` is backed by

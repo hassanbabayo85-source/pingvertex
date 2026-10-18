@@ -5,7 +5,7 @@ pub struct AuthResponse {
     pub access_token: String,
 }
 
-/// PART 7 — manual Debug that redacts the session JWT.
+/// Manual Debug that redacts the session JWT.
 impl std::fmt::Debug for AuthResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthResponse")

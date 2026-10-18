@@ -28,7 +28,7 @@ COPY --from=builder /app/target/release/agent /usr/local/bin/agent
 
 RUN groupadd -r app && useradd -r -g app -u 1000 appuser
 
-# PART 5 — Agent Trust Boundary: the mTLS *private key* is NEVER baked
+# Agent Trust Boundary: the mTLS *private key* is NEVER baked
 # into the image. Only the CA cert and this agent's client *certificate*
 # are copied (they are public material). The private key MUST be
 # injected at runtime, for example via a read-only bind mount:

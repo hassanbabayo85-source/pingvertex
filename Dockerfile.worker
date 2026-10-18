@@ -27,15 +27,14 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/worker /usr/local/bin/worker
 
-# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
-# non-root user domin rage blast radius idan aka sami wata
-# container-escape vulnerability.
+# Do not run the container as root — create a non-root user to reduce the
+# blast radius if a container-escape vulnerability is ever found.
 RUN groupadd -r app && useradd -r -g app -u 1000 appuser
 USER appuser
 
 EXPOSE 3001
 
-# B38: liveness check — GET /health on the worker's metrics server (see
+# Liveness check — GET /health on the worker's metrics server (see
 # crates/worker/src/metrics.rs).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -fsS http://localhost:3001/health || exit 1

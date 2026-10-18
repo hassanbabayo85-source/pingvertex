@@ -1,4 +1,4 @@
-//! PART 8 — Shared cursor-based pagination primitives.
+//! Shared cursor-based pagination primitives.
 //!
 //! Every tenant-scoped list endpoint in this codebase is bounded by
 //! these types. The two invariants callers MUST rely on:

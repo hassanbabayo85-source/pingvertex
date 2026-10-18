@@ -45,7 +45,7 @@ impl ListChecksUseCase {
     /// directly instead of an `AuthenticatedUser`.
     ///
     /// Added for the API-key-authenticated public surface
-    /// (`GET /api/v1/external/checks`, B31), where the caller is
+    /// (`GET /api/v1/external/checks`), where the caller is
     /// identified by `middleware::api_key_auth::ApiKeyPrincipal` — which
     /// carries a bare `tenant_id`/`user_id`, not a `Role` — rather than a
     /// session-derived `AuthenticatedUser`. Synthesizing an
@@ -66,7 +66,7 @@ impl ListChecksUseCase {
             .list_checks_filtered(limit, offset, tenant_id, filters)
             .await?;
 
-        // B35: load all diagnostic reports in one batch, not one-by-one.
+        // Load all diagnostic reports in one batch, not one-by-one.
         let check_ids: Vec<_> = checks.iter().map(|check| check.id).collect();
         let diagnostic_reports = self
             .diagnostic_report_repository

@@ -4,12 +4,12 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::Value;
 
-/// Sakamakon da aka samu daga gudanar da step guda a cikin API flow — ana
-/// amfani da shi domin warware placeholders (`{{steps.N.body.path}}` da
+/// The result of running a single step in an API flow — used to
+/// resolve placeholders (`{{steps.N.body.path}}` and
 /// sauransu) na steps na gaba.
 pub struct StepResult {
     pub status_code: u16,
-    /// Kowane maɓalli an maida shi ƙaramin harafi (lowercase), bin salon
+    /// Every key is lowercased, following the same convention as
     /// `EvalContext` a `assertion_evaluator.rs`.
     pub headers: HashMap<String, String>,
     pub body: String,

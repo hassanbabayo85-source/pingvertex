@@ -1,0 +1,35 @@
+{$PINGVERTEX_DOMAIN:api.example.com} {
+	encode gzip
+
+	# Security headers (H7)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Referrer-Policy "no-referrer"
+	}
+
+	# API routes: reverse proxy to the API service
+	handle /api/* {
+		reverse_proxy api:3000 {
+			health_uri /ready
+			health_interval 10s
+			health_timeout 3s
+		}
+	}
+
+	# Frontend static files (Leptos CSR build output in /srv/frontend)
+	handle {
+		root * /srv/frontend
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

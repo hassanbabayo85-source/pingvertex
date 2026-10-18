@@ -128,7 +128,7 @@ impl MaintenanceWindowRepository for PostgresMaintenanceWindowRepository {
         monitor_id: MonitorId,
         page: PageRequest,
     ) -> RepoResult<Page<MaintenanceWindow>> {
-        // PART 8 — SQL-level cursor pagination. Note: `MaintenanceWindowRow`
+        // SQL-level cursor pagination. Note: `MaintenanceWindowRow`
         // has no `updated_at`; the cursor still orders by `(created_at, id)`
         // which is stable because `created_at` is set at insert and `id`
         // is immutable.

@@ -48,19 +48,17 @@ pub async fn update_monitor(
         state.monitor_repository.clone(),
         state.audit_log_entry_repository.clone(),
     )
-    .with_wallet_repository(state.wallet_repository.clone())
-    .with_interval_policy_repository(state.monitor_interval_policy_repository.clone())
-    .with_pricing_config_repository(state.pricing_config_repository.clone());
+    .with_entitlement_resolver(state.entitlement_resolver.clone());
 
     let monitor = use_case
         .execute(command, authenticated_user)
         .await
         .map_err(|err| {
-            if err
-                .downcast_ref::<domain::shared::types::PermissionDenied>()
-                .is_some()
-            {
-                return ApiError::forbidden(err.to_string());
+            if let Some(denied) = err.downcast_ref::<domain::shared::types::PermissionDenied>() {
+                return ApiError::forbidden(denied.to_string());
+            }
+            if let Some(pl) = err.downcast_ref::<application::PlanLimitError>() {
+                return ApiError::plan_limit_reached(pl.quota, pl.current, pl.allowed, pl.action);
             }
 
             let msg = err.to_string();

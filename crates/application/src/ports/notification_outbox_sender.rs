@@ -4,8 +4,8 @@ use std::{error::Error, sync::Arc};
 
 /// Delivers a single queued outbox notification.
 ///
-/// This is the seam B26/B27 will replace with real channel senders.
-/// B25 intentionally supplies only a stub implementation in the worker.
+/// This is the seam the real channel senders plug into.
+/// The worker intentionally supplies only a stub implementation.
 #[async_trait]
 pub trait NotificationOutboxSender: Send + Sync {
     async fn send(

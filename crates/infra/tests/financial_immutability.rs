@@ -1,4 +1,4 @@
-//! PART 4 — Financial DB immutability tests.
+//! Financial DB immutability tests.
 //!
 //! Every test inserts a row into a financial table, then attempts
 //! UPDATE and DELETE, and asserts the DB raises. These tests prove
@@ -39,18 +39,18 @@ async fn setup_tenant_wallet(
     let user_id = UserId::new();
     sqlx::query(
         "INSERT INTO users (id, email, password_hash, full_name, created_at, updated_at)
-         VALUES ($1, $2, 'not-a-real-hash', 'PART4 Test', NOW(), NOW())
+         VALUES ($1, $2, 'not-a-real-hash', 'Immutability Test', NOW(), NOW())
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(user_id.0)
-    .bind(format!("{}@part4-immutability.test", user_id.0))
+    .bind(format!("{}@immutability.test", user_id.0))
     .execute(pool)
     .await
     .expect("insert test user");
 
     let tenant_repo = PostgresTenantRepository::new(pool.clone());
     let tenant =
-        domain::Tenant::new(TenantId::new(), "PART4 Tenant", user_id).expect("valid tenant");
+        domain::Tenant::new(TenantId::new(), "Immutability Tenant", user_id).expect("valid tenant");
     tenant_repo.create(&tenant).await.unwrap();
 
     let wallet = Arc::new(PostgresWalletRepository::new(pool.clone()));
@@ -143,7 +143,7 @@ async fn api_usage_events_cannot_be_updated_or_deleted() {
     )
     .bind(id)
     .bind(tenant_id)
-    .bind(format!("part4-usage-{}", Uuid::new_v4()))
+    .bind(format!("usage-{}", Uuid::new_v4()))
     .execute(&pool)
     .await
     .unwrap();
@@ -175,7 +175,7 @@ async fn financial_audit_log_cannot_be_updated_or_deleted() {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO financial_audit_log (id,actor,tenant_id,action,resource,resource_id,metadata)
-         VALUES ($1,'part4-test',$2,'part4_action','wallet',$3,'{}'::jsonb)",
+         VALUES ($1,'immutability-test',$2,'immutability_action','wallet',$3,'{}'::jsonb)",
     )
     .bind(id)
     .bind(tenant_id)
@@ -292,7 +292,7 @@ async fn payg_pricing_configs_cannot_be_updated_or_deleted() {
     };
 
     let id = Uuid::new_v4();
-    let operation = format!("part4.op.{}", Uuid::new_v4().simple());
+    let operation = format!("immutability.op.{}", Uuid::new_v4().simple());
     sqlx::query(
         "INSERT INTO payg_pricing_configs
          (id,version,operation,unit_name,unit_price,currency,effective_from,active)
@@ -337,7 +337,7 @@ async fn captured_reservation_status_is_terminal() {
     };
     let (tenant_id, wallet) = setup_tenant_wallet(&pool, 10_000).await;
 
-    let request_id = format!("part4-res-{}", Uuid::new_v4());
+    let request_id = format!("res-{}", Uuid::new_v4());
     let outcome = wallet
         .reserve(
             tenant_id,

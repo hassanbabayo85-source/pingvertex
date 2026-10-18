@@ -61,7 +61,7 @@ impl AsRef<str> for PasswordHash {
     }
 }
 
-/// PART 7 — manual Debug that redacts the inner hash. `Display` is
+/// Manual Debug that redacts the inner hash. `Display` is
 /// intentionally left unchanged: it is used by callers that genuinely
 /// need the hash string (persisting it, comparing it, etc).
 impl std::fmt::Debug for PasswordHash {

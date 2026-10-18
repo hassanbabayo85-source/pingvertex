@@ -69,9 +69,9 @@ pub struct TenantRetentionSettings {
 }
 
 impl TenantRetentionSettings {
-    /// PART 9 — minimum allowed retention window, in days.
+    /// Minimum allowed retention window, in days.
     pub const MIN_RETENTION_DAYS: u32 = 1;
-    /// PART 9 — maximum allowed retention window, in days (10 years).
+    /// Maximum allowed retention window, in days (10 years).
     pub const MAX_RETENTION_DAYS: u32 = 3650;
 
     /// Constructs retention settings from a trusted source.
@@ -96,7 +96,7 @@ impl TenantRetentionSettings {
         }
     }
 
-    /// PART 9 — fallible constructor that validates `retention_days` is
+    /// Fallible constructor that validates `retention_days` is
     /// within `[MIN_RETENTION_DAYS, MAX_RETENTION_DAYS]`.
     pub fn try_new(
         tenant_id: TenantId,

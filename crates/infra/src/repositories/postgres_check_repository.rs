@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B34: hard ceiling on `list_by_monitor`'s unfiltered result set. This
+/// Hard ceiling on `list_by_monitor`'s unfiltered result set. This
 /// endpoint has no caller-supplied limit/offset (unlike
 /// `list_by_monitor_paginated`), and is reachable from the unauthenticated
 /// public status endpoints (`get_public_status`, `public_status_page`),
@@ -25,7 +25,7 @@ const LIST_BY_MONITOR_LIMIT: i64 = 1000;
 /// INSERT in `insert_chunk`. Must match the column list in that query.
 const COLUMNS_PER_CHECK: usize = 12;
 
-/// H15: safe ceiling on rows per multi-row INSERT statement.
+/// Safe ceiling on rows per multi-row INSERT statement.
 ///
 /// PostgreSQL hard-limits a single statement to 65,535 bind parameters.
 /// At `COLUMNS_PER_CHECK` (12) params/row that ceiling is ~5,461 rows —
@@ -192,7 +192,7 @@ impl CheckRepository for PostgresCheckRepository {
         self.save_batch(std::slice::from_ref(check)).await
     }
 
-    /// H15: chunks the input into bounded-size multi-row INSERTs (see
+    /// Chunks the input into bounded-size multi-row INSERTs (see
     /// `MAX_BATCH_ROWS`). Each chunk is attempted independently — a
     /// failure in one chunk does not prevent the remaining chunks from
     /// being attempted (best-effort; checks are telemetry data, and
@@ -263,7 +263,7 @@ impl CheckRepository for PostgresCheckRepository {
         }
     }
 
-    /// B34: now bounded by `LIST_BY_MONITOR_LIMIT` (most-recent-first) —
+    /// Now bounded by `LIST_BY_MONITOR_LIMIT` (most-recent-first) —
     /// see the constant's doc comment. Previously unbounded, which meant
     /// a monitor with a long check history caused every call site
     /// (including the unauthenticated public status endpoints) to scan

@@ -24,6 +24,12 @@ pub use login_request::LoginRequest;
 pub use register_request::RegisterRequest;
 pub use update_monitor_request::UpdateMonitorRequest;
 pub use variable_extraction_input::{ExtractSourceInput, VariableExtractionInput};
+pub mod recurring_proxy_monitor;
+pub use recurring_proxy_monitor::{
+    CreateRecurringProxyMonitorRequest, RecurringProxyCheckResponse,
+    RecurringProxyMonitorResponse, UpdateRecurringProxyMonitorRequest,
+};
+
 pub mod proxy_entry_input;
 pub use proxy_entry_input::ProxyEntryInput;
 pub mod create_proxy_check_job_request;
@@ -58,7 +64,7 @@ pub use reset_password_request::ResetPasswordRequest;
 pub mod oauth_login_request;
 pub use oauth_login_request::OAuthLoginRequest;
 
-// H6 — Dashboard Overview Aggregated Backend API:
+// Dashboard Overview Aggregated Backend API:
 pub mod dashboard_overview;
 pub use dashboard_overview::{
     DashboardBadges, DashboardOverview, DashboardPerformance, DashboardTrendPoint, IncidentSummary,

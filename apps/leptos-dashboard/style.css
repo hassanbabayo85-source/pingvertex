@@ -7212,11 +7212,11 @@ html[data-theme="dark"] .topbar-notification-badge { border-color: var(--pv-surf
 
 /* =========================================================================
    PV2 AUTH REDESIGN — Login / Forgot Password / Create Account
-   Sabon salo mai kama da mockup din "PingVertex Welcome Back" (rana mai
-   kararrawa na lavender, katin fari a tsakiya, "Better Uptime Together").
-   An yi amfani da sabon prefix ".pv2-" domin kada ya yi karo da tsoffin
-   salo (.auth-shell / .auth-card na baya, wadanda har yanzu ana amfani
-   dasu a wasu shafuka kamar 2FA/verify-email/dashboard preview na baya).
+   A new style based on the "PingVertex Welcome Back" mockup (a lavender
+   radial background, a white card in the centre, "Better Uptime Together").
+   A new ".pv2-" prefix is used so these rules cannot collide with the older
+   styles (.auth-shell / .auth-card), which are still used on some pages such
+   as 2FA / verify-email / the older dashboard preview.
    ========================================================================= */
 
 .pv2-shell {
@@ -8340,8 +8340,8 @@ html[data-theme="dark"] .proxy-input-tabs {
 
 /* =========================================================================
    PINGVERTEX DARK-FIRST THEME — pv2 auth pages + dashboard polish
-   An ƙara ne kawai: duk waɗannan suna ƙarƙashin `html[data-theme="dark"]`,
-   saboda ba su taɓa ko ɗaya daga cikin tsoffin light rules ba.
+   Additive only: everything here is scoped under `html[data-theme="dark"]`,
+   so none of the existing light-mode rules are affected.
    ========================================================================= */
 
 /* ---------- Login / Register / Reset — pv2 card in dark mode ---------- */
@@ -8548,10 +8548,10 @@ html[data-theme="dark"] .btn:not(.btn-primary):hover {
 
 /* =========================================================================
    PINGVERTEX — MONITOR TABLE TEXT OVERRIDES (dark mode fix)
-   Wannan yana magance matsalar da suka sa sunan monitor / latency /
-   last-check ba su gani a dark mode. An yi amfani da !important ne kawai
-   a nan saboda wasu `:root` overrides da ke ƙasan file suna sa
-   `--ink` ya zama dark color a kowane yanayi.
+   Fixes the issue where the monitor name / latency / last-check text was
+   invisible in dark mode. !important is used here only because some `:root`
+   overrides further down the file force `--ink` to a dark colour in every
+   theme.
    ========================================================================= */
 
 html[data-theme="dark"] .monitor-table-wrap,
@@ -8586,7 +8586,7 @@ html[data-theme="dark"] .dashboard-monitor-table tbody tr:hover td {
   background: #131c33 !important;
 }
 
-/* Kare kuma sauran abubuwa da ke cikin table ɗin */
+/* Also cover the remaining elements inside the table */
 html[data-theme="dark"] .monitor-table-wrap td a,
 html[data-theme="dark"] .dashboard-monitor-table td a {
   color: #eef2ff !important;
@@ -8597,12 +8597,12 @@ html[data-theme="dark"] .dashboard-monitor-table td a:hover {
   color: #a5b4fc !important;
 }
 
-/* Rate-limit chip ɗin da ke nuna "Operational" a status column */
+/* The chip showing "Operational" in the status column */
 html[data-theme="dark"] .status-badge {
   background-color: transparent;
 }
 
-/* Headers ɗin table */
+/* Table headers */
 html[data-theme="dark"] .dashboard-monitor-table thead th,
 html[data-theme="dark"] .monitor-table-wrap thead th {
   background: #0b1220 !important;
@@ -8612,12 +8612,12 @@ html[data-theme="dark"] .monitor-table-wrap thead th {
 
 /* =========================================================================
    PINGVERTEX — UNIVERSAL DARK MODE FIX
-   Wannan shi ne cikakken gyara ga duk fagen da suka rasa gani a dark mode.
-   An yi amfani da !important a kan broad selectors domin tilasta
-   dark background + light text a kan duk shafukan da ke amfani da
-   .card, .data-section, tables, forms, filters, lists, da sauransu.
-   Na gano cewa text ɗin yana samun dark-mode color amma background ɗin
-   yana riƙe da fari — shi ya sa rubutun ba ya gani.
+   A blanket fix for every surface that became unreadable in dark mode.
+   !important is applied to broad selectors to force a dark background plus
+   light text on every page that uses .card, .data-section, tables, forms,
+   filters, lists, and so on. The underlying cause was that the text picked up
+   its dark-mode colour while the background stayed white, which made the text
+   invisible.
    ========================================================================= */
 
 /* ---------- Global background & text ---------- */
@@ -9000,11 +9000,11 @@ html[data-theme="dark"] .form-error {
 
 /* =========================================================================
    PINGVERTEX — RUNTIME METERING GRID FIX (usage page)
-   Matsala: dogayen sunaye (http_check.one_time.monitoring) suna amfani da
-   .card-value wanda ke da font-size: 1.9rem, wanda ya yi girma sosai
-   don dogon string, sai ya haura zuwa ɗakin da ke kusa.
-   Magani: modifier class ɗin da ke sa kowane item ya zama kati mai
-   zaman kansa, tare da ƙaramin font + word-break.
+   Problem: long names (http_check.one_time.monitoring) use .card-value,
+   whose font-size: 1.9rem is far too large for a long string, so the text
+   overflowed into the adjacent cell.
+   Fix: a modifier class that turns each item into a self-contained card with
+   a smaller font plus word-break.
    ========================================================================= */
 
 .overview-cards--operations {
@@ -9105,7 +9105,7 @@ html[data-theme="dark"] .metric-card-link:hover {
   text-decoration: none;
 }
 
-/* ---------- "View all" button a ƙasan table ɗin dashboard ---------- */
+/* ---------- "View all" button below the dashboard table ---------- */
 
 .dashboard-view-all {
   margin-top: 16px;
@@ -9123,8 +9123,8 @@ html[data-theme="dark"] .metric-card-link:hover {
 
 /* =========================================================================
    PINGVERTEX — CLICKABLE METRIC CARDS (dashboard)
-   Metric cards yanzu <A> ne don haka dole ne a cire underline da blue color
-   na default <a> tag, sannan a kiyaye tsarin flex na .card.
+   Metric cards are now <A> elements, so the default <a> underline and blue
+   colour must be removed while preserving the flex layout of .card.
    ========================================================================= */
 
 a.metric-card,
@@ -9167,10 +9167,10 @@ html[data-theme="dark"] a.metric-card:hover {
 
 /* =========================================================================
    PINGVERTEX — PV2 BUTTON HOVER FIX
-   Matsala: tsohon `button:hover { background: #f8f9fc; }` yana da
-   specificity mafi girma (11) fiye da `.pv2-submit` (10), don haka
-   yana override gradient ɗin a kan hover, ya mai da button ɗin fari.
-   Magani: !important a nan zai tilasta gradient ɗin ya kasance a kan hover.
+   Problem: the older `button:hover { background: #f8f9fc; }` has a higher
+   specificity (11) than `.pv2-submit` (10), so it overrode the gradient on
+   hover and turned the button white.
+   Fix: !important here forces the gradient to persist on hover.
    ========================================================================= */
 
 button.pv2-submit,
@@ -9228,8 +9228,8 @@ button.btn-danger:hover {
 
 /* =========================================================================
    PINGVERTEX — MONITOR FORM ACTIONS BAR (dark mode fix)
-   Form actions bar ɗin (Cancel + Create/Save) yana da farin background
-   a cikin dark mode. Wannan yana gyara shi don ya dace da form ɗin.
+   The form actions bar (Cancel + Create/Save) had a white background in dark
+   mode. This makes it match the rest of the form.
    ========================================================================= */
 
 html[data-theme="dark"] .monitor-form .form-actions {
@@ -9264,7 +9264,7 @@ html[data-theme="dark"] .monitor-form .form-actions .btn-primary:hover {
   background: linear-gradient(135deg, #5d5ff0 0%, #4338ca 100%) !important;
 }
 
-/* Hakanan gyara sauran form-actions ɗin da za su iya kasancewa da wannan matsala */
+/* Also fix any other form-actions bars that may have the same problem */
 html[data-theme="dark"] .form-actions {
   background: rgba(15, 22, 38, .92) !important;
   border-color: #1f2a44 !important;
@@ -9275,7 +9275,7 @@ html[data-theme="dark"] .auth-form .form-actions {
   background: transparent !important;
 }
 
-/* Hakanan gyara "Estimated PAYG cost" section da ke cikin form ɗin idan tana da matsala */
+/* Also fix the "Estimated PAYG cost" section inside the form if affected */
 html[data-theme="dark"] .monitor-form .form-section {
   background: #121827 !important;
   border-color: #1f2a44 !important;
@@ -9314,11 +9314,11 @@ html[data-theme="dark"] .monitor-form select:focus {
 
 /* =========================================================================
    PINGVERTEX — BILLING PAGE OVERVIEW-CARDS FIX
-   Matsala: .overview-cards a cikin billing page yana amfani da .card-value
-   wanda yake da font-size: 2rem — wanda yayi girma ga dogayen operation
-   sunaye (api_flow_check.monitoring), sai sun haɗe juna.
-   Magani: modifier-targeted fix ga .billing-page kawai — ba ya shafar
-   sauran shafukan da suka yi aiki.
+   Problem: .overview-cards on the billing page uses .card-value, whose
+   font-size: 2rem is too large for long operation names
+   (api_flow_check.monitoring), so they ran into each other.
+   Fix: a modifier-targeted fix scoped to .billing-page only — it does not
+   affect any other page that already rendered correctly.
    ========================================================================= */
 
 .billing-page .overview-cards {
@@ -9831,7 +9831,7 @@ html[data-theme="dark"] .proxy-help-card {
    PINGVERTEX PROFESSIONAL SIDEBAR UPGRADE
    ========================================= */
 
-/* 1. Tsarin Gabaɗaya (Layout & Typography) */
+/* 1. Layout & Typography */
 aside, .sidebar, nav {
     background-color: #0b1120 !important; /* Deep dark blue/slate */
     border-right: 1px solid #1e293b !important;
@@ -9875,14 +9875,14 @@ aside a, nav a, .menu-item, .nav-link {
     transition: all 0.2s ease-in-out !important;
 }
 
-/* 4. Hover State (Lokacin da aka sa mouse) */
+/* 4. Hover state */
 aside a:hover, nav a:hover, .menu-item:hover, .nav-link:hover {
     background-color: #1e293b !important; /* Slightly lighter background */
     color: #f8fafc !important; /* Pure white text */
     transform: translateX(4px) !important; /* Subtle slide effect */
 }
 
-/* 5. Active State (Wanda aka zaɓa a yanzu, kamar Billing) */
+/* 5. Active state (the currently selected item, e.g. Billing) */
 aside a.active, nav a.active, .menu-item.active, .nav-link.active, 
 aside a[aria-current="page"], nav a[aria-current="page"] {
     background-color: #2563eb !important; /* Professional blue */
@@ -9891,7 +9891,7 @@ aside a[aria-current="page"], nav a[aria-current="page"] {
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important; /* Soft blue glow */
 }
 
-/* 6. Icons (Siffar icons ɗin da ke gefen menu) */
+/* 6. Icons (the icons alongside each menu item) */
 aside a svg, nav a svg, .menu-item svg, .nav-link svg {
     color: inherit !important;
     opacity: 0.7 !important;
@@ -9900,10 +9900,10 @@ aside a svg, nav a svg, .menu-item svg, .nav-link svg {
 
 aside a:hover svg, nav a:hover svg, .menu-item:hover svg, .nav-link:hover svg,
 aside a.active svg, nav a.active svg, .menu-item.active svg {
-    opacity: 1 !important; /* Icon ɗin zai haskaka sosai idan an zaɓe shi */
+    opacity: 1 !important; /* The icon brightens fully when selected */
 }
 
-/* ---------- PART 2 — Proxy preview / import summary ---------- */
+/* ---------- Proxy preview / import summary ---------- */
 
 .proxy-submit-row {
   display: flex;
@@ -10031,7 +10031,7 @@ aside a.active svg, nav a.active svg, .menu-item.active svg {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- PART 3 — proxy result card: 8-up metric grid + warning ---------- */
+/* ---------- Proxy result card: 8-up metric grid + warning ---------- */
 
 .proxy-result-metrics-wide {
   grid-template-columns: repeat(4, minmax(0, 1fr));

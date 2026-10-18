@@ -1,6 +1,6 @@
 //! PAYG preview contextual pricing tests.
 //!
-//! Task 1 acceptance: the preview path and the actual billing path must
+//! Acceptance: the preview path and the actual billing path must
 //! resolve the **same** contextual price row for the **same** tenant
 //! context.
 //!
@@ -12,7 +12,7 @@
 //! dev-dependency itself depends on the crate (circular dev-dependency).
 //! External integration tests under `tests/` do not hit this limitation.
 //!
-//! Before Task 1, the preview path left `PricingContext::account_type`
+//! Previously, the preview path left `PricingContext::account_type`
 //! at `None`, which meant a company tenant was quoted the *generic*
 //! price while the actual billing path (which already used
 //! `tenant.account_type`) would debit at the *company* price. This test
@@ -62,7 +62,7 @@ async fn seed_company_and_generic_rules(repo: &Arc<InMemoryPAYGPricingRepository
     .unwrap();
 }
 
-/// Task 1 acceptance: for the same trusted context, the preview path and
+/// Acceptance: for the same trusted context, the preview path and
 /// the actual billing path must resolve the same `(unit_price, version)`.
 #[tokio::test]
 async fn preview_matches_actual_billing_for_company_context() {
@@ -114,7 +114,7 @@ async fn preview_matches_actual_billing_for_company_context() {
     );
 }
 
-/// Task 1 regression: a company tenant's preview must differ from a
+/// Regression: a company tenant's preview must differ from a
 /// generic preview when contextual pricing rules exist. This is the
 /// concrete symptom the fix addresses.
 #[tokio::test]

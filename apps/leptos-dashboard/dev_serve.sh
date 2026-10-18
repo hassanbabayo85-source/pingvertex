@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Yana source din .env daga root sannan yana gudanar da trunk serve
-# domin option_env!() a Rust ya ga GOOGLE_CLIENT_ID a build time.
+# Sources .env from the repository root and then runs trunk serve, so that
+# option_env!() in Rust can see GOOGLE_CLIENT_ID at build time.
 set -a
 source ../../.env
 set +a
-echo "GOOGLE_CLIENT_ID da za a yi amfani da shi: $GOOGLE_CLIENT_ID"
+echo "Using GOOGLE_CLIENT_ID: $GOOGLE_CLIENT_ID"
 trunk serve

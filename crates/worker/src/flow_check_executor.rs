@@ -11,7 +11,7 @@ use crate::incident_evaluator::IncidentEvaluator;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B29 API Flow executor for B17's `DurableScheduler`. Executes a monitor
+/// API Flow executor for the `DurableScheduler`. Executes a monitor
 /// only when `monitor.kind == MonitorKind::Flow`, fetching the monitor's
 /// `ApiFlow` and running every step via `flow_executor::execute_flow`
 /// (SSRF-guarded independently per step, fail-fast, 60s total budget, 10

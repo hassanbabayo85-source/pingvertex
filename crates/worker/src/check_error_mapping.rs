@@ -1,6 +1,6 @@
 use domain::{CheckErrorKind, ErrorType};
 
-/// Maps B18's canonical `CheckErrorKind` to the persisted `ErrorType`
+/// Maps the canonical `CheckErrorKind` to the persisted `ErrorType`
 /// used by the `checks` table. This single mapping is shared by every
 /// active check executor (HTTP, TCP, DNS) so error classification never
 /// drifts out of sync across check types.

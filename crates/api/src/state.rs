@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use application::ports::AgentRegistry;
+use application::ports::RecurringProxyMonitorRepository;
 use application::ports::{
     AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
     AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
     BulkMonitorImportRepository, CheckRepository, CheckoutDetails, CheckoutRequest,
     CheckoutSessionRepository, CustomDomainVerifier, DashboardRepository,
-    DiagnosticReportRepository, EscalationPolicyRepository, FinancialAuditLogRepository,
+    DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository,
+    FinancialAuditLogRepository,
     GeoIpLookup, HealthCheckPort, HealthCheckResult, HelpArticleRepository, HelpCategoryRepository,
     IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository,
     MonitorRepository, NotificationChannelRepository, NotificationService, PAYGPricingRepository,
@@ -37,6 +39,10 @@ type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 #[derive(Clone)]
 pub struct AppState {
     pub monitor_repository: Arc<dyn MonitorRepository>,
+    /// TASK 2 — the single authoritative source for the tenant's
+    /// hard subscription entitlements (quotas and minimums).
+    /// All hard-quota enforcement paths must go through this.
+    pub entitlement_resolver: Arc<dyn EntitlementResolver>,
     pub bulk_monitor_import_repository: Option<Arc<dyn BulkMonitorImportRepository>>,
     pub bulk_monitor_action_repository:
         Option<Arc<dyn application::ports::BulkMonitorActionRepository>>,
@@ -47,6 +53,11 @@ pub struct AppState {
     pub notification_service: Arc<dyn NotificationService>,
     pub api_flow_repository: Arc<dyn ApiFlowRepository>,
     pub proxy_check_job_repository: Arc<dyn ProxyCheckJobRepository>,
+    /// TASK 3 — recurring proxy monitoring.
+    /// Defaults to an in-memory impl (empty) so tests can construct
+    /// `AppState` without a live database. `main.rs` overrides it
+    /// with `PostgresRecurringProxyMonitorRepository`.
+    pub recurring_proxy_monitor_repository: Arc<dyn RecurringProxyMonitorRepository>,
     pub maintenance_window_repository: Arc<dyn MaintenanceWindowRepository>,
     pub escalation_policy_repository: Arc<dyn EscalationPolicyRepository>,
     pub status_page_repository: Arc<dyn StatusPageRepository>,
@@ -66,21 +77,21 @@ pub struct AppState {
     pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
     pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
-    /// PART 5 — server-side agent identity registry.
+    /// Server-side agent identity registry.
     pub agent_registry: Arc<dyn AgentRegistry>,
     pub scheduling_repository: Arc<dyn SchedulingRepository>,
-    /// B34: backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
+    /// Backs `GET /ready`. Defaults to `NoopHealthCheckPort` (always
     /// healthy) until `with_health_check_port` substitutes a real check —
     /// see `main.rs`, which wires `infra::PostgresHealthCheck`.
     pub health_check_port: Arc<dyn HealthCheckPort>,
-    /// H6 — Dashboard Overview Aggregated Backend API:
+    /// Dashboard Overview Aggregated Backend API:
     /// Tenant-scoped, efficient aggregate queries for the dashboard.
     /// Defaults to `NoopDashboardRepository` (returns empty) until
     /// `with_dashboard_repository` substitutes the real Postgres implementation.
     pub dashboard_repository: Arc<dyn DashboardRepository>,
-    /// H12 — Proration Service.
+    /// Proration Service.
     pub subscription_usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
-    /// H12 — Proration Service.
+    /// Proration Service.
     pub subscription_usage_transaction: Arc<dyn SubscriptionUsageTransaction>,
     pub add_on_subscription_repository: Arc<dyn AddOnSubscriptionRepository>,
     pub sms_provider_pricing: Arc<dyn SmsProviderPricing>,
@@ -440,7 +451,7 @@ impl StatusPageCache for NoopStatusPageCache {
     }
 }
 
-/// B34: default `HealthCheckPort` used until `with_health_check_port`
+/// Default `HealthCheckPort` used until `with_health_check_port`
 /// substitutes a real one. Always reports healthy — matches the pattern
 /// every other Noop* default in this file follows (safe placeholder,
 /// never the production path once `main.rs` wires the real dependency).
@@ -1514,6 +1525,8 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
+            entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
@@ -1523,6 +1536,8 @@ impl AppState {
             notification_service: Arc::new(notification_service),
             api_flow_repository: Arc::new(api_flow_repository),
             proxy_check_job_repository: Arc::new(proxy_check_job_repository),
+            recurring_proxy_monitor_repository: Arc::new(infra::InMemoryRecurringProxyMonitorRepository::default()),
+
             maintenance_window_repository: Arc::new(NoopMaintenanceWindowRepository),
             escalation_policy_repository: Arc::new(NoopEscalationPolicyRepository),
             status_page_repository: Arc::new(NoopStatusPageRepository),
@@ -1617,6 +1632,8 @@ impl AppState {
             payment_repository: Arc::new(NoopPaymentRepository),
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
+            entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
@@ -1626,6 +1643,8 @@ impl AppState {
             notification_service: Arc::new(notification_service),
             api_flow_repository: Arc::new(api_flow_repository),
             proxy_check_job_repository: Arc::new(proxy_check_job_repository),
+            recurring_proxy_monitor_repository: Arc::new(infra::InMemoryRecurringProxyMonitorRepository::default()),
+
             maintenance_window_repository: Arc::new(maintenance_window_repository),
             escalation_policy_repository: Arc::new(escalation_policy_repository),
             status_page_repository: Arc::new(status_page_repository),
@@ -1777,7 +1796,7 @@ impl AppState {
         self
     }
 
-    /// PART 5 — substitutes a real `AgentRegistry` (see
+    /// Substitutes a real `AgentRegistry` (see
     /// `infra::PostgresAgentRegistryRepository`) in place of the
     /// fail-closed `NoopAgentRegistry` default.
     pub fn with_agent_registry<R>(mut self, agent_registry: R) -> Self
@@ -1796,7 +1815,7 @@ impl AppState {
         self
     }
 
-    /// B34: substitutes a real `HealthCheckPort` (see
+    /// Substitutes a real `HealthCheckPort` (see
     /// `infra::PostgresHealthCheck`) in place of the always-healthy
     /// `NoopHealthCheckPort` default, backing `GET /ready`.
     pub fn with_health_check_port<H>(mut self, health_check_port: H) -> Self
@@ -1807,7 +1826,7 @@ impl AppState {
         self
     }
 
-    /// H6 — Dashboard Overview:
+    /// Dashboard Overview:
     /// Substitutes a real `DashboardRepository` (e.g. `PostgresDashboardRepository`)
     /// in place of the no-op default.
     pub fn with_pricing_config_repository<R>(mut self, pricing_config_repository: R) -> Self
@@ -1826,7 +1845,7 @@ impl AppState {
         self
     }
 
-    /// H12 — Proration Service.
+    /// Proration Service.
     pub fn with_subscription_usage_period_repository<R>(mut self, repo: R) -> Self
     where
         R: SubscriptionUsagePeriodRepository + 'static,
@@ -1835,7 +1854,7 @@ impl AppState {
         self
     }
 
-    /// H12 — Proration Service.
+    /// Proration Service.
     pub fn with_add_on_subscription_repository<R>(mut self, repo: R) -> Self
     where
         R: AddOnSubscriptionRepository + 'static,
@@ -1992,6 +2011,27 @@ impl AppState {
         R: FinancialAuditLogRepository + 'static,
     {
         self.financial_audit_log_repository = Arc::new(repo);
+        self
+    }
+
+    /// TASK 3 — installs the real recurring proxy monitor repository.
+    pub fn with_recurring_proxy_monitor_repository<R>(mut self, repo: R) -> Self
+    where
+        R: RecurringProxyMonitorRepository + 'static,
+    {
+        self.recurring_proxy_monitor_repository = Arc::new(repo);
+        self
+    }
+
+    /// TASK 2 — substitutes a real `EntitlementResolver` in place of
+    /// the Free-default `InMemoryEntitlementResolver`. Production
+    /// `main.rs` wires `PostgresEntitlementResolver`; tests may leave
+    /// the default in place or install their own overrides.
+    pub fn with_entitlement_resolver<R>(mut self, resolver: R) -> Self
+    where
+        R: EntitlementResolver + 'static,
+    {
+        self.entitlement_resolver = Arc::new(resolver);
         self
     }
 

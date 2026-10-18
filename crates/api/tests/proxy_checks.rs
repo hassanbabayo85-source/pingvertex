@@ -639,7 +639,7 @@ async fn pending_proxy_job_can_be_canceled_but_cannot_be_canceled_twice() {
 }
 
 // ---------------------------------------------------------------------------
-// PART 2 — Preview endpoint tests
+// Preview endpoint tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

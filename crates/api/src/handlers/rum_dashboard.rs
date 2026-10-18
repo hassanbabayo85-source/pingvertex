@@ -179,8 +179,8 @@ pub async fn create_rum_site(
 
 /// `GET /api/v1/dashboard/rum/sites?limit=50&cursor=<opaque>`
 ///
-/// PART 8 — cursor-paginated. Response body is a JSON array (unchanged
-/// from before PART 8); a next-page cursor (when present) is returned via
+/// Cursor-paginated. Response body is a JSON array (unchanged
+/// unchanged); a next-page cursor (when present) is returned via
 /// the `X-Next-Cursor` response header. Absence of the header = "last
 /// page".
 pub async fn list_rum_sites(
@@ -308,7 +308,7 @@ pub async fn rum_browser_device_breakdown(
 /// `GET /api/v1/dashboard/rum/sites/{site_id}/geo`
 ///
 /// Empty/all-`None`-country results are expected, not an error, until
-/// geo-IP lookup is configured server-side — see Task E's `HANDOVER.md`
+/// geo-IP lookup is configured server-side — see the RUM analytics notes
 /// notes and `GeoBreakdownRow`'s doc comment.
 pub async fn rum_geo_breakdown(
     State(state): State<AppState>,

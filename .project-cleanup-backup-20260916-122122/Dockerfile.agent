@@ -1,0 +1,44 @@
+FROM rust:1.89.0-slim-bookworm AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+    COPY apps/leptos-dashboard/Cargo.toml apps/leptos-dashboard/Cargo.toml
+    RUN mkdir -p apps/leptos-dashboard/src && touch apps/leptos-dashboard/src/lib.rs
+
+RUN cargo build --release -p agent
+
+FROM debian:13.1-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/agent /usr/local/bin/agent
+
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+
+# PART 5 — Agent Trust Boundary: the mTLS *private key* is NEVER baked
+# into the image. Only the CA cert and this agent's client *certificate*
+# are copied (they are public material). The private key MUST be
+# injected at runtime, for example via a read-only bind mount:
+#
+#   docker run -v /secure/path/client-key.pem:/app/certs/agents/agent-us-east-1/client-key.pem:ro ...
+#
+# or a Docker secret. See docker-compose.yml's `agent.secrets`.
+COPY --chown=appuser:app certs/ca/ca-cert.pem certs/ca/ca-cert.pem
+COPY --chown=appuser:app certs/agents/agent-us-east-1/client-cert.pem certs/agents/agent-us-east-1/client-cert.pem
+COPY --chown=appuser:app data/geoip/GeoLite2-Country.mmdb data/geoip/GeoLite2-Country.mmdb
+USER appuser
+
+CMD ["agent"]

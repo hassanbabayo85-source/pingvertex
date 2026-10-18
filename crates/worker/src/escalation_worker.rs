@@ -140,7 +140,7 @@ impl EscalationWorker {
 
         let channel = channel.unwrap();
 
-        // B28 — Atomically claim this escalation step BEFORE sending
+        // Atomically claim this escalation step BEFORE sending
         // anything. This is what actually prevents duplicate escalation
         // under concurrent processing: two overlapping sweeps (multiple
         // worker replicas, or overlapping sweeps within one process) may
@@ -151,8 +151,8 @@ impl EscalationWorker {
         // `resolved_at IS NULL AND acknowledged_at IS NULL` so
         // acknowledgement/resolution racing in also correctly blocks the
         // claim). This mirrors `IncidentManager::open_if_needed`'s
-        // save-then-notify-only-if-created pattern (B23) and the
-        // notification outbox's claim-before-send pattern (B25).
+        // save-then-notify-only-if-created pattern and the
+        // notification outbox's claim-before-send pattern.
         let claimed = self
             .incident_repository
             .try_claim_escalation_step(incident, now)

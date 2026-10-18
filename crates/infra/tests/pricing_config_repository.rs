@@ -58,7 +58,7 @@ async fn test_seed_and_audit_log_flow() {
     assert_eq!(active.version, 1);
     assert_eq!(active.currency, "USD");
 
-    // (b) created_by ya rubuta daidai lokacin ƙirƙirar sabon version.
+    // (b) created_by is written correctly when a new version is created.
     // `created_by` is a real foreign key to `users`, so we must insert an
     // actual user row first (reusing the shared test helper) rather than
     // using a random UUID.
@@ -82,7 +82,7 @@ async fn test_seed_and_audit_log_flow() {
         .expect("version 2 not found");
     assert_eq!(stored.created_by, Some(user_id));
 
-    // (c) Sabon version yana haifar da audit log row daidai.
+    // (c) A new version produces the correct audit log row.
     let audit_row: (
         String,
         Option<String>,

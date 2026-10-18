@@ -226,7 +226,7 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
         .unwrap();
     assert!(fetched.is_none());
 
-    // Outsider ba zai iya gyara ba — even though this outsider is an Owner
+    // An outsider cannot modify it — even though this outsider is an Owner
     // (so has UpdateMonitor), tenant isolation still blocks cross-tenant
     // access and returns None, same as before this permission patch.
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())

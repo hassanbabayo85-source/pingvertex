@@ -92,7 +92,7 @@ where
         self.site_repository.list_by_tenant(tenant_id).await
     }
 
-    /// PART 8 — cursor-paginated entry point for
+    /// Cursor-paginated entry point for
     /// `GET /api/v1/dashboard/rum/sites`.
     pub async fn execute_paginated(
         &self,

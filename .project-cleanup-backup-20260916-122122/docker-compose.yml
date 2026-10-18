@@ -1,0 +1,310 @@
+services:
+  # ⚠️  DEVELOPMENT/LOCAL USE ONLY for the weak default passwords below.
+  # Production MUST use docker-compose.prod.yml (which fails closed if
+  # these are unset). Always deploy with:
+  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+  #
+  # PART 3 (DB hardening): the postgres service now also receives the
+  # three role passwords so the first-init bootstrap script can create
+  # the `pingvertex_migrator` / `pingvertex_app` / `pingvertex_worker`
+  # roles. The migrate / api / worker services each connect under their
+  # own dedicated role — none of them uses the `postgres` superuser.
+  postgres:
+    image: postgres:16.6
+    container_name: uptime-monitor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: uptime_monitor
+      # PART 3 — passed to docker/postgres-init/01-bootstrap-roles.sh
+      # (runs once on first DB initialization).
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}
+      POSTGRES_WORKER_PASSWORD: ${POSTGRES_WORKER_PASSWORD:?POSTGRES_WORKER_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d uptime_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: uptime-monitor-redis
+    restart: unless-stopped
+    # PART 13 follow-up: drop to the redis user directly. The image's
+    # entrypoint uses `setpriv` to drop from root to `redis`, which
+    # requires CAP_SETUID/CAP_SETGID — but `cap_drop: [ALL]` removed
+    # them, so the container crash-looped with `setpriv: setresuid
+    # failed: Operation not permitted`. Running as `redis` from the
+    # start makes the entrypoint skip the privilege drop entirely.
+    # This matches the caddy service's `user: caddy` pattern.
+    user: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # Migrations run as pingvertex_migrator — NOT superuser. The migrator
+  # role owns the schema and may CREATE/ALTER/GRANT; it cannot create
+  # roles or databases.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: uptime-monitor-migrate
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://pingvertex_migrator:${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set}@postgres:5432/uptime_monitor
+    # Mount the migrations directory from the host so a NEW migration does
+    # not require a `docker compose build` to be picked up. Without this,
+    # Docker caches the image built from Dockerfile.migrate (which COPYs
+    # `migrations/` at build time), and a freshly added migration silently
+    # never runs — exactly what happened during PART 3 verification.
+    volumes:
+      - ./migrations:/app/migrations:ro
+    entrypoint: ["sh", "-c"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "sqlx database create || true && sqlx migrate run --source migrations"
+
+  # API runtime uses pingvertex_app — NOT superuser.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: uptime-monitor-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set}@postgres:5432/uptime_monitor
+      RUST_LOG: debug
+      ENVIRONMENT: local
+      RUST_BACKTRACE: "1"
+      REDIS_URL: redis://redis:6379
+    ports:
+      # PART 13 — only the local dev convenience binding is kept here.
+      # docker-compose.prod.yml clears even this with `ports: !reset []`,
+      # so that in production the ONLY ingress path is Caddy on :443.
+      - "127.0.0.1:3000:3000"
+      # PART 13 — the mTLS port 3443 is deliberately NOT published. It is
+      # reachable only via the `pv_agent_mtls` internal network (see the
+      # `networks:` block at the bottom of this file), by the agent
+      # container. Publishing it here would expose the mTLS endpoint to
+      # anyone who can reach the host on 3443, bypassing Caddy entirely.
+    networks:
+      default: {}
+      pv_agent_mtls: {}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # Background worker uses pingvertex_worker — NOT superuser.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: uptime-monitor-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://pingvertex_worker:${POSTGRES_WORKER_PASSWORD:?POSTGRES_WORKER_PASSWORD must be set}@postgres:5432/uptime_monitor
+      RUST_LOG: info
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
+    ports:
+      - "127.0.0.1:3001:3001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: uptime-monitor-prometheus
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules.yml:/etc/prometheus/rules.yml
+    secrets:
+      - metrics_token
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "127.0.0.1:9090:9090"
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: uptime-monitor-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:3002:3000"
+    security_opt:
+      - no-new-privileges:true
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: uptime-monitor-alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "127.0.0.1:9093:9093"
+    security_opt:
+      - no-new-privileges:true
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: uptime-monitor-agent
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      AGENT_API_BASE_URL: https://api:3443/internal/v1
+      AGENT_ID: agent-us-east-1
+      # PART 5 — region is authoritative on the SERVER side (see
+      # migrations/0122_agent_registry.sql). This value is only used by
+      # the agent to fill the informational X-Agent-Region header; the
+      # API rejects any request whose header does not match the
+      # registered region, and never trusts this value on its own.
+      AGENT_REGION: us-east
+      RUST_LOG: info
+    # PART 5 — client-key.pem is deliberately NOT baked into the image
+    # (see Dockerfile.agent). It is bind-mounted here from a location
+    # OUTSIDE the repository. Point AGENT_CLIENT_KEY_PATH_HOST at a
+    # securely-managed file on the host (e.g. `/etc/pingvertex/agents/...`).
+    volumes:
+      - type: bind
+        # PART 13 — the previous `:-` default pointed at `./secrets/...`
+        # inside the repository. `:?` makes the variable mandatory, so
+        # the container will refuse to start if the operator has not
+        # explicitly pointed this at a file OUTSIDE the repo. This is
+        # what "mount at runtime as secret, least privilege" means in
+        # practice for a non-Swarm deployment.
+        source: ${AGENT_CLIENT_KEY_PATH_HOST:?AGENT_CLIENT_KEY_PATH_HOST must be set — the agent's mTLS private key must live outside the repository (see SECURITY_HARDENING.md)}
+        target: /app/certs/agents/agent-us-east-1/client-key.pem
+        read_only: true
+    networks:
+      default: {}
+      pv_agent_mtls: {}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  frontend-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: uptime-monitor-frontend-build
+    working_dir: /app/apps/leptos-dashboard
+    environment:
+      CARGO_TARGET_DIR: /tmp/target
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_REDIRECT_URI: ${APPLE_REDIRECT_URI:-}
+    volumes:
+      - .:/app
+      - frontend_dist:/app/apps/leptos-dashboard/dist
+    command: trunk build --release
+    restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres_data:
+  frontend_dist:
+  redis_data:
+
+# PART 13 — internal network for the agent ↔ API mTLS channel.
+#
+# `internal: true` means this network has NO gateway to the outside
+# world: a container attached to it cannot reach the host or the
+# internet via this interface. Combined with the fact that port 3443 is
+# not published via any `ports:` mapping, this means the mTLS endpoint
+# is reachable ONLY by containers explicitly attached to this network
+# (currently: `api` and `agent`). No other service, and nothing on the
+# host, can open a connection to api:3443.
+networks:
+  pv_agent_mtls:
+    driver: bridge
+    internal: true
+
+secrets:
+  metrics_token:
+    file: .metrics_token

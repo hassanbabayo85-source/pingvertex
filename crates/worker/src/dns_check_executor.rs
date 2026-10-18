@@ -12,7 +12,7 @@ use crate::incident_evaluator::IncidentEvaluator;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B19 DNS executor for B17's `DurableScheduler`. Persists a `Check`
+/// DNS executor for the `DurableScheduler`. Persists a `Check`
 /// using the same error taxonomy as the HTTP executor.
 #[derive(Clone)]
 pub struct DnsCheckExecutor {

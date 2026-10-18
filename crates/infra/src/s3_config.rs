@@ -22,7 +22,7 @@ pub struct S3Config {
     pub path_style: bool,
 }
 
-/// PART 6 — custom Debug that redacts both AWS credentials.
+/// Custom Debug that redacts both AWS credentials.
 impl std::fmt::Debug for S3Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("S3Config")

@@ -56,9 +56,9 @@ pub struct ProxyResultBody {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
 
-    // ---- PART 3 fields -----------------------------------------------
+    // ---- fields -----------------------------------------------
     // All are `Option<T>` with `#[serde(default)]`, so responses from
-    // servers that predate PART 3 deserialize cleanly.
+    // servers that predate deserialize cleanly.
     #[serde(default)]
     pub outcome: Option<String>,
     #[serde(default)]
@@ -78,7 +78,7 @@ pub struct ProxyResultBody {
 impl ProxyResultBody {
     /// Three-way outcome, mirroring the domain-layer helper: derive a
     /// value from the legacy fields when `outcome` is absent (i.e. for
-    /// rows produced before PART 3).
+    /// rows produced previously).
     pub fn effective_outcome(&self) -> &str {
         if let Some(o) = self.outcome.as_deref() {
             return o;
@@ -114,7 +114,7 @@ impl ProxyResultBody {
     }
 
     /// Best-effort total time, falling back to the legacy `latency_ms`
-    /// on pre-PART-3 responses.
+    /// on legacy responses.
     pub fn effective_total_time_ms(&self) -> Option<u32> {
         self.total_time_ms.or(self.latency_ms)
     }
@@ -129,7 +129,7 @@ pub struct ProxyResults {
 }
 
 // ---------------------------------------------------------------------------
-// PART 2 — Preview types + function
+// Preview types + function
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -181,11 +181,7 @@ pub async fn preview(
     format: &str,
     content: &str,
 ) -> Result<ProxyPreview, crate::api::client::ApiError> {
-    post_json(
-        "/proxy-checks/preview",
-        &PreviewRequest { format, content },
-    )
-    .await
+    post_json("/proxy-checks/preview", &PreviewRequest { format, content }).await
 }
 
 pub async fn create(
@@ -427,7 +423,7 @@ mod tests {
     #[test]
     fn parses_socks4_scheme_and_credentials() {
         let values =
-            parse_proxy_text("socks4://1.2.3.4:1080\nsocks4://user:pass@5.6.7.8:1081").unwrap();
+            parse_proxy_text("socks4://1.2.3.4:1080\nsocks4://user:pass@5.6.7.8:8080").unwrap();
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].scheme, "socks4");
         assert_eq!(values[1].scheme, "socks4");
@@ -465,7 +461,7 @@ mod tests {
         assert!(parse_json_input(&huge).is_err());
     }
 
-    // -- PART 3 — ProxyResultBody backward-compat helpers --
+    // -- ProxyResultBody backward-compat helpers --
 
     fn body_with(
         reachable: bool,
@@ -501,7 +497,7 @@ mod tests {
 
     #[test]
     fn effective_outcome_derives_from_legacy_fields_when_absent() {
-        // Pre-PART-3 row: no `outcome` field, `reachable=false`, and
+        // Legacy row: no `outcome` field, `reachable=false`, and
         // `error_code` carries the TARGET_ prefix.
         let b = body_with(false, None, Some("TARGET_TIMEOUT"));
         assert_eq!(b.effective_outcome(), "working_target_unreachable");

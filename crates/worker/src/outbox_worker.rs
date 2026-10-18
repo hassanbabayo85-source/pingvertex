@@ -40,9 +40,9 @@ impl Default for OutboxWorkerConfig {
     }
 }
 
-/// Stub outbox sender used by B25.
+/// Stub outbox sender.
 ///
-/// It always succeeds. B26/B27 will replace it with real channel senders
+/// It always succeeds. Real channel senders replace it in production
 /// by implementing `NotificationOutboxSender` and replacing this type in
 /// `worker::main`.
 #[derive(Debug, Clone, Default)]

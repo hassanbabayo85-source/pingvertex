@@ -15,7 +15,7 @@ use crate::shared::policies::TenantOwned;
 /// comfortably covers real use while blocking abuse.
 pub const MAX_STEPS: usize = 10;
 
-/// PART 9 — hard cap on the total estimated serialized size of an
+/// Hard cap on the total estimated serialized size of an
 /// `ApiFlow` (sum of all step byte lengths plus per-step overhead).
 pub const MAX_SERIALIZED_SIZE: usize = 256 * 1024;
 

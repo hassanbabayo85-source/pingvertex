@@ -13,7 +13,7 @@ pub struct ConfirmTotpSetupResponse {
     pub backup_codes: Vec<String>,
 }
 
-/// PART 7 — manual Debug that redacts the TOTP code.
+/// Manual Debug that redacts the TOTP code.
 impl std::fmt::Debug for ConfirmTotpSetupRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConfirmTotpSetupRequest")
@@ -22,7 +22,7 @@ impl std::fmt::Debug for ConfirmTotpSetupRequest {
     }
 }
 
-/// PART 7 — manual Debug that redacts the raw backup codes. They are
+/// Manual Debug that redacts the raw backup codes. They are
 /// shown to the user exactly once and are the account-recovery
 /// credentials; nothing should ever be able to log them.
 impl std::fmt::Debug for ConfirmTotpSetupResponse {

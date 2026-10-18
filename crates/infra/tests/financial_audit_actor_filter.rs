@@ -1,4 +1,4 @@
-//! Task 17 regression: the platform admin audit endpoint can filter
+//! Regression: the platform admin audit endpoint can filter
 //! financial audit entries by `actor`.
 //!
 //! `financial_audit_log.actor` is a free-form text column. User-initiated
@@ -8,7 +8,7 @@
 //! exactly the entries that were written with that UUID as their actor,
 //! and no others.
 //!
-//! Before Task 17, `FinancialAuditLogFilter` had no `actor` field at all,
+//! Previously, `FinancialAuditLogFilter` had no `actor` field at all,
 //! so the admin audit endpoint could not narrow the financial stream by
 //! actor even though the generic stream was already filterable that way.
 

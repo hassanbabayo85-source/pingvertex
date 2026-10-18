@@ -263,7 +263,7 @@
     // deliberately for simplicity/robustness across browsers — a true
     // INP implementation needs sorted-array bookkeeping across the whole
     // page lifetime, which is unnecessary complexity for a first cut.
-    // This is documented in HANDOVER.md as an approximation, not a
+    // This is documented as an approximation, not a
     // spec-compliant INP value.
     safe(function () {
       var po = new PerformanceObserver(function (list) {

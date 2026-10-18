@@ -1,0 +1,51 @@
+# E2E test overlay for docker-compose.yml (Worker B39).
+# - migrate: image added to satisfy compose validation, command no-ops.
+# - api/worker: SMTP/BILLING configured for Mailpit/fake billing.
+# - worker: PINGVERTEX_SSRF_ALLOW_PRIVATE=true (test-only).
+# - worker: METRICS_TOKEN set for TASK A worker metrics auth test.
+services:
+  mock-target:
+    image: nginx:1.27.4-alpine
+    container_name: uptime-monitor-e2e-mock-target
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:v1.20.3
+    container_name: uptime-monitor-e2e-mailpit
+    restart: "no"
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  api:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_ADDRESS: alerts@e2e.invalid
+      SMTP_FROM_NAME: PingVertex E2E
+      SMTP_STARTTLS: "false"
+      SMTP_ALLOW_EMPTY_CREDENTIALS: "true"
+      BILLING_PROVIDER: fake
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-e2e-test-webhook-secret}
+
+  worker:
+    environment:
+      INCIDENT_FAILURE_THRESHOLD: "1"
+      INCIDENT_RECOVERY_THRESHOLD: "1"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_ADDRESS: alerts@e2e.invalid
+      SMTP_FROM_NAME: PingVertex E2E
+      SMTP_STARTTLS: "false"
+      SMTP_ALLOW_EMPTY_CREDENTIALS: "true"
+      # ENVIRONMENT must be explicitly set here: `validate_production_ssrf_config`
+      # now fails closed (refuses to boot) when PINGVERTEX_SSRF_ALLOW_PRIVATE=true
+      # unless ENVIRONMENT is explicitly "development"/"dev"/"test"/"local" —
+      # an unset ENVIRONMENT is no longer treated as safe. This is a real,
+      # intentional test-only value, not the account role "Member"/etc.
+      ENVIRONMENT: "test"
+      PINGVERTEX_SSRF_ALLOW_PRIVATE: "true"
+      METRICS_TOKEN: e2e-worker-metrics-token

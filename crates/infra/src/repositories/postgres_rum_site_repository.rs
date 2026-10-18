@@ -108,7 +108,7 @@ impl RumSiteRepository for PostgresRumSiteRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<RumSite>> {
-        // PART 8 — SQL-level cursor pagination; see
+        // SQL-level cursor pagination; see
         // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
         // full explanation of the `peek one ahead` technique and the
         // keyset predicate.

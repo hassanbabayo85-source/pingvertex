@@ -1,16 +1,16 @@
-//! Gudanar da "API Flow" — jerin steps na HTTP request da ake gudanarwa
-//! ɗaya-bayan-ɗaya, inda kowanne step zai iya amfani da sakamakon steps
-//! da suka gabata (ta hanyar `{{steps.N....}}` placeholders).
+//! Runs an "API Flow" — a sequence of HTTP request steps executed
+//! one after another, where each step can use the results of the steps
+//! before it (via `{{steps.N....}}` placeholders).
 //!
-//! SECURITY: kowanne step, KODA YAUSHE, dole ya wuce ta cikin SSRF guard
-//! (`crate::ssrf::resolve_and_validate_destination`) KAFIN a aika HTTP
-//! request — koda url_template ɗin static ce, koda kuma ta samu wani
-//! ɓangare daga extracted variable na wani step na baya (domin shi ne
-//! ainihin abinda zai iya ɗauke da wani internal URL, misali idan wata
-//! external API ta dawo da redirect zuwa `http://169.254.169.254/`).
-//! Babu wani "fast path" da ke tsallake wannan.
+//! SECURITY: every step, ALWAYS, must pass through the SSRF guard
+//! (`crate::ssrf::resolve_and_validate_destination`) BEFORE any HTTP
+//! request is sent — even if the url_template is static, and especially
+//! if part of it comes from a variable extracted by an earlier step, since
+//! that is exactly what can carry an internal URL, for example when an
+//! external API returns a redirect to `http://169.254.169.254/`.
+//! There is no "fast path" that skips this.
 //!
-//! B29: `execute_flow` (the production entry point) always uses the real
+//! `execute_flow` (the production entry point) always uses the real
 //! SSRF resolver. `execute_flow_with_resolver` is a generalized version
 //! that accepts an injected `DestinationResolverFn`, used ONLY by this
 //! crate's own tests to pin steps to a local mock HTTP server without
@@ -29,14 +29,14 @@ use tokio::sync::Mutex;
 use crate::assertion_evaluator::{EvalContext, evaluate_assertions};
 use crate::placeholder_resolver::{StepResult, resolve_template};
 
-/// Iyaka akan JIMLAR lokacin da flow guda ɗaya (mai steps har zuwa 10) zai
-/// iya ɗauka KAFIN a soke shi baki ɗaya.
+/// Cap on the TOTAL time a single flow (with up to 10 steps) may take
+/// BEFORE it is aborted entirely.
 ///
-/// Wannan iyaka ce akan FLOW DUKA, BA kowanne step ɗaya-bayan-ɗaya ba —
-/// idan kowanne step yana da nasa timeout mai zaman kansa kaɗai, flow mai
-/// steps 10 na iya kwana yana gudana (misali idan kowanne step ya kusa kai
-/// iyakarsa) tare da toshe worker resources ba tare da wani dalili na
-/// gaskiya ba.
+/// This is a cap on the WHOLE FLOW, NOT on each individual step — if
+/// each step only had its own independent timeout, a flow of 10 steps
+/// could run for a very long time (for example if every step came close
+/// to its own limit) while holding worker resources for no good
+/// reason.
 pub const FLOW_TOTAL_TIMEOUT_SECS: u64 = 60;
 
 /// Bound on a single step's response body, mirroring
@@ -88,10 +88,10 @@ pub struct FlowExecutionResult {
     pub total_duration_ms: u128,
 }
 
-/// Gudanar da DUK steps ɗin `flow`, ta amfani da REAL SSRF resolver ɗin
-/// production (`crate::ssrf::resolve_and_validate_destination`). Wannan
-/// shi ne KAWAI entry point da wani kira na waje (misali
-/// `FlowCheckExecutor`) ya kamata ya yi amfani da shi.
+/// Runs ALL steps of `flow` using the REAL SSRF resolver used in
+/// production (`crate::ssrf::resolve_and_validate_destination`). This is
+/// the ONLY entry point external callers (for example
+/// `FlowCheckExecutor`) should use.
 pub async fn execute_flow(
     flow: &domain::entities::ApiFlow,
     http_client: &reqwest::Client,
@@ -99,12 +99,11 @@ pub async fn execute_flow(
     execute_flow_with_resolver(flow, http_client, &real_ssrf_resolver).await
 }
 
-/// Gudanar da DUK steps ɗin `flow`, ɗaya-bayan-ɗaya, FAIL-FAST akan step na
-/// farko da ya kasa (ko dai domin placeholder resolution ya kasa, SSRF
-/// guard ya toshe destination, HTTP request ɗin ya kasa, ko wani assertion
-/// ya gaza) — babu wani step da zai gudana bayan wani step ya kasa, domin
-/// steps na gaba na iya dogaro da "stale/empty variables" daga step da ya
-/// gagara.
+/// Runs ALL steps of `flow`, one after another, FAIL-FAST on the first
+/// step that fails (whether because placeholder resolution failed, the SSRF
+/// guard blocks the destination, the HTTP request fails, or an assertion
+/// fails) — no step runs after a failure, because later steps may depend on
+/// "stale/empty variables" from the step that did not complete.
 ///
 /// `resolver` is injectable ONLY so tests can pin steps to a local mock
 /// server (see module docs). `execute_flow` above is the production entry
@@ -114,26 +113,26 @@ pub async fn execute_flow_with_resolver(
     http_client: &reqwest::Client,
     resolver: &DestinationResolverFn,
 ) -> FlowExecutionResult {
-    // `http_client` ba a amfani da shi kai-tsaye a nan: bin salon
-    // `checker.rs::check_monitor` A-DAIDAI (wanda shi ma yana da
-    // parameter `_client` amma yana gina SABON `reqwest::Client` tare da
-    // `.resolve(host, socket_addr)` pinning na kansa daga `destination`
-    // ɗin da SSRF guard ya riga ya tabbatar) — kowanne step yana gina
-    // nasa pinned client bayan SSRF-resolve domin hana wani sabon DNS
-    // lookup bayan an riga an tabbatar da adireshin. An bar wannan
-    // parameter domin daidaita sigar aikin da sauran ayyukan wannan crate.
+    // `http_client` is deliberately not used directly here: this mirrors
+    // `checker.rs::check_monitor` EXACTLY (which also takes a `_client`
+    // parameter but builds a NEW `reqwest::Client` with its own
+    // `.resolve(host, socket_addr)` pinning from the `destination`
+    // that the SSRF guard has already validated) — each step builds
+    // its own pinned client after SSRF resolution to prevent a second DNS
+    // lookup once the address has been verified. The parameter is kept so
+    // this function's signature matches the rest of the crate.
     let _ = http_client;
 
     let started = Instant::now();
 
-    // An raba wannan da `run_all_steps` domin idan `tokio::time::timeout`
-    // ya wuce lokaci ya soke (drop) future ɗin da ke gudanar da steps,
-    // mun riga mun samu ci gaban da aka yi zuwa yanzu (outcomes na steps
-    // da suka riga sun gama) maimakon ɓatar da su gaba ɗaya.
+    // This is kept separate from `run_all_steps` so that when
+    // `tokio::time::timeout` fires and drops the future running the steps,
+    // we still hold the progress made so far (the outcomes of steps
+    // that already completed) instead of discarding them entirely.
     let outcomes_so_far: Arc<Mutex<Vec<FlowStepOutcome>>> = Arc::new(Mutex::new(Vec::new()));
-    // Order na step ɗin da ke "in-flight" (0 = babu). Ana sabunta wannan
-    // KAFIN a fara aiwatar da kowanne step, don haka idan timeout ya kama
-    // mu a tsakiyar wani step, mun san wanne ne.
+    // Order of the step currently "in flight" (0 = none). Updated
+    // BEFORE each step starts executing, so that if the timeout catches us
+    // mid-step we know exactly which one it was.
     let in_flight_step: Arc<AtomicU16> = Arc::new(AtomicU16::new(0));
     let in_flight_attempted: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
@@ -164,10 +163,10 @@ pub async fn execute_flow_with_resolver(
             }
         }
         Err(_elapsed) => {
-            // Flow ya wuce iyakar lokaci gabaɗaya. Mun dogara akan
-            // `outcomes_so_far` (wanda aka sabunta bayan KOWANNE step ya
-            // gama, ba a ƙarshen flow ba kaɗai) domin mu gina saƙon ƙarshe
-            // mai amfani maimakon ɓata dukkan ci gaban da aka riga aka samu.
+            // The flow exceeded its overall time limit. We rely on
+            // `outcomes_so_far` (which is updated after EVERY step
+            // finishes, not only at the end of the flow) so we can build a
+            // useful final message instead of losing all progress made so far.
             let mut outcomes: Vec<FlowStepOutcome> = {
                 let mut guard = outcomes_so_far.lock().await;
                 guard.drain(..).collect()
@@ -203,15 +202,15 @@ pub async fn execute_flow_with_resolver(
     }
 }
 
-/// Aiwatar da DUK steps na `flow` ɗaya-bayan-ɗaya (ORDER ASC, kamar yadda
-/// `flow.steps()` ya dawo da su), FAIL-FAST akan step na farko mai gaza.
+/// Executes ALL steps of `flow` one after another (ORDER ASC, exactly as
+/// `flow.steps()` returns them), FAIL-FAST on the first failing step.
 ///
-/// Ana kiran wannan a CIKIN `tokio::time::timeout` daga `execute_flow_with_resolver` —
-/// don haka wannan aikin BAI KAMATA ya yi nasa timeout na jimlar lokaci
-/// ba, domin `execute_flow_with_resolver` ke da alhakin hakan. Kowanne outcome ana
-/// turashi zuwa `outcomes_so_far` nan take bayan an gama shi, domin idan
-/// aka soke wannan future daga waje (timeout), ci gaban da aka riga aka
-/// samu bai ɓace ba.
+/// This is called INSIDE `tokio::time::timeout` by `execute_flow_with_resolver` —
+/// so this function MUST NOT apply its own overall timeout; that is
+/// `execute_flow_with_resolver`'s responsibility. Every outcome is pushed to
+/// `outcomes_so_far` as soon as it completes, so that if this future is
+/// cancelled from the outside (timeout), the progress already
+/// obtained is not lost.
 async fn run_all_steps(
     flow: &domain::entities::ApiFlow,
     resolver: &DestinationResolverFn,
@@ -240,7 +239,7 @@ async fn run_all_steps(
         }
 
         if failed {
-            // FAIL-FAST: TSAYA nan take, KADA a ci gaba da steps na gaba.
+            // FAIL-FAST: stop immediately, do NOT continue to later steps.
             break;
         }
     }
@@ -249,13 +248,13 @@ async fn run_all_steps(
     in_flight_attempted.store(false, Ordering::Release);
 }
 
-/// Aiwatar da step guda ɗaya kaɗai: resolve placeholders -> SSRF guard ->
-/// aika HTTP request -> tantance assertions. Mayar da `(outcome, StepResult
-/// idan an sami nasarar HTTP response)` — `StepResult` ɗin ana amfani da
-/// shi domin steps na gaba su iya amfani da sakamakon wannan step (koda
-/// idan wannan step ɗin ya kasa a ƙarshe saboda assertion, ba ruwan mu,
-/// domin loop ɗin zai TSAYA nan take saboda FAIL-FAST kafin wani step na
-/// gaba ya sami dama ya amfana da shi).
+/// Executes exactly one step: resolve placeholders -> SSRF guard ->
+/// send the HTTP request -> evaluate assertions. Returns `(outcome, StepResult
+/// if an HTTP response was obtained)` — the `StepResult` is used by
+/// later steps so they can consume this step's result (and even
+/// if this step ultimately fails because of an assertion, that is fine,
+/// because the loop STOPS immediately under FAIL-FAST before any later
+/// step gets the chance to use it).
 async fn execute_step(
     step: &domain::entities::ApiFlowStep,
     results: &HashMap<u16, StepResult>,
@@ -275,9 +274,9 @@ async fn execute_step(
         assertion_results: Vec::new(),
     };
 
-    // a. Resolve url_template, kowanne header value, da body — KAWAI ta
-    // hanyar `placeholder_resolver::resolve_template`, babu wata sabuwar
-    // hanyar interpolation a nan.
+    // a. Resolve url_template, every header value, and the body — ONLY
+    // through `placeholder_resolver::resolve_template`; there is no other
+    // interpolation path here.
     let resolved_url = match resolve_template(&step.url_template, results, step.order) {
         Ok(u) => u,
         Err(err) => return (failed_outcome(err), None),
@@ -299,11 +298,11 @@ async fn execute_step(
         None => None,
     };
 
-    // b. SSRF GUARD — DOLE, BA TARE DA TOGIYA BA. Ana gudanar da wannan
-    // KOYAUSHE, koda url_template ɗin static ce mai yiwuwa ta zama
-    // internal address idan mai amfani ya rubuta ta da gangan, KUMA
-    // musamman koda url_template ta samu wani ɓangare daga extracted
-    // variable na wani step na baya.
+    // b. SSRF GUARD — MANDATORY, WITHOUT EXCEPTION. This runs
+    // ALWAYS, even when the url_template is static and could plausibly be
+    // an internal address if the user wrote one deliberately, AND
+    // especially when the url_template takes part of its value from a
+    // variable extracted by an earlier step.
     let destination = match resolver(&resolved_url).await {
         Ok(d) => d,
         Err(err) => return (failed_outcome(err), None),
@@ -314,11 +313,11 @@ async fn execute_step(
         domain::HttpMethod::Head => reqwest::Method::HEAD,
     };
 
-    // c. Bin salon `checker.rs::check_monitor` A-DAIDAI: gina sabon client
-    // mai `.resolve(host, socket_addr)` pinning daga `destination` da SSRF
-    // guard ya riga ya tabbatar — babu sabon DNS lookup bayan an tabbatar
-    // da adireshin, kuma redirect an kashe shi domin ba za mu bar wani
-    // redirect ya zama sabuwar hanyar SSRF ba.
+    // c. Mirroring `checker.rs::check_monitor` EXACTLY: build a new client
+    // with `.resolve(host, socket_addr)` pinning from the `destination` the
+    // SSRF guard already validated — no second DNS lookup after the address
+    // has been verified, and redirects are disabled so that a redirect
+    // cannot become a fresh SSRF vector.
     let pinned_client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .resolve(&destination.host, destination.socket_addr)
@@ -388,15 +387,15 @@ async fn execute_step(
     let egress_bytes = (body_bytes.len() as u64).max(declared_egress_bytes);
     let body_string = String::from_utf8_lossy(&body_bytes).into_owned();
 
-    // e. Ajiye StepResult domin steps na gaba su iya amfani dashi.
+    // e. Store the StepResult so later steps can use it.
     let step_result = StepResult {
         status_code: status,
         headers: headers.clone(),
         body: body_string,
     };
 
-    // f. Tantance assertions na wannan step. Koda step ɗin ya dawo da
-    // HTTP 200 amma wani assertion ya kasa, wannan step din baki ɗayansa
+    // f. Evaluate this step's assertions. Even if the step returned
+    // HTTP 200, if an assertion fails then the step as a whole
     // YA KASA.
     let ctx = EvalContext {
         status_code: status,

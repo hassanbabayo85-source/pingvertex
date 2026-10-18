@@ -287,7 +287,7 @@ async fn save_batch_persists_all_checks_in_one_call() {
     }
 }
 
-/// H15: `save_batch` must chunk internally so a caller-supplied slice
+/// `save_batch` must chunk internally so a caller-supplied slice
 /// larger than PostgreSQL's 65,535-bind-parameter ceiling (~5,461 rows
 /// at 12 params/row) still succeeds instead of failing the entire
 /// batch. 1,200 rows crosses the repository's internal 500-row chunk
@@ -320,7 +320,7 @@ async fn save_batch_persists_more_rows_than_a_single_chunk() {
     assert_eq!(count, N as i64);
 }
 
-/// H15 PERFORMANCE RULE — before/after benchmark.
+/// PERFORMANCE RULE — before/after benchmark.
 ///
 /// Not run by default (`#[ignore]`) since it writes/measures 500 rows
 /// and is timing-sensitive, not a correctness check. Run explicitly:
@@ -329,9 +329,9 @@ async fn save_batch_persists_more_rows_than_a_single_chunk() {
 ///       -- --ignored --nocapture benchmark_save_batch_vs_individual_saves
 ///
 /// Prints wall-clock time for N individual `save()` calls (N DB
-/// round-trips, the pre-H15/naive approach) versus one `save_batch()`
-/// call (chunked multi-row INSERTs, this worker's approach) writing the
-/// same N checks. Record the printed numbers in HANDOVER.md — do not
+/// round-trips, the naive approach) versus one `save_batch()`
+/// call (chunked multi-row INSERTs, the batched approach) writing the
+/// same N checks. Record the printed numbers in your PR — do not
 /// report this as "improved" without them.
 #[serial]
 #[tokio::test]
@@ -371,7 +371,7 @@ async fn benchmark_save_batch_vs_individual_saves() {
     check_repository.save_batch(&batch_checks).await.unwrap();
     let batch_elapsed = start_batch.elapsed();
 
-    println!("=== H15 save_batch benchmark (N = {N}) ===");
+    println!("=== save_batch benchmark (N = {N}) ===");
     println!(
         "Individual save() x{N} (naive, {N} DB round-trips): {:?}",
         individual_elapsed

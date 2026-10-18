@@ -83,7 +83,7 @@ impl AddOnSubscriptionRepository for PostgresAddOnSubscriptionRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<AddOnSubscription>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status, \
                     provider_checkout_id,paid_at,canceled_at,created_at,updated_at \
@@ -121,7 +121,7 @@ impl AddOnSubscriptionRepository for PostgresAddOnSubscriptionRepository {
         addon_type: AddOnType,
         page: PageRequest,
     ) -> RepoResult<Page<AddOnSubscription>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             "SELECT id,tenant_id,addon_type,quantity,tier,price,currency,status, \
                     provider_checkout_id,paid_at,canceled_at,created_at,updated_at \

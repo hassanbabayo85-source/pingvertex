@@ -1,4 +1,4 @@
-//! B6 — application-layer coverage for the forgot-password /
+//! Application-layer coverage for the forgot-password /
 //! reset-password flow: happy path, expired token, reused token, and
 //! account-enumeration protection.
 //!

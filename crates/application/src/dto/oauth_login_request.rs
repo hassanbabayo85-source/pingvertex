@@ -14,7 +14,7 @@ pub struct OAuthLoginRequest {
     pub id_token: String,
 }
 
-/// PART 7 — manual Debug that redacts the OAuth id_token.
+/// Manual Debug that redacts the OAuth id_token.
 impl std::fmt::Debug for OAuthLoginRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuthLoginRequest")

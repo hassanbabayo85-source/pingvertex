@@ -1,4 +1,4 @@
-//! Cross-tenant isolation integration tests (Worker B10).
+//! Cross-tenant isolation integration tests.
 //!
 //! Covers the API-key surface end-to-end through the HTTP router: two
 //! distinct `user_id`s land in two distinct tenants (see
@@ -12,7 +12,7 @@
 //! application layer by `AuthorizationPolicy::same_tenant` (see e.g.
 //! `DeleteNotificationChannelUseCase`, `UpdateApiFlowUseCase`,
 //! `GetProxyCheckJobUseCase`) but do not yet have HTTP-layer
-//! cross-tenant tests here — see HANDOVER.md's "Known Issues" for
+//! cross-tenant tests here — see the test-suite notes for
 //! why, and follow this file's pattern to add them.
 
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};

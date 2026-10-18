@@ -14,7 +14,7 @@ type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 /// Mirrors `InMemoryMonitorRepository`'s shape (`Arc<RwLock<HashMap<..>>>`
 /// behind a `Clone` struct, so cloned handles share state).
 ///
-/// Added for B3's HTTP-layer integration test suite
+/// Added for the HTTP-layer integration test suite
 /// (`crates/api/tests/auth.rs`): the existing `InMemoryRegistrationTransaction`
 /// (used by other HTTP tests such as `crates/api/tests/monitors.rs`) is a
 /// pure no-op that does not persist anything, so a register -> login ->

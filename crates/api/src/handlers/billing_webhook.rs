@@ -199,7 +199,7 @@ pub fn sanitize_financial_metadata(value: &serde_json::Value) -> serde_json::Val
 /// Paystack's header takes precedence when both are present so a single
 /// endpoint can accept traffic from either source without configuration.
 ///
-/// SEC (B37 backend security audit): the internal HMAC-SHA256 path used to
+/// SEC (backend security audit): the internal HMAC-SHA256 path used to
 /// compute the expected signature as a hex `String` and compare it against
 /// the caller-supplied header with `!=`. `String`/`&str` inequality
 /// short-circuits on the first differing byte, which leaks timing

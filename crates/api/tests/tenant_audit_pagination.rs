@@ -1,4 +1,4 @@
-//! Task 16 acceptance test: `tenant_audit` pagination correctness.
+//! Acceptance test: `tenant_audit` pagination correctness.
 //!
 //! The tenant audit endpoint merges two independent sources
 //! (`audit_log` + `financial_audit_log`) into a single cursor-paginated

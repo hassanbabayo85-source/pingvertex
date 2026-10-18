@@ -3,7 +3,7 @@
 //! These tests exercise the real row-level locking (`SELECT ... FOR UPDATE`)
 //! and idempotency-key uniqueness that the wallet relies on for correctness
 //! under concurrent load. They are the PostgreSQL counterpart to the
-//! in-memory tests in `worker9_wallet_payg.rs`, which cannot exercise real
+//! in-memory tests in `wallet_payg.rs`, which cannot exercise real
 //! concurrent transactions.
 //!
 //! Coverage:

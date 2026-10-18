@@ -31,7 +31,7 @@ pub enum ErrorType {
 /// Canonical check-error taxonomy shared by every active check worker
 /// (HTTP, TCP, DNS, and future check types).
 ///
-/// The wire/database serialization names are the ones in B18's spec:
+/// The wire/database serialization names are the ones in the spec:
 /// `DNS_ERROR`, `CONNECTION_ERROR`, `TLS_ERROR`, `TIMEOUT`,
 /// `HTTP_ERROR`, `ASSERTION_FAILED`, `INTERNAL_ERROR`, `UNKNOWN`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ pub mod user_role;
 pub use user_role::UserRole;
 pub mod user_status;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod help_article_status;
 pub mod support_category;
 pub mod support_ticket_status;
@@ -83,19 +83,19 @@ pub use audit_action::AuditAction;
 pub mod api_key_scope;
 pub use api_key_scope::ApiKeyScope;
 
-// B11 — Plan / Subscription / Entitlement model:
+// Plan / Subscription / Entitlement model:
 pub mod plan_tier;
 pub use plan_tier::PlanTier;
 
-// B12 — Subscription Lifecycle:
+// Subscription Lifecycle:
 pub mod subscription_status;
 pub use subscription_status::SubscriptionStatus;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod checkout_status;
 pub use checkout_status::CheckoutStatus;
 
-// B15 — Billing Webhooks:
+// Billing Webhooks:
 pub mod billing_webhook_event_type;
 pub use billing_webhook_event_type::BillingWebhookEventType;
 

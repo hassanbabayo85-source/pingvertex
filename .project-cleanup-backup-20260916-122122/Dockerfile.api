@@ -1,0 +1,59 @@
+FROM rust:1.89.0-slim-bookworm AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY apps ./apps
+COPY crates ./crates
+COPY migrations ./migrations
+
+RUN cargo build --release -p api
+
+FROM debian:13.1-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /app/target/release/api /usr/local/bin/api
+
+# Kada a gudanar da container ɗin a matsayin root — ƙirƙiri wani
+# non-root user domin rage blast radius idan aka sami wata
+# container-escape vulnerability.
+RUN groupadd -r app && useradd -r -g app -u 1000 appuser
+
+# mTLS internal-CA / server identity: only the server's own cert/key and
+# the CA cert are copied here. Agent client certs belong only in the
+# agent image (Dockerfile.agent), never here.
+#
+# --chown so appuser (not root) can read these at runtime; server-key.pem
+# is chmod 600 so it is readable only by appuser, not world-readable.
+COPY --chown=appuser:app certs/ca/ca-cert.pem certs/ca/ca-cert.pem
+COPY --chown=appuser:app certs/api/server-cert.pem certs/api/server-cert.pem
+COPY --chown=appuser:app certs/api/server-key.pem certs/api/server-key.pem
+RUN chmod 600 certs/api/server-key.pem
+
+USER appuser
+
+EXPOSE 3000
+EXPOSE 3443
+
+# B38: liveness check — GET /health (zero-dependency, see
+# crates/api/src/handlers/health.rs). Docker restarts the container on
+# repeated failure; compose's `healthcheck:` override in
+# docker-compose.prod.yml also gates `depends_on: condition:
+# service_healthy` for worker/caddy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://localhost:3000/health || exit 1
+
+CMD ["api"]

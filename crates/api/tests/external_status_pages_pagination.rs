@@ -1,4 +1,4 @@
-//! PART 5 — Integration tests for external status pages list pagination.
+//! Integration tests for external status pages list pagination.
 //!
 //! Validates:
 //! 1. Default page size (limit absent).

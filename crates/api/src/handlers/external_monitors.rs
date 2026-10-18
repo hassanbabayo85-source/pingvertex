@@ -26,7 +26,7 @@ use application::{
 /// endpoint demonstrating end-to-end `X-API-Key` authentication with
 /// `ApiKeyScope::MonitorRead` enforcement.
 ///
-/// PART 4 — Converted to cursor-based pagination. Both `limit` and `cursor`
+/// Converted to cursor-based pagination. Both `limit` and `cursor`
 /// are optional. Limits are clamped to `MAX_PAGE_SIZE` (100). Malformed cursors
 /// are safely ignored and start from the first page.
 pub async fn list_monitors_via_api_key(

@@ -33,12 +33,12 @@ async fn save_and_find_by_id_round_trips_incident() {
 #[serial]
 #[tokio::test]
 async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
-    // SEC-010 regression test: idan worker replicas fiye da ɗaya suka yi
-    // kokarin buɗe incident ga monitor guda ɗaya lokaci guda (race), sai da
-    // dukansu su kira `save` da wani incident *daban* (id daban) amma duka
-    // biyun open ne (resolved_at = None) ga wannan monitor guda. Sabon
-    // partial unique index din ya kamata ya toshe na biyu (ta hanyar ON
-    // CONFLICT DO NOTHING) maimakon ya jefar da error ko ya ƙirƙiri kwafi.
+    // SEC-010 regression test: if more than one worker replica tries to open
+    // an incident for the same monitor at the same time (a race), both call
+    // `save` with a *different* incident (different id) that is nonetheless
+    // open (resolved_at = None) for that one monitor. The partial unique index
+    // should block the second one (via ON CONFLICT DO NOTHING) rather than
+    // raising an error or creating a duplicate.
     let (pool, _guard) = setup_pool_exclusive().await;
     let monitor_repository = PostgresMonitorRepository::new(pool.clone());
     let incident_repository = PostgresIncidentRepository::new(pool.clone());
@@ -54,14 +54,14 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
     let first_open = sample_incident(monitor.id);
     let second_open = sample_incident(monitor.id);
 
-    // Babu ɗayan waɗannan da ke da resolved_at — duka biyun open ne.
+    // Neither of these has resolved_at set — both are open.
     assert!(first_open.resolved_at.is_none());
     assert!(second_open.resolved_at.is_none());
 
     incident_repository.save(&first_open).await.unwrap();
 
-    // Wannan BA ZAI jefar da error ba, koda kuwa yana karo da constraint din
-    // — ON CONFLICT DO NOTHING yana mayar da shi shiru.
+    // This will NOT raise an error even though it violates the constraint —
+    // ON CONFLICT DO NOTHING makes it a silent no-op.
     incident_repository.save(&second_open).await.unwrap();
 
     let open_incidents = incident_repository
@@ -69,8 +69,8 @@ async fn save_does_not_create_duplicate_open_incidents_for_same_monitor() {
         .await
         .unwrap();
 
-    // Incident guda ɗaya kawai ya kamata ya wanzu — na biyun an "watsar" da
-    // shi shiru ta hanyar ON CONFLICT DO NOTHING.
+    // Exactly one incident should exist — the second was silently discarded
+    // by ON CONFLICT DO NOTHING.
     assert_eq!(open_incidents.len(), 1);
     assert_eq!(open_incidents[0].id, first_open.id);
 
@@ -151,13 +151,12 @@ async fn list_by_monitor_returns_incidents_for_monitor() {
     let incident_a2 = sample_incident(monitor_a.id);
     let incident_b = sample_incident(monitor_b.id);
 
-    // SEC-010: database ɗin yanzu baya yarda da fiye da open incident guda
-    // ɗaya (resolved_at IS NULL) ga kowane monitor a lokaci guda. Domin
-    // wannan test ɗin ya ci gaba da tabbatar da `list_by_monitor` (wanda ke
-    // dawo da DUKA incidents, ba open kaɗai ba), sai mun warware
-    // incident_a1 kafin mu buɗe incident_a2 — daidai da yadda ainihin
-    // amfani zai kasance (babu incidents biyu masu buɗe lokaci guda ga
-    // monitor guda).
+    // SEC-010: the database no longer allows more than one open incident
+    // (resolved_at IS NULL) per monitor at a time. So that this test can still
+    // verify `list_by_monitor` (which returns ALL incidents, not only open
+    // ones), we resolve incident_a1 before opening incident_a2 — which matches
+    // real usage anyway (there are never two simultaneously open incidents for
+    // one monitor).
     incident_a1.resolve();
 
     incident_repository.save(&incident_a1).await.unwrap();

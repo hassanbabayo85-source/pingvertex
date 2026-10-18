@@ -4,6 +4,6 @@ pub mod list_monitors;
 pub use get_monitor::*;
 pub use list_monitors::*;
 
-// B11 — Plan / Subscription / Entitlement model:
+// Plan / Subscription / Entitlement model:
 pub mod resolve_entitlements;
 pub use resolve_entitlements::*;

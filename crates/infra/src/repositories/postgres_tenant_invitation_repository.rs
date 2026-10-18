@@ -155,7 +155,7 @@ impl TenantInvitationRepository for PostgresTenantInvitationRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<TenantInvitation>> {
-        // PART 8 — SQL-level cursor pagination; see
+        // SQL-level cursor pagination; see
         // `PostgresApiKeyRepository::list_by_tenant_paginated` for the
         // full explanation.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(

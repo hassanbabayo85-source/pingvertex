@@ -17,7 +17,7 @@ type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// PostgreSQL-backed API flow repository.
 ///
-/// PART 8 — the repository owns the on-disk representation of headers.
+/// The repository owns the on-disk representation of headers.
 /// Secret header values are encrypted with `SecretCipher` (the existing
 /// AES-256-GCM abstraction) before they reach the database, and
 /// decrypted on read. Non-secret headers are stored verbatim.
@@ -53,7 +53,7 @@ impl PostgresApiFlowRepository {
     /// Loads the steps (and their assertions) for an already-fetched
     /// `api_flows` row and assembles the full `ApiFlow` aggregate.
     ///
-    /// B35: loads all step assertions in one `ANY($1)` query instead of
+    /// Loads all step assertions in one `ANY($1)` query instead of
     /// one query per step, removing the N+1 pattern this method had.
     async fn build_flow(&self, row: ApiFlowRow) -> RepoResult<ApiFlow> {
         let step_rows = sqlx::query_as::<_, ApiFlowStepRow>(
@@ -127,7 +127,7 @@ impl PostgresApiFlowRepository {
 }
 
 //
-// PART 8 — on-disk header representation.
+// On-disk header representation.
 //
 // A flow step's `headers` column stores a JSON array of `PersistedHeader`.
 // Two on-disk shapes are accepted:
@@ -260,7 +260,7 @@ fn decode_headers(
                 FlowHeader::new(row.name.clone(), value, true)?
             }
             (true, PersistedHeaderValue::Plain(s)) => {
-                // Row written before PART 8's encryption path existed.
+                // Row written before the encryption path existed.
                 // The stored value is already plaintext; pass it through
                 // and let the next save() re-encrypt it. Not treated as
                 // an error — this is the expected shape of any row that

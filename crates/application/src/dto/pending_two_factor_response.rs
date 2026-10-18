@@ -19,7 +19,7 @@ pub enum LoginOutcome {
     PendingTwoFactor(PendingTwoFactorResponse),
 }
 
-/// PART 7 — manual Debug that redacts the pending 2FA token.
+/// Manual Debug that redacts the pending 2FA token.
 impl std::fmt::Debug for PendingTwoFactorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PendingTwoFactorResponse")

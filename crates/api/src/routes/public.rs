@@ -25,7 +25,7 @@ use crate::{
 /// `/rum/collect` similarly carries its own per-site rate limit (see
 /// `handlers::rum_ingest`) on top of the same IP-based `GovernorLayer`.
 ///
-/// SECURITY (PART 12 #8): every response from this route group advertises
+/// SECURITY: every response from this route group advertises
 /// `Referrer-Policy: no-referrer`. This is the client-side half of the
 /// "heartbeat credentials should not live permanently in URLs" invariant:
 /// if the legacy GET URL (which carries the token in its path) is ever
@@ -45,7 +45,7 @@ pub fn router() -> Router<AppState> {
         .layer(middleware::from_fn(set_referrer_policy_no_referrer))
 }
 
-/// PART 12 #8 — sets `Referrer-Policy: no-referrer` on every response
+/// Sets `Referrer-Policy: no-referrer` on every response
 /// from `public::router()`.
 ///
 /// Implemented as a tiny `from_fn` middleware rather than

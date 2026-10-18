@@ -12,7 +12,7 @@ use crate::tcp_checker::check_tcp_outcome;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
-/// B19 TCP executor for B17's `DurableScheduler`. Persists a `Check`
+/// TCP executor for the `DurableScheduler`. Persists a `Check`
 /// using the same error taxonomy as the HTTP executor.
 #[derive(Clone)]
 pub struct TcpCheckExecutor {

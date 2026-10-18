@@ -1,67 +1,64 @@
-//! # The ONE canonical billing authority
+//! # The ONE canonical entitlement and billing authority
 //!
-//! SECURITY INVARIANT (PART 15):
+//! SECURITY INVARIANT:
 //!
 //! > There must be exactly ONE source of truth for
-//! > "What does this operation cost?" and
-//! > "Is this tenant allowed to perform it?"
+//! > "What is this tenant allowed to do?" and
+//! > "How much does it cost?"
 //!
-//! This module names that authority and forbids the alternative.
+//! ## The authorities (after TASK 2)
 //!
-//! ## The authority
+//! | Question                  | Authority                                                       |
+//! |---------------------------|-----------------------------------------------------------------|
+//! | Is this tenant allowed?   | `EntitlementResolver::resolve(tenant)` → `domain::Entitlements` |
+//! | What does a plan cost?    | `plan_prices` table (versioned, read via `PlanPrice`)           |
+//! | Historical PAYG ledger    | `WalletRepository` (read-only compatibility)                    |
 //!
-//! | Question                    | Authority                                                      |
-//! |-----------------------------|----------------------------------------------------------------|
-//! | What does X cost?           | `PAYGPricingRepository` (via `resolve_price`, keyed by `PaygOperation`) |
-//! | Is this tenant allowed?     | `WalletRepository::get_balance_summary` + `PricingConfig.free_tier` |
-//! | How is a decision recorded? | `WalletRepository` (Wallet / CreditReservation / WalletTransaction) |
-//! | How is usage metered?       | `UsageEvent` + `MeterUsageUseCase`                              |
-//! | Who arbitrates races?       | `reserve` / `capture` / `release` under `SELECT … FOR UPDATE`   |
+//! Every runtime entitlement decision MUST go through
+//! `EntitlementResolver`. The resolver reads the latest
+//! `plan_entitlements` rows for the tenant's current plan (or `Free`
+//! if the tenant has no active subscription). It is not cached: quota
+//! checks that race against concurrent writes are serialized by the
+//! repository's advisory lock
+//! (`PostgresMonitorRepository::save_if_within_quota`).
 //!
-//! Concretely: every billable runtime operation must go through
-//! `MeterUsageUseCase` (or `ChargeForUsageUseCase`) against a
-//! `WalletRepository`. There is no second path.
+//! ## What is NOT the authority (but is retained as input)
 //!
-//! ## What is NOT the authority
+//! The following types are kept for migration and historical reads.
+//! They MUST NEVER participate in a *new* runtime entitlement decision:
 //!
-//! The following types exist ONLY for migration, historical reads, and
-//! compatibility shells (which return HTTP 410). They must **never**
-//! participate in a runtime decision about cost or entitlement:
+//! * [`domain::Subscription`] — an *input* to the resolver, not the decision itself.
+//! * [`domain::PlanTier`] — ditto; the resolver maps tier → plan id → entitlements.
+//! * [`crate::ports::SubscriptionRepository`] — data access only.
+//! * [`crate::use_cases::ResolveEntitlementsUseCase`] — retired; unused.
 //!
-//! * [`domain::Subscription`]
-//! * [`domain::PlanTier`]
-//! * [`domain::Plan`]
-//! * [`crate::ports::SubscriptionRepository`]
-//! * [`crate::ports::SubscriptionUsagePeriodRepository`]
-//! * [`crate::ports::SubscriptionUsageTransaction`]
-//! * [`crate::use_cases::ResolveEntitlementsUseCase`]
+//! ## What is retired (TASK 8 will remove the remaining code paths)
+//!
+//! The following still exist in the source tree for historical
+//! compatibility but MUST NOT influence any new entitlement decision:
+//!
+//! * PAYG wallet balance as an access check.
+//! * `PricingConfig.free_tier` as a monitor limit.
+//! * Automatic per-usage charges and automatic top-ups.
+//!
+//! TASK 8 removes the runtime paths. Until then, only these
+//! **compatibility** paths may read them (and only for historical or
+//! read-only purposes):
+//!
+//! * `billing_webhook.rs` / `paystack_webhook.rs` — must route historical
+//!   subscription webhook payloads.
+//! * `update_subscription_usage.rs` — retirement shell that returns HTTP 410.
 //!
 //! ## How this is enforced
 //!
-//! The test `crates/api/tests/part15_billing_authority.rs` scans the
-//! workspace for any file (outside an explicit allowlist) that mentions
-//! the `subscription_repository` field, and fails the build if a new
-//! occurrence appears. Adding a new runtime path that reads subscription
-//! state requires editing that allowlist — which is exactly the moment
-//! to ask "should this be PAYG instead?".
-//!
-//! ## Free-tier limits
-//!
-//! The "free entitlement" (a bounded number of monitors at a bounded
-//! minimum interval, with bounded retention, that a tenant may use
-//! without funding the wallet) is NOT a subscription concept. It is
-//! sourced from `PricingConfig.free_tier`, the same versioned
-//! append-only configuration that carries PAYG rates. The historical
-//! `Plan::for_tier(PlanTier::Free)` values are kept only for
-//! migration-compatibility checks in tests; runtime code that still
-//! calls it (see the guard test's allowlist) is expected to migrate to
-//! `PricingConfig.free_tier` and is not a second authority: both read
-//! the same source of truth once the migration lands.
+//! `crates/api/tests/billing_authority_guard.rs` scans `crates/api/src`
+//! and `crates/worker/src` for references to `subscription_repository`.
+//! It fails the build if a file outside an explicit allowlist mentions
+//! it. Adding a new runtime path that reaches for subscription state to
+//! make a decision requires editing that allowlist — the exact moment
+//! to ask "should this go through `EntitlementResolver` instead?".
 //!
 //! [`domain::Subscription`]: domain::Subscription
 //! [`domain::PlanTier`]: domain::enums::PlanTier
-//! [`domain::Plan`]: domain::Plan
 //! [`crate::ports::SubscriptionRepository`]: crate::ports::SubscriptionRepository
-//! [`crate::ports::SubscriptionUsagePeriodRepository`]: crate::ports::SubscriptionUsagePeriodRepository
-//! [`crate::ports::SubscriptionUsageTransaction`]: crate::ports::SubscriptionUsageTransaction
 //! [`crate::use_cases::ResolveEntitlementsUseCase`]: crate::use_cases::ResolveEntitlementsUseCase

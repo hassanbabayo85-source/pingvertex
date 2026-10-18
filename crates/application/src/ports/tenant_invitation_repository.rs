@@ -19,7 +19,7 @@ pub trait TenantInvitationRepository: Send + Sync {
 
     async fn list_by_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<TenantInvitation>>;
 
-    /// PART 8 — cursor-paginated variant of `list_by_tenant`.
+    /// Cursor-paginated variant of `list_by_tenant`.
     async fn list_by_tenant_paginated(
         &self,
         tenant_id: TenantId,

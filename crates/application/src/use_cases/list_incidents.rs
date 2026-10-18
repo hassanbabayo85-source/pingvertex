@@ -75,7 +75,7 @@ impl ListIncidentsUseCase {
     /// directly instead of an `AuthenticatedUser`.
     ///
     /// Added for the API-key-authenticated public surface
-    /// (`GET /api/v1/external/incidents/{monitor_id}`, B31) — see the
+    /// (`GET /api/v1/external/incidents/{monitor_id}`) — see the
     /// doc comment on `ListChecksUseCase::execute_for_tenant` for why a
     /// separate method exists instead of synthesizing an
     /// `AuthenticatedUser` from an `ApiKeyPrincipal`.

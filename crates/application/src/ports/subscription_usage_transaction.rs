@@ -9,7 +9,7 @@ use domain::shared::ids::SubscriptionUsagePeriodId;
 
 pub type SubscriptionUsageTransactionResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Represents one atomic (all-or-nothing) mid-cycle usage change (H12 —
+/// Represents one atomic (all-or-nothing) mid-cycle usage change (the
 /// Proration Service): closing whatever usage period is currently open
 /// (if any), opening a new one with the new usage, and updating the
 /// `subscriptions` row's current usage snapshot — all in a single DB

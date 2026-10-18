@@ -21,7 +21,7 @@ use crate::{
 ///
 /// `GET /api/v1/api-keys?limit=50&cursor=<opaque>`
 ///
-/// Response body is a JSON array (unchanged from before PART 8). When more
+/// Response body is a JSON array (unchanged). When more
 /// pages exist, an `X-Next-Cursor` response header carries the opaque
 /// cursor. Absence of the header = "last page".
 pub async fn list_api_keys(

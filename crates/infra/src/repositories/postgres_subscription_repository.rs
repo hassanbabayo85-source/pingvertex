@@ -35,7 +35,7 @@ struct SubscriptionRow {
     current_period_ends_at: Option<DateTime<Utc>>,
     canceled_at: Option<DateTime<Utc>>,
     cancel_at_period_end: bool,
-    // H12 — Proration Service: usage snapshot columns added by migration
+    // Proration Service: usage snapshot columns added by migration
     // 0053, previously unused by any repository.
     monitors: Option<i64>,
     interval_seconds: Option<i32>,

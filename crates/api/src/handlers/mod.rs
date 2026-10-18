@@ -56,8 +56,10 @@ pub mod oauth_apple;
 pub mod oauth_google;
 pub mod one_time_check;
 pub mod pagination;
+pub mod preview_proxy_check_job;
 pub mod proxy_check_types;
 pub mod public_status_page;
+pub mod recurring_proxy_monitors;
 pub mod register;
 pub mod remove_custom_domain;
 pub mod request_custom_domain;
@@ -65,7 +67,6 @@ pub mod resend_verification;
 pub mod reset_password;
 pub mod rum_dashboard;
 pub mod rum_ingest;
-pub mod preview_proxy_check_job;
 pub mod submit_proxy_check_job;
 pub mod test_notification_channel;
 pub mod types;
@@ -77,21 +78,21 @@ pub mod verify_email_otp;
 pub mod verify_totp;
 pub mod wallet;
 
-// B8 — membership management:
+// Membership management:
 pub mod add_member;
 pub mod change_member_role;
 pub mod list_members;
 pub mod members_types;
 pub mod remove_member;
 
-// B9 — tenant invitations:
+// Tenant invitations:
 pub mod accept_invitation;
 pub mod create_invitation;
 pub mod invitation_types;
 pub mod list_invitations;
 pub mod revoke_invitation;
 
-// H11 — Admin Pricing:
+// Admin Pricing:
 pub mod admin_pricing;
 pub mod payg_preview;
 pub mod payg_pricing;
@@ -99,7 +100,7 @@ pub mod paystack_webhook;
 pub mod platform_admin;
 pub mod pricing_types;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod help_center;
 pub mod help_types;
 pub mod support;
@@ -149,7 +150,9 @@ pub use list_monitors::*;
 pub use list_notification_channels::*;
 pub use list_status_pages::*;
 pub use one_time_check::*;
+pub use preview_proxy_check_job::*;
 pub use public_status_page::*;
+pub use recurring_proxy_monitors::*;
 pub use register::*;
 pub use remove_custom_domain::*;
 pub use request_custom_domain::*;
@@ -157,7 +160,6 @@ pub use resend_verification::*;
 pub use reset_password::*;
 pub use rum_dashboard::*;
 pub use rum_ingest::*;
-pub use preview_proxy_check_job::*;
 pub use submit_proxy_check_job::*;
 pub use test_notification_channel::*;
 pub use update_api_flow::*;
@@ -180,18 +182,18 @@ pub use invitation_types::*;
 pub use list_invitations::*;
 pub use revoke_invitation::*;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod billing_finalization;
 pub mod billing_types;
 pub use billing_finalization::get_invoice;
 pub use billing_types::*;
 
-// B15 — Billing Webhooks:
+// Billing Webhooks:
 pub mod billing_webhook;
 pub use billing_webhook::*;
 pub use paystack_webhook::paystack_webhook;
 
-// H12 — Subscription Usage Update:
+// Subscription Usage Update:
 pub mod update_subscription_usage;
 pub use update_subscription_usage::*;
 
@@ -200,7 +202,7 @@ pub mod invoices;
 pub use add_on_billing::{billing_summary, cancel_add_on, create_add_on, verify_add_on};
 pub use invoices::list_invoices;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub use help_center::{
     get_help_article, list_help_articles, list_help_categories, search_help_articles,
 };

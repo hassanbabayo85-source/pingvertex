@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::from_env();
 
-    // PART 6 — Session invalidation (logout/password changes), TOTP's
+    // Session invalidation (logout/password changes), TOTP's
     // pending authentication state, and the distributed rate limiter are
     // all security-sensitive. Redis is MANDATORY for every environment
     // EXCEPT an explicit allowlist of local/test/dev. Any other value of
@@ -114,14 +114,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy_credential_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let secret_cipher: Arc<dyn application::ports::SecretCipher> = proxy_credential_cipher.clone();
     let proxy_check_job_repository =
-        PostgresProxyCheckJobRepository::new(pool.clone(), proxy_credential_cipher);
+        PostgresProxyCheckJobRepository::new(pool.clone(), proxy_credential_cipher.clone());
+
+    // The same cipher is shared by the recurring proxy monitor repository
+    // so both jobs and monitors encrypt credentials identically (and can
+    // be decrypted with the same key).
+    let recurring_proxy_monitor_repository = infra::PostgresRecurringProxyMonitorRepository::new(
+        pool.clone(),
+        proxy_credential_cipher,
+    );
 
     let pending_auth_cache: Arc<dyn application::ports::PendingAuthCache> = match &config.redis_url
     {
         Some(redis_url) => Arc::new(RedisPendingAuthCache::new(redis_url)?),
         None => {
             tracing::warn!(
-                "REDIS_URL not configured — TOTP 2FA enrollment/login AND B6 password-reset \
+                "REDIS_URL not configured — TOTP 2FA enrollment/login AND password-reset \
                  session invalidation will not work (pending secrets/tokens and session-\
                  invalidation markers have nowhere to be stored)"
             );
@@ -230,6 +238,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
     .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()))
+    .with_entitlement_resolver(infra::PostgresEntitlementResolver::new(pool.clone()))
+    .with_recurring_proxy_monitor_repository(recurring_proxy_monitor_repository)
     .with_add_on_subscription_repository(PostgresAddOnSubscriptionRepository::new(pool.clone()))
     .with_sms_provider_pricing(TwilioPricingService::new())
     .with_subscription_usage_period_repository(PostgresSubscriptionUsagePeriodRepository::new(

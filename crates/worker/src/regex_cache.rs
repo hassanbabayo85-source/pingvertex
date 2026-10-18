@@ -1,4 +1,4 @@
-//! PART 10 — bounded, thread-safe cache of compiled user regexes.
+//! Bounded, thread-safe cache of compiled user regexes.
 //!
 //! `AssertionOperator::RegexMatch` evaluations used to call
 //! `regex::Regex::new(expected)` on every single check execution. Two
@@ -81,7 +81,7 @@ impl RegexCache {
     /// Returns `None` only if the pattern itself is not a valid regex.
     /// By the time this is called from a check, the domain layer has
     /// already validated the pattern, so `None` here is a defensive
-    /// fallback (e.g. data written before PART 10 landed).
+    /// fallback (e.g. data written by an earlier version).
     pub fn get_or_compile(&self, assertion_id: AssertionId, pattern: &str) -> Option<Arc<Regex>> {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
 

@@ -43,6 +43,7 @@ pub fn init_rustls_crypto_provider() {
 mod proxy_tls;
 
 pub mod proxy_check_worker;
+pub mod recurring_proxy_monitor_worker;
 pub mod proxy_checker;
 pub use proxy_check_worker::ProxyCheckWorker;
 pub use proxy_checker::run_proxy_check_job;

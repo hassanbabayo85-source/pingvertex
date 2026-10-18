@@ -21,13 +21,13 @@ impl SmtpEmailVerificationMailer {
         let builder = if config.starttls {
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)?
         } else {
-            // Mailpit (da sauran plain-SMTP relays na local/e2e) ba sa
-            // magana da TLS kwata-kwata. `relay()` koyaushe yana ƙoƙarin
-            // implicit-TLS ne, wanda ke haifar da
+            // Mailpit (and other plain-SMTP relays used for local/e2e) do
+            // not speak TLS at all. `relay()` always attempts implicit TLS,
+            // which produces
             // "received corrupt message of type InvalidContentType"
-            // lokacin da aka yi masa TLS handshake da plain-SMTP server.
-            // `builder_dangerous` shine zaɓin da lettre ke bayarwa musamman
-            // don irin wannan yanayi (babu TLS kwata-kwata).
+            // when a TLS handshake is attempted against a plain-SMTP server.
+            // `builder_dangerous` is the option lettre provides specifically
+            // for this situation (no TLS whatsoever).
             AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
         };
 

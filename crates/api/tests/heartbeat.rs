@@ -625,7 +625,7 @@ async fn heartbeat_ping_is_rate_limited_per_token() {
 }
 
 // =====================================================================
-// PART 12 — heartbeat credential hardening tests
+// Heartbeat credential hardening tests
 // =====================================================================
 
 #[tokio::test]

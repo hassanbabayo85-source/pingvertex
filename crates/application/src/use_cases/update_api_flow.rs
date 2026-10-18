@@ -76,7 +76,7 @@ where
             return Ok(None);
         }
 
-        // MATAKIN 4 — Mun miƙa existing flow domin a kwafi asalin secrets idan an kawo ***REDACTED***
+        // The existing flow is passed in so the original secrets can be carried over when ***REDACTED*** is submitted.
         let steps = build_steps(command.steps, &existing)?;
 
         let mut flow = ApiFlow::new(command.id, command.monitor_id, tenant_id, steps)

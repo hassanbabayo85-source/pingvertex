@@ -1,4 +1,4 @@
-//! PART 7 — Debug redaction regression tests (domain layer).
+//! Debug redaction regression tests (domain layer).
 //!
 //! Every credential-bearing domain entity/value object must render as
 //! `[REDACTED]` in `Debug` output. If any of these tests fails, an
@@ -39,8 +39,8 @@ fn sample_user() -> domain::User {
     let now = Utc::now();
     UserBuilder::new()
         .id(UserId::new())
-        .username(Username::new("part7").unwrap())
-        .email(Email::new("part7@example.com").unwrap())
+        .username(Username::new("redactuser").unwrap())
+        .email(Email::new("redactuser@example.com").unwrap())
         .password_hash(PasswordHash::new("THIS_IS_THE_PASSWORD_HASH_MUST_NOT_LEAK").unwrap())
         .role(UserRole::User)
         .status(UserStatus::Active)
@@ -71,7 +71,7 @@ fn user_debug_redacts_password_hash_and_totp_secret() {
     );
     assert_redacted(&rendered, "User::Debug");
     // Non-secret fields must still be visible for debugging.
-    assert!(rendered.contains("part7"));
+    assert!(rendered.contains("redactuser"));
 }
 
 // ===========================================================================
@@ -117,7 +117,7 @@ fn api_key_debug_redacts_hashed_key() {
         id: ApiKeyId::new(),
         tenant_id: TenantId::new(),
         user_id: UserId::new(),
-        name: "part7-api-key".to_string(),
+        name: "redaction-api-key".to_string(),
         key_prefix: "pv_part7".to_string(),
         hashed_key: "argon2_THIS_MUST_NOT_LEAK".to_string(),
         scopes: vec![],
@@ -127,7 +127,7 @@ fn api_key_debug_redacts_hashed_key() {
     let rendered = format!("{key:?}");
     assert_no_plaintext(&rendered, &["argon2_THIS_MUST_NOT_LEAK"], "ApiKey::Debug");
     assert_redacted(&rendered, "ApiKey::Debug");
-    assert!(rendered.contains("part7-api-key"));
+    assert!(rendered.contains("redaction-api-key"));
 }
 
 // ===========================================================================
@@ -226,7 +226,7 @@ fn create_api_key_debug_redacts_hashed_key() {
         id: ApiKeyId::new(),
         tenant_id: TenantId::new(),
         user_id: UserId::new(),
-        name: "part7-create".to_string(),
+        name: "redaction-create".to_string(),
         key_prefix: "pv_part7".to_string(),
         hashed_key: "argon2_THIS_MUST_NOT_LEAK".to_string(),
         scopes: vec![],
@@ -261,7 +261,7 @@ fn create_webhook_channel_debug_redacts_signing_secret() {
 }
 
 // ===========================================================================
-// PART 8 — FlowHeader / ApiFlowStep / ApiFlow
+// FlowHeader / ApiFlowStep / ApiFlow
 // ===========================================================================
 
 use domain::HttpMethod;

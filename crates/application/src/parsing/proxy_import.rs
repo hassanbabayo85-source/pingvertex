@@ -1,4 +1,4 @@
-//! PART 2 — Proxy input & import.
+//! Proxy input & import.
 //!
 //! This module layers an "import summary" on top of the existing
 //! `proxy_list_parser` primitives (`parse_csv_line` and friends). It exists
@@ -235,9 +235,7 @@ pub fn parse_json_with_summary(input: &str) -> Result<ProxyImportSummary, String
             .remove("proxies")
             .ok_or_else(|| "JSON body must contain a 'proxies' array".to_string())?,
         _ => {
-            return Err(
-                "JSON body must be an array or an object containing 'proxies'".to_string(),
-            );
+            return Err("JSON body must be an array or an object containing 'proxies'".to_string());
         }
     };
 
@@ -378,10 +376,7 @@ fn validate_against_domain(input: &ProxyEntryInput) -> Result<(), String> {
     ProxyHost::new(input.host.clone()).map_err(|e| format!("invalid host: {e}"))?;
 
     if !is_allowed_proxy_port(input.port) {
-        return Err(format!(
-            "port {} is not an allowed proxy port",
-            input.port
-        ));
+        return Err(format!("port {} is not an allowed proxy port", input.port));
     }
 
     Ok(())
@@ -422,10 +417,8 @@ mod tests {
 
     #[test]
     fn csv_all_valid_accepts_everything() {
-        let summary = parse_csv_with_summary(
-            "1.2.3.4:8080\n1.2.3.5:8081\nsocks5://8.8.8.8:1080\n",
-        )
-        .unwrap();
+        let summary =
+            parse_csv_with_summary("1.2.3.4:8080\n1.2.3.5:8081\nsocks5://8.8.8.8:1080\n").unwrap();
 
         assert_eq!(summary.total, 3);
         assert_eq!(summary.invalid, 0);
@@ -440,10 +433,8 @@ mod tests {
         // The middle line has a non-numeric port. The first and third
         // lines must still be accepted — that is the whole point of
         // this module.
-        let summary = parse_csv_with_summary(
-            "1.2.3.4:8080\n1.2.3.5:not-a-port\n8.8.8.8:443\n",
-        )
-        .unwrap();
+        let summary =
+            parse_csv_with_summary("1.2.3.4:8080\n1.2.3.5:not-a-port\n8.8.8.8:443\n").unwrap();
 
         assert_eq!(summary.total, 3);
         assert_eq!(summary.invalid, 1);
@@ -457,10 +448,7 @@ mod tests {
 
     #[test]
     fn csv_duplicate_detection_collapses_identical_lines() {
-        let summary = parse_csv_with_summary(
-            "1.2.3.4:8080\n1.2.3.4:8080\n1.2.3.4:8080\n",
-        )
-        .unwrap();
+        let summary = parse_csv_with_summary("1.2.3.4:8080\n1.2.3.4:8080\n1.2.3.4:8080\n").unwrap();
 
         assert_eq!(summary.total, 3);
         assert_eq!(summary.accepted.len(), 1);
@@ -521,8 +509,7 @@ mod tests {
 
     #[test]
     fn csv_localhost_is_rejected() {
-        let summary =
-            parse_csv_with_summary("localhost:8080\nfoo.localhost:8080\n").unwrap();
+        let summary = parse_csv_with_summary("localhost:8080\nfoo.localhost:8080\n").unwrap();
 
         assert_eq!(summary.rejected_count(), 2);
         assert!(summary.rejected[0].reason.contains("localhost"));
@@ -534,7 +521,11 @@ mod tests {
         let summary = parse_csv_with_summary("1.2.3.4:22\n").unwrap();
 
         assert_eq!(summary.rejected_count(), 1);
-        assert!(summary.rejected[0].reason.contains("not an allowed proxy port"));
+        assert!(
+            summary.rejected[0]
+                .reason
+                .contains("not an allowed proxy port")
+        );
     }
 
     #[test]

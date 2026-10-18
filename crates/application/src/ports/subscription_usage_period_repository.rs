@@ -7,7 +7,7 @@ use domain::shared::ids::{SubscriptionId, SubscriptionUsagePeriodId};
 
 pub type RepoResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Persistence port for `SubscriptionUsagePeriod` (H12 — Proration
+/// Persistence port for `SubscriptionUsagePeriod` (Proration
 /// Service).
 ///
 /// Deliberately has NO generic `update`/`delete`: a period is either

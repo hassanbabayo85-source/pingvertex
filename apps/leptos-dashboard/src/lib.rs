@@ -12,9 +12,15 @@ use wasm_bindgen::JsCast;
 /// dark (PingVertex branded UI). Reads `pingvertex-theme-v2`; if absent,
 /// defaults to dark. The topbar toggle saves the user's choice here.
 fn apply_initial_theme() {
-    let Some(window) = web_sys::window() else { return; };
-    let Some(document) = window.document() else { return; };
-    let Some(root) = document.document_element() else { return; };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(root) = document.document_element() else {
+        return;
+    };
 
     let saved = js_sys::Reflect::get(&window, &JsValue::from_str("localStorage"))
         .ok()

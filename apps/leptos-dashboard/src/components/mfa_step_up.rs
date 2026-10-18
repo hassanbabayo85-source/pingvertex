@@ -5,12 +5,12 @@ use leptos::task::spawn_local;
 #[component]
 #[allow(dead_code)]
 pub fn MfaStepUpModal(
-    /// Wannan yana nuna ko za a buɗe Modal ɗin ko a'a
+    /// Whether the modal is open.
     #[prop(into)]
     show: Signal<bool>,
-    /// Function da za a kira idan mutum ya ba da lambar daidai
+    /// Called when the user enters a valid code.
     on_success: Callback<(), ()>,
-    /// Function da za a kira idan mutum ya fasa (Cancel)
+    /// Called when the user cancels.
     on_cancel: Callback<(), ()>,
 ) -> impl IntoView {
     let totp_code = RwSignal::new(String::new());
@@ -25,10 +25,10 @@ pub fn MfaStepUpModal(
 
         spawn_local(async move {
             let body = serde_json::json!({ "totp_code": code });
-            // Kira API ɗin tabbatarwa (ko wane iri ne backend yake amfani da shi)
+            // Call the verification API (whichever one the backend uses).
             match client::post_json::<serde_json::Value, _>("/auth/totp/verify", &body).await {
                 Ok(_) => {
-                    totp_code.set(String::new()); // Wanke input ɗin
+                    totp_code.set(String::new()); // Clear the input
                     on_success.run(()); // Ci gaba da aikin
                 }
                 Err(e) => error.set(Some(e.to_string())),

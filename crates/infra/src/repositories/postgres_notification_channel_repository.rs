@@ -278,7 +278,7 @@ impl NotificationChannelRepository for PostgresNotificationChannelRepository {
         monitor_id: MonitorId,
         page: PageRequest,
     ) -> RepoResult<Page<NotificationChannel>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
             "SELECT {SELECT_COLUMNS} FROM notification_channels WHERE monitor_id = "
         ));

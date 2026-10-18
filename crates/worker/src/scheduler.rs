@@ -88,7 +88,7 @@ fn run_check<'a>(
             )
         }),
         // Flow monitors are handled by the durable scheduler's
-        // `FlowCheckExecutor` (B29), not this legacy active-sweep path.
+        // `FlowCheckExecutor`, not this legacy active-sweep path.
         // This arm exists only for exhaustiveness; reaching it is a
         // dispatch bug.
         MonitorKind::Flow => Box::pin(async {

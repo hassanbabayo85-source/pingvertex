@@ -77,7 +77,7 @@ pub struct UpdateEscalationPolicyRequest {
 
 /// `GET /api/v1/monitors/{monitor_id}/maintenance-windows`
 ///
-/// PART 8 — cursor-paginated. Response body is the same JSON array as
+/// Cursor-paginated. Response body is the same JSON array as
 /// before; a next-page cursor (when present) is returned via the
 /// `X-Next-Cursor` response header.
 pub async fn list_maintenance_windows(
@@ -113,7 +113,7 @@ pub async fn list_maintenance_windows(
 
 /// `GET /api/v1/escalation-policies`
 ///
-/// PART 8 — cursor-paginated. Response body is the same JSON array as
+/// Cursor-paginated. Response body is the same JSON array as
 /// before; a next-page cursor (when present) is returned via the
 /// `X-Next-Cursor` response header.
 pub async fn list_escalation_policies(

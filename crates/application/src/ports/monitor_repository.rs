@@ -38,7 +38,7 @@ pub struct BulkImportMonitorSnapshot {
 ///
 /// Establishes the naming/shape pattern future quota-checked repository
 /// methods (status pages, API keys, team members, notifications, ...)
-/// should mirror when B13's atomic-quota pattern is reused for other
+/// should mirror when the atomic-quota pattern is reused for other
 /// resource types. See `PostgresMonitorRepository::save_if_within_quota`
 /// for the reference implementation and its doc comment for why the
 /// mechanism is a per-tenant Postgres advisory lock + transaction-scoped
@@ -101,7 +101,7 @@ pub trait MonitorRepository: Send + Sync {
 
     /// Bounded, cursor-paginated variant of `find_all_for_tenant`.
     ///
-    /// PART 8 security invariant: an authenticated tenant MUST NOT be able
+    /// Security invariant: an authenticated tenant MUST NOT be able
     /// to force the API to load an unbounded amount of DB data in one
     /// request. `PageRequest::new` clamps `limit` into `[1, 100]`, and the
     /// Postgres override applies `LIMIT` at the SQL layer so the DB never
@@ -209,7 +209,7 @@ pub trait MonitorRepository: Send + Sync {
     /// wrote them so callers never act on a stale count under concurrent
     /// calls for the same monitor.
     ///
-    /// Used by `worker::IncidentEvaluator` (B23) to decide when a run of
+    /// Used by `worker::IncidentEvaluator` to decide when a run of
     /// consecutive failures/successes crosses the configured
     /// open/recovery threshold. Defaults to `unimplemented!()`, matching
     /// the other worker-path-only methods above — only
@@ -225,7 +225,7 @@ pub trait MonitorRepository: Send + Sync {
     /// number of concurrent callers racing this method for the same
     /// tenant can never together exceed `limit`.
     ///
-    /// This is B13's answer to the classic
+    /// This is our answer to the classic
     /// `COUNT -> COMPARE -> INSERT` race: callers must use this instead
     /// of separately calling `find_all_for_tenant`/`find_all_for_user`
     /// to count, comparing in application code, then calling `save`.

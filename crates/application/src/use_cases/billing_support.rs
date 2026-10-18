@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use crate::use_cases::subscription_lifecycle_support::SubscriptionLifecycleError;
 
-/// Shared error type for B14 billing use cases.
+/// Shared error type for the billing use cases.
 #[derive(Debug)]
 pub enum BillingError {
     /// Checkout was requested for the Free plan. Free requires no checkout.

@@ -28,7 +28,7 @@ use crate::{
 ///
 /// Gated on `ApiKeyScope::StatusPageRead`.
 ///
-/// PART 5 — Converted to cursor-based pagination. Both `limit` and `cursor`
+/// Converted to cursor-based pagination. Both `limit` and `cursor`
 /// are optional. Limits are clamped to `MAX_PAGE_SIZE` (100).
 pub async fn list_status_pages_via_api_key(
     State(state): State<AppState>,

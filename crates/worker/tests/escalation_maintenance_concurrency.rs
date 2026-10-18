@@ -174,15 +174,15 @@ fn sample_channel(monitor: &domain::Monitor) -> NotificationChannel {
     })
 }
 
-/// B28 concurrency regression test: many overlapping `EscalationWorker`
+/// Concurrency regression test: many overlapping `EscalationWorker`
 /// sweeps racing to send the SAME escalation step for the SAME incident
 /// must result in exactly ONE notification being sent — not one per
-/// sweep. Escalation-worker analogue of B23's
+/// sweep. Escalation-worker analogue of the
 /// `concurrent_failures_open_exactly_one_incident`. The fix under test is
 /// `IncidentRepository::try_claim_escalation_step`'s conditional
 /// `UPDATE ... WHERE escalation_step_index = $expected`, the same
-/// claim-before-act shape as B23's `save_and_report` / `resolve_if_open`
-/// and B25's outbox `claim_next`.
+/// claim-before-act shape as `save_and_report` / `resolve_if_open`
+/// and the outbox `claim_next`.
 #[tokio::test]
 async fn concurrent_sweeps_do_not_double_fire_escalation_step() {
     let (pool, _guard) = setup_pool_exclusive().await;
@@ -217,7 +217,7 @@ async fn concurrent_sweeps_do_not_double_fire_escalation_step() {
 
     // Open the incident directly (bypassing IncidentManager — this test
     // is only about the escalation-claim race, not incident creation,
-    // which B23 already covers).
+    // which the incident-evaluator tests already cover).
     let mut incident =
         domain::Incident::new(domain::shared::ids::IncidentId(Uuid::new_v4()), monitor.id);
     incident.started_at = Utc::now() - chrono::Duration::minutes(5);
@@ -263,7 +263,7 @@ async fn concurrent_sweeps_do_not_double_fire_escalation_step() {
     assert_eq!(reloaded.escalation_step_index, 1);
 }
 
-/// B28 concurrency test: many concurrent `IncidentManager::open_if_needed`
+/// Concurrency test: many concurrent `IncidentManager::open_if_needed`
 /// calls for a monitor with an ACTIVE maintenance window must never send
 /// a notification, and the resulting (single, deduplicated) incident must
 /// be flagged `occurred_during_maintenance`. Proves the suppression

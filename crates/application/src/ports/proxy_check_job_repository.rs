@@ -80,7 +80,7 @@ pub trait ProxyCheckJobRepository: Send + Sync {
 
     async fn find_pending_jobs(&self, limit: usize) -> RepoResult<Vec<ProxyCheckJob>>;
 
-    /// PART 8 — cursor-paginated variant of `find_jobs_by_user_id`.
+    /// Cursor-paginated variant of `find_jobs_by_user_id`.
     async fn find_jobs_by_user_id_paginated(
         &self,
         user_id: UserId,
@@ -93,7 +93,7 @@ pub trait ProxyCheckJobRepository: Send + Sync {
         }))
     }
 
-    /// PART 8 — cursor-paginated variant of `find_jobs_by_tenant_id`.
+    /// Cursor-paginated variant of `find_jobs_by_tenant_id`.
     async fn find_jobs_by_tenant_id_paginated(
         &self,
         tenant_id: TenantId,

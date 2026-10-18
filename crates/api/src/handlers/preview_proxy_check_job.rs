@@ -1,4 +1,4 @@
-//! PART 2 — `POST /api/v1/proxy-checks/preview`.
+//! `POST /api/v1/proxy-checks/preview`.
 //!
 //! A read-only dry run of a proxy-check submission. This handler:
 //!   * requires authentication (so unauthenticated callers cannot burn
@@ -85,10 +85,7 @@ pub async fn preview_proxy_check_job(
     }
     .map_err(ApiError::bad_request)?;
 
-    Ok((
-        StatusCode::OK,
-        Json(to_http_response(summary)),
-    ))
+    Ok((StatusCode::OK, Json(to_http_response(summary))))
 }
 
 fn to_http_response(summary: ProxyImportSummary) -> ProxyPreviewHttpResponse {

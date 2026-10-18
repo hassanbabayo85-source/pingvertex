@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Provider-agnostic billing webhook event type.
 ///
-/// These are the only webhook events B15 understands. The provider's
+/// These are the only webhook events understands. The provider's
 /// raw event string is mapped into this enum before application logic
 /// runs, so no provider-specific casing or type names leak inward.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

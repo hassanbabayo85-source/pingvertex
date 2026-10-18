@@ -47,49 +47,69 @@ pub use api_key::{ApiKey, CreateApiKey};
 mod backup_code;
 pub use backup_code::BackupCode;
 
-// B5 — Email Verification:
+// Email Verification:
 mod email_verification_token;
 pub use email_verification_token::EmailVerificationToken;
 
-// B6 — Password reset:
+// Password reset:
 mod reset_password_token;
 pub use reset_password_token::ResetPasswordToken;
 
-// B9 — Tenant invitations:
+// Tenant invitations:
 mod tenant_invitation;
 pub use tenant_invitation::TenantInvitation;
 
-// B11 — Plan / Subscription / Entitlement model:
+// Plan / Subscription / Entitlement model:
 mod plan;
 pub use plan::Plan;
+
+// TASK 1 — versioned price book and plan entitlements
+mod plan_price;
+pub use plan_price::{PlanPrice, PlanPriceError};
+
+mod plan_entitlements;
+pub use plan_entitlements::{
+    PlanEntitlement, PlanEntitlementError,
+    MAX_API_FLOW_MONITORS, MAX_API_FLOW_STEPS, MAX_CONCURRENT_PROXY_JOBS,
+    MAX_HEARTBEAT_MONITORS, MAX_PROXY_ENTRIES_PER_JOB, MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH,
+    MAX_RECURRING_PROXY_MONITORS, MAX_REGIONS_PER_MONITOR, MAX_RUM_EVENTS_PER_MONTH,
+    MAX_RUM_SITES, MAX_UPTIME_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS,
+    MIN_UPTIME_INTERVAL_SECONDS,
+};
 
 mod subscription;
 pub use subscription::Subscription;
 mod subscription_plan_change;
 pub use subscription_plan_change::*;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// TASK 1 — recurring proxy monitoring (distinct from one-time ProxyCheckJob)
+mod recurring_proxy_monitor;
+pub use recurring_proxy_monitor::{
+    RecurringProxyCheck, RecurringProxyCheckStatus, RecurringProxyMonitor,
+    RecurringProxyMonitorError, MIN_RECURRING_PROXY_INTERVAL_SECONDS as RECURRING_PROXY_MIN_INTERVAL_SECONDS,
+};
+
+// Billing Provider Abstraction & Checkout:
 mod checkout_session;
 pub use checkout_session::CheckoutSession;
 
-// B15 — Billing Webhooks:
+// Billing Webhooks:
 pub mod billing_audit_log_entry;
 pub mod billing_webhook_event;
 pub use billing_audit_log_entry::BillingAuditLogEntry;
 pub use billing_webhook_event::BillingWebhookEvent;
 
-// H9 — Pricing Audit Log:
+// Pricing Audit Log:
 mod pricing_audit_log_entry;
 pub use pricing_audit_log_entry::PricingAuditLogEntry;
 
 mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;
 
-// H12 — Proration Service:
+// Proration Service:
 mod subscription_usage_period;
 pub use subscription_usage_period::SubscriptionUsagePeriod;
 
-// Gyara: an manta da bayyana wadannan modules
 mod check;
 pub use check::Check;
 mod check_result;
@@ -103,7 +123,6 @@ pub use user::User;
 mod user_builder;
 pub use user_builder::UserBuilder;
 
-// Gyara: an manta da bayyana wadannan modules
 mod incident;
 pub use incident::*;
 mod notification_channel;
@@ -111,7 +130,7 @@ pub use notification_channel::{CreateEmailChannel, CreateWebhookChannel, Notific
 mod subscriber;
 pub use subscriber::*;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 mod help_article;
 mod help_category;
 mod support_message;

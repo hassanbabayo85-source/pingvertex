@@ -30,7 +30,7 @@ pub async fn delete_status_page(
         .map_err(|err| ApiError::forbidden_or_internal("failed to delete status page", err))?;
 
     if deleted {
-        // B34: see the matching comment in `update_status_page` — this
+        // See the matching comment in `update_status_page` — this
         // was previously dead code (`StatusPageCache::invalidate` was
         // never called anywhere in the codebase). Deleting a status page
         // should stop serving its old cached response immediately rather

@@ -35,7 +35,7 @@ impl fmt::Display for CreateSupportTicketError {
 impl Error for CreateSupportTicketError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Forbidden => None, // <-- Wannan shine layin da zaka kara
+            Self::Forbidden => None,
             Self::Validation(_) => None,
             Self::Other(err) => Some(err.as_ref()),
         }

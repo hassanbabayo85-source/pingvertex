@@ -311,7 +311,7 @@ impl WalletRepository for PostgresWalletRepository {
         .fetch_one(&mut *tx)
         .await?;
 
-        // PART 14 defense-in-depth: the caller (`charge_for_usage.rs`)
+        // Defense-in-depth: the caller (`charge_for_usage.rs`)
         // is expected to have resolved the active pricing — and therefore
         // the currency — before calling `reserve`, but if that resolution
         // ever returned a currency that does not match the wallet, this
@@ -593,7 +593,7 @@ impl WalletRepository for PostgresWalletRepository {
         .fetch_one(&mut *tx)
         .await?;
 
-        // PART 14 defense-in-depth: `r.currency` is `Option` to permit
+        // Defense-in-depth: `r.currency` is `Option` to permit
         // legacy reservations created before the PAYG price snapshot
         // (migration 0093). When present it MUST match the wallet's
         // currency; capturing a USD-priced reservation against an NGN

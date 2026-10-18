@@ -10,7 +10,7 @@ pub struct DisableTotpRequest {
     pub password: String,
 }
 
-/// PART 7 — manual Debug that redacts the step-up password.
+/// Manual Debug that redacts the step-up password.
 impl std::fmt::Debug for DisableTotpRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DisableTotpRequest")

@@ -6,7 +6,7 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
-/// PART 7 — manual Debug that redacts both passwords.
+/// Manual Debug that redacts both passwords.
 impl std::fmt::Debug for ChangePasswordRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChangePasswordRequest")

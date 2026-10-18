@@ -1,4 +1,4 @@
-//! PART 8 — HTTP-boundary pagination contract tests.
+//! HTTP-boundary pagination contract tests.
 //!
 //! Proves the HTTP layer wires up the pagination primitives correctly:
 //!
@@ -8,7 +8,7 @@
 //!   3. A malformed `?cursor=...` starts from page 1 (no 500).
 //!   4. Walking pages with the returned cursors visits every row exactly
 //!      once, with no duplicates or skips.
-//!   5. Response body shape is unchanged from before PART 8 (a JSON
+//!   5. Response body shape is unchanged (a JSON
 //!      array), so existing clients keep working.
 
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
@@ -476,6 +476,6 @@ async fn response_body_is_still_a_json_array() {
     let parsed: Value = serde_json::from_slice(&body).unwrap();
     assert!(
         parsed.is_array(),
-        "PART 8 must not break the existing body shape; got {parsed:?}"
+        "Pagination must not break the existing body shape; got {parsed:?}"
     );
 }

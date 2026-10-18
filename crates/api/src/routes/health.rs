@@ -5,7 +5,7 @@ use crate::state::AppState;
 
 /// Builds the health/readiness routes.
 ///
-/// B34: `/ready` added alongside the existing `/health` — see the doc
+/// `/ready` added alongside the existing `/health` — see the doc
 /// comments on `handlers::health::health` / `handlers::health::ready` for
 /// the distinction between the two.
 pub fn router() -> Router<AppState> {

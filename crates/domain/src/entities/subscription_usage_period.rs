@@ -7,7 +7,7 @@ use crate::shared::ids::{SubscriptionId, SubscriptionUsagePeriodId};
 /// A single window of time during which a subscription had one fixed
 /// usage configuration (monitors/interval_seconds/retention_days).
 ///
-/// H12 — Proration Service. A subscription accumulates one of these
+/// Proration Service. A subscription accumulates one of these
 /// every time its usage changes mid-cycle: the previous period is
 /// closed (`end_at` set) and a new one is opened (`end_at = None`) with
 /// the new usage. Billing sums the prorated cost of every period that

@@ -7,12 +7,12 @@ use crate::shared::ids::{SubscriptionId, TenantId};
 
 /// A tenant's current plan assignment and lifecycle state.
 ///
-/// B11 modeled only "which plan tier is this tenant on." B12 (this
+/// Modeled only "which plan tier is this tenant on." (this
 /// worker) adds the lifecycle on top: trial, grace period after a
 /// failed/expired payment, expiry, and cancellation (immediate or at
-/// end of period). B14 adds `apply_verified_payment`, which moves an
+/// end of period). adds `apply_verified_payment`, which moves an
 /// existing subscription back to `Active` after server-side payment
-/// verification and updates the plan tier. H12 adds the current usage
+/// verification and updates the plan tier. adds the current usage
 /// snapshot (`monitors`/`interval_seconds`/`retention_days`/
 /// `pricing_version`) — the fields that back the `monitors`,
 /// `interval_seconds`, `retention_days`, `pricing_version` columns added
@@ -37,7 +37,7 @@ pub struct Subscription {
     /// `true` once a cancellation has been requested with
     /// `at_period_end = true` and not yet finalized.
     pub cancel_at_period_end: bool,
-    /// H12 — current usage snapshot. `None` until the tenant's first
+    /// Current usage snapshot. `None` until the tenant's first
     /// checkout/plan-change sets it via `update_usage`. This is a
     /// convenience snapshot of "usage right now"; the authoritative,
     /// billable history lives in `SubscriptionUsagePeriod` rows.
@@ -217,7 +217,7 @@ impl Subscription {
         Ok(())
     }
 
-    /// H12 — Proration Service. Applies a mid-cycle usage change
+    /// Proration Service. Applies a mid-cycle usage change
     /// (monitors/interval_seconds/retention_days). Does NOT touch
     /// `status`/lifecycle fields — usage and lifecycle are independent
     /// axes of this entity. Only basic positivity invariants are
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(subscription.status, SubscriptionStatus::Canceled);
     }
 
-    // H12 — Proration Service:
+    // Proration Service:
 
     #[test]
     fn update_usage_sets_usage_fields() {

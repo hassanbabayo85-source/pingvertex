@@ -184,10 +184,10 @@ async fn same_execution_id_retry_charges_once() {
         second.transaction.is_none(),
         "replay must not produce a new debit"
     );
-    // A kan replay, `execute_classified_attempt` yana mayar da MeteredAttempt
-    // na wucin gadi { attempted: true, .. } domin an riga an gama aikin
-    // a baya — panic! da ke cikin closure shi ne ainihin shaidar cewa
-    // ba a sake kiran closure ɗin ba.
+    // On replay, `execute_classified_attempt` returns a synthetic
+    // MeteredAttempt { attempted: true, .. } because the work already
+    // completed earlier — the panic! inside the closure is the proof that
+    // the closure is not called again.
     assert!(
         attempt.attempted,
         "replay must report the original attempt as attempted"

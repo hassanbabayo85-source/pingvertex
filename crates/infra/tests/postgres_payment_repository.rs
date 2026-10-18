@@ -14,8 +14,8 @@ async fn successful_payment_cannot_be_downgraded_by_failed_retry() {
 
     let tenant_id = Uuid::new_v4();
     let payment_id = Uuid::new_v4();
-    let provider_payment_id = "worker8-regression-success-failed";
-    let idempotency_key = "worker8-regression-idem-success-failed";
+    let provider_payment_id = "payment-regression-success-failed";
+    let idempotency_key = "payment-regression-idem-success-failed";
 
     let succeeded = Payment {
         id: payment_id,
@@ -77,8 +77,8 @@ async fn failed_payment_can_be_upgraded_to_successful() {
     let repo = PostgresPaymentRepository::new(pool.clone());
 
     let tenant_id = Uuid::new_v4();
-    let provider_payment_id = "worker8-regression-failed-success";
-    let idempotency_key = "worker8-regression-idem-failed-success";
+    let provider_payment_id = "payment-regression-failed-success";
+    let idempotency_key = "payment-regression-idem-failed-success";
 
     let failed = Payment {
         id: Uuid::new_v4(),

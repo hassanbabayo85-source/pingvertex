@@ -1,4 +1,4 @@
-//! PART 5 — Agent Trust Boundary tests.
+//! Agent Trust Boundary tests.
 
 use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{

@@ -73,7 +73,7 @@ fn peer_certificates_with_cn(cn: &str) -> PeerCertificates {
     PeerCertificates::new(vec![cert_der])
 }
 
-/// PART 5 — seeds a test InMemoryAgentRegistry with the CNs the
+/// Seeds a test InMemoryAgentRegistry with the CNs the
 /// existing tests use, plus a revoked fixture.
 fn seed_test_agents() -> std::sync::Arc<infra::InMemoryAgentRegistry> {
     let reg = std::sync::Arc::new(infra::InMemoryAgentRegistry::new());

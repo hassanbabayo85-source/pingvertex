@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Worker B39 — Backend Full E2E Test (API-only).
+# Worker Backend Full E2E Test (API-only).
 # Fifth revision: fixed compose migrate, mailpit, billing env, polling.
 
 set -uo pipefail

@@ -184,7 +184,7 @@ impl StatusPageRepository for InMemoryStatusPageRepository {
             .collect())
     }
 
-    /// B34: in-memory equivalent of the Postgres `@>` containment query —
+    /// In-memory equivalent of the Postgres `@>` containment query —
     /// linear scan over `monitor_ids`, fine for tests/dev-mode scale.
     async fn find_all_referencing_monitor(
         &self,

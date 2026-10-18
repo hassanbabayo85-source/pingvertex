@@ -14,12 +14,13 @@ pub mod monitors;
 pub mod notifications;
 pub mod pricing;
 pub mod proxy_checks;
+pub mod recurring_proxy_monitors;
 pub mod public;
 pub mod rum_dashboard;
 pub mod status_pages;
 pub mod subscription;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod help;
 pub mod support;
 

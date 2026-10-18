@@ -8,17 +8,17 @@ use domain::value_objects::AssertionEvaluationResult;
 use serde_json::Value;
 use tracing::warn;
 
-/// Abubuwan da muka ciro daga martanin HTTP, ana amfani da su don tantancewa.
+/// The parts extracted from the HTTP response that assertions are evaluated against.
 pub struct EvalContext {
     pub status_code: u16,
-    /// Kowane maɓalli an maida shi ƙaramin harafi (lowercase).
+    /// Every key is lowercased.
     pub headers: HashMap<String, String>,
     pub body_bytes: Vec<u8>,
     pub latency_ms: u128,
 }
 
-/// Tantance duk assertions ɗin monitor akan martanin da aka samu.
-/// Yana mayar da `(duk_sun_wuce, jerin_sakamako)`.
+/// Evaluates all of a monitor's assertions against the response received.
+/// Returns `(all_passed, results)`.
 pub fn evaluate_assertions(
     assertions: &[Assertion],
     ctx: &EvalContext,
@@ -26,7 +26,7 @@ pub fn evaluate_assertions(
     evaluate_assertions_with_cache(assertions, ctx, regex_cache::global())
 }
 
-/// PART 10 — evaluation entry point that lets the caller supply a specific
+/// Evaluation entry point that lets the caller supply a specific
 /// [`RegexCache`]. Production callers use [`evaluate_assertions`] (which
 /// goes through the process-wide cache); tests use this variant so they can
 /// assert on per-cache statistics without disturbing the global cache.
@@ -38,7 +38,7 @@ pub fn evaluate_assertions_with_cache(
     let mut all_passed = true;
     let mut results = Vec::with_capacity(assertions.len());
 
-    // Idan akwai assertion mai buƙatar jikin JSON, za mu parse sau ɗaya.
+    // If any assertion needs the JSON body, parse it exactly once.
     let mut json_cache: Option<Value> = None;
 
     for assertion in assertions {
@@ -63,14 +63,14 @@ fn evaluate_one(
     json_cache: &mut Option<Value>,
     regex_cache: &RegexCache,
 ) -> AssertionEvaluationResult {
-    // 1. Ɗauko ainihin ƙimar da za a gwada.
+    // 1. Extract the actual value to test.
     let actual: Option<String> = match &assertion.response_part {
         ResponsePart::StatusCode => Some(ctx.status_code.to_string()),
 
-        // Neman header ta suna (ba a bambanta babba/ƙarami ba). Idan header
-        // ɗin yana wanzuwa amma ƙimarsa spaƙe ce (""), har yanzu `Exists`
-        // dole ya ci nasara — an tabbatar da wannan a ƙasa ta hanyar amfani
-        // da `contains_key` maimakon dogaro da `Option<String>` kaɗai.
+        // Look the header up by name (case-insensitive). If the header
+        // exists but its value is empty (""), `Exists` must still
+        // succeed — that is guaranteed below by using
+        // `contains_key` rather than relying on `Option<String>` alone.
         ResponsePart::Headers => assertion
             .target
             .as_ref()
@@ -90,26 +90,26 @@ fn evaluate_one(
             })
         }
 
-        // Jimlar lokacin da aka kwashe ana jiran amsa (total request
-        // latency), a cikin milliseconds. Ana amfani da wannan don
-        // tantance kasafin SLA (SLA budget), misali "gaza idan latency ya
-        // wuce 500ms" ta amfani da GreaterThan/LessThan/LessThanOrEqual.
+        // Total time spent waiting for the response (total request
+        // latency), in milliseconds. This is used to assert against an
+        // SLA budget, e.g. "fail if latency exceeds 500ms" using
+        // GreaterThan/LessThan/LessThanOrEqual.
         ResponsePart::Latency => Some(ctx.latency_ms.to_string()),
 
-        // Alias mai sauƙi don header ɗin `content-type`, domin mai amfani
-        // ba ya buƙatar sanin ainihin sunan header ɗin.
+        // Convenience alias for the `content-type` header, so the user
+        // does not need to know the exact header name.
         ResponsePart::ContentType => ctx.headers.get("content-type").cloned(),
 
-        // Tsawon jikin martanin da AKA SAMU a zahiri (ta cikin bytes),
-        // BA ƙimar header ɗin `content-length` ba (wanda za a iya karkatar
-        // da shi ko kuma ya ɓace gaba ɗaya).
+        // The length of the response body as ACTUALLY received (in bytes),
+        // NOT the `content-length` header value (which can be spoofed
+        // or missing entirely).
         ResponsePart::ContentLength => Some(ctx.body_bytes.len().to_string()),
 
         _ => {
             warn!(
                 assertion_id = %assertion.id,
                 response_part = ?assertion.response_part,
-                "Wannan sashin martani ba shi da tallafi — assertion za ta gaza"
+                "Unsupported response part — this assertion will fail"
             );
             None
         }
@@ -127,9 +127,9 @@ fn evaluate_one(
             assertion.operator,
             AssertionOperator::Exists | AssertionOperator::Contains
         ) {
-        // Sashin wildcard `$.items[*].field`: muna buƙatar jerin ƙimomi
-        // (Vec<Value>) domin bin diddigin kowane kashi daban-daban, maimakon
-        // kwatanta jimlar string ɗin da aka samu daga `actual`.
+        // Wildcard path `$.items[*].field`: we need the list of values
+        // (Vec<Value>) so each element is checked individually, instead of
+        // comparing the single joined string produced by `actual`.
         let resolved_array: Option<Vec<Value>> = json_cache.as_ref().and_then(|json| {
             let path = assertion.target.as_deref().unwrap_or("$");
             resolve_json_path(json, path).and_then(|v| v.as_array().cloned())
@@ -143,7 +143,9 @@ fn evaluate_one(
                     if p {
                         None
                     } else {
-                        Some("Ƙimar ba ta wanzu ko babu kashi a wurin da aka nuna".into())
+                        Some(
+                            "The value does not exist, or no element matched the given path".into(),
+                        )
                     },
                 )
             }
@@ -159,15 +161,12 @@ fn evaluate_one(
                 let msg = if p {
                     None
                 } else {
-                    Some(format!(
-                        "Ba a sami wani kashi mai dacewa da {:?} ba",
-                        assertion.expected_value
-                    ))
+                    Some(format!("No element matched {:?}", assertion.expected_value))
                 };
                 (p, msg)
             }
 
-            _ => unreachable!("an tantance operator a sama"),
+            _ => unreachable!("the operator was matched above"),
         }
     } else {
         match &assertion.operator {
@@ -178,7 +177,7 @@ fn evaluate_one(
                     if p {
                         None
                     } else {
-                        Some("Ƙimar ba ta wanzu a wurin da aka nuna".into())
+                        Some("The value does not exist at the given path".into())
                     },
                 )
             }
@@ -197,13 +196,13 @@ fn evaluate_one(
                         None
                     } else {
                         Some(format!(
-                            "An sa ran {:?} {:?}, amma an samu {:?}",
+                            "Expected {:?} {:?}, but got {:?}",
                             assertion.operator, assertion.expected_value, actual_val
                         ))
                     };
                     (p, msg)
                 } else {
-                    (false, Some("Ba a sami ƙimar da za a kwatanta ba".into()))
+                    (false, Some("No value was available to compare".into()))
                 }
             }
         }
@@ -218,7 +217,7 @@ fn evaluate_one(
     }
 }
 
-/// Kwatanta ƙimar gaske da abin da ake tsammani bisa ma'aikacin da aka zaɓa.
+/// Compares the actual value against the expected value using the selected operator.
 fn compare_values(
     assertion_id: AssertionId,
     operator: &AssertionOperator,
@@ -256,7 +255,7 @@ fn compare_values(
         }
 
         AssertionOperator::RegexMatch => {
-            // PART 10 — never recompile on the hot path. The cache is keyed
+            // Never recompile on the hot path. The cache is keyed
             // by `(assertion_id, pattern)` so an in-place pattern edit is
             // detected and recompiled once, and a stable pattern is reused
             // across every check. We also never log the pattern itself, nor
@@ -278,14 +277,14 @@ fn compare_values(
     }
 }
 
-/// Mai warware hanyar JSON mai sauƙi.
+/// A minimal JSON path resolver.
 ///
-/// Baya ga dot-notation da bracket-index na asali, wannan yana tallafawa:
-///   - `.length` pseudo-property akan arrays (adadin kashi) da strings
-///     (adadin haruffa), misali `$.items.length` ko `$.name.length`.
-///   - Wildcard mai matakin ɗaya kawai, misali `$.items[*].id`, wanda ke
-///     mayar da Array mai ɗauke da ƙimar `id` na kowane kashi a cikin
-///     `items`. Ba a nufin gina cikakken injin JSONPath ba.
+/// Beyond basic dot-notation and bracket indexing, it supports:
+///   - a `.length` pseudo-property on arrays (element count) and strings
+///     (character count), e.g. `$.items.length` or `$.name.length`.
+///   - a single-level wildcard, e.g. `$.items[*].id`, which returns an
+///     Array holding the `id` of every element in `items`. It is not
+///     intended to be a full JSONPath engine.
 fn resolve_json_path(root: &Value, path: &str) -> Option<Value> {
     let path = path.trim_start_matches('$').trim_start_matches('.');
     if path.is_empty() {
@@ -296,9 +295,9 @@ fn resolve_json_path(root: &Value, path: &str) -> Option<Value> {
     resolve_segments(root, &segments)
 }
 
-/// Warware jerin sassa (segments) na hanyar JSON akan wata ƙima ta farawa.
-/// An raba wannan daga `resolve_json_path` domin za a iya kiran ta ta hanya
-/// mai maimaitawa (recursive) yayin warware `[*]` akan kowane kashi na Array.
+/// Resolves a list of JSON path segments against a starting value.
+/// Split out from `resolve_json_path` so it can be called
+/// recursively while resolving `[*]` against each element of an Array.
 fn resolve_segments(root: &Value, segments: &[&str]) -> Option<Value> {
     let mut current = root.clone();
     let mut i = 0;
@@ -582,7 +581,7 @@ mod tests {
             body_bytes: vec![],
             latency_ms: 750,
         };
-        // "gaza idan latency ya wuce 500ms" -> GreaterThan 500 SHOULD pass
+        // "fail if latency exceeds 500ms" -> GreaterThan 500 SHOULD pass
         // (i.e. it correctly signals the budget was exceeded).
         let (passed, _) = evaluate_assertions(&assertions, &ctx);
         assert!(passed);
@@ -768,7 +767,7 @@ mod tests {
             Some(r"[unclosed"),
         )];
         let ctx = make_ctx(200, "Hello, world!");
-        // Kada ya haifar da panic; dole ya kawai gaza (return false).
+        // Must not panic; it must simply fail (return false).
         let (passed, _) = evaluate_assertions(&assertions, &ctx);
         assert!(!passed);
     }

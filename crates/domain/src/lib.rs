@@ -1,5 +1,8 @@
 pub mod entities;
 pub mod enums;
+pub mod entitlements;
+pub mod execution_budget;
+pub mod money;
 pub mod errors;
 pub mod events;
 pub mod multi_region;
@@ -11,6 +14,9 @@ pub mod value_objects;
 pub use entities::agent::*;
 pub use entities::*;
 pub use enums::*;
+pub use entitlements::*;
+pub use execution_budget::*;
+pub use money::*;
 pub use errors::*;
 pub use events::*;
 pub use multi_region::*;
@@ -28,5 +34,5 @@ pub use proration::*;
 pub mod payg;
 pub use payg::*;
 
-// Worker 6 billing invoice exports
+// Billing invoice exports
 pub use entities::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};

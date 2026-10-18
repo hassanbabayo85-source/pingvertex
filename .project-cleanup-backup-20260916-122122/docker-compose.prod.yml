@@ -1,0 +1,186 @@
+# Production override for docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires Docker Compose v2 (the `docker compose` plugin, not the
+# legacy standalone `docker-compose` v1 binary) — `deploy.resources.limits`
+# below is only honored outside Swarm mode by Compose v2.
+#
+# What this file adds/changes vs. docker-compose.yml, on top of the
+# password-fail-closed overrides already here:
+#
+#   1. Resource limits (deploy.resources.limits) for every service.
+#   2. Log rotation (x-logging) for every service.
+#   3. Docker-level HEALTHCHECK wiring via `depends_on: condition:
+#      service_healthy`.
+#   4. `migrate` now builds from Dockerfile.migrate (pre-built sqlx-cli
+#      image) instead of `cargo install sqlx-cli`.
+#   5. A `caddy` reverse-proxy service for public HTTPS.
+#   6. Mount the `frontend_dist` volume into Caddy for static file serving.
+#
+# Backups: see scripts/backup.sh and scripts/restore.sh — NOT a compose
+# service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16.6
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production — no insecure default here}
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1g
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    command: ["migrate", "run", "--source", "migrations"]
+    environment:
+      DATABASE_URL: postgres://pingvertex_migrator:${POSTGRES_MIGRATOR_PASSWORD:?POSTGRES_MIGRATOR_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+    logging: *default-logging
+
+  api:
+    # PART 13 — production closes even the 127.0.0.1:3000 binding that
+    # docker-compose.yml sets up for local dev convenience, so the ONLY
+    # ingress path is Caddy on :443 (and :80 for ACME + redirect). The
+    # `!reset` tag REPLACES the base file's list instead of appending to
+    # it, and requires Compose v2.24 or newer.
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgres://pingvertex_app:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+      ENVIRONMENT: production
+      BILLING_PROVIDER: ${BILLING_PROVIDER:?BILLING_PROVIDER must be set for production}
+      BILLING_SECRET_KEY: ${BILLING_SECRET_KEY:?BILLING_SECRET_KEY must be set for production}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:?BILLING_WEBHOOK_SECRET must be set for production}
+    logging: *default-logging
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  worker:
+    environment:
+      DATABASE_URL: postgres://pingvertex_worker:${POSTGRES_WORKER_PASSWORD:?POSTGRES_WORKER_PASSWORD must be set for production}@postgres:5432/uptime_monitor
+      ENVIRONMENT: production
+      BILLING_PROVIDER: ${BILLING_PROVIDER:?BILLING_PROVIDER must be set for production}
+      BILLING_SECRET_KEY: ${BILLING_SECRET_KEY:?BILLING_SECRET_KEY must be set for production}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:?BILLING_WEBHOOK_SECRET must be set for production}
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set for worker metrics}
+    logging: *default-logging
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  agent:
+    logging: *default-logging
+    stop_grace_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    logging: *default-logging
+    secrets:
+      - metrics_token
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:?GF_SECURITY_ADMIN_PASSWORD must be set for production — no insecure default here}
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128m
+
+  caddy:
+    image: caddy:2.9.1-alpine
+    container_name: uptime-monitor-caddy
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - PINGVERTEX_DOMAIN=${PINGVERTEX_DOMAIN:-api.example.com}
+    # PART 13 — the ONLY intentionally-published ports in production.
+    # 443 is the sole public ingress path; 80 exists only for the ACME
+    # HTTP-01 challenge and for the automatic redirect to 443 that Caddy
+    # emits for that reason.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - frontend_dist:/srv/frontend:ro
+    # PART 13 — caddy runs as its own non-root user (the caddy:2.9.1-alpine
+    # image ships a `caddy` user). It drops ALL Linux capabilities and
+    # re-adds only CAP_NET_BIND_SERVICE so it can bind :80 and :443;
+    # no-new-privileges prevents gaining any other capability via setuid
+    # or file-cap after start.
+    user: caddy
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  metrics_token:
+    file: .metrics_token

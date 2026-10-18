@@ -322,7 +322,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<ProxyCheckJob>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
             "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE user_id = "
         ));
@@ -360,7 +360,7 @@ impl ProxyCheckJobRepository for PostgresProxyCheckJobRepository {
         tenant_id: TenantId,
         page: PageRequest,
     ) -> RepoResult<Page<ProxyCheckJob>> {
-        // PART 8 — SQL-level cursor pagination.
+        // SQL-level cursor pagination.
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(format!(
             "SELECT {JOB_COLUMNS} FROM proxy_check_jobs WHERE tenant_id = "
         ));

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PingVertex — Postgres restore script (B38).
+# PingVertex — Postgres restore script.
 #
 # Usage:
 #   ./scripts/restore.sh /var/backups/pingvertex/uptime_monitor_TIMESTAMP.dump

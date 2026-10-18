@@ -1,4 +1,4 @@
-//! Task 15 acceptance test: scheduler billing context survival.
+//! Acceptance test: scheduler billing context survival.
 //!
 //! The scheduler path builds a trusted `PricingContext` (account_type,
 //! region, monitor_kind, quantity) from the monitor and tenant records it

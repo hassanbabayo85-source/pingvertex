@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// PART 3 — structured failure reason for a proxy check.
+/// Structured failure reason for a proxy check.
 ///
 /// This is the machine-readable companion to `ProxyResult.error_code`
 /// (a legacy free-form `String`) and `ProxyResult.error_message` (a
@@ -64,7 +64,10 @@ mod tests {
         for (variant, expected) in [
             (ProxyFailureKind::Timeout, "\"timeout\""),
             (ProxyFailureKind::AuthFailed, "\"auth_failed\""),
-            (ProxyFailureKind::ConnectionRefused, "\"connection_refused\""),
+            (
+                ProxyFailureKind::ConnectionRefused,
+                "\"connection_refused\"",
+            ),
             (ProxyFailureKind::DnsFailure, "\"dns_failure\""),
             (ProxyFailureKind::TlsFailure, "\"tls_failure\""),
             (ProxyFailureKind::ProtocolFailure, "\"protocol_failure\""),

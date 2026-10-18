@@ -103,7 +103,7 @@ pub struct DiagnosticReport {
     ///
     /// Exists so `(check_id, check_checked_at)` can serve as a foreign
     /// key into `checks`. `checks.id` alone is sufficient today, but if
-    /// `checks` is later partitioned by `checked_at` (see HANDOVER.md
+    /// `checks` is later partitioned by `checked_at` (see the
     /// H15 assessment), PostgreSQL requires a partitioned table's primary
     /// key to include the partition key — forcing the primary key on
     /// `checks` to become `(id, checked_at)` and any foreign key into it

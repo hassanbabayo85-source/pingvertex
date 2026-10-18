@@ -47,8 +47,8 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Handler na `/metrics` mai kariya da `METRICS_TOKEN`.
 ///
-/// `expected_token` ana samun sa daga Axum `State`. Token `None` ko empty
-/// yana nufin fail-closed: 404, kamar yadda ake yi idan env ba a saita ba.
+/// `expected_token` comes from Axum `State`. A `None` or empty token
+/// means fail-closed: 404, the same as when the env var is unset.
 pub async fn metrics_handler(
     State(expected_token): State<Option<String>>,
     headers: HeaderMap,
@@ -57,7 +57,7 @@ pub async fn metrics_handler(
         Some(token) if !token.trim().is_empty() => token,
         _ => {
             warn!(
-                "METRICS_TOKEN ba a saita shi ba a environment — /metrics endpoint yana \
+                "METRICS_TOKEN is not set in the environment — the /metrics endpoint is \
                  rufe (fail-closed). Saita METRICS_TOKEN domin bada damar Prometheus \
                  scraping."
             );
@@ -78,8 +78,8 @@ pub async fn metrics_handler(
     render_metrics().into_response()
 }
 
-/// B38: liveness probe for the worker process, mirroring
-/// `api::handlers::health::health` (B34) — zero-dependency, only proves
+/// Liveness probe for the worker process, mirroring
+/// `api::handlers::health::health` — zero-dependency, only proves
 /// this HTTP server itself is up.
 async fn health() -> StatusCode {
     StatusCode::OK

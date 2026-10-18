@@ -33,7 +33,7 @@ where
         self.repository.find_all_for_tenant(tenant_id).await
     }
 
-    /// PART 8 — cursor-paginated entry point for `GET /api/v1/status-pages`.
+    /// Cursor-paginated entry point for `GET /api/v1/status-pages`.
     pub async fn execute_paginated(
         &self,
         authenticated_user: AuthenticatedUser,
@@ -43,7 +43,7 @@ where
             .await
     }
 
-    /// PART 5 — tenant-scoped cursor-paginated variant.
+    /// Tenant-scoped cursor-paginated variant.
     /// Used by external api_key based endpoint.
     pub async fn execute_paginated_for_tenant(
         &self,

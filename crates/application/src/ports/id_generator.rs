@@ -151,7 +151,7 @@ pub trait IdGenerator: Send + Sync {
     /// persisted.
     async fn next_invitation_token(&self) -> String;
 
-    /// Generates a new `SubscriptionUsagePeriodId` (H12 — Proration
+    /// Generates a new `SubscriptionUsagePeriodId` (Proration
     /// Service).
     ///
     /// Same reasoning as `next_status_page_id`/`next_api_key_id` above: a

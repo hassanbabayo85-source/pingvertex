@@ -9,7 +9,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Lists monitors through the application layer.
 ///
-/// PART 8 — the application layer is the security boundary that
+/// The application layer is the security boundary that
 /// guarantees "an authenticated tenant cannot force the API to load an
 /// unbounded amount of DB data in one request". Both methods below
 /// delegate to a paginated repository call; `execute` returns only the

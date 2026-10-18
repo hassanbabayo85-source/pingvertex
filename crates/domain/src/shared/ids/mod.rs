@@ -58,34 +58,34 @@ pub use audit_log_entry_id::AuditLogEntryId;
 pub mod backup_code_id;
 pub use backup_code_id::BackupCodeId;
 
-// B5 — Email Verification:
+// Email Verification:
 pub mod email_verification_token_id;
 pub use email_verification_token_id::EmailVerificationTokenId;
 
-// B6 — Password reset:
+// Password reset:
 pub mod reset_password_token_id;
 pub use reset_password_token_id::ResetPasswordTokenId;
 
-// B9 — Tenant invitations:
+// Tenant invitations:
 pub mod invitation_id;
 pub use invitation_id::InvitationId;
 
-// B11 — Plan / Subscription / Entitlement model:
+// Plan / Subscription / Entitlement model:
 pub mod subscription_id;
 pub use subscription_id::SubscriptionId;
 
-// B14 — Billing Provider Abstraction & Checkout:
+// Billing Provider Abstraction & Checkout:
 pub mod checkout_session_id;
 pub use checkout_session_id::CheckoutSessionId;
 
-// H12 — Proration Service:
+// Proration Service:
 mod subscription_usage_period_id;
 pub use subscription_usage_period_id::SubscriptionUsagePeriodId;
 
 pub mod add_on_subscription_id;
 pub use add_on_subscription_id::AddOnSubscriptionId;
 
-// H14 — Help Center & Support:
+// Help Center & Support:
 pub mod help_article_id;
 pub mod help_category_id;
 pub mod support_message_id;

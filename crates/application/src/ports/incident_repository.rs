@@ -74,7 +74,7 @@ pub trait IncidentRepository: Send + Sync {
     /// This is the `EscalationWorker` equivalent of `save_and_report` /
     /// `resolve_if_open`: claim-before-act, so concurrent worker sweeps
     /// (multiple replicas, or overlapping sweeps) can never send the
-    /// same escalation step twice. B28.
+    /// same escalation step twice.
     ///
     /// Default (for simple mocks): always succeeds via `update`, with
     /// no compare-and-swap protection — fine for single-threaded unit

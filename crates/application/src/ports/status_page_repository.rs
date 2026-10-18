@@ -56,7 +56,7 @@ pub trait StatusPageRepository: Send + Sync {
         unimplemented!()
     }
 
-    /// PART 8 — cursor-paginated variant of `find_all_for_tenant`.
+    /// Cursor-paginated variant of `find_all_for_tenant`.
     async fn find_all_for_tenant_paginated(
         &self,
         tenant_id: TenantId,
@@ -103,7 +103,7 @@ pub trait StatusPageRepository: Send + Sync {
         unimplemented!()
     }
 
-    /// B34: returns every status page (across all tenants) whose
+    /// Returns every status page (across all tenants) whose
     /// `monitor_ids` includes `monitor_id`. System-wide, not tenant-scoped
     /// — same reasoning as `find_pending_custom_domains`: this is used by
     /// `IncidentManager` (worker) to know which cached public status-page

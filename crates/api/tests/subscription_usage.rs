@@ -388,7 +388,7 @@ async fn owner_without_existing_subscription_gets_not_found() {
 
 #[tokio::test]
 async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan_tier() {
-    // SECURITY (H13): the endpoint no longer trusts `plan_tier` from the
+    // SECURITY: the endpoint no longer trusts `plan_tier` from the
     // request body -- it reads the tenant's actual plan tier from the
     // subscription in the database. Here the DB has Tier5, and the body
     // requests a different tier ("starter"), to prove the body value is
@@ -430,7 +430,7 @@ async fn owner_can_update_usage_and_response_reflects_the_subscriptions_own_plan
 
 #[tokio::test]
 async fn client_supplied_plan_tier_in_body_is_ignored() {
-    // SECURITY (H13, fixed): the endpoint used to trust `plan_tier` from
+    // SECURITY (fixed): the endpoint used to trust `plan_tier` from
     // the request body, letting any caller with ManageBilling permission
     // downgrade their own tenant's tier. It now ignores the body entirely
     // and always reflects the subscription's tier as stored in the DB.

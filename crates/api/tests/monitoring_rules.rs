@@ -1,5 +1,5 @@
-//! Task 20 acceptance test: `monitoring/rules.yml` defines every alert the
-//! Part 3 observability contract requires.
+//! Acceptance test: `monitoring/rules.yml` defines every alert the
+//! observability contract requires.
 //!
 //! This test does NOT parse YAML (which would need a new dependency). It
 //! reads the file as text and asserts that each required alert name is
@@ -37,7 +37,7 @@ fn rules_yml_defines_every_required_production_alert() {
     let body = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
 
-    // Every alert the Part 3 observability contract requires. This list is
+    // Every alert the observability contract requires. This list is
     // the single source of truth for "which alerts must exist"; if a new
     // alert is required, add it here as well as in rules.yml.
     let required = [

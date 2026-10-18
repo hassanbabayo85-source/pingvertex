@@ -9,10 +9,10 @@ use tracing::warn;
 
 static PROMETHEUS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
 
-/// Prefix na daidaitaccen `Authorization: Bearer <token>` header, wanda
-/// Prometheus scrape_config ke iya turowa kai tsaye ta hanyar
-/// `authorization: { type: Bearer, credentials_file: ... }` — babu bukatar
-/// wani custom header.
+/// Prefix of the standard `Authorization: Bearer <token>` header, which a
+/// Prometheus scrape_config can send directly via
+/// `authorization: { type: Bearer, credentials_file: ... }` — no custom
+/// header required.
 const BEARER_PREFIX: &str = "Bearer ";
 
 pub fn init_metrics() {
@@ -30,9 +30,9 @@ pub fn render_metrics() -> String {
         .unwrap_or_default()
 }
 
-/// Kwatanta biyu &str a cikin lokaci mai daidaito (constant-time),
-/// domin toshe timing side-channel wanda zai iya bawa mai kai hari
-/// damar tantance sirrin METRICS_TOKEN haruffa-haruffa.
+/// Compares two &str values in constant time, to close the timing
+/// side-channel that would otherwise let an attacker recover
+/// METRICS_TOKEN character by character.
 fn constant_time_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
 
@@ -48,24 +48,24 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-/// Handler na `/metrics` mai kariya.
+/// Protected `/metrics` handler.
 ///
-/// FAIL-CLOSED: idan `METRICS_TOKEN` bai saitu a environment ba, endpoint
-/// ɗin zai koma 404 (baya bayyana ko wanzuwarsa) maimakon ya buɗe wa kowa
-/// — domin an gano a security audit na 2026-08-11 cewa metrics din baya
-/// da wata kariya, wanda zai iya bayyana adadin monitors, latency, da
-/// sauran bayanan aiki na cikin gida ga duk wanda ya isa endpoint ɗin.
+/// FAIL-CLOSED: if `METRICS_TOKEN` is not set in the environment, the
+/// endpoint returns 404 (without revealing that it exists) rather than
+/// serving metrics to anyone — the 2026-08-11 security audit found that
+/// metrics were unprotected, which exposed monitor counts, latency, and
+/// other internal operational data to anyone who could reach the endpoint.
 ///
-/// Idan `METRICS_TOKEN` an saita shi, dole mai kira ya turo daidai
-/// darajarsa a header `Authorization: Bearer <token>`, in ba haka ba sai
+/// If `METRICS_TOKEN` is set, the caller must send exactly that value in an
+/// `Authorization: Bearer <token>` header; otherwise the response is
 /// 401.
 pub async fn metrics_handler(headers: HeaderMap) -> Response {
     let expected_token = match std::env::var("METRICS_TOKEN") {
         Ok(token) if !token.trim().is_empty() => token,
         _ => {
             warn!(
-                "METRICS_TOKEN ba a saita shi ba a environment — /metrics endpoint yana \
-                 rufe (fail-closed). Saita METRICS_TOKEN domin bada damar Prometheus \
+                "METRICS_TOKEN is not set in the environment — the /metrics endpoint is \
+                 closed (fail-closed). Set METRICS_TOKEN to allow Prometheus \
                  scraping."
             );
             return StatusCode::NOT_FOUND.into_response();
@@ -111,18 +111,17 @@ mod tests {
 
     #[test]
     fn constant_time_eq_treats_empty_equal_to_empty() {
-        // Wannan hali ne kawai na aikin comparison da kansa; handler ɗin
-        // baya taɓa kiran wannan aikin idan METRICS_TOKEN bai saitu ba
-        // (fail-closed 404 kafin a isa nan), don haka babu hadari.
+        // This only exercises the comparison function itself; the handler
+        // never calls it when METRICS_TOKEN is unset (it returns a
+        // fail-closed 404 first), so there is no risk here.
         assert!(constant_time_eq("", ""));
     }
 
-    // NOTE: waɗannan gwaje-gwajen suna canza `METRICS_TOKEN` env var, don
-    // haka an rufe su duka a cikin `#[serial]`-style pattern na hannu
-    // (guda ɗaya, jere) domin toshe race condition tsakanin tests masu
-    // gudana lokaci guda. Idan aka ƙara wasu env-var-mutating tests a
-    // nan gaba, a haɗa su cikin wannan function guda ɗaya ko a yi amfani
-    // da `serial_test` crate.
+    // NOTE: these tests mutate the `METRICS_TOKEN` env var, so they are all
+    // wrapped in a hand-rolled `#[serial]`-style pattern (one test, run
+    // sequentially) to prevent a race between tests running concurrently. If
+    // more env-var-mutating tests are added later, fold them into this single
+    // function or switch to the `serial_test` crate.
     #[tokio::test]
     async fn metrics_handler_env_var_scenarios() {
         use axum::body::to_bytes;
@@ -135,7 +134,7 @@ mod tests {
         let response = metrics_handler(HeaderMap::new()).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-        // 2) An saita METRICS_TOKEN amma babu Authorization header => 401.
+        // 2) METRICS_TOKEN is set but there is no Authorization header => 401.
         unsafe {
             std::env::set_var("METRICS_TOKEN", "test-token-abc123");
         }
@@ -159,9 +158,9 @@ mod tests {
         );
         let response = metrics_handler(correct_headers).await;
         assert_eq!(response.status(), StatusCode::OK);
-        // Idan an isa nan, an wuce auth check ɗin daidai. Babu recorder
-        // da aka install a wannan test binary, don haka kawai muna
-        // tabbatar cewa karanta body ɗin baya haifar da panic/error.
+        // Reaching here means the auth check passed correctly. No recorder
+        // is installed in this test binary, so we only assert that reading
+        // the body does not panic or error.
         let _body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
 
         unsafe {

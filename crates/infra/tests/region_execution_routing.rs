@@ -1,4 +1,4 @@
-//! Task 14 acceptance test: single-region vs multi-region execution routing.
+//! Acceptance test: single-region vs multi-region execution routing.
 //!
 //! The scheduler and the regional-agent lease repo each claim only the
 //! monitors they are responsible for. This test seeds one monitor for
