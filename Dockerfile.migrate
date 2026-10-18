@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN /usr/local/cargo/bin/cargo install sqlx-cli --version 0.8.3 --no-default-features --features postgres
 
-FROM debian:13.1-slim
+FROM debian:13.7-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
