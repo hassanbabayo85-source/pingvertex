@@ -426,13 +426,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 worker_config.max_concurrent_checks,
             )
             .with_metering(metering.clone())
-    .with_tenant_repository(
-                tenant_repository.clone(),
-                pricing_config_repository.clone(),
-            )
+    .with_tenant_repository(tenant_repository.clone())
             .with_entitlement_repositories(
                 monitor_repository.clone(),
-                wallet_repository.clone(),
+                std::sync::Arc::new(infra::PostgresEntitlementResolver::new(pool.clone())),
             )
             .with_backpressure(
                 worker_config.scheduler_max_concurrency_per_tenant,
