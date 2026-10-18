@@ -32,7 +32,9 @@ pub async fn create_invitation(
         auth_state.id_generator.clone(),
         auth_state.password_hasher.clone(),
         auth_state.invitation_repository.clone(),
-    );
+    )
+    .with_entitlement_resolver(auth_state.entitlement_resolver.clone())
+    .with_membership_repository(auth_state.tenant_membership_repository.clone());
 
     let created = use_case
         .with_audit_log_repository(auth_state.audit_log_entry_repository.clone())

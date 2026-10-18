@@ -41,7 +41,8 @@ pub async fn create_status_page(
         state.id_generator,
         state.monitor_repository.clone(),
         state.audit_log_entry_repository.clone(),
-    );
+    )
+    .with_entitlement_resolver(state.entitlement_resolver.clone());
 
     let status_page = use_case
         .execute(request, authenticated_user)
@@ -50,9 +51,12 @@ pub async fn create_status_page(
             CreateStatusPageError::Forbidden => {
                 ApiError::forbidden("you do not have permission to create status pages")
             }
-            CreateStatusPageError::QuotaExceeded { .. }
-            | CreateStatusPageError::SubdomainTaken { .. } => ApiError::conflict(err.to_string()),
+            CreateStatusPageError::PlanLimitExceeded(pl) => ApiError::from_plan_limit(pl),
+            CreateStatusPageError::SubdomainTaken { .. } => ApiError::conflict(err.to_string()),
             CreateStatusPageError::MonitorNotFound { .. } => ApiError::not_found(err.to_string()),
+            CreateStatusPageError::EntitlementResolverMissing => {
+                ApiError::internal("entitlement resolver is not configured")
+            }
             CreateStatusPageError::Other(inner) => {
                 ApiError::internal_with_source("failed to create status page", inner)
             }

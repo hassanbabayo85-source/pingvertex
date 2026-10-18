@@ -3,7 +3,7 @@ use std::{error::Error, fmt, sync::Arc};
 use chrono::Utc;
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId,
-    entities::{ApiKey, CreateApiKey as CreateApiKeyEntity},
+    entities::{ApiKey, CreateApiKey as CreateApiKeyEntity, MAX_API_KEYS},
     enums::ApiKeyScope,
     shared::types::{AuthenticatedUser, Permission},
 };
@@ -11,42 +11,35 @@ use serde_json::json;
 
 use crate::{
     commands::CreateApiKey,
-    ports::{ApiKeyRepository, AuditLogEntryRepository, IdGenerator, PasswordHasher},
+    errors::PlanLimitError,
+    ports::{
+        ApiKeyRepository, AuditLogEntryRepository, EntitlementResolver, IdGenerator,
+        PasswordHasher,
+    },
 };
+
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Maximum length for an API key's display name. Mirrors the pattern
-/// used by other named resources in this codebase (e.g. monitor names,
-/// status page names).
+/// Maximum length for an API key's display name.
 const MAX_API_KEY_NAME_LENGTH: usize = 100;
 
 #[derive(Debug)]
 pub enum CreateApiKeyError {
     /// The caller's role does not carry `Permission::ManageApiKeys`.
-    ///
-    /// Minting a key is a *grant* of capability — unlike listing or
-    /// revoking an existing key, it lets the caller hand out arbitrary
-    /// scopes (including write scopes) to whoever ends up holding the
-    /// raw key. Without this check a read-only role such as
-    /// `Role::Auditor` could mint a key with `MonitorWrite` /
-    /// `StatusPageWrite` / etc. and use it to perform writes the role
-    /// itself is not permitted to perform, which defeats the read-only
-    /// guarantee entirely. See the 2026-08-20 security review of
-    /// Feature 10.
     Forbidden,
     /// One or more requested scopes grant more than the caller's own
-    /// `Role` permits (e.g. a `Role::Operator` — which lacks
-    /// `ManageApiKeys` and so can't even reach this far — or, more
-    /// realistically, an `Admin` requesting a scope this codebase later
-    /// gates behind an Owner-only permission). Kept distinct from
-    /// `Forbidden` so the caller gets an actionable message naming the
-    /// offending scope rather than a generic "not allowed".
+    /// role permits.
     ScopeExceedsPermissions(ApiKeyScope),
     EmptyName,
     NameTooLong,
     EmptyScopes,
     ExpiryInPast,
+    /// TASK 4A — the tenant has reached `entitlements.max_api_keys`.
+    PlanLimitExceeded(PlanLimitError),
+    /// TASK 4A — the resolver was not wired. Deployment bug.
+    EntitlementResolverMissing,
     Other(Box<dyn Error + Send + Sync>),
 }
 
@@ -68,6 +61,11 @@ impl fmt::Display for CreateApiKeyError {
             ),
             Self::EmptyScopes => write!(f, "an api key must have at least one scope"),
             Self::ExpiryInPast => write!(f, "api key expiry must be in the future"),
+            Self::PlanLimitExceeded(pl) => write!(f, "{pl}"),
+            Self::EntitlementResolverMissing => write!(
+                f,
+                "entitlement resolver is not configured; cannot enforce plan limits"
+            ),
             Self::Other(err) => write!(f, "{err}"),
         }
     }
@@ -76,43 +74,19 @@ impl fmt::Display for CreateApiKeyError {
 impl Error for CreateApiKeyError {}
 
 /// The result of successfully creating an API key: the persisted entity
-/// (safe to store/return — `hashed_key` is never the raw secret) plus the
-/// RAW key value.
-///
-/// The raw key is intentionally returned as a separate field rather than
-/// stored anywhere on `ApiKey` itself: this is the ONLY moment in the
-/// key's entire lifecycle where the raw value exists outside the
-/// caller's `X-API-Key` header. The handler must show it to the user
-/// once and then discard it.
+/// plus the RAW key value.
 #[derive(Debug, Clone)]
 pub struct CreatedApiKey {
     pub api_key: ApiKey,
     pub raw_key: String,
 }
 
-/// Creates a scoped API key for the caller's tenant.
-///
-/// Tenant-wide (Model A): the key is created for
-/// `authenticated_user.tenant_context().tenant_id()`, matching every
-/// other tenant-scoped write in this codebase. There is no ownership
-/// check to perform here (unlike delete/list, which fetch an existing
-/// resource first) — instead the FIRST thing `execute` does is check
-/// `Permission::ManageApiKeys` (see `CreateApiKeyError::Forbidden`).
-///
-/// This check matters more here than on `list`/`delete`: creating a key
-/// is a *grant* of scopes, up to and including write scopes, to whoever
-/// ends up holding the raw key. `list_api_keys`/`delete_api_key`
-/// deliberately stay tenant-wide (`AuthorizationPolicy::same_tenant`) —
-/// viewing metadata or revoking a key cannot expand anyone's access —
-/// but minting a new key can, so only roles with `ManageApiKeys`
-/// (`Admin`/`Owner`) may do it. Without this, a read-only role like
-/// `Role::Auditor` could mint a key with write scopes and use it to
-/// perform the very writes its role is supposed to be barred from.
 pub struct CreateApiKeyUseCase {
     api_key_repository: Arc<dyn ApiKeyRepository>,
     id_generator: Arc<dyn IdGenerator>,
     password_hasher: Arc<dyn PasswordHasher>,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
+    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
 }
 
 impl CreateApiKeyUseCase {
@@ -127,7 +101,19 @@ impl CreateApiKeyUseCase {
             id_generator,
             password_hasher,
             audit_log_entry_repository,
+            entitlement_resolver: None,
         }
+    }
+
+    /// TASK 4A — installs the authoritative `EntitlementResolver`.
+    /// Production handlers MUST call this; `execute` fails closed with
+    /// `EntitlementResolverMissing` if it is absent.
+    pub fn with_entitlement_resolver(
+        mut self,
+        resolver: Arc<dyn EntitlementResolver>,
+    ) -> Self {
+        self.entitlement_resolver = Some(resolver);
+        self
     }
 
     pub async fn execute(
@@ -135,26 +121,21 @@ impl CreateApiKeyUseCase {
         command: CreateApiKey,
         authenticated_user: AuthenticatedUser,
     ) -> Result<CreatedApiKey, CreateApiKeyError> {
-        // Permission check FIRST, before any validation or persistence
-        // work below — a caller without `ManageApiKeys` (e.g.
-        // `Role::Auditor`) must be rejected regardless of how well-formed
-        // their request otherwise is.
+        // 1. Permission check FIRST (see the privilege-escalation note
+        //    on this type's doc comment).
         if !authenticated_user.can(Permission::ManageApiKeys) {
             return Err(CreateApiKeyError::Forbidden);
         }
 
-        // Defense in depth for "an API key must never have more power
-        // than its creator": even though every scope that exists today
-        // maps to a permission already implied by `ManageApiKeys`
-        // (Admin/Owner), this check is what keeps that true automatically
-        // as new, more powerful scopes are added later — see
-        // `ApiKeyScope::required_permission`.
+        // 2. Scope permission check ("an API key must never have more
+        //    power than its creator").
         for scope in &command.scopes {
             if !authenticated_user.can(scope.required_permission()) {
                 return Err(CreateApiKeyError::ScopeExceedsPermissions(*scope));
             }
         }
 
+        // 3. Field validation.
         let name = command.name.trim();
         if name.is_empty() {
             return Err(CreateApiKeyError::EmptyName);
@@ -171,14 +152,24 @@ impl CreateApiKeyUseCase {
             return Err(CreateApiKeyError::ExpiryInPast);
         }
 
+        // 4. Resolve entitlements (fail closed if the resolver is not
+        //    wired — deployment bug).
+        let resolver = self
+            .entitlement_resolver
+            .as_ref()
+            .ok_or(CreateApiKeyError::EntitlementResolverMissing)?;
         let user_id = authenticated_user.user_id();
         let tenant_id = authenticated_user.tenant_context().tenant_id();
+        let entitlements = resolver
+            .resolve(tenant_id)
+            .await
+            .map_err(CreateApiKeyError::Other)?;
 
+        // 5. Generate the id + secret + hash. This is the most expensive
+        //    step (Argon2). It runs only after every cheap check above
+        //    has passed, so a missing resolver does not waste CPU.
         let id = self.id_generator.next_api_key_id().await;
 
-        // `pv_<prefix>_<secret>` — see `IdGenerator::next_api_key_secret`
-        // for the exact format. Splitting on '_' twice isolates the
-        // plaintext lookup prefix from the secret half.
         let raw_key = self.id_generator.next_api_key_secret().await;
         let key_prefix = raw_key
             .rsplit_once('_')
@@ -202,11 +193,34 @@ impl CreateApiKeyUseCase {
             expires_at: command.expires_at,
         });
 
-        self.api_key_repository
-            .create(&api_key)
+        // 6. Atomic tenant-scoped quota check + insert.
+        //
+        // TASK 4A — quota limit is `entitlements.max_api_keys`.
+        //
+        // `save_if_within_quota` counts ALL rows currently in
+        // `api_keys` for the tenant, INCLUDING expired ones. Expired
+        // keys still consume their quota slot until they are explicitly
+        // deleted. This matches the pre-existing behaviour (keys are
+        // never auto-deleted) and a retention policy can be added
+        // later without changing this contract.
+        match self
+            .api_key_repository
+            .save_if_within_quota(&api_key, tenant_id, entitlements.max_api_keys)
             .await
-            .map_err(CreateApiKeyError::Other)?;
+            .map_err(CreateApiKeyError::Other)?
+        {
+            QuotaCheckOutcome::Saved => {}
+            QuotaCheckOutcome::QuotaExceeded => {
+                return Err(CreateApiKeyError::PlanLimitExceeded(PlanLimitError::new(
+                    MAX_API_KEYS,
+                    u64::from(entitlements.max_api_keys),
+                    u64::from(entitlements.max_api_keys),
+                    "upgrade_plan",
+                )));
+            }
+        }
 
+        // 7. Audit (only after the save succeeded).
         let entry = AuditLogEntry {
             id: AuditLogEntryId::new(),
             actor_user_id: user_id,

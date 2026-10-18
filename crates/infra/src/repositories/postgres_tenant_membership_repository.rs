@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use application::ports::{LastOwnerGuardOutcome, TenantMembershipRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -205,6 +206,57 @@ impl TenantMembershipRepository for PostgresTenantMembershipRepository {
 
         tx.commit().await?;
         Ok(LastOwnerGuardOutcome::Applied)
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        membership: &TenantMembership,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("tenant_memberships:{}", tenant_id.0))
+            .execute(&mut *tx)
+            .await?;
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if count as u32 >= limit {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        let row = TenantMembershipRow::from_domain(membership);
+        sqlx::query(
+            "INSERT INTO tenant_memberships (tenant_id, user_id, role, invited_at, joined_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(row.tenant_id)
+        .bind(row.user_id)
+        .bind(row.role)
+        .bind(row.invited_at)
+        .bind(row.joined_at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
     }
 
     async fn update_role_if_not_last_owner(

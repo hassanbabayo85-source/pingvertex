@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use application::pagination::{Cursor, Page, PageRequest};
 use application::ports::ApiKeyRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::{
@@ -199,6 +200,58 @@ impl ApiKeyRepository for PostgresApiKeyRepository {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        api_key: &ApiKey,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("api_keys:{}", tenant_id.0))
+            .execute(&mut *tx)
+            .await?;
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&mut *tx)
+                .await?;
+
+        if count as u32 >= limit {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+
+        let row = ApiKeyRow::from_domain(api_key);
+        sqlx::query(
+            "INSERT INTO api_keys              (id, tenant_id, user_id, name, key_prefix, hashed_key, scopes, created_at, expires_at, last_used_at)              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(row.id)
+        .bind(row.tenant_id)
+        .bind(row.user_id)
+        .bind(row.name)
+        .bind(row.key_prefix)
+        .bind(row.hashed_key)
+        .bind(row.scopes)
+        .bind(row.created_at)
+        .bind(row.expires_at)
+        .bind(row.last_used_at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1")
+            .bind(tenant_id.0)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
     }
 
     async fn touch_last_used(&self, id: ApiKeyId, at: DateTime<Utc>) -> RepoResult<()> {

@@ -2,6 +2,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 use domain::{
     TenantMembership,
     shared::{
@@ -88,6 +89,31 @@ pub trait TenantMembershipRepository: Send + Sync {
         user_id: UserId,
         new_role: Role,
     ) -> RepoResult<LastOwnerGuardOutcome>;
+
+    /// TASK 4A — tenant-scoped count of ALL members (including the owner).
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        Ok(self.list_by_tenant(tenant_id).await?.len() as u64)
+    }
+
+    /// TASK 4A — atomic count-then-create for membership rows.
+    ///
+    /// The count includes the owner (they are a `tenant_memberships` row
+    /// like any other). `limit = max_team_members` from the tenant's
+    /// entitlements. Production override in Postgres uses
+    /// `pg_advisory_xact_lock` on a per-tenant key.
+    async fn save_if_within_quota(
+        &self,
+        membership: &TenantMembership,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let count = self.count_for_tenant(tenant_id).await?;
+        if count >= u64::from(limit) {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+        self.create(membership).await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
 }
 
 #[async_trait]
@@ -146,6 +172,21 @@ where
     ) -> RepoResult<LastOwnerGuardOutcome> {
         (**self)
             .update_role_if_not_last_owner(tenant_id, user_id, new_role)
+            .await
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        (**self).count_for_tenant(tenant_id).await
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        membership: &TenantMembership,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        (**self)
+            .save_if_within_quota(membership, tenant_id, limit)
             .await
     }
 }

@@ -27,7 +27,8 @@ pub async fn accept_invitation(
         auth_state.tenant_membership_repository.clone(),
         auth_state.user_repository.clone(),
         auth_state.password_hasher.clone(),
-    );
+    )
+    .with_entitlement_resolver(auth_state.entitlement_resolver.clone());
 
     let membership = use_case
         .execute(payload.token, authenticated_user)

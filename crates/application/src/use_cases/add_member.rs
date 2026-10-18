@@ -3,13 +3,18 @@ use std::sync::Arc;
 use chrono::Utc;
 use domain::{
     TenantMembership,
+    entities::MAX_TEAM_MEMBERS,
     shared::{
         ids::UserId,
         types::{AuthenticatedUser, Permission, Role},
     },
 };
 
-use crate::ports::{AuditLogEntryRepository, TenantMembershipRepository, UserRepository};
+use crate::errors::PlanLimitError;
+use crate::ports::monitor_repository::QuotaCheckOutcome;
+use crate::ports::{
+    AuditLogEntryRepository, EntitlementResolver, TenantMembershipRepository, UserRepository,
+};
 
 use super::membership_common::MembershipError;
 
@@ -24,11 +29,20 @@ pub struct AddMemberCommand {
 /// - Requires `Permission::ManageUsers`.
 /// - Only `Owner` may assign `Owner` or `Admin`.
 /// - `Owner` or `Admin` may assign `Member`, `Viewer`, or `Auditor`.
+///
+/// TASK 4A — `max_team_members` quota:
+/// - When `entitlement_resolver` is wired, membership creation goes
+///   through `save_if_within_quota` (atomic per-tenant).
+/// - If the quota is exhausted, the request is rejected without
+///   altering any existing membership.
+/// - Backward compatible: if the resolver is not wired, plain `create`
+///   is used (pre-TASK-4A behaviour).
 #[derive(Clone)]
 pub struct AddMemberUseCase {
     tenant_membership_repository: Arc<dyn TenantMembershipRepository>,
     user_repository: Arc<dyn UserRepository>,
     audit_log_repository: Option<Arc<dyn AuditLogEntryRepository>>,
+    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
 }
 
 impl AddMemberUseCase {
@@ -40,6 +54,7 @@ impl AddMemberUseCase {
             tenant_membership_repository,
             user_repository,
             audit_log_repository: None,
+            entitlement_resolver: None,
         }
     }
 
@@ -48,6 +63,16 @@ impl AddMemberUseCase {
         repository: Arc<dyn AuditLogEntryRepository>,
     ) -> Self {
         self.audit_log_repository = Some(repository);
+        self
+    }
+
+    /// TASK 4A — installs the authoritative `EntitlementResolver` and
+    /// turns on atomic `max_team_members` enforcement.
+    pub fn with_entitlement_resolver(
+        mut self,
+        resolver: Arc<dyn EntitlementResolver>,
+    ) -> Self {
+        self.entitlement_resolver = Some(resolver);
         self
     }
 
@@ -74,7 +99,6 @@ impl AddMemberUseCase {
             }
         }
 
-        // Verify the target user exists.
         if self
             .user_repository
             .find_by_id(&command.user_id)
@@ -105,10 +129,34 @@ impl AddMemberUseCase {
             joined_at: Some(now),
         };
 
-        self.tenant_membership_repository
-            .create(&membership)
-            .await
-            .map_err(MembershipError::Other)?;
+        // ── TASK 4A: atomic quota check + insert (if wired) ─────
+        if let Some(resolver) = &self.entitlement_resolver {
+            let entitlements = resolver
+                .resolve(tenant_id)
+                .await
+                .map_err(MembershipError::Other)?;
+            match self
+                .tenant_membership_repository
+                .save_if_within_quota(&membership, tenant_id, entitlements.max_team_members)
+                .await
+                .map_err(MembershipError::Other)?
+            {
+                QuotaCheckOutcome::Saved => {}
+                QuotaCheckOutcome::QuotaExceeded => {
+                    return Err(MembershipError::Other(Box::new(PlanLimitError::new(
+                        MAX_TEAM_MEMBERS,
+                        u64::from(entitlements.max_team_members),
+                        u64::from(entitlements.max_team_members),
+                        "upgrade_plan",
+                    ))));
+                }
+            }
+        } else {
+            self.tenant_membership_repository
+                .create(&membership)
+                .await
+                .map_err(MembershipError::Other)?;
+        }
 
         if let Some(audit) = &self.audit_log_repository {
             let entry = domain::AuditLogEntry {

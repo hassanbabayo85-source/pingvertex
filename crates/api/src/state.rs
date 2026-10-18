@@ -1449,8 +1449,23 @@ impl TenantRepository for NoopTenantRepository {
     async fn create(&self, _: &domain::Tenant) -> RepoResult<()> {
         Ok(())
     }
-    async fn find_by_id(&self, _: domain::TenantId) -> RepoResult<Option<domain::Tenant>> {
-        Ok(None)
+    async fn find_by_id(&self, id: domain::TenantId) -> RepoResult<Option<domain::Tenant>> {
+        // Test/development default. Mirrors `NoopUserRepository`: returns
+        // an Active tenant for any ID so handlers that check tenant
+        // status (e.g. `create_monitor`'s TenantSuspended guard) can
+        // proceed without every test needing to register a tenant first.
+        //
+        // Production replaces this with `PostgresTenantRepository` via
+        // `.with_platform_admin_repositories(...)` in `main.rs`, so this
+        // stub is unreachable in production.
+        Ok(Some(domain::Tenant {
+            id,
+            name: "noop-tenant".to_string(),
+            owner_user_id: domain::UserId::new(),
+            account_type: domain::AccountType::Individual,
+            status: domain::TenantStatus::Active,
+            created_at: chrono::Utc::now(),
+        }))
     }
     async fn find_by_owner_user_id(&self, _: domain::UserId) -> RepoResult<Option<domain::Tenant>> {
         Ok(None)

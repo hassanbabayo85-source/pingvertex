@@ -210,6 +210,27 @@ impl TenantInvitationRepository for PostgresTenantInvitationRepository {
             .collect()
     }
 
+    async fn count_pending_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        now: DateTime<Utc>,
+    ) -> RepoResult<u64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM tenant_invitations
+            WHERE tenant_id = $1
+              AND accepted_at IS NULL
+              AND revoked_at IS NULL
+              AND expires_at > $2
+            "#,
+        )
+        .bind(tenant_id.0)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn mark_revoked(&self, id: InvitationId, revoked_at: DateTime<Utc>) -> RepoResult<()> {
         sqlx::query(
             r#"

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
 use crate::pagination::{Cursor, Page, PageRequest, paginate_in_memory};
+use crate::ports::monitor_repository::QuotaCheckOutcome;
 use domain::{
     entities::StatusPage,
     shared::ids::{MonitorId, StatusPageId, TenantId, UserId},
@@ -115,6 +116,40 @@ pub trait StatusPageRepository: Send + Sync {
     ) -> RepoResult<Vec<StatusPage>> {
         unimplemented!()
     }
+
+    /// TASK 4A — tenant-scoped count for quota enforcement.
+    ///
+    /// Default implementation is non-atomic (used only by test doubles).
+    /// Production `PostgresStatusPageRepository` overrides this with a
+    /// single indexed SQL `COUNT(*)`.
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        Ok(self.find_all_for_tenant(tenant_id).await?.len() as u64)
+    }
+
+    /// TASK 4A — atomic count-then-save under `limit`.
+    ///
+    /// Default impl is **non-atomic** and is intended ONLY for test
+    /// doubles. Production `PostgresStatusPageRepository` overrides it
+    /// with a `pg_advisory_xact_lock`-guarded transaction (mirroring
+    /// `PostgresMonitorRepository::save_if_within_quota`).
+    ///
+    /// A non-atomic default is *not* a security regression: it is no
+    /// weaker than the previous behaviour, in which the use case counted
+    /// and saved with no lock at all. Tests that need to prove
+    /// atomicity use the Postgres impl.
+    async fn save_if_within_quota(
+        &self,
+        status_page: &StatusPage,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        let count = self.count_for_tenant(tenant_id).await?;
+        if count >= u64::from(limit) {
+            return Ok(QuotaCheckOutcome::QuotaExceeded);
+        }
+        self.save(status_page).await?;
+        Ok(QuotaCheckOutcome::Saved)
+    }
 }
 
 #[async_trait]
@@ -192,5 +227,20 @@ where
         monitor_id: MonitorId,
     ) -> RepoResult<Vec<StatusPage>> {
         (**self).find_all_referencing_monitor(monitor_id).await
+    }
+
+    async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
+        (**self).count_for_tenant(tenant_id).await
+    }
+
+    async fn save_if_within_quota(
+        &self,
+        status_page: &StatusPage,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> RepoResult<QuotaCheckOutcome> {
+        (**self)
+            .save_if_within_quota(status_page, tenant_id, limit)
+            .await
     }
 }

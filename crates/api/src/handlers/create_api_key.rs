@@ -35,7 +35,8 @@ pub async fn create_api_key(
         Arc::new(state.id_generator.clone()),
         state.password_hasher.clone(),
         state.audit_log_entry_repository.clone(),
-    );
+    )
+    .with_entitlement_resolver(state.entitlement_resolver.clone());
 
     let created = use_case
         .execute(
@@ -55,6 +56,10 @@ pub async fn create_api_key(
             | CreateApiKeyError::NameTooLong
             | CreateApiKeyError::EmptyScopes
             | CreateApiKeyError::ExpiryInPast => ApiError::bad_request(err.to_string()),
+            CreateApiKeyError::PlanLimitExceeded(pl) => ApiError::from_plan_limit(pl),
+            CreateApiKeyError::EntitlementResolverMissing => {
+                ApiError::internal("entitlement resolver is not configured")
+            }
             CreateApiKeyError::Other(err) => {
                 ApiError::internal_with_source("failed to create api key", err)
             }

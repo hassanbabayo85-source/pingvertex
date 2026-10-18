@@ -36,6 +36,23 @@ pub trait TenantInvitationRepository: Send + Sync {
 
     /// Marks an invitation accepted only if it is still pending.
     async fn mark_accepted(&self, id: InvitationId, accepted_at: DateTime<Utc>) -> RepoResult<()>;
+
+    /// TASK 4A — tenant-scoped count of PENDING invitations (not revoked,
+    /// not accepted, not expired) as of `now`. Used alongside
+    /// `TenantMembershipRepository::count_for_tenant` to enforce
+    /// `max_team_members`.
+    async fn count_pending_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        now: DateTime<Utc>,
+    ) -> RepoResult<u64> {
+        Ok(self
+            .list_by_tenant(tenant_id)
+            .await?
+            .into_iter()
+            .filter(|inv| inv.is_pending(now))
+            .count() as u64)
+    }
 }
 
 #[async_trait]
@@ -73,5 +90,13 @@ where
 
     async fn mark_accepted(&self, id: InvitationId, accepted_at: DateTime<Utc>) -> RepoResult<()> {
         (**self).mark_accepted(id, accepted_at).await
+    }
+
+    async fn count_pending_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        now: DateTime<Utc>,
+    ) -> RepoResult<u64> {
+        (**self).count_pending_for_tenant(tenant_id, now).await
     }
 }

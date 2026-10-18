@@ -34,7 +34,6 @@ use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use common::*;
 use domain::Entitlements;
-use domain::PlanTier;
 use domain::enums::ProxyScheme;
 use domain::pricing::PricingConfig;
 use domain::shared::ids::{TenantId, UserId};
@@ -52,23 +51,7 @@ use infra::{
 /// Pro-tier entitlements matching migration 0125's seed.
 /// `max_recurring_proxy_monitors = 5`, `min_interval = 300s`.
 fn pro_entitlements() -> Entitlements {
-    Entitlements {
-        plan_tier: PlanTier::Pro,
-        entitlement_version: 1,
-        max_uptime_monitors: 80,
-        min_uptime_interval_seconds: 60,
-        max_regions_per_monitor: 3,
-        max_heartbeat_monitors: 30,
-        max_api_flow_monitors: 10,
-        max_api_flow_steps: 10,
-        max_proxy_entries_per_job: 2_000,
-        max_concurrent_proxy_jobs: 2,
-        max_recurring_proxy_monitors: 5,
-        min_recurring_proxy_interval_seconds: 300,
-        max_recurring_proxy_executions_per_month: 43_200,
-        max_rum_sites: 3,
-        max_rum_events_per_month: 100_000,
-    }
+    Entitlements::pro_v1_fixture()
 }
 
 /// Builds an `AppState` that uses the caller-supplied recurring-proxy
