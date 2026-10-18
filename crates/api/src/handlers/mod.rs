@@ -232,3 +232,6 @@ pub use pagination::{NEXT_CURSOR_HEADER, PaginationQuery, pagination_headers};
 
 // Task 6 — subscription checkout / lifecycle:
 pub mod subscription_billing;
+
+// Task 8 — PAYG retirement:
+pub mod payg_retired;

@@ -15,19 +15,19 @@ pub fn router() -> Router<AppState> {
             "/wallet/notifications",
             get(crate::handlers::wallet::notifications),
         )
-        .route("/wallet/top-up", post(crate::handlers::wallet::top_up))
+        .route("/wallet/top-up", post(crate::handlers::payg_retired::retired))
         .route(
             "/wallet/top-up/{provider_checkout_id}/verify",
-            post(crate::handlers::wallet::verify_wallet_top_up),
+            post(crate::handlers::payg_retired::retired),
         )
         .route(
             "/wallet/settings",
             get(crate::handlers::wallet::get_settings)
-                .put(crate::handlers::wallet::update_settings),
+                .put(crate::handlers::payg_retired::retired),
         )
         .route(
             "/wallet/refund",
-            post(crate::handlers::wallet::request_refund),
+            post(crate::handlers::payg_retired::retired),
         )
-        .route("/wallet/usage", get(crate::handlers::wallet::usage_report))
+        .route("/wallet/usage", get(crate::handlers::payg_retired::retired))
 }

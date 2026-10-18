@@ -94,6 +94,12 @@ const ALLOWED_PATHS: &[&str] = &[
     // retired subscription branch otherwise.
     "crates/api/src/handlers/billing_webhook.rs",
     "crates/api/src/handlers/paystack_webhook.rs",
+    // Task 6 — subscription checkout / lifecycle. This handler uses
+    // `subscription_repository` as *input* to `CancelSubscriptionUseCase`
+    // and `VerifySubscriptionCheckoutUseCase`; it does NOT read the
+    // subscription to authorize requests. The authority for numeric
+    // limits remains `EntitlementResolver`.
+    "crates/api/src/handlers/subscription_billing.rs",
 ];
 
 #[test]
