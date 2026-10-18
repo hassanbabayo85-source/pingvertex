@@ -23,6 +23,13 @@ impl InMemoryEntitlementResolver {
     /// override) is `free_default`. Tests should pass
     /// `Entitlements::free_v1_fixture()`; production never constructs
     /// this type.
+    /// Task 8A — test-only constructor that returns Enterprise for every
+    /// tenant. Existing quota tests keep using `default()` (Free), so this
+    /// method is purely additive.
+    pub fn default_enterprise() -> Self {
+        Self::new(Entitlements::enterprise_v1_fixture())
+    }
+
     pub fn new(free_default: Entitlements) -> Self {
         Self {
             free_default,

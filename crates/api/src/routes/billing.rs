@@ -14,22 +14,22 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/payg/pricing",
-            get(crate::handlers::payg_pricing::payg_pricing),
+            get(crate::handlers::payg_retired::retired),
         )
         .route(
             "/billing/allowance",
-            get(crate::handlers::billing_allowance::get_allowance),
+            get(crate::handlers::payg_retired::retired),
         )
         .route(
             "/payg/preview",
-            axum::routing::post(crate::handlers::payg_preview::payg_preview),
+            post(crate::handlers::payg_retired::retired),
         )
         .route("/billing/invoices", get(crate::handlers::list_invoices))
         .route("/billing/invoices/{id}", get(crate::handlers::get_invoice))
-        .route("/billing/usage", get(crate::handlers::wallet::usage_report))
+        .route("/billing/usage", get(crate::handlers::payg_retired::retired))
         .route(
             "/billing/usage/summary",
-            get(crate::handlers::wallet::usage_report),
+            get(crate::handlers::payg_retired::retired),
         )
         // GAP Add-on Restoration: PAYG add-ons (SMS credits, Enterprise
         // SLA, extended retention). Bought via `PaymentProvider`

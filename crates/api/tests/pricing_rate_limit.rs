@@ -1,8 +1,9 @@
 //! E2E coverage for the production billing rate limiter.
 //!
-//! The billing router is the current PAYG billing surface. This test uses the
-//! real GovernorLayer configuration from router.rs rather than the old,
-//! retired /pricing/quote endpoint.
+//! Task 8A retired the /payg/preview handler to HTTP 410, but the
+//! GovernorLayer on the billing router is unchanged. These tests therefore
+//! expect GONE (410) as the per-request "reached the handler" signal and
+//! TOO_MANY_REQUESTS (429) once the burst is exhausted.
 
 use api::{auth_state::AuthState, router::build_billing_only_router_with_rate_limit, state::AppState};
 use axum::body::Body;
@@ -128,7 +129,7 @@ async fn billing_requests_within_burst_are_allowed() {
 
         assert_eq!(
             response.status(),
-            StatusCode::OK,
+            StatusCode::GONE,
             "attempt {attempt} within the burst limit should succeed"
         );
     }
@@ -147,7 +148,7 @@ async fn billing_requests_over_burst_are_rate_limited() {
 
         assert_eq!(
             response.status(),
-            StatusCode::OK,
+            StatusCode::GONE,
             "attempt {attempt} within the burst limit should succeed"
         );
     }
@@ -176,7 +177,7 @@ async fn billing_rate_limit_is_scoped_per_peer() {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::GONE);
     }
 
     let exhausted = app
@@ -196,7 +197,7 @@ async fn billing_rate_limit_is_scoped_per_peer() {
 
     assert_eq!(
         response.status(),
-        StatusCode::OK,
+        StatusCode::GONE,
         "a different peer must receive its own rate-limit bucket"
     );
 }
