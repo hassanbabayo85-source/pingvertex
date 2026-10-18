@@ -44,4 +44,21 @@ impl CheckoutSessionRepository for InMemoryCheckoutSessionRepository {
             .insert(session.id, session.clone());
         Ok(())
     }
+
+    async fn find_by_provider_checkout_id(
+        &self,
+        provider: &str,
+        provider_checkout_id: &str,
+    ) -> Result<Option<CheckoutSession>, Box<dyn Error + Send + Sync>> {
+        Ok(self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .find(|s| {
+                s.provider == provider
+                    && s.provider_checkout_id.as_deref() == Some(provider_checkout_id)
+            })
+            .cloned())
+    }
 }

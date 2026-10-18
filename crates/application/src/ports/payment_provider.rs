@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::{error::Error, sync::Arc};
 
 use domain::enums::PlanTier;
+use domain::money::{BillingInterval, Currency};
 use domain::shared::ids::TenantId;
 
 pub type PaymentProviderResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -76,6 +77,52 @@ pub struct CheckoutDetails {
     pub checkout_url: String,
 }
 
+// ─── Task 6 — subscription-checkout types ───────────────────────────
+//
+// Deliberately separate from `CheckoutRequest` and
+// `PaymentVerification`, which carry wallet semantics (micro-USD
+// units). Subscription payments are integer minor units (kobo /
+// cents) with no conversion.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCheckoutRequest {
+    pub tenant_id: TenantId,
+    pub plan_tier: PlanTier,
+    pub billing_interval: BillingInterval,
+    pub amount_minor: i64,
+    pub currency: Currency,
+    /// Authenticated customer email from the account record. Never
+    /// trusted from the frontend.
+    pub customer_email: String,
+    /// Caller-generated reference so the same checkout session can be
+    /// recovered from a webhook before the session has a provider id.
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubscriptionPaymentVerification {
+    Paid {
+        provider_payment_id: String,
+        provider_reference: String,
+        /// Integer minor units (kobo for NGN, cents for USD). No
+        /// wallet micro-USD conversion is applied.
+        amount_minor: i64,
+        currency: Currency,
+    },
+    Pending {
+        provider_payment_id: Option<String>,
+        provider_reference: Option<String>,
+        amount_minor: Option<i64>,
+        currency: Option<Currency>,
+    },
+    Failed {
+        provider_payment_id: Option<String>,
+        provider_reference: Option<String>,
+        amount_minor: Option<i64>,
+        currency: Option<Currency>,
+    },
+}
+
 /// Provider-agnostic billing port.
 ///
 /// Concrete implementations live in `infra` and are selected by
@@ -118,6 +165,28 @@ pub trait PaymentProvider: Send + Sync {
     ) -> PaymentProviderResult<RefundDetails> {
         Err(std::io::Error::other("refunds are not supported by this billing provider").into())
     }
+
+    // ─── Task 6 — subscription checkout + integer-minor-units verify ──
+
+    async fn create_subscription_checkout(
+        &self,
+        _request: &SubscriptionCheckoutRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        Err(std::io::Error::other(
+            "subscription checkout is not supported by this billing provider",
+        )
+        .into())
+    }
+
+    async fn verify_payment_minor_units(
+        &self,
+        _provider_checkout_id: &str,
+    ) -> PaymentProviderResult<SubscriptionPaymentVerification> {
+        Err(std::io::Error::other(
+            "subscription payment verification is not supported by this billing provider",
+        )
+        .into())
+    }
 }
 
 #[async_trait]
@@ -159,5 +228,17 @@ where
         request: &RefundRequest,
     ) -> PaymentProviderResult<RefundDetails> {
         (**self).refund_payment(request).await
+    }
+    async fn create_subscription_checkout(
+        &self,
+        request: &SubscriptionCheckoutRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        (**self).create_subscription_checkout(request).await
+    }
+    async fn verify_payment_minor_units(
+        &self,
+        provider_checkout_id: &str,
+    ) -> PaymentProviderResult<SubscriptionPaymentVerification> {
+        (**self).verify_payment_minor_units(provider_checkout_id).await
     }
 }

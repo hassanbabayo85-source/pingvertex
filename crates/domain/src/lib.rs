@@ -36,3 +36,7 @@ pub use payg::*;
 
 // Billing invoice exports
 pub use entities::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};
+
+// Task 6 — calendar billing periods:
+pub mod billing_period;
+pub use billing_period::{BillingPeriodError, period_end_from};

@@ -106,6 +106,20 @@ async fn handle_charge_success(
     state: &AppState,
     envelope: PaystackEnvelope,
 ) -> Result<(StatusCode, Json<PaystackWebhookResponse>), ApiError> {
+    // Task 6 — subscription checkout reference prefix. Server-side verify
+    // resolves the session by reference; tenant ownership comes from the
+    // stored checkout session, never from the webhook payload
+    // (Requirement 9).
+    let is_subscription_reference = envelope
+        .data
+        .get("reference")
+        .and_then(|v| v.as_str())
+        .map(|s| s.starts_with("pv-sub-"))
+        .unwrap_or(false);
+    if is_subscription_reference {
+        return handle_subscription_charge_success(state, envelope).await;
+    }
+
     let reference = envelope
         .data
         .get("reference")
@@ -220,6 +234,86 @@ async fn handle_charge_success(
             .to_owned(),
         }),
     ))
+}
+
+/// Task 6 — `charge.success` for a subscription checkout.
+///
+/// The session is resolved from `(provider, reference)`; the tenant id
+/// comes from the persisted checkout session, never from the webhook
+/// payload. Activation delegates to `VerifySubscriptionCheckoutUseCase`
+/// so the webhook and the customer's frontend verify share one
+/// idempotent, server-side-verified code path.
+///
+/// Failures (e.g. Paystack API briefly unavailable during webhook) are
+/// logged and returned as HTTP 200 so Paystack does not retry —
+/// the customer's frontend verify will retry on the redirect, and the
+/// reconciliation worker (Task 8) catches any remaining drift.
+async fn handle_subscription_charge_success(
+    state: &AppState,
+    envelope: PaystackEnvelope,
+) -> Result<(StatusCode, Json<PaystackWebhookResponse>), ApiError> {
+    let reference = envelope
+        .data
+        .get("reference")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("paystack webhook missing reference"))?
+        .to_owned();
+
+    let session = state
+        .checkout_session_repository
+        .find_by_provider_checkout_id(PAYSTACK_PROVIDER_NAME, &reference)
+        .await
+        .map_err(|e| {
+            ApiError::internal_with_source("failed to look up subscription checkout session", e)
+        })?;
+
+    let Some(session) = session else {
+        tracing::warn!(
+            reference = %reference,
+            "paystack charge.success for pv-sub- reference with no matching session; ignoring"
+        );
+        return Ok((
+            StatusCode::OK,
+            Json(PaystackWebhookResponse {
+                status: "unknown_reference".to_owned(),
+            }),
+        ));
+    };
+
+    let use_case = application::use_cases::verify_subscription_checkout::VerifySubscriptionCheckoutUseCase::new(
+        state.checkout_session_repository.clone(),
+        state.subscription_repository.clone(),
+        state.subscription_billing_record_repository.clone(),
+        state.payment_provider.clone(),
+    );
+
+    let cmd = application::use_cases::verify_subscription_checkout::VerifySubscriptionCheckoutCommand {
+        tenant_id: session.tenant_id,
+        checkout_session_id: session.id,
+    };
+
+    match use_case.execute(cmd).await {
+        Ok(outcome) => Ok((
+            StatusCode::OK,
+            Json(PaystackWebhookResponse {
+                status: format!("subscription_{}", outcome.checkout_status.as_str()),
+            }),
+        )),
+        Err(err) => {
+            tracing::error!(
+                reference = %reference,
+                error = %err,
+                "subscription webhook verification failed; returning 200 so Paystack does not retry"
+            );
+            Ok((
+                StatusCode::OK,
+                Json(PaystackWebhookResponse {
+                    status: "subscription_verify_failed".to_owned(),
+                }),
+            ))
+        }
+    }
 }
 
 /// `charge.failed` — mark the wallet top-up session FAILED.

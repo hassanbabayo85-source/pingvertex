@@ -1,11 +1,14 @@
 use application::ports::{
     CheckoutDetails, CheckoutRequest, PaymentProvider, PaymentProviderResult, PaymentVerification,
-    RefundDetails, RefundRequest, WalletTopUpRequest,
+    RefundDetails, RefundRequest, SubscriptionCheckoutRequest, SubscriptionPaymentVerification,
+    WalletTopUpRequest,
 };
+use domain::money::Currency;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::str::FromStr;
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -233,6 +236,92 @@ impl PaymentProvider for PaystackBillingProvider {
     async fn verify_payment(&self, reference: &str) -> PaymentProviderResult<PaymentVerification> {
         self.verify(reference).await
     }
+
+    // ─── Task 6 — subscription checkout + raw-minor-units verify ──
+
+    async fn create_subscription_checkout(
+        &self,
+        request: &SubscriptionCheckoutRequest,
+    ) -> PaymentProviderResult<CheckoutDetails> {
+        let email = request.customer_email.trim();
+        if email.is_empty() {
+            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                std::io::Error::other("customer email is required for subscription checkout"),
+            ));
+        }
+        if request.amount_minor <= 0 {
+            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                std::io::Error::other("subscription amount_minor must be positive"),
+            ));
+        }
+        let d = self
+            .initialize(
+                email,
+                request.amount_minor,
+                request.currency.as_str(),
+                request.reference.clone(),
+            )
+            .await?;
+        Ok(CheckoutDetails {
+            provider_checkout_id: d.reference,
+            checkout_url: d.authorization_url,
+        })
+    }
+
+    async fn verify_payment_minor_units(
+        &self,
+        reference: &str,
+    ) -> PaymentProviderResult<SubscriptionPaymentVerification> {
+        let r = self
+            .auth(self.client.get(format!(
+                "{}/transaction/verify/{}",
+                self.base_url, reference
+            )))
+            .send()
+            .await?;
+        let status = r.status();
+        let body: PaystackResponse<TransactionData> = r.json().await?;
+        if !status.is_success() || !body.status {
+            return Err(Box::<dyn std::error::Error + Send + Sync>::from(
+                std::io::Error::other(
+                    body.message
+                        .unwrap_or_else(|| format!("Paystack HTTP {}", status)),
+                ),
+            ));
+        }
+        let tx = body.data.ok_or_else(|| {
+            Box::<dyn std::error::Error + Send + Sync>::from(std::io::Error::other(
+                "Paystack returned no transaction",
+            ))
+        })?;
+        let currency = Currency::from_str(&tx.currency)
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+        let pid = tx.id.to_string();
+        let amount_minor = tx.amount;
+        Ok(match tx.status.as_str() {
+            "success" => SubscriptionPaymentVerification::Paid {
+                provider_payment_id: pid,
+                provider_reference: tx.reference,
+                amount_minor,
+                currency,
+            },
+            "pending" | "ongoing" | "processing" | "queued" => {
+                SubscriptionPaymentVerification::Pending {
+                    provider_payment_id: Some(pid),
+                    provider_reference: Some(tx.reference),
+                    amount_minor: Some(amount_minor),
+                    currency: Some(currency),
+                }
+            }
+            _ => SubscriptionPaymentVerification::Failed {
+                provider_payment_id: Some(pid),
+                provider_reference: Some(tx.reference),
+                amount_minor: Some(amount_minor),
+                currency: Some(currency),
+            },
+        })
+    }
+
     async fn create_wallet_top_up(
         &self,
         request: &WalletTopUpRequest,

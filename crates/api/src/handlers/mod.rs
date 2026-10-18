@@ -229,3 +229,6 @@ pub use list_proxy_check_results::*;
 pub use platform_admin::*;
 
 pub use pagination::{NEXT_CURSOR_HEADER, PaginationQuery, pagination_headers};
+
+// Task 6 — subscription checkout / lifecycle:
+pub mod subscription_billing;

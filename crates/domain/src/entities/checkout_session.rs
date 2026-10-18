@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::enums::{CheckoutStatus, PlanTier};
+use crate::money::{BillingInterval, Currency};
 use crate::shared::ids::{CheckoutSessionId, TenantId};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -29,6 +30,15 @@ pub struct CheckoutSession {
     pub addon_subscription_id: Option<Uuid>,
     pub amount: Option<Decimal>,
     pub currency: Option<String>,
+    /// Task 6: billing interval for subscription checkout sessions.
+    /// `None` for legacy plan-change / add-on sessions.
+    pub billing_interval: Option<BillingInterval>,
+    /// Task 6: server-quoted integer minor units (kobo / cents).
+    /// Distinct from `amount` (Decimal, major units) which the
+    /// plan-change and add-on paths continue to use.
+    pub amount_minor: Option<i64>,
+    /// Task 6: provider transaction id, set after successful verify.
+    pub provider_payment_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -52,6 +62,9 @@ impl CheckoutSession {
             addon_subscription_id: None,
             amount: None,
             currency: None,
+            billing_interval: None,
+            amount_minor: None,
+            provider_payment_id: None,
             created_at: now,
             updated_at: now,
         }
@@ -59,6 +72,29 @@ impl CheckoutSession {
 
     pub fn attach_provider_checkout_id(&mut self, provider_checkout_id: String) {
         self.provider_checkout_id = Some(provider_checkout_id);
+        self.updated_at = Utc::now();
+    }
+
+    /// Task 6: attaches the server-quoted subscription price. The
+    /// amount is captured at initiate time and validated against the
+    /// provider's reported amount at verify time, so a price-version
+    /// bump between the two steps does not silently change what the
+    /// customer pays.
+    pub fn attach_subscription_billing(
+        &mut self,
+        billing_interval: BillingInterval,
+        amount_minor: i64,
+        currency: Currency,
+    ) {
+        self.billing_interval = Some(billing_interval);
+        self.amount_minor = Some(amount_minor);
+        self.currency = Some(currency.as_str().to_owned());
+        self.updated_at = Utc::now();
+    }
+
+    /// Task 6: records the provider's transaction id after verification.
+    pub fn attach_provider_payment_id(&mut self, provider_payment_id: String) {
+        self.provider_payment_id = Some(provider_payment_id);
         self.updated_at = Utc::now();
     }
 

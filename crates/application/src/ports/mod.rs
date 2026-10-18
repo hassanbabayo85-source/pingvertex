@@ -245,3 +245,15 @@ pub use bulk_monitor_action_repository::{
 };
 
 pub use agent_registry::{AgentRegistry, AgentRegistryResult};
+
+// Task 6 — server-side plan prices:
+pub mod plan_price_repository;
+pub use plan_price_repository::{PlanPriceRepoResult, PlanPriceRepository};
+
+// Task 6 — subscription billing records:
+pub mod subscription_billing_record_repository;
+pub use subscription_billing_record_repository::{
+    BillingRecordStatus, InsertBillingRecordOutcome, SubscriptionBillingRecord,
+    SubscriptionBillingRecordRepository,
+};
+pub use payment_provider::{SubscriptionCheckoutRequest, SubscriptionPaymentVerification};

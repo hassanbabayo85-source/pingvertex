@@ -21,6 +21,20 @@ pub trait CheckoutSessionRepository: Send + Sync {
     ) -> CheckoutRepoResult<Option<CheckoutSession>>;
 
     async fn update(&self, session: &CheckoutSession) -> CheckoutRepoResult<()>;
+
+    /// Task 6 — look up a session by its provider reference. Used by the
+    /// Paystack webhook to resolve tenant ownership from the provider
+    /// reference alone (the webhook never carries tenant_id).
+    ///
+    /// Default returns `None`; repositories that want to support the
+    /// webhook path MUST override.
+    async fn find_by_provider_checkout_id(
+        &self,
+        _provider: &str,
+        _provider_checkout_id: &str,
+    ) -> CheckoutRepoResult<Option<CheckoutSession>> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -41,5 +55,15 @@ where
 
     async fn update(&self, session: &CheckoutSession) -> CheckoutRepoResult<()> {
         (**self).update(session).await
+    }
+
+    async fn find_by_provider_checkout_id(
+        &self,
+        provider: &str,
+        provider_checkout_id: &str,
+    ) -> CheckoutRepoResult<Option<CheckoutSession>> {
+        (**self)
+            .find_by_provider_checkout_id(provider, provider_checkout_id)
+            .await
     }
 }

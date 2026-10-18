@@ -234,3 +234,15 @@ pub use postgres_bulk_monitor_import_repository::PostgresBulkMonitorImportReposi
 pub use in_memory_agent_registry::InMemoryAgentRegistry;
 
 pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;
+
+// Task 6 — plan prices:
+pub mod in_memory_plan_price_repository;
+pub mod postgres_plan_price_repository;
+pub use in_memory_plan_price_repository::InMemoryPlanPriceRepository;
+pub use postgres_plan_price_repository::PostgresPlanPriceRepository;
+
+// Task 6 — subscription billing records:
+pub mod in_memory_subscription_billing_record_repository;
+pub mod postgres_subscription_billing_record_repository;
+pub use in_memory_subscription_billing_record_repository::InMemorySubscriptionBillingRecordRepository;
+pub use postgres_subscription_billing_record_repository::PostgresSubscriptionBillingRecordRepository;
