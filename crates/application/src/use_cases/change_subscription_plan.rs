@@ -1,33 +1,64 @@
+//! Task 8B — plan change for fixed-price subscriptions.
+//!
+//! Differences from the PAYG-era implementation:
+//!   * Prices come from `plan_prices` (monthly rows), not `PricingConfig`.
+//!   * Downgrades are rejected. In a subscription model, a downgrade
+//!     should take effect at the end of the current period, not mid-cycle
+//!     with a wallet credit.
+//!   * No wallet is touched. There is no "proration credit" any more.
+//!
+//! This use case is not yet wired to an HTTP handler. Task 7 will do so
+//! on top of the Task 6 subscription-billing surface.
+
 use crate::ports::*;
-use chrono::{Duration, Utc};
-use domain::proration::calculate_proration;
+use chrono::{DateTime, Utc};
+use domain::money::{BillingInterval, Currency, Money};
+use domain::proration::{calculate_proration_from_money, money_to_decimal};
 use domain::{
     CheckoutSession, Plan, PlanTier, SubscriptionPlanChange, SubscriptionPlanChangeStatus,
     SubscriptionStatus, SubscriptionUsagePeriod,
 };
-use rust_decimal::{Decimal, prelude::ToPrimitive};
+use rust_decimal::Decimal;
 use std::{error::Error, fmt, sync::Arc};
 use uuid::Uuid;
+
 #[derive(Debug)]
 pub enum ChangePlanError {
     SubscriptionNotFound,
     SamePlan,
+    /// Downgrades must be scheduled at period end, not executed mid-cycle
+    /// with a wallet credit. Reject at the API boundary with 409.
+    DowngradesRequirePeriodEnd,
     Invalid(String),
-    Pricing(Box<dyn Error + Send + Sync>),
+    PriceNotFound,
+    Pricing(domain::proration::ProrationError),
     Provider(Box<dyn Error + Send + Sync>),
     Repository(Box<dyn Error + Send + Sync>),
 }
+
 impl fmt::Display for ChangePlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SubscriptionNotFound => write!(f, "subscription not found"),
             Self::SamePlan => write!(f, "requested plan is already active"),
+            Self::DowngradesRequirePeriodEnd => write!(
+                f,
+                "downgrades take effect at the end of the current billing period; \
+                 contact support to schedule one"
+            ),
             Self::Invalid(s) => write!(f, "{s}"),
-            Self::Pricing(e) | Self::Provider(e) | Self::Repository(e) => write!(f, "{e}"),
+            Self::PriceNotFound => {
+                write!(f, "no effective price configured for the requested plan/currency")
+            }
+            Self::Pricing(e) => write!(f, "proration error: {e}"),
+            Self::Provider(e) => write!(f, "{e}"),
+            Self::Repository(e) => write!(f, "{e}"),
         }
     }
 }
+
 impl Error for ChangePlanError {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangePlanOutcome {
     pub plan_change_id: Uuid,
@@ -36,53 +67,61 @@ pub struct ChangePlanOutcome {
     pub checkout_url: Option<String>,
     pub applied: bool,
 }
+
 pub struct ChangeSubscriptionPlanUseCase<T> {
     subs: Arc<dyn SubscriptionRepository>,
-    pricing: Arc<dyn PricingConfigRepository>,
+    prices: Arc<dyn PlanPriceRepository>,
     changes: Arc<dyn SubscriptionPlanChangeRepository>,
     sessions: Arc<dyn CheckoutSessionRepository>,
     provider: Arc<dyn PaymentProvider>,
-    wallet: Arc<dyn WalletRepository>,
     periods: Arc<dyn SubscriptionUsagePeriodRepository>,
     tx: T,
     ids: Arc<dyn IdGenerator>,
 }
+
 impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         subs: Arc<dyn SubscriptionRepository>,
-        pricing: Arc<dyn PricingConfigRepository>,
+        prices: Arc<dyn PlanPriceRepository>,
         changes: Arc<dyn SubscriptionPlanChangeRepository>,
         sessions: Arc<dyn CheckoutSessionRepository>,
         provider: Arc<dyn PaymentProvider>,
-        wallet: Arc<dyn WalletRepository>,
         periods: Arc<dyn SubscriptionUsagePeriodRepository>,
         tx: T,
         ids: Arc<dyn IdGenerator>,
     ) -> Self {
         Self {
             subs,
-            pricing,
+            prices,
             changes,
             sessions,
             provider,
-            wallet,
             periods,
             tx,
             ids,
         }
     }
+
     pub async fn execute(
         &self,
         tenant: domain::shared::ids::TenantId,
         new_plan: PlanTier,
+        currency: Currency,
     ) -> Result<ChangePlanOutcome, ChangePlanError> {
+        if matches!(new_plan, PlanTier::Free | PlanTier::Enterprise) {
+            return Err(ChangePlanError::Invalid(
+                "Free and Enterprise are not subject to self-service plan changes".into(),
+            ));
+        }
+
         let sub = self
             .subs
             .find_by_tenant_id(tenant)
             .await
             .map_err(ChangePlanError::Repository)?
             .ok_or(ChangePlanError::SubscriptionNotFound)?;
+
         if sub.plan_tier == new_plan {
             return Err(ChangePlanError::SamePlan);
         }
@@ -91,18 +130,53 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                 "only an active subscription can change plan mid-cycle".into(),
             ));
         }
-        let cfg = self
-            .pricing
-            .find_active_config()
+
+        // Load both prices at MONTHLY interval; the plan change prorates the
+        // monthly price regardless of the tenant's current annual/monthly
+        // cadence.
+        let old_price = self
+            .prices
+            .find_effective(sub.plan_tier, currency, BillingInterval::Monthly)
             .await
             .map_err(ChangePlanError::Repository)?
-            .ok_or_else(|| ChangePlanError::Invalid("no active pricing config".into()))?;
+            .ok_or(ChangePlanError::PriceNotFound)?;
+        let new_price = self
+            .prices
+            .find_effective(new_plan, currency, BillingInterval::Monthly)
+            .await
+            .map_err(ChangePlanError::Repository)?
+            .ok_or(ChangePlanError::PriceNotFound)?;
+
         let end = sub
             .current_period_ends_at
-            .unwrap_or(sub.created_at + Duration::days(30));
-        let start = end - Duration::days(30);
-        let r = calculate_proration(sub.plan_tier, new_plan, start, end, Utc::now(), &cfg)
-            .map_err(|e| ChangePlanError::Pricing(Box::new(e)))?;
+            .ok_or_else(|| {
+                ChangePlanError::Invalid(
+                    "subscription has no current period end; cannot prorate".into(),
+                )
+            })?;
+        let start = sub.created_at;
+
+        let r = calculate_proration_from_money(
+            sub.plan_tier,
+            new_plan,
+            old_price.amount,
+            new_price.amount,
+            start,
+            end,
+            Utc::now(),
+            new_price.version,
+        )
+        .map_err(ChangePlanError::Pricing)?;
+
+        if r.calculated_amount.amount_minor < 0 {
+            return Err(ChangePlanError::DowngradesRequirePeriodEnd);
+        }
+
+        // SubscriptionPlanChange.pricing_version is u32; plan_prices.version is i64.
+        let pricing_version = u32::try_from(r.price_version).map_err(|_| {
+            ChangePlanError::Invalid("plan price version out of u32 range".into())
+        })?;
+
         let mut c = SubscriptionPlanChange {
             id: Uuid::new_v4(),
             subscription_id: sub.id.0,
@@ -111,9 +185,9 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             new_plan: r.new_plan,
             period_start: r.period_start,
             period_end: r.period_end,
-            calculated_amount: r.calculated_amount,
-            currency: cfg.currency.clone(),
-            pricing_version: r.pricing_version,
+            calculated_amount: money_to_decimal(r.calculated_amount),
+            currency: currency.as_str().to_owned(),
+            pricing_version,
             status: SubscriptionPlanChangeStatus::Pending,
             created_at: Utc::now(),
             completed_at: None,
@@ -122,18 +196,15 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             .create(&c)
             .await
             .map_err(ChangePlanError::Repository)?;
-        if r.calculated_amount > Decimal::ZERO {
-            let cents = (r.calculated_amount * Decimal::from(100))
-                .round()
-                .to_i64()
-                .ok_or_else(|| ChangePlanError::Invalid("proration amount out of range".into()))?;
+
+        if r.calculated_amount.amount_minor > 0 {
             let co = self
                 .provider
                 .create_checkout(&CheckoutRequest {
                     tenant_id: tenant,
                     plan_tier: Some(new_plan),
-                    amount_minor: cents,
-                    currency: cfg.currency.clone(),
+                    amount_minor: r.calculated_amount.amount_minor,
+                    currency: currency.as_str().to_owned(),
                     customer_email: None,
                 })
                 .await
@@ -145,36 +216,28 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                 self.provider.provider_name().into(),
             );
             s.attach_provider_checkout_id(co.provider_checkout_id);
-            s.attach_plan_change(c.id, r.calculated_amount, cfg.currency.clone());
+            s.attach_plan_change(
+                c.id,
+                money_to_decimal(r.calculated_amount),
+                currency.as_str().to_owned(),
+            );
             self.sessions
                 .create(&s)
                 .await
                 .map_err(ChangePlanError::Repository)?;
             return Ok(ChangePlanOutcome {
                 plan_change_id: c.id,
-                calculated_amount: r.calculated_amount,
+                calculated_amount: money_to_decimal(r.calculated_amount),
                 checkout_session_id: Some(s.id.0),
                 checkout_url: Some(co.checkout_url),
                 applied: false,
             });
         }
-        if r.calculated_amount < Decimal::ZERO {
-            let cents = (-r.calculated_amount * Decimal::from(100))
-                .round()
-                .to_i64()
-                .ok_or_else(|| ChangePlanError::Invalid("credit amount out of range".into()))?;
-            self.wallet
-                .credit(
-                    tenant.0,
-                    cents,
-                    domain::WalletTransactionType::PromotionalCredit,
-                    &format!("plan-change:{}", c.id),
-                    Some("subscription downgrade proration credit"),
-                )
-                .await
-                .map_err(ChangePlanError::Repository)?;
-        }
-        self.apply(&sub, new_plan, end, cfg.version).await?;
+
+        // calculated_amount == 0 — apply immediately (e.g. flat-rate tiers
+        // priced identically for the remaining fraction; extremely rare,
+        // but the code path is kept for correctness).
+        self.apply(&sub, new_plan, end, pricing_version).await?;
         c.status = SubscriptionPlanChangeStatus::Completed;
         c.completed_at = Some(Utc::now());
         self.changes
@@ -183,12 +246,13 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             .map_err(ChangePlanError::Repository)?;
         Ok(ChangePlanOutcome {
             plan_change_id: c.id,
-            calculated_amount: r.calculated_amount,
+            calculated_amount: Decimal::ZERO,
             checkout_session_id: None,
             checkout_url: None,
             applied: true,
         })
     }
+
     pub async fn apply_verified_change(
         &self,
         tenant: domain::shared::ids::TenantId,
@@ -278,7 +342,6 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
                         "plan change does not belong to the current subscription".into(),
                     ));
                 }
-
                 if c.old_plan != sub.plan_tier {
                     return Err(ChangePlanError::Invalid(
                         "subscription plan changed since this plan change was created".into(),
@@ -310,11 +373,12 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             }
         }
     }
+
     async fn apply(
         &self,
         sub: &domain::Subscription,
         new_plan: PlanTier,
-        end: chrono::DateTime<Utc>,
+        end: DateTime<Utc>,
         pricing_version: u32,
     ) -> Result<(), ChangePlanError> {
         let mut u = sub.clone();
@@ -348,3 +412,8 @@ impl<T: SubscriptionUsageTransaction> ChangeSubscriptionPlanUseCase<T> {
             .map_err(ChangePlanError::Repository)
     }
 }
+
+/// Helper retained so legacy callers that pass `Money` through this path
+/// can still refer to the domain type without importing `domain::money`.
+#[allow(dead_code)]
+fn _money_marker(_m: Money) {}
