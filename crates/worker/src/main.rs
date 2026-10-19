@@ -276,11 +276,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    // TASK 5 — metering is now optional on ProxyCheckWorker. Keep it
-    // wired during the migration so one-time proxy jobs continue to
-    // charge PAYG; TASK 8 will decide whether to remove it permanently.
-    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository)
-        .with_metering(metering.clone());
+    // Task 8E — PAYG metering retired for proxy checks.
+    let proxy_check_worker = ProxyCheckWorker::new(proxy_check_job_repository);
     let proxy_check_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = proxy_check_worker.run_forever(proxy_check_cancel).await {
@@ -382,8 +379,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 Duration::from_secs(worker_config.lease_seconds),
                 worker_config.max_concurrent_checks,
             )
-            .with_metering(metering.clone())
-    .with_tenant_repository(tenant_repository.clone())
+            .with_tenant_repository(tenant_repository.clone())
             .with_entitlement_repositories(
                 monitor_repository.clone(),
                 std::sync::Arc::new(infra::PostgresEntitlementResolver::new(pool.clone())),
