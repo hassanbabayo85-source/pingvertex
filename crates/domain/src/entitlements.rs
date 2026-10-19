@@ -79,6 +79,9 @@ pub struct Entitlements {
     pub max_status_pages: u32,
     pub max_api_keys: u32,
     pub max_team_members: u32,
+
+    // ── History retention (Task 8C) ────────────────────────────────
+    pub max_history_retention_days: u32,
 }
 
 impl Entitlements {
@@ -198,6 +201,11 @@ impl Entitlements {
             max_status_pages: get!(MAX_STATUS_PAGES, u32, max_status_pages),
             max_api_keys: get!(MAX_API_KEYS, u32, max_api_keys),
             max_team_members: get!(MAX_TEAM_MEMBERS, u32, max_team_members),
+            max_history_retention_days: get!(
+                crate::entities::MAX_HISTORY_RETENTION_DAYS,
+                u32,
+                max_history_retention_days
+            ),
         })
     }
 
@@ -229,6 +237,7 @@ impl Entitlements {
             max_status_pages: 1,
             max_api_keys: 1,
             max_team_members: 1,
+            max_history_retention_days: 2,
         }
     }
 
@@ -253,6 +262,7 @@ impl Entitlements {
             max_status_pages: 2,
             max_api_keys: 3,
             max_team_members: 3,
+            max_history_retention_days: 30,
         }
     }
 
@@ -277,6 +287,7 @@ impl Entitlements {
             max_status_pages: 5,
             max_api_keys: 10,
             max_team_members: 10,
+            max_history_retention_days: 90,
         }
     }
 
@@ -301,6 +312,7 @@ impl Entitlements {
             max_status_pages: 15,
             max_api_keys: 30,
             max_team_members: 25,
+            max_history_retention_days: 365,
         }
     }
 
@@ -325,6 +337,7 @@ impl Entitlements {
             max_status_pages: 50,
             max_api_keys: 100,
             max_team_members: 100,
+            max_history_retention_days: 1095,
         }
     }
 }
@@ -362,6 +375,7 @@ mod tests {
             row(MAX_STATUS_PAGES, 1, 1),
             row(MAX_API_KEYS, 1, 1),
             row(MAX_TEAM_MEMBERS, 1, 1),
+            row(crate::entities::MAX_HISTORY_RETENTION_DAYS, 2, 1),
         ]
     }
 
@@ -376,6 +390,7 @@ mod tests {
         assert_eq!(e.max_status_pages, 1);
         assert_eq!(e.max_api_keys, 1);
         assert_eq!(e.max_team_members, 1);
+        assert_eq!(e.max_history_retention_days, 2);
         assert!(e.is_free());
     }
 

@@ -171,3 +171,6 @@ mod payg;
 pub use payg::{PAYGPricing, Payment, UsageEvent};
 mod invoice;
 pub use invoice::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};
+
+// Task 8C — retention entitlement constant (additive to the existing block):
+pub use plan_entitlements::MAX_HISTORY_RETENTION_DAYS;

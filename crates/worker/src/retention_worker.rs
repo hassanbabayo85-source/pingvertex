@@ -1,14 +1,22 @@
+//! Task 8C — retention sweep driven by `EntitlementResolver`.
+//!
+//! The per-tenant cutoff is `entitlements.max_history_retention_days`,
+//! optionally narrowed by a `TenantRetentionSettings` row (Legacy or
+//! Addon source) but never widened above the plan maximum. The PAYG
+//! era chain (`WalletRepository.payg_activated_at` + `PricingConfig
+//! .free_tier`) has been removed; history preservation is preserved
+//! because the worker still only deletes rows older than the cutoff.
+
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use application::ports::{
-    HistoryRetentionRepository, PricingConfigRepository, TenantRepository,
-    TenantRetentionSettingsRepository, WalletRepository,
+    EntitlementResolver, HistoryRetentionRepository, TenantRepository,
+    TenantRetentionSettingsRepository,
 };
 use chrono::{Duration as ChronoDuration, Utc};
-use domain::entities::RetentionSource;
 use tokio::{sync::Semaphore, task::JoinSet, time};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -23,47 +31,42 @@ pub struct SweepSummary {
     pub checks_deleted: u64,
 }
 
-pub struct RetentionWorker<T, H, P>
+pub struct RetentionWorker<T, H>
 where
     T: TenantRepository,
     H: HistoryRetentionRepository + 'static,
-    P: PricingConfigRepository + 'static,
 {
     tenant_repository: Arc<T>,
     history_repository: Arc<H>,
-    pricing_repository: Arc<P>,
+    entitlement_resolver: Arc<dyn EntitlementResolver>,
     batch_size: u32,
     interval: Duration,
     max_concurrent_tenants: usize,
-    wallet_repository: Arc<dyn WalletRepository>,
     retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
 }
 
-impl<T, H, P> RetentionWorker<T, H, P>
+impl<T, H> RetentionWorker<T, H>
 where
     T: TenantRepository,
     H: HistoryRetentionRepository + 'static,
-    P: PricingConfigRepository + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tenant_repository: Arc<T>,
         history_repository: Arc<H>,
-        pricing_repository: Arc<P>,
+        entitlement_resolver: Arc<dyn EntitlementResolver>,
         batch_size: u32,
         interval: Duration,
         max_concurrent_tenants: usize,
-        wallet_repository: Arc<dyn WalletRepository>,
         retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     ) -> Self {
         Self {
             tenant_repository,
             history_repository,
-            pricing_repository,
+            entitlement_resolver,
             batch_size,
             interval,
             max_concurrent_tenants,
-            wallet_repository,
             retention_settings_repository,
         }
     }
@@ -81,8 +84,7 @@ where
         for tenant in tenants {
             let permit = semaphore.clone().acquire_owned().await?;
             let history_repository = self.history_repository.clone();
-            let pricing_repository = self.pricing_repository.clone();
-            let wallet_repository = self.wallet_repository.clone();
+            let entitlement_resolver = self.entitlement_resolver.clone();
             let retention_settings_repository = self.retention_settings_repository.clone();
             let batch_size = self.batch_size;
             let checks_deleted = checks_deleted.clone();
@@ -90,75 +92,41 @@ where
             join_set.spawn(async move {
                 let _permit = permit;
 
-                let retention_days = {
-                    let wallet = match wallet_repository
-                        .get_or_create(tenant.id.0, "USD")
-                        .await
-                    {
-                        Ok(wallet) => wallet,
-                        Err(err) => {
-                            error!(
-                                tenant_id = ?tenant.id,
-                                error = %err,
-                                "failed to load PAYG wallet for retention; skipping tenant"
-                            );
-                            return;
-                        }
-                    };
-                    let config = match pricing_repository.find_active_config().await {
-                        Ok(Some(config)) => config,
-                        Ok(None) => {
-                            error!(tenant_id = ?tenant.id, "active PAYG pricing config missing; skipping retention");
-                            return;
-                        }
-                        Err(err) => {
-                            error!(tenant_id = ?tenant.id, error = %err, "failed to load PAYG pricing config; skipping retention");
-                            return;
-                        }
-                    };
-
-                    // GAP 3 Kashi C: per-tenant retention.
-                    //
-                    // PAYG-activated tenants use their effective retention,
-                    // which is the tenant's own row if set, or the pricing
-                    // config's `default_retention_days` (30) otherwise.
-                    //
-                    // Non-PAYG tenants with a `legacy` (migrated from a
-                    // subscription) or `addon` row keep that retention, so
-                    // the migration does not delete their history on the
-                    // first sweep. All other non-PAYG tenants get the
-                    // pricing config's free-tier retention (2 days).
-                    if wallet.payg_activated_at.is_some() {
-                        match retention_settings_repository
-                            .effective_retention(
-                                tenant.id,
-                                config.default_retention_days,
-                                config.max_retention_days,
-                            )
-                            .await
-                        {
-                            Ok(days) => days,
-                            Err(err) => {
-                                error!(
-                                    tenant_id = ?tenant.id,
-                                    error = %err,
-                                    "failed to resolve effective retention; falling back to default"
-                                );
-                                config.default_retention_days
-                            }
-                        }
-                    } else {
-                        match retention_settings_repository.get(tenant.id).await {
-                            Ok(Some(s))
-                                if s.source == RetentionSource::Legacy
-                                    || s.source == RetentionSource::Addon =>
-                            {
-                                s.retention_days.min(config.max_retention_days).max(1)
-                            }
-                            _ => config.free_tier.retention_days,
-                        }
+                // Task 8C — retention comes from EntitlementResolver.
+                // A `TenantRetentionSettings` row (Legacy/Addon) may narrow
+                // the window but never widen it above the plan maximum.
+                let entitlements = match entitlement_resolver.resolve(tenant.id).await {
+                    Ok(e) => e,
+                    Err(err) => {
+                        error!(
+                            tenant_id = ?tenant.id,
+                            error = %err,
+                            "failed to resolve entitlements for retention; skipping tenant"
+                        );
+                        return;
                     }
                 };
+                let max = entitlements.max_history_retention_days.max(1);
+
+                // `effective_retention(tenant, max, max)` yields:
+                //   * the tenant row's retention_days if in [1, max],
+                //   * otherwise `max` (which we pass as both default and max),
+                //   * always clamped to `max`.
+                let retention_days = match retention_settings_repository
+                    .effective_retention(tenant.id, max, max)
+                    .await
+                {
+                    Ok(days) => days,
+                    Err(err) => {
+                        error!(
+                            tenant_id = ?tenant.id,
+                            error = %err,
+                            "failed to resolve effective retention; falling back to plan max"
+                        );
+                        max
+                    }
+                };
+
                 let cutoff = Utc::now() - ChronoDuration::days(retention_days as i64);
 
                 match history_repository
