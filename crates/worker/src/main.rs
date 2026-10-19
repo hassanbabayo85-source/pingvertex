@@ -12,12 +12,12 @@ use infra::{
     PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
     PostgresHistoryRetentionRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository,     PostgresMonitorRepository, PostgresNotificationChannelRepository,
-    PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
+    PostgresNotificationOutboxRepository,
     PostgresProxyCheckJobRepository,
     PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
     PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
-    PostgresTenantRetentionSettingsRepository, PostgresUsageEventRepository, RedisStatusPageCache,
+    PostgresTenantRetentionSettingsRepository, RedisStatusPageCache,
     UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
@@ -105,21 +105,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let id_generator = Arc::new(UuidIdGenerator::new());
 
     let tenant_repository = Arc::new(PostgresTenantRepository::new(pool.clone()));
-    let wallet_repository = Arc::new(infra::PostgresWalletRepository::new(pool.clone()));
-    let financial_audit_repository = Arc::new(infra::PostgresFinancialAuditLogRepository::new(
-        pool.clone(),
-    ));
-    let payg_pricing_repository = Arc::new(PostgresPAYGPricingRepository::new(pool.clone()));
-    let usage_event_repository = Arc::new(PostgresUsageEventRepository::new(pool.clone()));
-    let metering = Arc::new(
-        application::MeterUsageUseCase::new(
-            wallet_repository.clone(),
-            payg_pricing_repository,
-            usage_event_repository,
-        )
-        .with_audit_log_repository(financial_audit_repository.clone())
-        .with_tenant_repository(tenant_repository.clone()),
-    );
+    // Task 8F — PAYG metering retired from the worker.
     let bulk_action_worker = BulkMonitorActionWorker::new(
         Arc::new(infra::PostgresBulkMonitorActionRepository::new(
             pool.clone(),
@@ -161,7 +147,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let allowance_repository = Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
     let notification_service = Arc::new(
-        NotificationDispatcher::from_env_with_metering(secret_cipher.clone(), metering.clone())
+        NotificationDispatcher::from_env(secret_cipher.clone())
             .with_alert_allowance(
                 allowance_repository.clone(),
                 monitor_repository.clone(),
@@ -288,8 +274,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let reconciliation_worker = ReconciliationWorker::new(pool.clone(), Duration::from_secs(300))
-        .with_payg_metering(metering.clone());
+    let reconciliation_worker = ReconciliationWorker::new(pool.clone(), Duration::from_secs(300));
     let reconciliation_cancel = cancel_token.clone();
     tokio::spawn(async move {
         if let Err(err) = reconciliation_worker

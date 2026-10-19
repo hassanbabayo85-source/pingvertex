@@ -4,8 +4,6 @@ use application::ports::{
     MonitorRepository, NotificationChannelRepository, NotificationService, NotifyResult,
     SecretCipher, TenantAlertAllowanceRepository,
 };
-use application::use_cases::charge_for_usage::ChargeForUsageError;
-use application::{MeterUsageInput, MeterUsageUseCase};
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::{
@@ -27,7 +25,6 @@ pub struct NotificationDispatcher {
     discord: Arc<dyn NotificationService>,
     telegram: Arc<dyn NotificationService>,
     sms: Arc<dyn NotificationService>,
-    metering: Option<Arc<MeterUsageUseCase>>,
     allowance_repository: Option<Arc<dyn TenantAlertAllowanceRepository>>,
     monitor_repository: Option<Arc<dyn MonitorRepository>>,
     channel_repository: Option<Arc<dyn NotificationChannelRepository>>,
@@ -49,16 +46,10 @@ impl NotificationDispatcher {
             discord,
             telegram,
             sms,
-            metering: None,
             allowance_repository: None,
             monitor_repository: None,
             channel_repository: None,
         }
-    }
-
-    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
-        self.metering = Some(metering);
-        self
     }
 
     pub fn with_alert_allowance(
@@ -71,13 +62,6 @@ impl NotificationDispatcher {
         self.monitor_repository = Some(monitor_repository);
         self.channel_repository = Some(channel_repository);
         self
-    }
-
-    pub fn from_env_with_metering(
-        cipher: Arc<dyn SecretCipher>,
-        metering: Arc<MeterUsageUseCase>,
-    ) -> Self {
-        Self::from_env(cipher).with_metering(metering)
     }
 
     pub fn from_env(cipher: Arc<dyn SecretCipher>) -> Self {
@@ -180,38 +164,10 @@ impl NotificationService for NotificationDispatcher {
                     return self.sms.notify(channel, event).await;
                 }
                 Ok(false) => {
-                    info!(tenant_id = %tenant_id.0, "SMS allowance exhausted; attempting paid SMS credits");
+                    info!(tenant_id = %tenant_id.0, "SMS allowance exhausted; falling back to email");
                 }
                 Err(err) => {
-                    warn!(tenant_id = %tenant_id.0, error = %err, "allowance try_consume_sms failed; falling through to wallet");
-                }
-            }
-
-            if let Some(metering) = &self.metering {
-                let request_id_owned = request_id.to_owned();
-                match metering
-                    .execute(
-                        MeterUsageInput {
-                            tenant_id: channel.tenant_id.0,
-                            operation: "sms".to_owned(),
-                            units: 1,
-                            request_id: request_id_owned,
-                            monitor_id: None,
-                            execution_id: None,
-                            pricing_context: None,
-                        },
-                        || self.sms.notify(channel, event),
-                    )
-                    .await
-                {
-                    Ok(_) => return Ok(()),
-                    Err(ChargeForUsageError::InsufficientBalance)
-                    | Err(ChargeForUsageError::SpendLimitExceeded) => {
-                        info!(tenant_id = %tenant_id.0, "SMS wallet exhausted; falling back to email");
-                    }
-                    Err(err) => {
-                        return Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>);
-                    }
+                    warn!(tenant_id = %tenant_id.0, error = %err, "allowance try_consume_sms failed; falling back to email");
                 }
             }
 
@@ -237,29 +193,6 @@ impl NotificationService for NotificationDispatcher {
                 }
             }
             return Ok(());
-        }
-
-        if channel.kind == NotificationChannelKind::Sms
-            && let Some(metering) = &self.metering
-        {
-            let request_id = request_id.to_owned();
-            return metering
-                .execute(
-                    MeterUsageInput {
-                        tenant_id: channel.tenant_id.0,
-                        operation: "sms".to_owned(),
-                        units: 1,
-                        request_id,
-
-                        monitor_id: None,
-                        execution_id: None,
-                        pricing_context: None,
-                    },
-                    || self.sms.notify(channel, event),
-                )
-                .await
-                .map(|_| ())
-                .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>);
         }
 
         match channel.kind {

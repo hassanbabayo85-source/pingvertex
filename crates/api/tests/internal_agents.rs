@@ -22,7 +22,7 @@ use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
-    InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository, InMemoryUsageEventRepository,
+    InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryWalletRepository, NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
@@ -335,13 +335,6 @@ async fn build_test_app(
     let pricing_config_repository = Arc::new(
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
     );
-    let usage_event_repository = Arc::new(InMemoryUsageEventRepository::default());
-    let metering = Arc::new(application::MeterUsageUseCase::new(
-        wallet_repository.clone(),
-        payg_pricing_repository.clone(),
-        usage_event_repository,
-    ));
-
     let state = AppState::new(
         monitor_repo.clone(),
         check_repo.clone(),
@@ -359,8 +352,7 @@ async fn build_test_app(
     .with_agent_registry(seed_test_agents())
     .with_wallet_repository(wallet_repository.clone())
     .with_payg_pricing_repository(payg_pricing_repository.clone())
-    .with_pricing_config_repository(pricing_config_repository.clone())
-    .with_payg_metering(metering);
+    .with_pricing_config_repository(pricing_config_repository.clone());
 
     let auth_state = AuthState::new(
         NoopUserRepository,

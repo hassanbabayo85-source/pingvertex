@@ -1,5 +1,3 @@
-use application::MeterUsageInput;
-use application::use_cases::ChargeForUsageError;
 use axum::{
     Json,
     extract::{Path, State},
@@ -39,21 +37,7 @@ const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
 /// not collide with the RUM ingest or auth namespaces.
 const HEARTBEAT_RATE_LIMIT_NAMESPACE: &str = "heartbeat";
 
-const MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
-/// Bucket size (seconds) applied to a client-supplied `Idempotency-Key`.
-///
-/// An `Idempotency-Key` is only treated as identifying the
-/// SAME request within a single bucket of this size. Past the bucket
-/// boundary, the same key value identifies a NEW request — so a client
-/// that caches or reuses an idempotency key cannot silently suppress
-/// legitimate future heartbeat execution.
-///
-/// Chosen (a) larger than `HEARTBEAT_RATE_LIMIT_WINDOW_SECS` so an
-/// in-flight retry inside one rate-limit burst still dedupes, and (b)
-/// smaller than any realistic heartbeat interval so a reused key never
-/// suppresses more than one scheduled ping.
-const HEARTBEAT_IDEMPOTENCY_BUCKET_SECS: i64 = 300;
 
 /// `GET /api/v1/public/heartbeat/{token}` (LEGACY).
 ///
@@ -127,7 +111,7 @@ fn extract_heartbeat_token_from_headers(headers: &HeaderMap) -> Option<String> {
 async fn record_heartbeat_inner(
     state: &AppState,
     raw_token: &str,
-    headers: &HeaderMap,
+    _headers: &HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     // (1) Reject malformed tokens BEFORE any rate-limit or DB
     // work. Only well-formed `HeartbeatToken`s ever reach the limiter, so
@@ -171,46 +155,9 @@ async fn record_heartbeat_inner(
         }
     };
 
-    // BILLING POLICY: a heartbeat is a user-triggered passive monitoring
-    // operation, so PAYG meters the accepted heartbeat receipt itself. The
-    // sweeper's later timeout evaluation is platform-side bookkeeping and
-    // is intentionally NOT billed.
+    // Task 8F — PAYG metering retired. Heartbeats are recorded directly.
     let now = Utc::now();
-    let request_id = build_request_id(&monitor.id, headers, now);
-
-    if let Some(metering) = &state.payg_metering {
-        match metering
-            .execute(
-                MeterUsageInput {
-                    tenant_id: monitor.tenant_id.0,
-                    operation: domain::PaygOperation::HeartbeatProcessing
-                        .as_str()
-                        .to_owned(),
-                    units: 1,
-                    request_id,
-                    monitor_id: None,
-                    execution_id: None,
-                    pricing_context: None,
-                },
-                || {
-                    state
-                        .monitor_repository
-                        .update_last_heartbeat_at(monitor.id, now)
-                },
-            )
-            .await
-        {
-            Ok(_) => {}
-            Err(ChargeForUsageError::InsufficientBalance) => {
-                warn!(monitor_id = %monitor.id.0, "heartbeat rejected: insufficient PAYG balance");
-                return Err(StatusCode::PAYMENT_REQUIRED);
-            }
-            Err(err) => {
-                warn!(monitor_id = %monitor.id.0, error = %err, "heartbeat metering/record failed");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        }
-    } else if let Err(err) = state
+    if let Err(err) = state
         .monitor_repository
         .update_last_heartbeat_at(monitor.id, now)
         .await
@@ -223,18 +170,19 @@ async fn record_heartbeat_inner(
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
 }
 
-/// Builds the idempotency `request_id` for one heartbeat attempt.
-///
-/// * No client `Idempotency-Key` — a unique value per request
-///   (`heartbeat:<monitor_id>:<nanos>`), so retries of the SAME real
-///   request still charge independently. This is the default.
-/// * With client `Idempotency-Key` — `heartbeat:<monitor_id>:<key>:<bucket>`.
-///   Within one bucket the same key is deduplicated; in a new bucket the
-///   same key identifies a distinct request. This bounds how long a
-///   stale/reused key can suppress a legitimate future heartbeat
-///   invariant.
-///
-/// The token is NEVER part of the request_id (logging invariant).
+/// Test-only helper retained for the in-file tests below. It was
+/// previously used by the PAYG heartbeat metering path; Task 8F removed
+/// that path. If/when the heartbeat idempotency-key tests are also
+/// removed, delete this along with them.
+#[cfg(test)]
+const MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES: usize = 128;
+
+/// See `MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES` above.
+#[cfg(test)]
+const HEARTBEAT_IDEMPOTENCY_BUCKET_SECS: i64 = 300;
+
+/// See `MAX_HEARTBEAT_IDEMPOTENCY_KEY_BYTES` above.
+#[cfg(test)]
 fn build_request_id(
     monitor_id: &domain::shared::ids::MonitorId,
     headers: &HeaderMap,
