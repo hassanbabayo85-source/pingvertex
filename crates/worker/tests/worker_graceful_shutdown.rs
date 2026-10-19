@@ -22,9 +22,9 @@ use domain::{
 use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryNotificationOutboxRepository, InMemoryPricingConfigRepository,
+    InMemoryNotificationOutboxRepository,
     InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemoryTenantRepository,
-    InMemoryTenantRetentionSettingsRepository, InMemoryWalletRepository,
+    InMemoryTenantRetentionSettingsRepository,
 };
 use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, OutboxWorker,
@@ -161,11 +161,8 @@ async fn custom_domain_verification_worker_stops_gracefully_on_cancellation() {
 
 #[tokio::test]
 async fn proxy_check_worker_stops_gracefully_on_cancellation() {
-    let wallet = Arc::new(infra::InMemoryWalletRepository::default());
-    let pricing = Arc::new(infra::InMemoryPAYGPricingRepository::default());
-    let usage = Arc::new(infra::InMemoryUsageEventRepository::default());
-    let metering = Arc::new(application::MeterUsageUseCase::new(wallet, pricing, usage));
-    let worker = ProxyCheckWorker::new(Arc::new(InMemoryProxyCheckJobRepository::new()), metering);
+    // Task 5 removed the metering argument from ProxyCheckWorker::new.
+    let worker = ProxyCheckWorker::new(Arc::new(InMemoryProxyCheckJobRepository::new()));
 
     let token = CancellationToken::new();
     token.cancel();
@@ -229,14 +226,15 @@ async fn outbox_worker_stops_gracefully_on_cancellation() {
 
 #[tokio::test]
 async fn retention_worker_stops_gracefully_on_cancellation() {
+    // Task 8C — RetentionWorker is now driven by EntitlementResolver;
+    // the PricingConfigRepository and WalletRepository arguments are gone.
     let worker = RetentionWorker::new(
         Arc::new(InMemoryTenantRepository::new()),
         Arc::new(InMemoryHistoryRetentionRepository::new()),
-        Arc::new(InMemoryPricingConfigRepository::default()),
+        Arc::new(infra::InMemoryEntitlementResolver::default()),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         Duration::from_millis(10),
         2,
-        Arc::new(InMemoryWalletRepository::default()),
         Arc::new(InMemoryTenantRetentionSettingsRepository::new()),
     );
 

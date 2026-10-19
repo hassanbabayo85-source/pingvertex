@@ -2,11 +2,11 @@ mod config;
 
 use std::{error::Error, sync::Arc, time::Duration};
 
-use application::ports::{PaymentProvider, StatusPageCache};
+use application::ports::StatusPageCache;
 use async_trait::async_trait;
 use infra::{
-    AesGcmProxyCredentialCipher, BillingConfig, DisabledBillingProvider, FakeBillingProvider,
-    HickoryCustomDomainVerifier, NotificationDispatcher, PaystackBillingProvider,
+    AesGcmProxyCredentialCipher, BillingConfig,
+    HickoryCustomDomainVerifier, NotificationDispatcher,
     PostgresApiFlowRepository, PostgresAuditLogEntryRepository,
     PostgresBulkMonitorImportRepository, PostgresCheckRepository,
     PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
@@ -23,11 +23,11 @@ use infra::{
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use worker::{
-    AllowanceResetWorker, AutoTopUpWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
+    AllowanceResetWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker, RumAggregationWorker,
-    TenantNotificationRateLimiter, WalletExpirationWorker, WalletNotificationEmailWorker,
+    TenantNotificationRateLimiter,
     init_rustls_crypto_provider, metrics,
 };
 
@@ -82,18 +82,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let pool = create_pool(&worker_config.database_url).await?;
 
     let cancel_token = CancellationToken::new();
-    let billing_config = BillingConfig::try_from_env()?;
-    let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
-        "fake" => Arc::new(FakeBillingProvider),
-        "disabled" => Arc::new(DisabledBillingProvider),
-        "paystack" => Arc::new(PaystackBillingProvider::new(
-            billing_config
-                .secret_key
-                .clone()
-                .ok_or("Paystack secret key is required")?,
-        )?),
-        other => return Err(format!("unsupported billing provider: {other}").into()),
-    };
+    // Task 8D — `billing_provider` was only consumed by the PAYG
+    // auto-top-up worker, now removed. `BillingConfig::try_from_env()`
+    // is retained so the worker still validates BILLING_PROVIDER /
+    // BILLING_SECRET_KEY at startup (production requires the real
+    // Paystack provider).
+    let _billing_config = BillingConfig::try_from_env()?;
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
     let check_repository = Arc::new(PostgresCheckRepository::new(pool.clone()));
@@ -155,20 +149,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     });
 
-    let auto_top_up_worker = AutoTopUpWorker::new(
-        wallet_repository.clone(),
-        billing_provider,
-        Duration::from_secs(300),
-    )
-    .with_monitor_repository(monitor_repository.clone())
-    .with_financial_audit_repository(financial_audit_repository.clone());
-    let auto_top_up_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        if let Err(err) = auto_top_up_worker.run_forever(auto_top_up_cancel).await {
-            tracing::error!(error=%err,"auto top-up worker stopped unexpectedly");
-        }
-    });
-
     let history_retention_repository =
         Arc::new(PostgresHistoryRetentionRepository::new(pool.clone()));
 
@@ -188,19 +168,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 notification_channel_repository.clone(),
             ),
     );
-    let wallet_email_worker = WalletNotificationEmailWorker::new(
-        wallet_repository.clone(),
-        notification_channel_repository.clone(),
-        notification_service.clone(),
-        Duration::from_secs(60),
-    );
-    let wallet_email_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        if let Err(err) = wallet_email_worker.run_forever(wallet_email_cancel).await {
-            tracing::error!(error=%err, "wallet notification email worker stopped unexpectedly");
-        }
-    });
-
     // GAP 3 Kashi E: RUM raw-event -> daily aggregate rollup and 7-day
     // raw retention. The dashboard reads raw events for the last 7 days
     // and aggregates for older days.
@@ -333,18 +300,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .await
         {
             tracing::error!(error=%err, "billing reconciliation worker stopped unexpectedly");
-        }
-    });
-
-    let wallet_expiration_worker =
-        WalletExpirationWorker::new(wallet_repository.clone(), Duration::from_secs(300), 200);
-    let wallet_expiration_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        if let Err(err) = wallet_expiration_worker
-            .run_forever(wallet_expiration_cancel)
-            .await
-        {
-            tracing::error!(error=%err, "wallet expiration worker stopped unexpectedly");
         }
     });
 
