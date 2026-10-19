@@ -35,6 +35,9 @@ pub const MAX_STATUS_PAGES: &str = "max_status_pages";
 pub const MAX_API_KEYS: &str = "max_api_keys";
 pub const MAX_TEAM_MEMBERS: &str = "max_team_members";
 
+/// Task 8C — authoritative history-retention limit per plan.
+pub const MAX_HISTORY_RETENTION_DAYS: &str = "max_history_retention_days";
+
 // ─── Entity ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -13,7 +13,7 @@ use infra::{
     PostgresHistoryRetentionRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository,     PostgresMonitorRepository, PostgresNotificationChannelRepository,
     PostgresNotificationOutboxRepository, PostgresPAYGPricingRepository,
-    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
+    PostgresProxyCheckJobRepository,
     PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
     PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
@@ -116,7 +116,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         pool.clone(),
     ));
     let payg_pricing_repository = Arc::new(PostgresPAYGPricingRepository::new(pool.clone()));
-    let pricing_config_repository = Arc::new(PostgresPricingConfigRepository::new(pool.clone()));
     let usage_event_repository = Arc::new(PostgresUsageEventRepository::new(pool.clone()));
     let metering = Arc::new(
         application::MeterUsageUseCase::new(
@@ -351,14 +350,16 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let retention_settings_repository =
         Arc::new(PostgresTenantRetentionSettingsRepository::new(pool.clone()));
+    // Task 8C — retention is now driven by EntitlementResolver
+    // (`max_history_retention_days`); PricingConfig and Wallet are no
+    // longer consulted for the retention cutoff.
     let retention_worker = RetentionWorker::new(
         tenant_repository.clone(),
         history_retention_repository,
-        pricing_config_repository.clone(),
+        std::sync::Arc::new(infra::PostgresEntitlementResolver::new(pool.clone())),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,
-        wallet_repository.clone(),
         retention_settings_repository,
     );
     let retention_cancel = cancel_token.clone();
