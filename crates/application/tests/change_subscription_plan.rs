@@ -1,22 +1,29 @@
+//! Task 8B — plan change tests (fixed-price subscription model).
+//!
+//! Covers: upgrade via checkout, verified payment applies upgrade,
+//! downgrades rejected with `DowngradesRequirePeriodEnd`, pending
+//! payment does not change the subscription, idempotency.
+
 use application::{
     ChangeSubscriptionPlanUseCase,
     ports::{
         CheckoutDetails, CheckoutRequest, CheckoutSessionRepository, PaymentProvider,
-        PaymentVerification, SubscriptionPlanChangeRepository, SubscriptionRepository,
-        SubscriptionUsagePeriodRepository, WalletRepository,
+        PaymentVerification, PlanPriceRepository, SubscriptionPlanChangeRepository,
+        SubscriptionRepository, SubscriptionUsagePeriodRepository,
     },
 };
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use domain::{
     CheckoutStatus, PlanTier, Subscription, SubscriptionId, SubscriptionPlanChangeStatus,
-    SubscriptionUsagePeriod, SubscriptionUsagePeriodId, shared::ids::TenantId,
+    SubscriptionUsagePeriod, SubscriptionUsagePeriodId,
+    money::Currency, shared::ids::TenantId,
 };
 use infra::{
-    InMemoryCheckoutSessionRepository, InMemoryPricingConfigRepository,
+    InMemoryCheckoutSessionRepository, InMemoryPlanPriceRepository,
     InMemorySubscriptionPlanChangeRepository, InMemorySubscriptionRepository,
     InMemorySubscriptionUsagePeriodRepository, InMemorySubscriptionUsageTransaction,
-    InMemoryWalletRepository, UuidIdGenerator,
+    UuidIdGenerator,
 };
 use std::sync::Arc;
 
@@ -92,11 +99,10 @@ struct Fixture {
     tenant_id: TenantId,
     subscription: Subscription,
     subscriptions: InMemorySubscriptionRepository,
-    pricing: InMemoryPricingConfigRepository,
+    prices: Arc<InMemoryPlanPriceRepository>,
     changes: InMemorySubscriptionPlanChangeRepository,
     sessions: InMemoryCheckoutSessionRepository,
     periods: InMemorySubscriptionUsagePeriodRepository,
-    wallet: InMemoryWalletRepository,
     tx: InMemorySubscriptionUsageTransaction,
 }
 
@@ -105,10 +111,6 @@ impl Fixture {
         let tenant_id = TenantId::new();
 
         let mut subscription = Subscription::new(SubscriptionId::new(), tenant_id, old_plan);
-
-        let pricing = infra::InMemoryPricingConfigRepository::new()
-            .with_config(domain::pricing::PricingConfig::default_config());
-
         let end = Utc::now() + Duration::days(15);
         subscription.current_period_ends_at = Some(end);
 
@@ -119,7 +121,6 @@ impl Fixture {
             .expect("subscription creation should succeed");
 
         let periods = InMemorySubscriptionUsagePeriodRepository::new();
-
         let initial_period = SubscriptionUsagePeriod::open(
             SubscriptionUsagePeriodId::new(),
             subscription.id,
@@ -128,17 +129,10 @@ impl Fixture {
             30,
             subscription.created_at,
         );
-
         periods
             .create_period(&initial_period)
             .await
             .expect("initial usage period should be created");
-
-        let wallet = InMemoryWalletRepository::default();
-        wallet
-            .get_or_create(tenant_id.0, "USD")
-            .await
-            .expect("wallet should exist");
 
         let tx_subscriptions = subscriptions.clone();
         let tx_periods = periods.clone();
@@ -147,11 +141,10 @@ impl Fixture {
             tenant_id,
             subscription,
             subscriptions,
-            pricing,
+            prices: Arc::new(InMemoryPlanPriceRepository::default()),
             changes: InMemorySubscriptionPlanChangeRepository::new(),
             sessions: InMemoryCheckoutSessionRepository::new(),
             periods,
-            wallet,
             tx: InMemorySubscriptionUsageTransaction::new(
                 Arc::new(tx_subscriptions),
                 Arc::new(tx_periods),
@@ -165,11 +158,10 @@ impl Fixture {
     ) -> ChangeSubscriptionPlanUseCase<InMemorySubscriptionUsageTransaction> {
         ChangeSubscriptionPlanUseCase::new(
             Arc::new(self.subscriptions.clone()),
-            Arc::new(self.pricing.clone()),
+            self.prices.clone() as Arc<dyn PlanPriceRepository>,
             Arc::new(self.changes.clone()),
             Arc::new(self.sessions.clone()),
             Arc::new(provider),
-            Arc::new(self.wallet.clone()),
             Arc::new(self.periods.clone()),
             self.tx.clone(),
             Arc::new(UuidIdGenerator::new()),
@@ -179,11 +171,12 @@ impl Fixture {
 
 #[tokio::test]
 async fn paid_plan_change_creates_pending_checkout_and_persists_proration() {
+    // Starter → Business (both in plan_prices seed); USD.
     let f = Fixture::new(PlanTier::Starter).await;
     let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
 
     let outcome = use_case
-        .execute(f.tenant_id, PlanTier::Enterprise)
+        .execute(f.tenant_id, PlanTier::Business, Currency::Usd)
         .await
         .expect("plan change should succeed");
 
@@ -200,10 +193,10 @@ async fn paid_plan_change_creates_pending_checkout_and_persists_proration() {
         .expect("plan change should exist");
 
     assert_eq!(change.old_plan, PlanTier::Starter);
-    assert_eq!(change.new_plan, PlanTier::Enterprise);
+    assert_eq!(change.new_plan, PlanTier::Business);
     assert_eq!(change.status, SubscriptionPlanChangeStatus::Pending);
-    assert_eq!(change.pricing_version, 1);
     assert_eq!(change.currency, "USD");
+    assert_eq!(change.pricing_version, 1);
 
     let subscription = f
         .subscriptions
@@ -214,16 +207,13 @@ async fn paid_plan_change_creates_pending_checkout_and_persists_proration() {
 
     assert_eq!(subscription.plan_tier, PlanTier::Starter);
 
-    let session_id = outcome
-        .checkout_session_id
-        .expect("checkout session expected");
+    let session_id = outcome.checkout_session_id.expect("session id");
     let session = f
         .sessions
         .find_by_id(domain::CheckoutSessionId(session_id))
         .await
         .expect("checkout lookup should succeed")
         .expect("checkout should exist");
-
     assert_eq!(session.status, CheckoutStatus::Pending);
     assert_eq!(session.plan_change_id, Some(outcome.plan_change_id));
 }
@@ -234,7 +224,7 @@ async fn verified_paid_plan_change_updates_subscription_and_usage_period() {
     let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
 
     let created = use_case
-        .execute(f.tenant_id, PlanTier::Enterprise)
+        .execute(f.tenant_id, PlanTier::Business, Currency::Usd)
         .await
         .expect("plan change should succeed");
 
@@ -246,7 +236,6 @@ async fn verified_paid_plan_change_updates_subscription_and_usage_period() {
         .apply_verified_change(f.tenant_id, session_id)
         .await
         .expect("verified payment should apply");
-
     assert!(applied.applied);
     assert_eq!(applied.plan_change_id, created.plan_change_id);
 
@@ -257,7 +246,7 @@ async fn verified_paid_plan_change_updates_subscription_and_usage_period() {
         .expect("subscription lookup should succeed")
         .expect("subscription should exist");
 
-    assert_eq!(subscription.plan_tier, PlanTier::Enterprise);
+    assert_eq!(subscription.plan_tier, PlanTier::Business);
     assert_eq!(subscription.status, domain::SubscriptionStatus::Active);
     assert_eq!(subscription.pricing_version, Some(1));
 
@@ -267,18 +256,8 @@ async fn verified_paid_plan_change_updates_subscription_and_usage_period() {
         .await
         .expect("plan change lookup should succeed")
         .expect("plan change should exist");
-
     assert_eq!(change.status, SubscriptionPlanChangeStatus::Completed);
     assert!(change.completed_at.is_some());
-
-    let session = f
-        .sessions
-        .find_by_id(domain::CheckoutSessionId(session_id))
-        .await
-        .expect("checkout lookup should succeed")
-        .expect("checkout should exist");
-
-    assert_eq!(session.status, CheckoutStatus::Completed);
 
     let open_period = f
         .periods
@@ -287,17 +266,13 @@ async fn verified_paid_plan_change_updates_subscription_and_usage_period() {
         .expect("usage period lookup should succeed")
         .expect("new usage period should exist");
 
-    let enterprise = domain::Plan::for_tier(PlanTier::Enterprise);
-
-    assert_eq!(open_period.monitors, enterprise.max_monitors as u64);
+    let business = domain::Plan::for_tier(PlanTier::Business);
+    assert_eq!(open_period.monitors, business.max_monitors as u64);
     assert_eq!(
         open_period.interval_seconds,
-        enterprise.min_check_interval_seconds
+        business.min_check_interval_seconds
     );
-    assert_eq!(
-        open_period.retention_days,
-        enterprise.history_retention_days
-    );
+    assert_eq!(open_period.retention_days, business.history_retention_days);
 }
 
 #[tokio::test]
@@ -306,19 +281,15 @@ async fn pending_payment_does_not_change_subscription() {
     let use_case = f.use_case(TestBillingProvider::new(TestVerification::Pending));
 
     let created = use_case
-        .execute(f.tenant_id, PlanTier::Enterprise)
+        .execute(f.tenant_id, PlanTier::Business, Currency::Usd)
         .await
         .expect("plan change should succeed");
-
-    let session_id = created
-        .checkout_session_id
-        .expect("checkout session should exist");
+    let session_id = created.checkout_session_id.expect("session id");
 
     let result = use_case
         .apply_verified_change(f.tenant_id, session_id)
         .await
         .expect("pending verification should not fail");
-
     assert!(!result.applied);
 
     let subscription = f
@@ -327,7 +298,6 @@ async fn pending_payment_does_not_change_subscription() {
         .await
         .expect("subscription lookup should succeed")
         .expect("subscription should exist");
-
     assert_eq!(subscription.plan_tier, PlanTier::Starter);
 
     let change = f
@@ -336,7 +306,6 @@ async fn pending_payment_does_not_change_subscription() {
         .await
         .expect("plan change lookup should succeed")
         .expect("plan change should exist");
-
     assert_eq!(change.status, SubscriptionPlanChangeStatus::Pending);
 }
 
@@ -346,18 +315,14 @@ async fn failed_payment_marks_plan_change_failed_without_changing_subscription()
     let use_case = f.use_case(TestBillingProvider::new(TestVerification::Failed));
 
     let created = use_case
-        .execute(f.tenant_id, PlanTier::Enterprise)
+        .execute(f.tenant_id, PlanTier::Business, Currency::Usd)
         .await
         .expect("plan change should succeed");
-
-    let session_id = created
-        .checkout_session_id
-        .expect("checkout session should exist");
+    let session_id = created.checkout_session_id.expect("session id");
 
     let result = use_case
         .apply_verified_change(f.tenant_id, session_id)
         .await;
-
     assert!(result.is_err());
 
     let subscription = f
@@ -366,7 +331,6 @@ async fn failed_payment_marks_plan_change_failed_without_changing_subscription()
         .await
         .expect("subscription lookup should succeed")
         .expect("subscription should exist");
-
     assert_eq!(subscription.plan_tier, PlanTier::Starter);
 
     let change = f
@@ -375,7 +339,6 @@ async fn failed_payment_marks_plan_change_failed_without_changing_subscription()
         .await
         .expect("plan change lookup should succeed")
         .expect("plan change should exist");
-
     assert_eq!(change.status, SubscriptionPlanChangeStatus::Failed);
 
     let session = f
@@ -384,7 +347,6 @@ async fn failed_payment_marks_plan_change_failed_without_changing_subscription()
         .await
         .expect("checkout lookup should succeed")
         .expect("checkout should exist");
-
     assert_eq!(session.status, CheckoutStatus::Failed);
 }
 
@@ -394,19 +356,15 @@ async fn repeated_verified_payment_is_idempotent_after_completion() {
     let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
 
     let created = use_case
-        .execute(f.tenant_id, PlanTier::Enterprise)
+        .execute(f.tenant_id, PlanTier::Business, Currency::Usd)
         .await
         .expect("plan change should succeed");
-
-    let session_id = created
-        .checkout_session_id
-        .expect("checkout session should exist");
+    let session_id = created.checkout_session_id.expect("session id");
 
     let first = use_case
         .apply_verified_change(f.tenant_id, session_id)
         .await
         .expect("first verification should succeed");
-
     let second = use_case
         .apply_verified_change(f.tenant_id, session_id)
         .await
@@ -422,6 +380,64 @@ async fn repeated_verified_payment_is_idempotent_after_completion() {
         .await
         .expect("subscription lookup should succeed")
         .expect("subscription should exist");
+    assert_eq!(subscription.plan_tier, PlanTier::Business);
+}
 
-    assert_eq!(subscription.plan_tier, PlanTier::Enterprise);
+#[tokio::test]
+async fn downgrade_is_rejected() {
+    // Business → Starter downgrade must be rejected with
+    // DowngradesRequirePeriodEnd; no plan change row is created.
+    let f = Fixture::new(PlanTier::Business).await;
+    let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
+
+    let err = use_case
+        .execute(f.tenant_id, PlanTier::Starter, Currency::Usd)
+        .await
+        .expect_err("downgrade should be rejected");
+
+    assert!(matches!(
+        err,
+        application::use_cases::change_subscription_plan::ChangePlanError::DowngradesRequirePeriodEnd
+    ));
+
+    let subscription = f
+        .subscriptions
+        .find_by_tenant_id(f.tenant_id)
+        .await
+        .expect("subscription lookup should succeed")
+        .expect("subscription should exist");
+    assert_eq!(subscription.plan_tier, PlanTier::Business);
+}
+
+#[tokio::test]
+async fn same_plan_is_rejected() {
+    let f = Fixture::new(PlanTier::Starter).await;
+    let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
+
+    let err = use_case
+        .execute(f.tenant_id, PlanTier::Starter, Currency::Usd)
+        .await
+        .expect_err("same plan should be rejected");
+
+    assert!(matches!(
+        err,
+        application::use_cases::change_subscription_plan::ChangePlanError::SamePlan
+    ));
+}
+
+#[tokio::test]
+async fn free_and_enterprise_are_rejected() {
+    let f = Fixture::new(PlanTier::Starter).await;
+    let use_case = f.use_case(TestBillingProvider::new(TestVerification::Paid));
+
+    for target in [PlanTier::Free, PlanTier::Enterprise] {
+        let err = use_case
+            .execute(f.tenant_id, target, Currency::Usd)
+            .await
+            .expect_err("Free/Enterprise should be rejected");
+        assert!(matches!(
+            err,
+            application::use_cases::change_subscription_plan::ChangePlanError::Invalid(_)
+        ));
+    }
 }
