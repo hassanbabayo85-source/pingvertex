@@ -11,7 +11,7 @@ use axum::{
     http::StatusCode,
 };
 use chrono::Utc;
-use domain::shared::types::AuthenticatedUser;
+use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{
     DomainError,
     enums::PlanTier,
@@ -33,6 +33,37 @@ use application::use_cases::verify_subscription_checkout::{
 };
 
 use crate::{error::ApiError, state::AppState};
+
+// ────────────────────────────────────────────────────────────────
+// Permission helpers — Task 9B security audit fix
+// ────────────────────────────────────────────────────────────────
+//
+// Task 6 originally shipped these handlers without permission checks.
+// The audit found that any tenant member (including Operator / Viewer)
+// could initiate, verify, and cancel a subscription. The pattern below
+// matches `add_on_billing::require_manage_billing` and is applied
+// inside the handler (not the use case) so the Task 6 use-case tests
+// keep working unchanged. A future cleanup can move this into the use
+// cases (matching `create_monitor.rs`, `delete_monitor.rs`, and
+// `create_api_key.rs`) without changing the observable HTTP behaviour.
+
+fn require_manage_billing(user: &AuthenticatedUser) -> Result<(), ApiError> {
+    if user.can(Permission::ManageBilling) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden(
+            "billing management permission is required",
+        ))
+    }
+}
+
+fn require_view_billing(user: &AuthenticatedUser) -> Result<(), ApiError> {
+    if user.can(Permission::ViewBilling) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("billing view permission is required"))
+    }
+}
 
 // ────────────────────────────────────────────────────────────────
 // POST /billing/subscription/checkout
@@ -59,6 +90,7 @@ pub async fn initiate_subscription_checkout(
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(payload): Json<InitiateSubscriptionCheckoutBody>,
 ) -> Result<(StatusCode, Json<InitiateSubscriptionCheckoutResponse>), ApiError> {
+    require_manage_billing(&authenticated_user)?;
     let tenant_id = authenticated_user.tenant_context().tenant_id();
     let user_id = authenticated_user.user_id();
 
@@ -147,6 +179,7 @@ pub async fn verify_subscription_checkout(
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Path(checkout_session_id): Path<String>,
 ) -> Result<Json<VerifySubscriptionCheckoutResponse>, ApiError> {
+    require_manage_billing(&authenticated_user)?;
     let tenant_id = authenticated_user.tenant_context().tenant_id();
     let session_id = uuid::Uuid::parse_str(&checkout_session_id)
         .map_err(|_| ApiError::bad_request("invalid checkout_session_id"))?;
@@ -222,6 +255,7 @@ pub async fn get_subscription(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
 ) -> Result<Json<GetSubscriptionResponse>, ApiError> {
+    require_view_billing(&authenticated_user)?;
     let tenant_id = authenticated_user.tenant_context().tenant_id();
     let mut sub = state
         .subscription_repository
@@ -287,6 +321,7 @@ pub async fn cancel_subscription_endpoint(
     Extension(authenticated_user): Extension<AuthenticatedUser>,
     Json(body): Json<CancelSubscriptionBody>,
 ) -> Result<Json<CancelSubscriptionResponse>, ApiError> {
+    require_manage_billing(&authenticated_user)?;
     let tenant_id = authenticated_user.tenant_context().tenant_id();
 
     // Delegates to the pre-existing use case; it correctly reads the
