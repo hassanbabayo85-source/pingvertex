@@ -50,7 +50,7 @@ pub use proxy_checker::run_proxy_check_job;
 
 pub mod durable_scheduler;
 
-pub use durable_scheduler::{CheckExecutor, DurableScheduler, bill_network_egress, run_durable};
+pub use durable_scheduler::{CheckExecutor, DurableScheduler, run_durable};
 
 pub mod http_check_executor;
 pub use http_check_executor::HttpCheckExecutor;

@@ -9,7 +9,7 @@ use rand::{Rng, rng};
 use application::ports::{
     EntitlementResolver, MonitorRepository, SchedulingRepository, TenantRepository,
 };
-use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
+use application::MeterUsageUseCase;
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::{Monitor, TenantStatus};
@@ -358,12 +358,12 @@ where
                     tasks.spawn(async move {
                         let execution = exec_claim.execution;
                         let execution_pk = execution.id;
-                        let execution_dbid = execution.execution_id;
+                        let _execution_dbid = execution.execution_id;
                         let region_label = execution.region.clone();
                         let _request = exec_claim.request;
                         let mut monitor = exec_claim.monitor;
-                        let monitor_id = monitor.id;
-                        let monitor_tenant_id = monitor.tenant_id;
+                        let _monitor_id = monitor.id;
+                        let _monitor_tenant_id = monitor.tenant_id;
 
                         // Resolve the RegionCode for the billed region from the
                         // monitor's own regions (the column is authoritative).
@@ -374,7 +374,7 @@ where
                             .cloned()
                             .or_else(|| monitor.regions.first().cloned());
 
-                        let account_type = if let Some(tenant_repository) = tenant_repository {
+                        let _account_type = if let Some(tenant_repository) = tenant_repository {
                             match tenant_repository
                                 .find_by_id(domain::TenantId(monitor.tenant_id.0))
                                 .await?
@@ -412,123 +412,40 @@ where
                             monitor.regions = vec![rc.clone()];
                         }
 
-                        let operation = domain::monitor_operation(monitor.kind, true)
-                            .as_str()
-                            .to_owned();
-                        let billing_request_id =
-                            format!("one-time:{}:{}", execution_pk, execution_dbid);
-                        let one_time_egress_monitor_id = monitor.id.0;
-                        let one_time_egress_monitor_kind = monitor.kind;
-                        let one_time_egress_region = region_code.clone();
-                        let one_time_egress_execution_id = execution_dbid;
-                        let one_time_egress_request_id = format!(
-                            "one-time-egress:{}:{}",
-                            execution_pk, execution_dbid,
-                        );
+                        // Task 8E — PAYG metering is retired. One-time
+                        // executions now run directly with no billing. The
+                        // `billable` and `charge_units` values written back
+                        // to the durable execution are always 0/false.
+                        let billable = false;
+                        let charge_units: i64 = 0;
+                        let _ = metering; // field still wired (Task 8F removes it)
 
-                        let mut billable = false;
-                        let mut charge_units: i64 = 0;
-                        let result: Option<String> = if let Some(metering) = metering {
+                        let result: Option<String> = {
+                            let executor = executor.clone();
+                            let monitor = monitor.clone();
+                            let execution_limiter = execution_limiter.clone();
+                            match execute_with_controls(
+                                executor,
+                                monitor,
+                                execution_limiter,
+                                execution_min_interval,
+                                execution_retry_limit,
+                                execution_retry_base,
+                                jitter,
+                            )
+                            .await
                             {
-                                let executor = executor.clone();
-                                let monitor = monitor.clone();
-                                match metering
-                                    .execute_classified_attempt(
-                                        MeterUsageInput {
-                                            tenant_id: monitor.tenant_id.0,
-                                            operation,
-                                            units: if matches!(monitor.kind, domain::MonitorKind::Flow) {
-                                                domain::entities::api_flow::MAX_STEPS as i64
-                                            } else {
-                                                1
-                                            },
-                                            request_id: billing_request_id,
-                                            monitor_id: Some(monitor.id.0),
-                                            execution_id: Some(execution_dbid),
-                                            pricing_context: Some(application::ports::PricingContext {
-                                                monitor_kind: Some(monitor.kind),
-                                                region: region_code.clone(),
-                                                quantity: 1,
-                                                account_type,
-                                            }),
-                                        },
-                                        move || {
-                                            let executor = executor.clone();
-                                            let monitor = monitor.clone();
-                                            async move {
-                                                execute_with_controls(
-                                                    executor.clone(),
-                                                    monitor.clone(),
-                                                    execution_limiter.clone(),
-                                                    execution_min_interval,
-                                                    execution_retry_limit,
-                                                    execution_retry_base,
-                                                    jitter,
-                                                )
-                                                .await
-                                                .map(|o| MeteredAttempt {
-                                                    attempted: o.attempted,
-                                                    error: o.error,
-                                                    egress_bytes: o.egress_bytes,
-                                                    actual_units: o.steps_executed,
-                                                })
-                                            }
-                                        },
-                                    )
-                                    .await
-                                {
-                                    Ok((charge_result, attempt)) => {
-                                        if !attempt.attempted {
-                                            metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
-                                                .increment(1);
-                                            Some("operation was not attempted".to_owned())
-                                        } else {
-                                            billable = true;
-                                            charge_units = charge_result.usage_event.charge_units;
-                                            if charge_result.transaction.is_some() {
-                                                metrics::counter!("checks_charged_total", "kind" => "one_time")
-                                                    .increment(1);
-                                            }
-                                            bill_network_egress(
-                                                metering.as_ref(),
-                                                monitor_tenant_id.0,
-                                                one_time_egress_monitor_id,
-                                                one_time_egress_execution_id,
-                                                one_time_egress_monitor_kind,
-                                                one_time_egress_region,
-                                                account_type,
-                                                attempt.egress_bytes,
-                                                one_time_egress_request_id,
-                                            )
-                                            .await;
-                                            attempt.error
-                                        }
-                                    }
-                                    Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
+                                Ok(outcome) => {
+                                    if !outcome.attempted {
                                         metrics::counter!("checks_skipped_total", "reason" => "not_attempted")
                                             .increment(1);
-                                        Some(reason)
+                                        Some("operation was not attempted".to_owned())
+                                    } else {
+                                        outcome.error
                                     }
-                                    Err(application::ChargeForUsageError::InsufficientBalance) => {
-                                        metrics::counter!("checks_skipped_total", "reason" => "insufficient_balance")
-                                            .increment(1);
-                                        if let Err(block_err) = scheduling_repository
-                                            .set_billing_block(
-                                                monitor_id,
-                                                monitor_tenant_id,
-                                                "Insufficient wallet balance",
-                                            )
-                                            .await
-                                        {
-                                            error!(monitor_id=%monitor_id.0, error=%block_err, "failed to persist PAYG billing block");
-                                        }
-                                        Some("PAYG balance is insufficient".to_owned())
-                                    }
-                                    Err(err) => Some(err.to_string()),
                                 }
+                                Err(err) => Some(err.to_string()),
                             }
-                        } else {
-                            Some("PAYG metering is not configured".to_owned())
                         };
 
                         let status = if result.is_some() {
@@ -819,66 +736,6 @@ where
 /// rounding up. Returns 0 for 0 bytes.
 pub fn network_egress_units(bytes: u64) -> u64 {
     bytes.div_ceil(1024 * 1024)
-}
-
-/// Bills the network egress observed during a monitor execution. Called
-/// after the monitor's own monitoring charge has been captured. The request
-/// id is deterministic (derived from the durable execution identity), so a
-/// scheduler retry cannot double-charge egress. A zero-byte execution is a
-/// no-op.
-#[allow(clippy::too_many_arguments)]
-pub async fn bill_network_egress(
-    metering: &MeterUsageUseCase,
-    tenant_id: Uuid,
-    monitor_id: Uuid,
-    execution_id: Uuid,
-    monitor_kind: domain::MonitorKind,
-    region: Option<domain::RegionCode>,
-    account_type: Option<domain::AccountType>,
-    egress_bytes: u64,
-    request_id: String,
-) {
-    let units = network_egress_units(egress_bytes);
-    if units == 0 {
-        return;
-    }
-    let result = metering
-        .execute_recoverable::<_, _, std::convert::Infallible>(
-            MeterUsageInput {
-                tenant_id,
-                operation: domain::PaygOperation::NetworkEgress.as_str().to_owned(),
-                units: units as i64,
-                request_id,
-                monitor_id: Some(monitor_id),
-                execution_id: Some(execution_id),
-                pricing_context: Some(application::ports::PricingContext {
-                    monitor_kind: Some(monitor_kind),
-                    region,
-                    quantity: units,
-                    account_type,
-                }),
-            },
-            || async { Ok::<_, std::convert::Infallible>(()) },
-        )
-        .await;
-    match result {
-        Ok(res) => {
-            if res.transaction.is_some() {
-                metrics::counter!("network_egress_charged_total").increment(1);
-                metrics::counter!("network_egress_units_charged_total").increment(units);
-            }
-        }
-        Err(err) => {
-            metrics::counter!("network_egress_charge_failures_total").increment(1);
-            warn!(
-                monitor_id = %monitor_id,
-                egress_bytes,
-                egress_units = units,
-                error = %err,
-                "network_egress billing failed"
-            );
-        }
-    }
 }
 
 #[cfg(test)]
