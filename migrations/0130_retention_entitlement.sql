@@ -26,8 +26,14 @@ BEGIN
         IF tier_id IS NULL THEN
             RAISE EXCEPTION 'plan tier % not found', tiers[i];
         END IF;
-        INSERT INTO plan_entitlements (plan_id, key, limit_value, version)
-        VALUES (tier_id, 'max_history_retention_days', days[i]::bigint, 1)
+        INSERT INTO plan_entitlements (id, plan_id, key, limit_value, version)
+        VALUES (
+            gen_random_uuid(),
+            tier_id,
+            'max_history_retention_days',
+            days[i]::bigint,
+            1
+        )
         ON CONFLICT (plan_id, key, version) DO NOTHING;
     END LOOP;
 END $$;

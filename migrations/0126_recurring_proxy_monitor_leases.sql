@@ -26,11 +26,16 @@ ALTER TABLE recurring_proxy_monitors
 -- Worker claim index: only idle or lease-expired monitors whose next
 -- run is due. Matches the same shape as 0125's `idx_recurring_proxy_monitors_due`
 -- but also makes the lease columns queryable without a full table scan.
+-- NOTE (Task 8D): the original predicate included
+--   AND (lease_expires_at IS NULL OR lease_expires_at < now())
+-- PostgreSQL rejects that with 42P17 (functions in index predicate must be
+-- marked IMMUTABLE) on any fresh database. `claim_due_monitors` already
+-- evaluates the lease-expiry comparison at runtime against $now, so the
+-- index only needs to skip permanently unclaimable rows.
 CREATE INDEX IF NOT EXISTS idx_recurring_proxy_monitors_claimable
     ON recurring_proxy_monitors (next_run_at)
     WHERE user_enabled = TRUE
-      AND entitlement_suspended = FALSE
-      AND (lease_expires_at IS NULL OR lease_expires_at < now());
+      AND entitlement_suspended = FALSE;
 
 -- Worker-side "who owns what" index, for operational queries and for
 -- the recovery sweep that lists expired leases.
