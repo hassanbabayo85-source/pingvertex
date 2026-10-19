@@ -153,25 +153,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let secret_cipher_for_auth = secret_cipher.clone();
 
-    // PAYG dependencies are shared by RUM/storage metering and the
-    // notification dispatcher. Build the metering use case once so SMS
-    // retries, RUM beacons, and logo uploads all use the same tenant-scoped
-    // wallet/pricing/usage ledger.
+    // Task 8F — PAYG metering retired from the API.
+    // `wallet_repository` and `financial_audit_repository` are still
+    // constructed below because the PAYG wallet webhook paths (Task 6
+    // wallet credit/refund) still consume them.
     let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
-    let payg_pricing_repository = infra::PostgresPAYGPricingRepository::new(pool.clone());
-    let usage_event_repository = infra::PostgresUsageEventRepository::new(pool.clone());
-    let tenant_repository = infra::PostgresTenantRepository::new(pool.clone());
     let financial_audit_repository = std::sync::Arc::new(
         infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
-    );
-    let metering = std::sync::Arc::new(
-        application::MeterUsageUseCase::new(
-            std::sync::Arc::new(wallet_repository.clone()),
-            std::sync::Arc::new(payg_pricing_repository.clone()),
-            std::sync::Arc::new(usage_event_repository.clone()),
-        )
-        .with_audit_log_repository(financial_audit_repository.clone())
-        .with_tenant_repository(std::sync::Arc::new(tenant_repository.clone())),
     );
 
     // Shared distributed rate limiter. Constructed once and cloned into
@@ -195,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let platform_user_repository = PostgresUserRepository::new(pool.clone());
 
     let notification_service =
-        NotificationDispatcher::from_env_with_metering(secret_cipher.clone(), metering.clone())
+        NotificationDispatcher::from_env(secret_cipher.clone())
             .with_alert_allowance(
                 std::sync::Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone())),
                 std::sync::Arc::new(PostgresMonitorRepository::new(pool.clone())),
@@ -258,7 +246,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
     .with_rate_limiter(redis_rate_limiter.clone())
     .with_wallet_repository(wallet_repository)
-    .with_payg_pricing_repository(payg_pricing_repository)
     .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
         pool.clone(),
     ))
@@ -268,13 +255,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))
-    .with_usage_event_repository(usage_event_repository)
     .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
         pool.clone(),
     ))
     .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()))
-    .with_financial_audit_log_repository(financial_audit_repository)
-    .with_payg_metering(metering.clone());
+    .with_financial_audit_log_repository(financial_audit_repository);
     app_state =
         app_state.with_payment_repository(infra::PostgresPaymentRepository::new(pool.clone()));
 

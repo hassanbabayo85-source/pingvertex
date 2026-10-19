@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use application::ports::SubmitAgentResultOutcome;
 use axum::{
@@ -57,6 +57,12 @@ struct SubmitResultRequest {
     status_code: Option<u16>,
     latency_ms: u128,
     error: Option<String>,
+    /// Retained because the agent wire contract still sends it. Task 8F
+    /// removed the only reader (the PAYG finalize path). The field must
+    /// stay on the struct so deserialization continues to accept the
+    /// agent's existing payload; if/when the agent protocol is bumped,
+    /// remove both sides in lockstep.
+    #[allow(dead_code)]
     attempted: bool,
     country_code: Option<String>,
 }
@@ -79,7 +85,6 @@ async fn claim_checks(
     let agent_region = agent.region.clone();
 
     let mut checks = Vec::new();
-    let mut plan_cache: HashMap<Uuid, domain::Plan> = HashMap::new();
 
     if let Some(lease_repo) = &state.agent_lease_repository {
         let leases = lease_repo
@@ -105,114 +110,7 @@ async fn claim_checks(
                 })?
                 .ok_or_else(|| ApiError::not_found("claimed monitor no longer exists"))?;
 
-            let wallet = state
-                .wallet_repository
-                .get_or_create(monitor.tenant_id.0, "USD")
-                .await
-                .map_err(|err| {
-                    ApiError::internal_with_source("failed to load monitor wallet", err)
-                })?;
-
-            let plan = if let Some(plan) = plan_cache.get(&monitor.tenant_id.0) {
-                *plan
-            } else {
-                let config = state
-                    .pricing_config_repository
-                    .find_active_config()
-                    .await
-                    .map_err(|err| {
-                        ApiError::internal_with_source(
-                            "failed to load PAYG pricing config for agent scheduler",
-                            err,
-                        )
-                    })?
-                    .ok_or_else(|| ApiError::internal("active PAYG pricing config is missing"))?;
-                let mut plan = domain::Plan::for_tier(domain::enums::PlanTier::Free);
-                plan.max_monitors = config.free_tier.monitors.min(u32::MAX as u64) as u32;
-                plan.min_check_interval_seconds = config.free_tier.interval_seconds;
-                plan.history_retention_days = config.free_tier.retention_days;
-                plan_cache.insert(monitor.tenant_id.0, plan);
-                plan
-            };
-
-            // A never-funded tenant may execute the resolved Free entitlement.
-            // Once PAYG has been activated, every agent-region execution is paid.
-            if wallet.payg_activated_at.is_some()
-                || monitor.interval_seconds < plan.min_check_interval_seconds
-            {
-                let metering = state
-                    .payg_metering
-                    .as_ref()
-                    .ok_or_else(|| ApiError::internal("PAYG metering is not configured"))?
-                    .clone();
-                let operation = domain::monitor_operation(monitor.kind, false);
-                let request_id = format!("agent-check:{}", lease.check_id.0);
-                let reservation = match metering
-                    .reserve_for_execution(application::MeterUsageInput {
-                        tenant_id: monitor.tenant_id.0,
-                        operation: operation.as_str().to_owned(),
-                        units: 1,
-                        request_id,
-                        monitor_id: Some(monitor.id.0),
-                        execution_id: Some(lease.check_id.0),
-                        pricing_context: Some(application::ports::PricingContext {
-                            account_type: None,
-                            region: Some(agent_region.clone()),
-                            monitor_kind: Some(monitor.kind),
-                            quantity: 1,
-                        }),
-                    })
-                    .await
-                {
-                    Ok(reservation) => reservation,
-                    Err(application::ChargeForUsageError::InsufficientBalance) => {
-                        if let Err(error) = state
-                            .monitor_repository
-                            .set_billing_block(
-                                monitor.id,
-                                monitor.tenant_id,
-                                "Insufficient wallet balance",
-                            )
-                            .await
-                        {
-                            tracing::warn!(error=%error, monitor_id=%monitor.id.0, "failed to persist agent billing block");
-                        }
-                        continue;
-                    }
-                    Err(application::ChargeForUsageError::SpendLimitExceeded) => {
-                        if let Err(error) = state
-                            .monitor_repository
-                            .set_billing_block(
-                                monitor.id,
-                                monitor.tenant_id,
-                                "PAYG spend limit exceeded",
-                            )
-                            .await
-                        {
-                            tracing::warn!(error=%error, monitor_id=%monitor.id.0, "failed to persist agent spend-limit block");
-                        }
-                        continue;
-                    }
-                    Err(err) => return Err(ApiError::from_payg_error(err)),
-                };
-
-                if let Err(err) = state
-                    .agent_lease_repository
-                    .as_ref()
-                    .expect("agent lease repository is configured")
-                    .mark_billing_reserved(lease.check_id)
-                    .await
-                {
-                    let _ = state
-                        .wallet_repository
-                        .release(reservation.reservation.id)
-                        .await;
-                    return Err(ApiError::internal_with_source(
-                        "failed to mark PAYG reservation on agent lease",
-                        err,
-                    ));
-                }
-            }
+            // Task 8F — PAYG metering retired; agent-region checks are free.
 
             checks.push(ClaimedCheck {
                 check_id: lease.check_id.0,
@@ -284,58 +182,7 @@ async fn submit_result(
 
         match outcome {
             SubmitAgentResultOutcome::Accepted => {
-                let monitor = state
-                    .monitor_repository
-                    .find_by_id(MonitorId(payload.monitor_id))
-                    .await
-                    .map_err(|err| {
-                        ApiError::internal_with_source(
-                            "failed to load agent monitor for billing",
-                            err,
-                        )
-                    })?
-                    .ok_or_else(|| ApiError::not_found("monitor not found"))?;
-
-                let billable = state
-                    .agent_lease_repository
-                    .as_ref()
-                    .expect("agent lease repository is configured")
-                    .billing_reserved(CheckId(payload.check_id))
-                    .await
-                    .map_err(|err| {
-                        ApiError::internal_with_source("failed to load agent billing state", err)
-                    })?;
-
-                if billable {
-                    let metering = state
-                        .payg_metering
-                        .as_ref()
-                        .ok_or_else(|| ApiError::internal("PAYG metering is not configured"))?
-                        .clone();
-                    let operation = domain::monitor_operation(monitor.kind, false);
-                    let request_id = format!("agent-check:{}", payload.check_id);
-                    match metering
-                        .finalize_reserved_attempt(
-                            application::MeterUsageInput {
-                                tenant_id: monitor.tenant_id.0,
-                                operation: operation.as_str().to_owned(),
-                                units: 1,
-                                request_id,
-                                monitor_id: Some(monitor.id.0),
-                                // The durable agent check ID is the execution identity
-                                // for this metered agent-region attempt.
-                                execution_id: Some(payload.check_id),
-                                pricing_context: None,
-                            },
-                            payload.attempted,
-                        )
-                        .await
-                    {
-                        Ok(_) | Err(application::ChargeForUsageError::OperationNotAttempted(_)) => {
-                        }
-                        Err(err) => return Err(ApiError::from_payg_error(err)),
-                    }
-                }
+                // Task 8F — no billing; the result is already durable.
             }
             SubmitAgentResultOutcome::Duplicate => return Ok(StatusCode::ACCEPTED),
             SubmitAgentResultOutcome::Stale => {

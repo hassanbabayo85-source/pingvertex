@@ -130,9 +130,6 @@ pub struct AppState {
     pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
     pub payment_repository: Arc<dyn PaymentRepository>,
     pub financial_audit_log_repository: Arc<dyn FinancialAuditLogRepository>,
-    /// Shared PAYG metering service. Optional so lightweight test/development
-    /// AppState constructors can remain usable without a wallet backend.
-    pub payg_metering: Option<Arc<application::MeterUsageUseCase>>,
     pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
     pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
 }
@@ -1660,7 +1657,6 @@ impl AppState {
             invoice_repository: Arc::new(NoopInvoiceRepository),
             financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
             payment_repository: Arc::new(NoopPaymentRepository),
-            payg_metering: None,
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1767,7 +1763,6 @@ impl AppState {
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
-            payg_metering: None,
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1796,11 +1791,6 @@ impl AppState {
         R: BulkMonitorImportRepository + 'static,
     {
         self.bulk_monitor_import_repository = Some(Arc::new(repository));
-        self
-    }
-
-    pub fn with_payg_metering(mut self, metering: Arc<application::MeterUsageUseCase>) -> Self {
-        self.payg_metering = Some(metering);
         self
     }
 

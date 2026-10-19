@@ -1,6 +1,5 @@
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
-use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -10,21 +9,12 @@ use uuid::Uuid;
 pub struct ReconciliationWorker {
     pool: PgPool,
     interval: StdDuration,
-    metering: Option<Arc<application::MeterUsageUseCase>>,
 }
 impl ReconciliationWorker {
     pub fn new(pool: PgPool, interval: StdDuration) -> Self {
-        Self {
-            pool,
-            interval,
-            metering: None,
-        }
+        Self { pool, interval }
     }
 
-    pub fn with_payg_metering(mut self, metering: Arc<application::MeterUsageUseCase>) -> Self {
-        self.metering = Some(metering);
-        self
-    }
     pub async fn run_forever(
         self,
         cancel: CancellationToken,
@@ -39,63 +29,8 @@ impl ReconciliationWorker {
     pub async fn run_once(
         &self,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // Recover the small crash window after a remote agent result is
-        // committed but before the API captures its PAYG reservation.
-        let agent_billing_repaired = if let Some(metering) = &self.metering {
-            #[derive(sqlx::FromRow)]
-            struct AgentBillingRow {
-                tenant_id: Uuid,
-                monitor_id: Uuid,
-                check_id: Uuid,
-                operation: String,
-            }
-            let rows = sqlx::query_as::<_, AgentBillingRow>(
-                r#"
-                SELECT m.tenant_id, m.id AS monitor_id, l.check_id,
-                       CASE m.kind
-                         WHEN 'http' THEN 'http_check.monitoring'
-                         WHEN 'tcp' THEN 'tcp_check.monitoring'
-                         WHEN 'dns' THEN 'dns_check.monitoring'
-                         WHEN 'heartbeat' THEN 'heartbeat_check.monitoring'
-                         WHEN 'flow' THEN 'flow_check.monitoring'
-                         ELSE 'http_check.monitoring'
-                       END AS operation
-                FROM agent_check_leases l
-                JOIN monitors m ON m.id=l.monitor_id
-                JOIN checks c ON c.id=l.check_id
-                JOIN credit_reservations r ON r.request_id=('agent-check:' || l.check_id::text)
-                WHERE l.completed_at IS NOT NULL AND l.billing_reserved=TRUE
-                  AND r.status='PENDING' AND r.expires_at > now()
-                ORDER BY l.completed_at LIMIT 100
-            "#,
-            )
-            .fetch_all(&self.pool)
-            .await?;
-            let mut repaired = 0i64;
-            for row in rows {
-                if metering
-                    .finalize_reserved_attempt(
-                        application::MeterUsageInput {
-                            tenant_id: row.tenant_id,
-                            operation: row.operation,
-                            units: 1,
-                            request_id: format!("agent-check:{}", row.check_id),
-                            monitor_id: Some(row.monitor_id),
-                            execution_id: Some(row.check_id),
-                            pricing_context: None,
-                        },
-                        true,
-                    )
-                    .await
-                    .is_ok()
-                {
-                    repaired += 1;
-                }
-            }
-            repaired
-        } else {
-            0
-        };
+        // Task 8F — PAYG agent billing retired; no metering.
+        let agent_billing_repaired: i64 = 0;
 
         let started = Utc::now();
         let end = started;
