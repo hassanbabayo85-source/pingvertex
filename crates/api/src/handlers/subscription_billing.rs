@@ -152,9 +152,9 @@ fn map_initiate_error(err: InitiateSubscriptionCheckoutError) -> ApiError {
         InitiateSubscriptionCheckoutError::NativeRecurringUnavailable(msg) => {
             ApiError::conflict(format!("native recurring unavailable: {msg}"))
         }
-        InitiateSubscriptionCheckoutError::PriceNotFound => ApiError::not_found(
-            "no effective price configured for this tier / currency / interval",
-        ),
+        InitiateSubscriptionCheckoutError::PriceNotFound => {
+            ApiError::not_found("no effective price configured for this tier / currency / interval")
+        }
         InitiateSubscriptionCheckoutError::Invalid(msg) => ApiError::bad_request(msg),
         InitiateSubscriptionCheckoutError::Provider(e) => {
             ApiError::internal_with_source("payment provider error", e)
@@ -187,8 +187,8 @@ pub async fn verify_subscription_checkout(
     let use_case = VerifySubscriptionCheckoutUseCase::new(
         state.checkout_session_repository.clone(),
         state.subscription_repository.clone(),
-        state.subscription_billing_record_repository.clone(),
         state.payment_provider.clone(),
+        state.subscription_activation_repository.clone(),
     );
     let outcome = use_case
         .execute(VerifySubscriptionCheckoutCommand {
@@ -272,13 +272,9 @@ pub async fn get_subscription(
             .map_err(|e| ApiError::internal_with_source("failed to finalize period", e))?
             .is_some();
         if changed {
-            state
-                .subscription_repository
-                .update(s)
-                .await
-                .map_err(|e| {
-                    ApiError::internal_with_source("failed to persist finalized subscription", e)
-                })?;
+            state.subscription_repository.update(s).await.map_err(|e| {
+                ApiError::internal_with_source("failed to persist finalized subscription", e)
+            })?;
         }
     }
 
@@ -339,9 +335,7 @@ pub async fn cancel_subscription_endpoint(
             SubscriptionLifecycleError::SubscriptionNotFound => {
                 ApiError::not_found("no subscription on this tenant")
             }
-            SubscriptionLifecycleError::InvalidTransition(e) => {
-                ApiError::conflict(format!("{e}"))
-            }
+            SubscriptionLifecycleError::InvalidTransition(e) => ApiError::conflict(format!("{e}")),
             SubscriptionLifecycleError::Repository(e) => {
                 ApiError::internal_with_source("failed to cancel subscription", e)
             }

@@ -148,6 +148,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shared",
+ "sqlx",
  "tokio",
  "tower",
  "tower-http 0.7.1",

@@ -230,8 +230,14 @@ async fn runtime_operations_are_idempotent_and_cannot_double_charge() {
     assert_eq!(wallet.balance_units, 10_000 - (1000 + 1 + 100 + 2));
 }
 
+// Pre-8F this test verified metering deduplication (same request_id
+// → one charge + one dispatch) via `MeterUsageUseCase`. Task 8F
+// retired SMS metering and removed
+// `NotificationDispatcher::with_metering`. The dispatcher now
+// dispatches every call independently and charges nothing. This test
+// documents the post-8F behavior.
 #[tokio::test]
-async fn sms_dispatch_is_metered_once_for_a_retried_request() {
+async fn sms_dispatch_is_not_deduplicated_post_8f() {
     use application::ports::{NotificationService, NotifyResult};
     use async_trait::async_trait;
     use domain::entities::NotificationChannel;
@@ -271,22 +277,6 @@ async fn sms_dispatch_is_metered_once_for_a_retried_request() {
         )
         .await
         .unwrap();
-    let pricing = Arc::new(InMemoryPAYGPricingRepository::new());
-    let _ = application::ports::PAYGPricingRepository::create_version(
-        &*pricing,
-        "sms",
-        "message",
-        1000,
-        "USD",
-        chrono::Utc::now() - chrono::Duration::minutes(1),
-    )
-    .await;
-    let usage = Arc::new(InMemoryUsageEventRepository::default());
-    let meter = Arc::new(application::MeterUsageUseCase::new(
-        wallet.clone(),
-        pricing,
-        usage.clone(),
-    ));
     let calls = Arc::new(AtomicUsize::new(0));
     let service = CountingService {
         calls: calls.clone(),
@@ -298,8 +288,7 @@ async fn sms_dispatch_is_metered_once_for_a_retried_request() {
         Arc::new(service.clone()),
         Arc::new(service.clone()),
         Arc::new(service),
-    )
-    .with_metering(meter);
+    );
 
     let monitor = MonitorBuilder::new(
         domain::MonitorId(Uuid::new_v4()),
@@ -331,9 +320,9 @@ async fn sms_dispatch_is_metered_once_for_a_retried_request() {
         .await
         .unwrap();
 
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     let wallet = wallet.get_or_create(tenant, "USD").await.unwrap();
-    assert_eq!(wallet.balance_units, 4_000);
+    assert_eq!(wallet.balance_units, 5_000);
 }
 
 #[tokio::test]

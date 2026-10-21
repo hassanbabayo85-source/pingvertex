@@ -8,17 +8,17 @@ use application::ports::{
     BulkMonitorImportRepository, CheckRepository, CheckoutDetails, CheckoutRequest,
     CheckoutSessionRepository, CustomDomainVerifier, DashboardRepository,
     DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository,
-    FinancialAuditLogRepository,
-    GeoIpLookup, HealthCheckPort, HealthCheckResult, HelpArticleRepository, HelpCategoryRepository,
-    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository,
-    MonitorRepository, NotificationChannelRepository, NotificationService, PAYGPricingRepository,
-    PasswordHasher, PaymentProvider, PaymentRepository, PaymentVerification,
-    PricingConfigRepository, ProxyCheckJobRepository, RateLimiter, RateLimiterResult,
-    RumAnalyticsRepository, RumEventRepository, RumSiteRepository, SchedulingRepository,
-    SecretCipher, SmsProviderPricing, StatusPageCache, StatusPageRepository,
-    SubscriptionRepository, SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction,
-    SupportTicketRepository, TenantAlertAllowanceRepository, TenantRepository,
-    TenantRetentionSettingsRepository, UsageEventRepository, UserRepository, WalletRepository,
+    FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
+    HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
+    MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
+    NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
+    PaymentProvider, PaymentRepository, PaymentVerification, PricingConfigRepository,
+    ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
+    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, SmsProviderPricing,
+    StatusPageCache, StatusPageRepository, SubscriptionRepository,
+    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
+    TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
+    UsageEventRepository, UserRepository, WalletRepository,
 };
 
 use async_trait::async_trait;
@@ -72,6 +72,11 @@ pub struct AppState {
     pub subscription_repository: Arc<dyn SubscriptionRepository>,
     pub payment_provider: Arc<dyn PaymentProvider>,
     pub checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
+    /// BE-1 F5 — atomically activates a subscription checkout in one
+    /// transaction (billing record + subscription + session completion).
+    /// Any error rolls back with zero partial state.
+    pub subscription_activation_repository:
+        Arc<dyn application::ports::SubscriptionActivationRepository>,
     /// Task 6 — server-side plan prices. Defaults to Noop (returns None).
     pub plan_price_repository: Arc<dyn application::ports::PlanPriceRepository>,
     /// Task 6 — append-only subscription billing records (idempotency).
@@ -631,6 +636,24 @@ impl application::ports::SubscriptionBillingRecordRepository
         Option<application::ports::SubscriptionBillingRecord>,
     > {
         Ok(None)
+    }
+}
+
+#[derive(Clone, Default)]
+struct NoopSubscriptionActivationRepository;
+
+#[async_trait]
+impl application::ports::SubscriptionActivationRepository for NoopSubscriptionActivationRepository {
+    async fn activate_atomically(
+        &self,
+        _record: application::ports::SubscriptionBillingRecord,
+        _action: application::ports::SubscriptionAction,
+        _session_id: domain::shared::ids::CheckoutSessionId,
+    ) -> application::ports::SubscriptionActivationResult<application::ports::ActivationOutcome>
+    {
+        Err(application::ports::subscription_activation_repository::SubscriptionActivationError::Database(
+            std::io::Error::other("subscription activation repository is not configured").into(),
+        ))
     }
 }
 
@@ -1594,7 +1617,7 @@ impl AppState {
         Self {
             monitor_repository: Arc::new(monitor_repository),
             entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
-            
+
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
@@ -1604,7 +1627,9 @@ impl AppState {
             notification_service: Arc::new(notification_service),
             api_flow_repository: Arc::new(api_flow_repository),
             proxy_check_job_repository: Arc::new(proxy_check_job_repository),
-            recurring_proxy_monitor_repository: Arc::new(infra::InMemoryRecurringProxyMonitorRepository::default()),
+            recurring_proxy_monitor_repository: Arc::new(
+                infra::InMemoryRecurringProxyMonitorRepository::default(),
+            ),
 
             maintenance_window_repository: Arc::new(NoopMaintenanceWindowRepository),
             escalation_policy_repository: Arc::new(NoopEscalationPolicyRepository),
@@ -1619,6 +1644,7 @@ impl AppState {
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             payment_provider: Arc::new(NoopPaymentProvider),
+            subscription_activation_repository: Arc::new(NoopSubscriptionActivationRepository),
             checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
             subscription_billing_record_repository: Arc::new(
@@ -1704,7 +1730,7 @@ impl AppState {
             subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
             entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
-            
+
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
             check_repository: Arc::new(check_repository),
@@ -1714,7 +1740,9 @@ impl AppState {
             notification_service: Arc::new(notification_service),
             api_flow_repository: Arc::new(api_flow_repository),
             proxy_check_job_repository: Arc::new(proxy_check_job_repository),
-            recurring_proxy_monitor_repository: Arc::new(infra::InMemoryRecurringProxyMonitorRepository::default()),
+            recurring_proxy_monitor_repository: Arc::new(
+                infra::InMemoryRecurringProxyMonitorRepository::default(),
+            ),
 
             maintenance_window_repository: Arc::new(maintenance_window_repository),
             escalation_policy_repository: Arc::new(escalation_policy_repository),
@@ -1729,6 +1757,7 @@ impl AppState {
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             payment_provider: Arc::new(NoopPaymentProvider),
+            subscription_activation_repository: Arc::new(NoopSubscriptionActivationRepository),
             checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
             subscription_billing_record_repository: Arc::new(
@@ -1817,6 +1846,14 @@ impl AppState {
         R: SubscriptionRepository + 'static,
     {
         self.subscription_repository = Arc::new(subscription_repository);
+        self
+    }
+
+    pub fn with_subscription_activation_repository<R>(mut self, repository: R) -> Self
+    where
+        R: application::ports::SubscriptionActivationRepository + 'static,
+    {
+        self.subscription_activation_repository = Arc::new(repository);
         self
     }
 

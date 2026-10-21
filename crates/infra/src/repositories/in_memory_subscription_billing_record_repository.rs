@@ -61,3 +61,33 @@ impl SubscriptionBillingRecordRepository for InMemorySubscriptionBillingRecordRe
         Ok(self.records.read().unwrap().get(&key).cloned())
     }
 }
+
+impl InMemorySubscriptionBillingRecordRepository {
+    /// Test-support helper used by `InMemorySubscriptionActivationRepository`.
+    ///
+    /// The `SubscriptionBillingRecordRepository` trait deliberately does NOT
+    /// expose a way to mutate `subscription_id` on an existing record, because
+    /// in production the winner-linkage update (Step 4b of the F5 design) runs
+    /// inside `PostgresSubscriptionActivationRepository`'s SQL transaction.
+    /// The in-memory activation adapter cannot open a transaction, so it needs
+    /// a direct mutator. This method exists ONLY for that purpose and MUST NOT
+    /// be called from production code.
+    ///
+    /// Returns `true` if the record existed and was updated, `false` otherwise.
+    pub fn link_subscription_id(
+        &self,
+        provider: &str,
+        provider_reference: &str,
+        subscription_id: uuid::Uuid,
+    ) -> bool {
+        let key = (provider.to_owned(), provider_reference.to_owned());
+        let mut map = self.records.write().unwrap();
+        if let Some(record) = map.get_mut(&key) {
+            record.subscription_id = subscription_id;
+            record.updated_at = chrono::Utc::now();
+            true
+        } else {
+            false
+        }
+    }
+}

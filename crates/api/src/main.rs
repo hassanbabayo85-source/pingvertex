@@ -119,10 +119,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The same cipher is shared by the recurring proxy monitor repository
     // so both jobs and monitors encrypt credentials identically (and can
     // be decrypted with the same key).
-    let recurring_proxy_monitor_repository = infra::PostgresRecurringProxyMonitorRepository::new(
-        pool.clone(),
-        proxy_credential_cipher,
-    );
+    let recurring_proxy_monitor_repository =
+        infra::PostgresRecurringProxyMonitorRepository::new(pool.clone(), proxy_credential_cipher);
 
     let pending_auth_cache: Arc<dyn application::ports::PendingAuthCache> = match &config.redis_url
     {
@@ -182,13 +180,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let platform_tenant_repository = tenant_repository.clone();
     let platform_user_repository = PostgresUserRepository::new(pool.clone());
 
-    let notification_service =
-        NotificationDispatcher::from_env(secret_cipher.clone())
-            .with_alert_allowance(
-                std::sync::Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone())),
-                std::sync::Arc::new(PostgresMonitorRepository::new(pool.clone())),
-                std::sync::Arc::new(PostgresNotificationChannelRepository::new(pool.clone())),
-            );
+    let notification_service = NotificationDispatcher::from_env(secret_cipher.clone())
+        .with_alert_allowance(
+            std::sync::Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone())),
+            std::sync::Arc::new(PostgresMonitorRepository::new(pool.clone())),
+            std::sync::Arc::new(PostgresNotificationChannelRepository::new(pool.clone())),
+        );
 
     let mut app_state = AppState::new_with_feature_repos(
         PostgresMonitorRepository::new(pool.clone()),
@@ -211,6 +208,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
     .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
+    .with_subscription_activation_repository(infra::PostgresSubscriptionActivationRepository::new(
+        pool.clone(),
+    ))
     .with_checkout_session_repository(PostgresCheckoutSessionRepository::new(pool.clone()))
     .with_plan_price_repository(infra::PostgresPlanPriceRepository::new(pool.clone()))
     .with_subscription_billing_record_repository(
