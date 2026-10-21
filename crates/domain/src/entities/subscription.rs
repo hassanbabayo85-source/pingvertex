@@ -170,6 +170,16 @@ impl Subscription {
     /// This is safe to call from any read path; it is a no-op unless
     /// the subscription is `Active` and `current_period_ends_at` has
     /// elapsed.
+    ///
+    /// BE-1 Step 1 — when the transition completes a scheduled
+    /// cancellation (`cancel_at_period_end == true`), clear the
+    /// `cancel_at_period_end` flag because the cancellation is no
+    /// longer pending. `canceled_at` is preserved: it records when the
+    /// cancellation was requested (set by `cancel(at_period_end=true,
+    /// …)`), not when it took effect. When the transition is a plain
+    /// expiry (no scheduled cancellation), `canceled_at` is left
+    /// untouched, matching `expire()` and
+    /// `finalize_scheduled_cancellation`, which also do not clear it.
     pub fn finalize_period_end(
         &mut self,
         now: DateTime<Utc>,
@@ -179,11 +189,15 @@ impl Subscription {
         }
         match self.current_period_ends_at {
             Some(end) if end <= now => {
-                self.status = if self.cancel_at_period_end {
-                    SubscriptionStatus::Canceled
+                if self.cancel_at_period_end {
+                    self.status = SubscriptionStatus::Canceled;
+                    // The pending scheduled cancellation is now realized;
+                    // clear the flag so a subsequent read does not report
+                    // a "cancel at period end" that has already happened.
+                    self.cancel_at_period_end = false;
                 } else {
-                    SubscriptionStatus::Expired
-                };
+                    self.status = SubscriptionStatus::Expired;
+                }
                 self.updated_at = now;
                 Ok(Some(self.status))
             }
@@ -598,5 +612,113 @@ mod tests {
         assert_eq!(subscription.monitors, Some(200));
         assert_eq!(subscription.interval_seconds, Some(30));
         assert_eq!(subscription.retention_days, Some(90));
+    }
+
+    // ─── BE-1 Step 1 — finalize_period_end state consistency ────────
+
+    #[test]
+    fn finalize_period_end_expires_active_when_period_elapsed_without_scheduled_cancel() {
+        let mut subscription = active(PlanTier::Pro);
+        let past = Utc::now() - chrono::Duration::hours(1);
+        subscription.current_period_ends_at = Some(past);
+        assert!(!subscription.cancel_at_period_end);
+        assert!(subscription.canceled_at.is_none());
+
+        let result = subscription.finalize_period_end(Utc::now()).unwrap();
+
+        assert_eq!(result, Some(SubscriptionStatus::Expired));
+        assert_eq!(subscription.status, SubscriptionStatus::Expired);
+        assert!(!subscription.cancel_at_period_end);
+        assert!(subscription.canceled_at.is_none());
+    }
+
+    #[test]
+    fn finalize_period_end_cancels_scheduled_when_period_elapsed_and_clears_flag() {
+        let mut subscription = active(PlanTier::Pro);
+        let period_end = Utc::now() - chrono::Duration::hours(1);
+        subscription.cancel(true, Some(period_end)).unwrap();
+        assert!(subscription.cancel_at_period_end);
+        let canceled_at_before = subscription.canceled_at;
+        assert!(
+            canceled_at_before.is_some(),
+            "cancel(at_period_end=true) must set canceled_at to the request time"
+        );
+
+        let result = subscription.finalize_period_end(Utc::now()).unwrap();
+
+        assert_eq!(result, Some(SubscriptionStatus::Canceled));
+        assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+        assert!(
+            !subscription.cancel_at_period_end,
+            "the scheduled cancellation was realized — cancel_at_period_end must be cleared"
+        );
+        assert_eq!(
+            subscription.canceled_at, canceled_at_before,
+            "canceled_at records the request time and must be preserved"
+        );
+    }
+
+    #[test]
+    fn finalize_period_end_is_noop_when_period_not_elapsed() {
+        let mut subscription = active(PlanTier::Pro);
+        let future = Utc::now() + chrono::Duration::days(15);
+        subscription.current_period_ends_at = Some(future);
+        let status_before = subscription.status;
+        let cancel_at_period_end_before = subscription.cancel_at_period_end;
+        let canceled_at_before = subscription.canceled_at;
+
+        let result = subscription.finalize_period_end(Utc::now()).unwrap();
+
+        assert_eq!(result, None);
+        assert_eq!(subscription.status, status_before);
+        assert_eq!(
+            subscription.cancel_at_period_end,
+            cancel_at_period_end_before
+        );
+        assert_eq!(subscription.canceled_at, canceled_at_before);
+    }
+
+    #[test]
+    fn finalize_period_end_is_idempotent_after_transition() {
+        let mut subscription = active(PlanTier::Pro);
+        let period_end = Utc::now() - chrono::Duration::hours(1);
+        subscription.cancel(true, Some(period_end)).unwrap();
+        let first = subscription.finalize_period_end(Utc::now()).unwrap();
+        assert_eq!(first, Some(SubscriptionStatus::Canceled));
+
+        let second = subscription.finalize_period_end(Utc::now()).unwrap();
+        assert_eq!(
+            second, None,
+            "second call on a non-Active subscription is a no-op"
+        );
+        assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+        assert!(!subscription.cancel_at_period_end);
+    }
+
+    #[test]
+    fn finalize_period_end_is_noop_for_past_due_and_trialing() {
+        let mut past_due = active(PlanTier::Pro);
+        past_due
+            .begin_grace_period(Utc::now() + chrono::Duration::days(3))
+            .unwrap();
+        past_due.current_period_ends_at = Some(Utc::now() - chrono::Duration::hours(1));
+        assert_eq!(past_due.finalize_period_end(Utc::now()).unwrap(), None);
+        assert_eq!(past_due.status, SubscriptionStatus::PastDue);
+
+        let mut trialing = trialing(PlanTier::Starter);
+        trialing.current_period_ends_at = Some(Utc::now() - chrono::Duration::hours(1));
+        assert_eq!(trialing.finalize_period_end(Utc::now()).unwrap(), None);
+        assert_eq!(trialing.status, SubscriptionStatus::Trialing);
+    }
+
+    #[test]
+    fn finalize_period_end_is_noop_when_no_period_end_set() {
+        let mut subscription = active(PlanTier::Pro);
+        subscription.current_period_ends_at = None;
+
+        let result = subscription.finalize_period_end(Utc::now()).unwrap();
+
+        assert_eq!(result, None);
+        assert_eq!(subscription.status, SubscriptionStatus::Active);
     }
 }

@@ -21,9 +21,11 @@ use domain::enums::{CheckoutStatus, PlanTier};
 use domain::money::{BillingInterval, Currency};
 use domain::shared::ids::{CheckoutSessionId, SubscriptionId, TenantId};
 
+use crate::ports::subscription_activation_repository::{
+    SubscriptionAction, SubscriptionActivationRepository,
+};
 use crate::ports::subscription_billing_record_repository::{
-    BillingRecordStatus, InsertBillingRecordOutcome, SubscriptionBillingRecord,
-    SubscriptionBillingRecordRepository,
+    BillingRecordStatus, SubscriptionBillingRecord,
 };
 use crate::ports::{
     CheckoutSessionRepository, PaymentProvider, SubscriptionPaymentVerification,
@@ -46,14 +48,8 @@ pub enum VerifySubscriptionCheckoutError {
     CheckoutSessionNotFound,
     CheckoutNotReady,
     Invalid(String),
-    AmountMismatch {
-        expected_minor: i64,
-        got_minor: i64,
-    },
-    CurrencyMismatch {
-        expected: Currency,
-        got: Currency,
-    },
+    AmountMismatch { expected_minor: i64, got_minor: i64 },
+    CurrencyMismatch { expected: Currency, got: Currency },
     Subscription(domain::DomainError),
     Provider(Box<dyn Error + Send + Sync>),
     Repository(Box<dyn Error + Send + Sync>),
@@ -96,22 +92,22 @@ impl Error for VerifySubscriptionCheckoutError {
 pub struct VerifySubscriptionCheckoutUseCase {
     checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
     subscription_repository: Arc<dyn SubscriptionRepository>,
-    subscription_billing_record_repository: Arc<dyn SubscriptionBillingRecordRepository>,
     payment_provider: Arc<dyn PaymentProvider>,
+    subscription_activation_repository: Arc<dyn SubscriptionActivationRepository>,
 }
 
 impl VerifySubscriptionCheckoutUseCase {
     pub fn new(
         checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
         subscription_repository: Arc<dyn SubscriptionRepository>,
-        subscription_billing_record_repository: Arc<dyn SubscriptionBillingRecordRepository>,
         payment_provider: Arc<dyn PaymentProvider>,
+        subscription_activation_repository: Arc<dyn SubscriptionActivationRepository>,
     ) -> Self {
         Self {
             checkout_session_repository,
             subscription_repository,
-            subscription_billing_record_repository,
             payment_provider,
+            subscription_activation_repository,
         }
     }
 
@@ -206,14 +202,10 @@ impl VerifySubscriptionCheckoutUseCase {
                 )
                 .await?;
 
-                let mut updated = session.clone();
-                updated.mark_completed();
-                updated.attach_provider_payment_id(provider_payment_id);
-                self.checkout_session_repository
-                    .update(&updated)
-                    .await
-                    .map_err(VerifySubscriptionCheckoutError::Repository)?;
-
+                // BE-1 F5 — session completion now happens inside
+                // `activate_atomically`, in the same database transaction as
+                // the billing-record and subscription writes. The use case no
+                // longer updates the checkout session here.
                 Ok(VerifySubscriptionCheckoutOutcome {
                     checkout_status: CheckoutStatus::Completed,
                 })
@@ -282,46 +274,45 @@ impl VerifySubscriptionCheckoutUseCase {
             updated_at: Utc::now(),
         };
 
-        let outcome = self
-            .subscription_billing_record_repository
-            .try_insert(&record)
-            .await
-            .map_err(VerifySubscriptionCheckoutError::Repository)?;
-        if outcome == InsertBillingRecordOutcome::AlreadyExists {
-            return Ok(());
-        }
-
-        match existing {
+        // Build the subscription action. For an existing subscription, apply
+        // the domain transition first — this preserves the F3 behavior of
+        // rejecting verified payments against a `Canceled` subscription, and
+        // gives the port the fully-formed `Subscription` to persist. For a
+        // first-time tenant, construct a new subscription via
+        // `Subscription::new_with_period`.
+        let action = match existing {
             Some(mut sub) => {
                 sub.apply_verified_payment_with_period(plan_tier, period_end)
                     .map_err(VerifySubscriptionCheckoutError::Subscription)?;
-                self.subscription_repository
-                    .update(&sub)
-                    .await
-                    .map_err(VerifySubscriptionCheckoutError::Repository)?;
+                SubscriptionAction::Update(sub)
             }
-            None => {
-                let sub = Subscription::new_with_period(
-                    subscription_id,
-                    session.tenant_id,
-                    plan_tier,
-                    period_end,
-                );
-                self.subscription_repository
-                    .create(&sub)
-                    .await
-                    .map_err(VerifySubscriptionCheckoutError::Repository)?;
-            }
-        }
+            None => SubscriptionAction::Create(Subscription::new_with_period(
+                subscription_id,
+                session.tenant_id,
+                plan_tier,
+                period_end,
+            )),
+        };
 
-        self.subscription_billing_record_repository
-            .mark_succeeded(
-                &record.provider,
-                &record.provider_reference,
-                provider_payment_id,
-            )
+        // BE-1 F5 — one atomic call replaces the pre-F5 four-step flow
+        // (billing-record insert, existing-record validation, subscription
+        // activation, session completion). The port does all four in a
+        // single SQL transaction; any failure rolls back with zero partial
+        // state.
+        self.subscription_activation_repository
+            .activate_atomically(record, action, session.id)
             .await
-            .map_err(VerifySubscriptionCheckoutError::Repository)?;
+            .map_err(|e| {
+                // BE-1 F5.5 — preserve F3's 400-vs-500 classification:
+                // client-facing business invariants (failed record, identity
+                // mismatch, terminal subscription) surface as `Invalid` (400);
+                // database / server-side failures surface as `Repository` (500).
+                if e.is_client_error() {
+                    VerifySubscriptionCheckoutError::Invalid(e.to_string())
+                } else {
+                    VerifySubscriptionCheckoutError::Repository(Box::new(e))
+                }
+            })?;
 
         Ok(())
     }

@@ -13,8 +13,8 @@ pub mod notification_outbox_sender;
 pub mod notification_service;
 pub mod password_hasher;
 pub mod proxy_check_job_repository;
-pub mod recurring_proxy_monitor_repository;
 pub mod proxy_credential_cipher;
+pub mod recurring_proxy_monitor_repository;
 pub mod secret_cipher;
 pub mod subscriber_repository;
 pub mod token_service;
@@ -75,11 +75,11 @@ pub use notification_outbox_sender::NotificationOutboxSender;
 pub use notification_service::{NotificationService, NotifyResult};
 pub use password_hasher::PasswordHasher;
 pub use proxy_check_job_repository::{ProxyCheckJobRepository, ProxyResultStatusFilter};
-pub use recurring_proxy_monitor_repository::{
-    ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository,
-};
 pub use proxy_credential_cipher::{
     EncryptedProxyCredentials, ProxyCredentialCipher, ProxyCredentialCipherError,
+};
+pub use recurring_proxy_monitor_repository::{
+    ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository,
 };
 pub use secret_cipher::{SecretCipher, SecretCipherError};
 pub use subscriber_repository::SubscriberRepository;
@@ -251,9 +251,14 @@ pub mod plan_price_repository;
 pub use plan_price_repository::{PlanPriceRepoResult, PlanPriceRepository};
 
 // Task 6 — subscription billing records:
+pub mod subscription_activation_repository;
+pub use subscription_activation_repository::{
+    ActivationOutcome, SubscriptionAction, SubscriptionActivationError,
+    SubscriptionActivationRepository, SubscriptionActivationResult,
+};
 pub mod subscription_billing_record_repository;
+pub use payment_provider::{SubscriptionCheckoutRequest, SubscriptionPaymentVerification};
 pub use subscription_billing_record_repository::{
     BillingRecordStatus, InsertBillingRecordOutcome, SubscriptionBillingRecord,
     SubscriptionBillingRecordRepository,
 };
-pub use payment_provider::{SubscriptionCheckoutRequest, SubscriptionPaymentVerification};

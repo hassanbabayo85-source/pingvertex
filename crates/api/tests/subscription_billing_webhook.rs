@@ -31,8 +31,9 @@ use hmac::{Hmac, Mac};
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryCheckoutSessionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryProxyCheckJobRepository, InMemorySubscriptionBillingRecordRepository,
-    InMemorySubscriptionRepository, NoopNotificationService, UuidIdGenerator,
+    InMemoryProxyCheckJobRepository, InMemorySubscriptionActivationRepository,
+    InMemorySubscriptionBillingRecordRepository, InMemorySubscriptionRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::json;
 use sha2::Sha512;
@@ -59,10 +60,7 @@ impl PaymentProvider for FakeProvider {
         Err(std::io::Error::other("wallet checkout not used").into())
     }
 
-    async fn verify_payment(
-        &self,
-        _reference: &str,
-    ) -> PaymentProviderResult<PaymentVerification> {
+    async fn verify_payment(&self, _reference: &str) -> PaymentProviderResult<PaymentVerification> {
         Err(std::io::Error::other("wallet verify not used").into())
     }
 
@@ -106,6 +104,12 @@ fn build_fixture(verify_amount_minor: i64, verify_currency: Currency) -> Fixture
     let checkout_repo = Arc::new(InMemoryCheckoutSessionRepository::new());
     let records_repo = Arc::new(InMemorySubscriptionBillingRecordRepository::new());
 
+    let activation_repo = Arc::new(InMemorySubscriptionActivationRepository::new(
+        sub_repo.clone(),
+        records_repo.clone(),
+        checkout_repo.clone(),
+    ));
+
     let state = AppState::new(
         monitor_repo.clone(),
         common::NoopCheckRepository,
@@ -122,6 +126,7 @@ fn build_fixture(verify_amount_minor: i64, verify_currency: Currency) -> Fixture
     .with_checkout_session_repository(checkout_repo)
     .with_subscription_repository(sub_repo.clone())
     .with_subscription_billing_record_repository(records_repo)
+    .with_subscription_activation_repository(activation_repo)
     .with_payment_provider(FakeProvider {
         verify_amount_minor,
         verify_currency,
@@ -164,13 +169,10 @@ async fn post_webhook(state: AppState, body: serde_json::Value) -> (StatusCode, 
         "x-paystack-signature",
         sign(WEBHOOK_SECRET, &body_bytes).parse().unwrap(),
     );
-    let (status, axum::Json(response)) = paystack_webhook(
-        State(state),
-        headers,
-        Bytes::from(body_bytes),
-    )
-    .await
-    .unwrap();
+    let (status, axum::Json(response)) =
+        paystack_webhook(State(state), headers, Bytes::from(body_bytes))
+            .await
+            .unwrap();
     (status, response.status)
 }
 
@@ -253,8 +255,7 @@ async fn duplicate_subscription_webhook_does_not_double_activate() {
 
     assert_eq!(sub_after_first.id, sub_after_second.id);
     assert_eq!(
-        sub_after_first.current_period_ends_at,
-        sub_after_second.current_period_ends_at,
+        sub_after_first.current_period_ends_at, sub_after_second.current_period_ends_at,
         "duplicate webhook must not extend the period"
     );
 }

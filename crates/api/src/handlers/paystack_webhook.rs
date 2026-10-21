@@ -284,14 +284,15 @@ async fn handle_subscription_charge_success(
     let use_case = application::use_cases::verify_subscription_checkout::VerifySubscriptionCheckoutUseCase::new(
         state.checkout_session_repository.clone(),
         state.subscription_repository.clone(),
-        state.subscription_billing_record_repository.clone(),
         state.payment_provider.clone(),
+        state.subscription_activation_repository.clone(),
     );
 
-    let cmd = application::use_cases::verify_subscription_checkout::VerifySubscriptionCheckoutCommand {
-        tenant_id: session.tenant_id,
-        checkout_session_id: session.id,
-    };
+    let cmd =
+        application::use_cases::verify_subscription_checkout::VerifySubscriptionCheckoutCommand {
+            tenant_id: session.tenant_id,
+            checkout_session_id: session.id,
+        };
 
     match use_case.execute(cmd).await {
         Ok(outcome) => Ok((
