@@ -16,7 +16,7 @@ use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemorySubscriptionRepository,
-    InMemorySubscriptionUsagePeriodRepository, InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
+    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::{Value, json};
