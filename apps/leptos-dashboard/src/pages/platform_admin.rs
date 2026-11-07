@@ -1,7 +1,7 @@
 use crate::api::client;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 struct Session {
