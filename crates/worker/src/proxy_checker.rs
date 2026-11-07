@@ -88,48 +88,6 @@ fn proxy_scheme_str(scheme: &ProxyScheme) -> &'static str {
 fn elapsed_ms(started: Instant) -> u32 {
     started.elapsed().as_millis().try_into().unwrap_or(u32::MAX)
 }
-
-fn legacy_error_code(scheme: &ProxyScheme, message: &str) -> &'static str {
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("ssrf blocked") {
-        return "PRIVATE_IP_BLOCKED";
-    }
-    if lower.contains("failed to resolve") || lower.contains("did not resolve") {
-        return "DNS_FAILED";
-    }
-    if lower.contains("invalid monitor url")
-        || lower.contains("has no host")
-        || lower.contains("invalid port")
-    {
-        return "INVALID_PROXY";
-    }
-    if lower.contains("connection refused") {
-        return "CONNECTION_REFUSED";
-    }
-    if lower.contains("timed out") || lower.contains("timeout") {
-        return if lower.contains("target")
-            || lower.contains("tls handshake") && lower.contains("target")
-        {
-            "TARGET_TIMEOUT"
-        } else {
-            "CONNECTION_TIMEOUT"
-        };
-    }
-    if lower.contains("authentication failed") || lower.contains("auth") && lower.contains("failed")
-    {
-        return "AUTH_FAILED";
-    }
-    if lower.contains("tls") {
-        return "TLS_FAILED";
-    }
-    match scheme {
-        ProxyScheme::Http => "HTTP_PROXY_FAILED",
-        ProxyScheme::Https => "HTTPS_PROXY_FAILED",
-        ProxyScheme::Socks4 => "SOCKS4_FAILED",
-        ProxyScheme::Socks5 => "SOCKS5_FAILED",
-    }
-}
-
 /// Aggregated result of checking a single proxy entry.
 ///
 /// This is the intermediate shape between the raw protocol helpers
@@ -338,44 +296,6 @@ fn build_proxy_result(entry: &ProxyEntry, started: Instant, attempt: CheckAttemp
         http_status_code: attempt.http_status_code,
     }
 }
-
-fn proxy_result(
-    entry: &ProxyEntry,
-    started: Instant,
-    reachable: bool,
-    supports_https: bool,
-    error: Option<String>,
-) -> ProxyResult {
-    let mut safe_error = error;
-    if let Some(message) = safe_error.as_mut() {
-        message.truncate(512);
-    }
-    let error_code = safe_error
-        .as_deref()
-        .map(|e| legacy_error_code(entry.scheme(), e).to_string());
-    ProxyResult {
-        host: entry.host().as_str().to_string(),
-        port: entry.port(),
-        scheme: proxy_scheme_str(entry.scheme()).to_string(),
-        reachable,
-        latency_ms: Some(elapsed_ms(started)),
-        supports_https,
-        anonymity: None,
-        country_code: None,
-        error_code,
-        error_message: safe_error,
-        // Proxy-diagnostic fields — placeholders for now. They are populated
-        // these with actual measurements and structured classification.
-        outcome: None,
-        failure_kind: None,
-        connection_latency_ms: None,
-        tls_handshake_latency_ms: None,
-        ttfb_ms: None,
-        total_time_ms: None,
-        http_status_code: None,
-    }
-}
-
 async fn write_all_timeout<S>(
     stream: &mut S,
     data: &[u8],
@@ -1343,7 +1263,6 @@ where
     for entry in entries {
         let had_existing_result = entry.result().is_some();
         let semaphore = Arc::clone(&semaphore);
-        let job_for_task = job.clone();
 
         tasks.spawn(async move {
             let _permit = semaphore
