@@ -281,8 +281,7 @@ fn build_test_app(
     )
     .with_pricing_config_repository(pricing_repo)
     .with_subscription_repository(subscription_repo)
-    .with_subscription_usage_period_repository(usage_period_repo)
-    .with_subscription_usage_transaction(usage_transaction);
+;
 
     let tenant_repository = InMemoryTenantRepository::new();
 

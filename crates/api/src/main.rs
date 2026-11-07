@@ -197,19 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
     .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
-    .with_subscription_activation_repository(infra::PostgresSubscriptionActivationRepository::new(
-        pool.clone(),
-    ))
-    .with_checkout_session_repository(PostgresCheckoutSessionRepository::new(pool.clone()))
     .with_plan_price_repository(infra::PostgresPlanPriceRepository::new(pool.clone()))
-    .with_subscription_billing_record_repository(
-        infra::PostgresSubscriptionBillingRecordRepository::new(pool.clone()),
-    )
-    .with_payment_provider(billing_provider)
-    .with_billing_webhook_idempotency_repository(PostgresBillingWebhookIdempotencyRepository::new(
-        pool.clone(),
-    ))
-    .with_billing_audit_log_repository(PostgresBillingAuditLogRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
     .with_agent_registry(PostgresAgentRegistryRepository::new(pool.clone()))
     .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
@@ -221,12 +209,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()))
     .with_entitlement_resolver(infra::PostgresEntitlementResolver::new(pool.clone()))
     .with_recurring_proxy_monitor_repository(recurring_proxy_monitor_repository)
-    .with_add_on_subscription_repository(PostgresAddOnSubscriptionRepository::new(pool.clone()))
-    .with_sms_provider_pricing(TwilioPricingService::new())
-    .with_subscription_usage_period_repository(PostgresSubscriptionUsagePeriodRepository::new(
-        pool.clone(),
-    ))
-    .with_subscription_usage_transaction(PostgresSubscriptionUsageTransaction::new(pool.clone()))
     .with_help_category_repository(PostgresHelpCategoryRepository::new(pool.clone()))
     .with_help_article_repository(PostgresHelpArticleRepository::new(pool.clone()))
     .with_support_ticket_repository(PostgresSupportTicketRepository::new(pool.clone()))
@@ -244,13 +226,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))
-    .with_subscription_plan_change_repository(PostgresSubscriptionPlanChangeRepository::new(
-        pool.clone(),
-    ))
     .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()))
     .with_financial_audit_log_repository(financial_audit_repository);
-    app_state =
-        app_state.with_payment_repository(infra::PostgresPaymentRepository::new(pool.clone()));
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the

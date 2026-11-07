@@ -308,7 +308,7 @@ pub async fn build_billing_summary_fixture() -> (
     )
     .with_pricing_config_repository(pricing_repo)
     .with_subscription_repository(subscription_repo.clone())
-    .with_add_on_subscription_repository(addon_repo.clone());
+;
 
     let tenant_id = TenantId::new();
     let user_id = UserId::new();

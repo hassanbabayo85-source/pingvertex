@@ -70,21 +70,8 @@ pub struct AppState {
     pub api_key_repository: Arc<dyn ApiKeyRepository>,
     pub password_hasher: Arc<dyn PasswordHasher>,
     pub subscription_repository: Arc<dyn SubscriptionRepository>,
-    pub payment_provider: Arc<dyn PaymentProvider>,
-    pub checkout_session_repository: Arc<dyn CheckoutSessionRepository>,
-    /// BE-1 F5 — atomically activates a subscription checkout in one
-    /// transaction (billing record + subscription + session completion).
-    /// Any error rolls back with zero partial state.
-    pub subscription_activation_repository:
-        Arc<dyn application::ports::SubscriptionActivationRepository>,
     /// Task 6 — server-side plan prices. Defaults to Noop (returns None).
     pub plan_price_repository: Arc<dyn application::ports::PlanPriceRepository>,
-    /// Task 6 — append-only subscription billing records (idempotency).
-    pub subscription_billing_record_repository:
-        Arc<dyn application::ports::SubscriptionBillingRecordRepository>,
-    pub billing_webhook_secret: Option<Arc<str>>,
-    pub billing_webhook_idempotency_repository: Arc<dyn BillingWebhookIdempotencyRepository>,
-    pub billing_audit_log_repository: Arc<dyn BillingAuditLogRepository>,
     pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
     /// Server-side agent identity registry.
@@ -99,12 +86,6 @@ pub struct AppState {
     /// Defaults to `NoopDashboardRepository` (returns empty) until
     /// `with_dashboard_repository` substitutes the real Postgres implementation.
     pub dashboard_repository: Arc<dyn DashboardRepository>,
-    /// Proration Service.
-    pub subscription_usage_period_repository: Arc<dyn SubscriptionUsagePeriodRepository>,
-    /// Proration Service.
-    pub subscription_usage_transaction: Arc<dyn SubscriptionUsageTransaction>,
-    pub add_on_subscription_repository: Arc<dyn AddOnSubscriptionRepository>,
-    pub sms_provider_pricing: Arc<dyn SmsProviderPricing>,
     pub help_category_repository: Arc<dyn HelpCategoryRepository>,
     pub help_article_repository: Arc<dyn HelpArticleRepository>,
     pub support_ticket_repository: Arc<dyn SupportTicketRepository>,
@@ -130,10 +111,7 @@ pub struct AppState {
     pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
-    pub subscription_plan_change_repository:
-        Arc<dyn application::ports::SubscriptionPlanChangeRepository>,
     pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
-    pub payment_repository: Arc<dyn PaymentRepository>,
     pub financial_audit_log_repository: Arc<dyn FinancialAuditLogRepository>,
     pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
     pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
@@ -1643,28 +1621,13 @@ impl AppState {
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
-            payment_provider: Arc::new(NoopPaymentProvider),
-            subscription_activation_repository: Arc::new(NoopSubscriptionActivationRepository),
-            checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
-            subscription_billing_record_repository: Arc::new(
-                NoopSubscriptionBillingRecordRepository,
-            ),
-            billing_webhook_secret: None,
-            billing_webhook_idempotency_repository: Arc::new(
-                NoopBillingWebhookIdempotencyRepository,
-            ),
-            billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
-            subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
-            subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
-            add_on_subscription_repository: Arc::new(NoopAddOnSubscriptionRepository),
-            sms_provider_pricing: Arc::new(NoopSmsProviderPricing),
             help_category_repository: Arc::new(NoopHelpCategoryRepository),
             help_article_repository: Arc::new(NoopHelpArticleRepository),
             support_ticket_repository: Arc::new(NoopSupportTicketRepository),
@@ -1679,10 +1642,8 @@ impl AppState {
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
-            subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             invoice_repository: Arc::new(NoopInvoiceRepository),
             financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
-            payment_repository: Arc::new(NoopPaymentRepository),
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1726,8 +1687,6 @@ impl AppState {
         Self {
             invoice_repository: Arc::new(NoopInvoiceRepository),
             financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
-            payment_repository: Arc::new(NoopPaymentRepository),
-            subscription_plan_change_repository: Arc::new(NoopSubscriptionPlanChangeRepository),
             monitor_repository: Arc::new(monitor_repository),
             entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
 
@@ -1756,28 +1715,13 @@ impl AppState {
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
-            payment_provider: Arc::new(NoopPaymentProvider),
-            subscription_activation_repository: Arc::new(NoopSubscriptionActivationRepository),
-            checkout_session_repository: Arc::new(NoopCheckoutSessionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
-            subscription_billing_record_repository: Arc::new(
-                NoopSubscriptionBillingRecordRepository,
-            ),
-            billing_webhook_secret: None,
-            billing_webhook_idempotency_repository: Arc::new(
-                NoopBillingWebhookIdempotencyRepository,
-            ),
-            billing_audit_log_repository: Arc::new(NoopBillingAuditLogRepository),
             pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
             health_check_port: Arc::new(NoopHealthCheckPort),
             dashboard_repository: Arc::new(NoopDashboardRepository),
-            subscription_usage_period_repository: Arc::new(NoopSubscriptionUsagePeriodRepository),
-            subscription_usage_transaction: Arc::new(NoopSubscriptionUsageTransaction),
-            add_on_subscription_repository: Arc::new(NoopAddOnSubscriptionRepository),
-            sms_provider_pricing: Arc::new(NoopSmsProviderPricing),
             help_category_repository: Arc::new(NoopHelpCategoryRepository),
             help_article_repository: Arc::new(NoopHelpArticleRepository),
             support_ticket_repository: Arc::new(NoopSupportTicketRepository),
@@ -1849,29 +1793,8 @@ impl AppState {
         self
     }
 
-    pub fn with_subscription_activation_repository<R>(mut self, repository: R) -> Self
-    where
-        R: application::ports::SubscriptionActivationRepository + 'static,
-    {
-        self.subscription_activation_repository = Arc::new(repository);
-        self
-    }
 
-    pub fn with_payment_provider<P>(mut self, payment_provider: P) -> Self
-    where
-        P: PaymentProvider + 'static,
-    {
-        self.payment_provider = Arc::new(payment_provider);
-        self
-    }
 
-    pub fn with_checkout_session_repository<R>(mut self, checkout_session_repository: R) -> Self
-    where
-        R: CheckoutSessionRepository + 'static,
-    {
-        self.checkout_session_repository = Arc::new(checkout_session_repository);
-        self
-    }
 
     pub fn with_plan_price_repository<R>(mut self, repository: R) -> Self
     where
@@ -1881,34 +1804,9 @@ impl AppState {
         self
     }
 
-    pub fn with_subscription_billing_record_repository<R>(mut self, repository: R) -> Self
-    where
-        R: application::ports::SubscriptionBillingRecordRepository + 'static,
-    {
-        self.subscription_billing_record_repository = Arc::new(repository);
-        self
-    }
 
-    pub fn with_billing_webhook_secret<S: Into<String>>(mut self, secret: S) -> Self {
-        self.billing_webhook_secret = Some(Arc::from(secret.into()));
-        self
-    }
 
-    pub fn with_billing_webhook_idempotency_repository<R>(mut self, repo: R) -> Self
-    where
-        R: BillingWebhookIdempotencyRepository + 'static,
-    {
-        self.billing_webhook_idempotency_repository = Arc::new(repo);
-        self
-    }
 
-    pub fn with_billing_audit_log_repository<R>(mut self, repo: R) -> Self
-    where
-        R: BillingAuditLogRepository + 'static,
-    {
-        self.billing_audit_log_repository = Arc::new(repo);
-        self
-    }
 
     pub fn with_agent_lease_repository<R>(mut self, agent_lease_repository: R) -> Self
     where
@@ -1967,39 +1865,9 @@ impl AppState {
         self
     }
 
-    /// Proration Service.
-    pub fn with_subscription_usage_period_repository<R>(mut self, repo: R) -> Self
-    where
-        R: SubscriptionUsagePeriodRepository + 'static,
-    {
-        self.subscription_usage_period_repository = Arc::new(repo);
-        self
-    }
 
-    /// Proration Service.
-    pub fn with_add_on_subscription_repository<R>(mut self, repo: R) -> Self
-    where
-        R: AddOnSubscriptionRepository + 'static,
-    {
-        self.add_on_subscription_repository = Arc::new(repo);
-        self
-    }
 
-    pub fn with_sms_provider_pricing<P>(mut self, provider: P) -> Self
-    where
-        P: SmsProviderPricing + 'static,
-    {
-        self.sms_provider_pricing = Arc::new(provider);
-        self
-    }
 
-    pub fn with_subscription_usage_transaction<T>(mut self, transaction: T) -> Self
-    where
-        T: SubscriptionUsageTransaction + 'static,
-    {
-        self.subscription_usage_transaction = Arc::new(transaction);
-        self
-    }
 
     pub fn with_help_category_repository<R>(mut self, repo: R) -> Self
     where
@@ -2111,20 +1979,6 @@ impl AppState {
         G: GeoIpLookup + 'static,
     {
         self.geo_ip_lookup = Arc::new(geo_ip_lookup);
-        self
-    }
-    pub fn with_subscription_plan_change_repository<R>(mut self, repo: R) -> Self
-    where
-        R: application::ports::SubscriptionPlanChangeRepository + 'static,
-    {
-        self.subscription_plan_change_repository = Arc::new(repo);
-        self
-    }
-    pub fn with_payment_repository<R>(mut self, repo: R) -> Self
-    where
-        R: PaymentRepository + 'static,
-    {
-        self.payment_repository = Arc::new(repo);
         self
     }
 
