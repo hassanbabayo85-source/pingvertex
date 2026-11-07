@@ -32,7 +32,7 @@ use domain::{
 };
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
-    InMemoryFinancialAuditLogRepository, InMemoryMonitorRepository,
+    InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
     InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
