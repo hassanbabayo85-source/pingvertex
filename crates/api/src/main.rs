@@ -136,9 +136,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // constructed below because the PAYG wallet webhook paths (Task 6
     // wallet credit/refund) still consume them.
     let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
-    let financial_audit_repository = std::sync::Arc::new(
-        infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
-    );
 
     // Shared distributed rate limiter. Constructed once and cloned into
     // both `AppState` (RUM ingestion) and `AuthState` (auth endpoints)
@@ -217,8 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))
-    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()))
-    .with_financial_audit_log_repository(financial_audit_repository);
+    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()));
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the

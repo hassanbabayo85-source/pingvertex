@@ -293,45 +293,12 @@ pub async fn audit_records(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?;
 
-    let financial_filter = application::ports::FinancialAuditLogFilter {
-        action: query.action.clone(),
-        resource_id: query.target.clone(),
-        actor: query.actor.map(|u| u.to_string()),
-        from: query.from,
-        to: query.to,
-        ..Default::default()
-    };
 
-    let financial_page = s
-        .financial_audit_log_repository
-        .list_page_admin(
-            query.tenant,
-            &financial_filter,
-            cursor_generic.map(|c| application::ports::FinancialAuditLogCursor {
-                created_at: c.created_at,
-                id: c.id,
-            }),
-            (limit + 1) as u32,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to load financial audit records", e))?;
 
     let mut items: Vec<crate::handlers::audit::AuditEntryResponse> =
-        Vec::with_capacity(generic_page.entries.len() + financial_page.entries.len());
+        Vec::with_capacity(generic_page.entries.len());
     for entry in generic_page.entries {
         items.push(crate::handlers::audit::response_for_admin(entry));
-    }
-    for entry in financial_page.entries {
-        items.push(crate::handlers::audit::AuditEntryResponse {
-            id: entry.id.to_string(),
-            actor_user_id: entry.actor,
-            tenant_id: entry.tenant_id.map(|t| t.to_string()),
-            action: entry.action,
-            target_id: entry.resource_id.unwrap_or(entry.resource),
-            metadata: entry.metadata,
-            created_at: entry.created_at,
-            source: "financial".to_owned(),
-        });
     }
 
     items.sort_by(|a, b| {
@@ -340,7 +307,7 @@ pub async fn audit_records(
             .then_with(|| b.id.cmp(&a.id))
     });
 
-    let has_more = items.len() > limit || generic_page.has_more || financial_page.has_more;
+    let has_more = items.len() > limit || generic_page.has_more;
     items.truncate(limit);
 
     let next_cursor = if has_more {

@@ -114,48 +114,16 @@ pub async fn tenant_audit(
         .list_page(&filter, cursor, (limit + 1) as u32)
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load tenant audit", e))?;
-    let financial = state
-        .financial_audit_log_repository
-        .list_page(
-            tenant_id.0,
-            &application::ports::FinancialAuditLogFilter {
-                action: query.action.clone(),
-                resource_id: query.target.clone(),
-                actor: query.actor.map(|actor| actor.to_string()),
-                from: query.from,
-                to: query.to,
-                ..Default::default()
-            },
-            cursor.map(|c| application::ports::FinancialAuditLogCursor {
-                created_at: c.created_at,
-                id: c.id,
-            }),
-            (limit + 1) as u32,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to load tenant financial audit", e))?;
-    let mut items = Vec::with_capacity(generic.entries.len() + financial.entries.len());
+    let mut items = Vec::with_capacity(generic.entries.len());
     for entry in generic.entries {
         items.push(response(entry));
-    }
-    for entry in financial.entries {
-        items.push(AuditEntryResponse {
-            id: entry.id.to_string(),
-            actor_user_id: entry.actor,
-            tenant_id: entry.tenant_id.map(|t| t.to_string()),
-            action: entry.action,
-            target_id: entry.resource_id.unwrap_or(entry.resource),
-            metadata: entry.metadata,
-            created_at: entry.created_at,
-            source: "financial".to_owned(),
-        });
     }
     items.sort_by(|a, b| {
         b.created_at
             .cmp(&a.created_at)
             .then_with(|| b.id.cmp(&a.id))
     });
-    let has_more = items.len() > limit || generic.has_more || financial.has_more;
+    let has_more = items.len() > limit || generic.has_more;
     items.truncate(limit);
     let next_cursor = if has_more {
         items

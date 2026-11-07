@@ -115,7 +115,7 @@ async fn tenant_audit_pagination_walks_all_entries_exactly_once() {
         Arc::new(common::NoopSecretCipher),
         generic_repo.clone(),
     )
-    .with_financial_audit_log_repository(financial_repo.clone());
+;
 
     let auth = AuthenticatedUser::new(user_id, Role::Owner, TenantContext::new(tenant_id));
 

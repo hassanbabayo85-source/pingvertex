@@ -6,7 +6,7 @@ use application::ports::{
     AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
     AuditLogEntryRepository, BulkMonitorImportRepository, CheckRepository, CustomDomainVerifier, DashboardRepository,
     DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository,
-    FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
+    GeoIpLookup, HealthCheckPort, HealthCheckResult,
     HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
     MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
     NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
@@ -109,7 +109,6 @@ pub struct AppState {
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
     pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
-    pub financial_audit_log_repository: Arc<dyn FinancialAuditLogRepository>,
     pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
     pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
 }
@@ -448,20 +447,6 @@ impl HealthCheckPort for NoopHealthCheckPort {
 }
 
 
-struct NoopFinancialAuditLogRepository;
-
-#[async_trait]
-impl FinancialAuditLogRepository for NoopFinancialAuditLogRepository {
-    async fn create(&self, _entry: &domain::FinancialAuditLogEntry) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn list_by_tenant(
-        &self,
-        _tenant_id: uuid::Uuid,
-    ) -> RepoResult<Vec<domain::FinancialAuditLogEntry>> {
-        Ok(Vec::new())
-    }
-}
 
 struct NoopInvoiceRepository;
 #[async_trait]
@@ -1419,7 +1404,6 @@ impl AppState {
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
             invoice_repository: Arc::new(NoopInvoiceRepository),
-            financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1462,7 +1446,6 @@ impl AppState {
     {
         Self {
             invoice_repository: Arc::new(NoopInvoiceRepository),
-            financial_audit_log_repository: Arc::new(NoopFinancialAuditLogRepository),
             monitor_repository: Arc::new(monitor_repository),
             entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
 
@@ -1758,14 +1741,7 @@ impl AppState {
         self
     }
 
-    pub fn with_financial_audit_log_repository<R>(mut self, repo: R) -> Self
-    where
-        R: FinancialAuditLogRepository + 'static,
-    {
-        self.financial_audit_log_repository = Arc::new(repo);
-        self
-    }
-
+    
     /// TASK 3 — installs the real recurring proxy monitor repository.
     pub fn with_recurring_proxy_monitor_repository<R>(mut self, repo: R) -> Self
     where

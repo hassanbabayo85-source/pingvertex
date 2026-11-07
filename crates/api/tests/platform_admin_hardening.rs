@@ -388,7 +388,6 @@ async fn build_harness() -> Harness {
     .with_platform_admin_repositories(users.clone(), tenants.clone())
     .with_pricing_config_repository(InMemoryPricingConfigRepository::new())
     .with_wallet_repository(InMemoryWalletRepository::default())
-    .with_financial_audit_log_repository(InMemoryFinancialAuditLogRepository::new())
     .with_payg_pricing_repository(InMemoryPAYGPricingRepository::new())
     .with_usage_event_repository(InMemoryUsageEventRepository::default());
 
