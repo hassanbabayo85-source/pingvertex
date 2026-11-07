@@ -3,20 +3,17 @@ use std::sync::Arc;
 use application::ports::AgentRegistry;
 use application::ports::RecurringProxyMonitorRepository;
 use application::ports::{
-    AddOnSubscriptionRepository, AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
-    AuditLogEntryRepository, BillingAuditLogRepository, BillingWebhookIdempotencyRepository,
-    BulkMonitorImportRepository, CheckRepository, CheckoutDetails, CheckoutRequest,
-    CheckoutSessionRepository, CustomDomainVerifier, DashboardRepository,
+    AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
+    AuditLogEntryRepository, BulkMonitorImportRepository, CheckRepository, CustomDomainVerifier, DashboardRepository,
     DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository,
     FinancialAuditLogRepository, GeoIpLookup, HealthCheckPort, HealthCheckResult,
     HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
     MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
     NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
-    PaymentProvider, PaymentRepository, PaymentVerification, PricingConfigRepository,
+    PricingConfigRepository,
     ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
-    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, SmsProviderPricing,
-    StatusPageCache, StatusPageRepository, SubscriptionRepository,
-    SubscriptionUsagePeriodRepository, SubscriptionUsageTransaction, SupportTicketRepository,
+    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
+    SupportTicketRepository,
     TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
     UsageEventRepository, UserRepository, WalletRepository,
 };
@@ -27,8 +24,8 @@ use domain::PricingAuditLogEntry;
 use domain::Subscription;
 use domain::entities::{ApiKey, StatusPage};
 use domain::pricing::PricingConfig;
-use domain::shared::ids::{ApiKeyId, CheckoutSessionId, MonitorId, StatusPageId, TenantId, UserId};
-use domain::{CheckoutSession, EscalationPolicy, MaintenanceWindow};
+use domain::shared::ids::{ApiKeyId, MonitorId, StatusPageId, TenantId, UserId};
+use domain::{EscalationPolicy, MaintenanceWindow};
 use infra::{Argon2PasswordHasher, UuidIdGenerator};
 
 use application::dto::{DashboardBadges, DashboardOverview};
@@ -450,39 +447,6 @@ impl HealthCheckPort for NoopHealthCheckPort {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopSubscriptionPlanChangeRepository;
-#[async_trait]
-impl application::ports::SubscriptionPlanChangeRepository for NoopSubscriptionPlanChangeRepository {
-    async fn create(&self, _: &domain::SubscriptionPlanChange) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn update(&self, _: &domain::SubscriptionPlanChange) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn find_by_id(
-        &self,
-        _: uuid::Uuid,
-        _: uuid::Uuid,
-    ) -> RepoResult<Option<domain::SubscriptionPlanChange>> {
-        Ok(None)
-    }
-}
-#[derive(Clone, Default)]
-struct NoopPaymentRepository;
-#[async_trait]
-impl PaymentRepository for NoopPaymentRepository {
-    async fn record(&self, _p: &domain::Payment) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn find_by_provider_payment_id(
-        &self,
-        _provider: &str,
-        _id: &str,
-    ) -> RepoResult<Option<domain::Payment>> {
-        Ok(None)
-    }
-}
 
 struct NoopFinancialAuditLogRepository;
 
@@ -548,23 +512,7 @@ impl SubscriptionRepository for NoopSubscriptionRepository {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopPaymentProvider;
 
-#[async_trait]
-impl PaymentProvider for NoopPaymentProvider {
-    fn provider_name(&self) -> &'static str {
-        "noop"
-    }
-
-    async fn create_checkout(&self, _request: &CheckoutRequest) -> RepoResult<CheckoutDetails> {
-        Err(std::io::Error::other("billing provider is not configured").into())
-    }
-
-    async fn verify_payment(&self, _provider_checkout_id: &str) -> RepoResult<PaymentVerification> {
-        Err(std::io::Error::other("billing provider is not configured").into())
-    }
-}
 
 #[derive(Clone, Default)]
 struct NoopPlanPriceRepository;
@@ -581,97 +529,15 @@ impl application::ports::PlanPriceRepository for NoopPlanPriceRepository {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopSubscriptionBillingRecordRepository;
 
-#[async_trait]
-impl application::ports::SubscriptionBillingRecordRepository
-    for NoopSubscriptionBillingRecordRepository
-{
-    async fn try_insert(
-        &self,
-        _record: &application::ports::SubscriptionBillingRecord,
-    ) -> application::ports::subscription_billing_record_repository::RepoResult<
-        application::ports::InsertBillingRecordOutcome,
-    > {
-        Err("subscription billing record repository is not configured".into())
-    }
 
-    async fn mark_succeeded(
-        &self,
-        _provider: &str,
-        _provider_reference: &str,
-        _provider_payment_id: &str,
-    ) -> application::ports::subscription_billing_record_repository::RepoResult<bool> {
-        Ok(false)
-    }
 
-    async fn find_by_provider_reference(
-        &self,
-        _provider: &str,
-        _provider_reference: &str,
-    ) -> application::ports::subscription_billing_record_repository::RepoResult<
-        Option<application::ports::SubscriptionBillingRecord>,
-    > {
-        Ok(None)
-    }
-}
 
-#[derive(Clone, Default)]
-struct NoopSubscriptionActivationRepository;
 
-#[async_trait]
-impl application::ports::SubscriptionActivationRepository for NoopSubscriptionActivationRepository {
-    async fn activate_atomically(
-        &self,
-        _record: application::ports::SubscriptionBillingRecord,
-        _action: application::ports::SubscriptionAction,
-        _session_id: domain::shared::ids::CheckoutSessionId,
-    ) -> application::ports::SubscriptionActivationResult<application::ports::ActivationOutcome>
-    {
-        Err(application::ports::subscription_activation_repository::SubscriptionActivationError::Database(
-            std::io::Error::other("subscription activation repository is not configured").into(),
-        ))
-    }
-}
 
-#[derive(Clone, Default)]
-struct NoopCheckoutSessionRepository;
 
-#[async_trait]
-impl CheckoutSessionRepository for NoopCheckoutSessionRepository {
-    async fn create(&self, _session: &CheckoutSession) -> RepoResult<()> {
-        Ok(())
-    }
 
-    async fn find_by_id(&self, _id: CheckoutSessionId) -> RepoResult<Option<CheckoutSession>> {
-        Ok(None)
-    }
 
-    async fn update(&self, _session: &CheckoutSession) -> RepoResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Clone, Default)]
-struct NoopBillingWebhookIdempotencyRepository;
-
-#[async_trait]
-impl BillingWebhookIdempotencyRepository for NoopBillingWebhookIdempotencyRepository {
-    async fn try_insert(&self, _provider_event_id: &str) -> RepoResult<bool> {
-        Ok(true)
-    }
-}
-
-#[derive(Clone, Default)]
-struct NoopBillingAuditLogRepository;
-
-#[async_trait]
-impl BillingAuditLogRepository for NoopBillingAuditLogRepository {
-    async fn create(&self, _entry: &domain::BillingAuditLogEntry) -> RepoResult<()> {
-        Ok(())
-    }
-}
 
 #[derive(Clone, Default)]
 struct NoopPricingConfigRepository;
@@ -707,91 +573,10 @@ impl PricingConfigRepository for NoopPricingConfigRepository {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopSubscriptionUsagePeriodRepository;
 
-#[async_trait]
-impl SubscriptionUsagePeriodRepository for NoopSubscriptionUsagePeriodRepository {
-    async fn create_period(
-        &self,
-        _period: &domain::entities::SubscriptionUsagePeriod,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
 
-    async fn close_period(
-        &self,
-        _period_id: domain::shared::ids::SubscriptionUsagePeriodId,
-        _end_at: DateTime<Utc>,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
 
-    async fn find_open_period(
-        &self,
-        _subscription_id: domain::shared::ids::SubscriptionId,
-    ) -> RepoResult<Option<domain::entities::SubscriptionUsagePeriod>> {
-        Ok(None)
-    }
 
-    async fn list_periods_for_cycle(
-        &self,
-        _subscription_id: domain::shared::ids::SubscriptionId,
-        _cycle_start: DateTime<Utc>,
-        _cycle_end: DateTime<Utc>,
-    ) -> RepoResult<Vec<domain::entities::SubscriptionUsagePeriod>> {
-        Ok(vec![])
-    }
-}
-
-#[derive(Clone, Default)]
-struct NoopSubscriptionUsageTransaction;
-
-#[async_trait]
-impl SubscriptionUsageTransaction for NoopSubscriptionUsageTransaction {
-    async fn change_usage(
-        &self,
-        _subscription: &Subscription,
-        _previous_open_period_id: Option<domain::shared::ids::SubscriptionUsagePeriodId>,
-        _new_period: &domain::entities::SubscriptionUsagePeriod,
-        _expected_old_plan: Option<domain::enums::PlanTier>,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Clone, Default)]
-struct NoopAddOnSubscriptionRepository;
-#[async_trait]
-impl AddOnSubscriptionRepository for NoopAddOnSubscriptionRepository {
-    async fn create(&self, _: &domain::AddOnSubscription) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn find_by_id(
-        &self,
-        _: domain::AddOnSubscriptionId,
-    ) -> RepoResult<Option<domain::AddOnSubscription>> {
-        Ok(None)
-    }
-    async fn list_active_by_tenant(
-        &self,
-        _: TenantId,
-    ) -> RepoResult<Vec<domain::AddOnSubscription>> {
-        Ok(vec![])
-    }
-    async fn list_by_tenant_and_type(
-        &self,
-        _: TenantId,
-        _: domain::AddOnType,
-    ) -> RepoResult<Vec<domain::AddOnSubscription>> {
-        Ok(vec![])
-    }
-    async fn update(&self, _: &domain::AddOnSubscription) -> RepoResult<()> {
-        Ok(())
-    }
-}
-#[derive(Clone, Default)]
-struct NoopSmsProviderPricing;
 
 #[derive(Clone, Default)]
 struct NoopHelpCategoryRepository;
@@ -883,15 +668,6 @@ impl SupportTicketRepository for NoopSupportTicketRepository {
         _: domain::enums::SupportTicketStatus,
     ) -> RepoResult<()> {
         Ok(())
-    }
-}
-#[async_trait]
-impl SmsProviderPricing for NoopSmsProviderPricing {
-    async fn outbound_sms_unit_price(
-        &self,
-        _: &str,
-    ) -> Result<(rust_decimal::Decimal, String), Box<dyn std::error::Error + Send + Sync>> {
-        Err(std::io::Error::other("SMS provider pricing is not configured").into())
     }
 }
 

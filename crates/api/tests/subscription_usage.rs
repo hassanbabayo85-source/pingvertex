@@ -261,10 +261,6 @@ fn build_test_app(
     let monitor_repository = InMemoryMonitorRepository::new();
     let usage_period_repo: Arc<InMemorySubscriptionUsagePeriodRepository> =
         Arc::new(InMemorySubscriptionUsagePeriodRepository::new());
-    let usage_transaction = InMemorySubscriptionUsageTransaction::new(
-        subscription_repo.clone(),
-        usage_period_repo.clone(),
-    );
 
     let app_state = AppState::new(
         monitor_repository.clone(),

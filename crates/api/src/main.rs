@@ -10,22 +10,19 @@ use api::{
     state::{AppState, NoopLogoStorage, NoopStatusPageCache},
 };
 use application::ports::{
-    EmailVerificationMailer, IdTokenVerifier, PasswordResetMailer, PaymentProvider, StatusPageCache,
+    EmailVerificationMailer, IdTokenVerifier, PasswordResetMailer, StatusPageCache,
 };
 use axum_server::tls_rustls::RustlsAcceptor;
 use axum_server_mtls::MtlsAcceptor;
 use infra::PostgresAgentRegistryRepository;
 use infra::services::MaxMindGeoIpLookup;
 use infra::{
-    AesGcmProxyCredentialCipher, Argon2PasswordHasher, DisabledBillingProvider,
-    DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
+    AesGcmProxyCredentialCipher, Argon2PasswordHasher, DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
     HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    OidcIdTokenVerifier, PostgresAddOnSubscriptionRepository,
-    PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
+    OidcIdTokenVerifier, PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
     PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
-    PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
     PostgresBulkMonitorActionRepository, PostgresBulkMonitorImportRepository,
-    PostgresCheckRepository, PostgresCheckoutSessionRepository, PostgresDashboardRepository,
+    PostgresCheckRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
@@ -34,14 +31,12 @@ use infra::{
     PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
     PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
     PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionPlanChangeRepository,
-    PostgresSubscriptionRepository, PostgresSubscriptionUsagePeriodRepository,
-    PostgresSubscriptionUsageTransaction, PostgresSupportTicketRepository,
+    PostgresStatusPageRepository, PostgresSubscriptionRepository, PostgresSupportTicketRepository,
     PostgresTenantAlertAllowanceRepository, PostgresTenantInvitationRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
     PostgresTenantRetentionSettingsRepository, PostgresUserRepository, RedisPendingAuthCache,
     RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, TwilioPricingService, UuidIdGenerator, create_pool,
+    SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -140,10 +135,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `wallet_repository` and `financial_audit_repository` are still
     // constructed below because the PAYG wallet webhook paths (Task 6
     // wallet credit/refund) still consume them.
-    // Open-source: no payment provider by default. Downstream SaaS deployments
-    // can inject via AppState::with_payment_provider(...) after construction.
-    let billing_provider: Arc<dyn PaymentProvider> = Arc::new(DisabledBillingProvider);
-
     let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
     let financial_audit_repository = std::sync::Arc::new(
         infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
