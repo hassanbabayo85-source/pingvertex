@@ -16,8 +16,7 @@ use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemorySubscriptionRepository,
-    InMemorySubscriptionUsagePeriodRepository, InMemorySubscriptionUsageTransaction,
-    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
+    InMemorySubscriptionUsagePeriodRepository, InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::{Value, json};
@@ -259,8 +258,6 @@ fn build_test_app(
     tenant_ids: &[TenantId],
 ) -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
-    let usage_period_repo: Arc<InMemorySubscriptionUsagePeriodRepository> =
-        Arc::new(InMemorySubscriptionUsagePeriodRepository::new());
 
     let app_state = AppState::new(
         monitor_repository.clone(),
