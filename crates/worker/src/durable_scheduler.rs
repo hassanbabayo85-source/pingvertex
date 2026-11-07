@@ -9,7 +9,6 @@ use rand::{Rng, rng};
 use application::ports::{
     EntitlementResolver, MonitorRepository, SchedulingRepository, TenantRepository,
 };
-use application::MeterUsageUseCase;
 use async_trait::async_trait;
 use chrono::Utc;
 use domain::{Monitor, TenantStatus};
@@ -133,7 +132,6 @@ pub struct DurableScheduler<R, E> {
     lease_duration: Duration,
     max_concurrency: usize,
     lease_owner: Uuid,
-    metering: Option<Arc<MeterUsageUseCase>>,
     batch_pause: Duration,
     jitter: Duration,
     execution_min_interval: Duration,
@@ -168,7 +166,6 @@ where
             lease_duration,
             max_concurrency: max_concurrency.max(1),
             lease_owner: Uuid::new_v4(),
-            metering: None,
             batch_pause: Duration::from_millis(
                 std::env::var("SCHEDULER_BATCH_PAUSE_MS")
                     .ok()
@@ -210,13 +207,6 @@ where
         }
     }
 
-    /// Enables PAYG billing for durable monitor executions. The scheduler
-    /// supplies the stable execution identity; metering finalizes the charge
-    /// after the actual attempt, including failed target/network attempts.
-    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
-        self.metering = Some(metering);
-        self
-    }
 
     pub fn with_tenant_repository(
         mut self,
@@ -347,7 +337,6 @@ where
                 for exec_claim in one_time_execs {
                     let scheduling_repository = self.scheduling_repository.clone();
                     let executor = self.executor.clone();
-                    let metering = self.metering.clone();
                     let execution_limiter = self.execution_limiter.clone();
                     let execution_min_interval = self.execution_min_interval;
                     let execution_retry_limit = self.execution_retry_limit;
@@ -418,7 +407,6 @@ where
                         // to the durable execution are always 0/false.
                         let billable = false;
                         let charge_units: i64 = 0;
-                        let _ = metering; // field still wired (Task 8F removes it)
 
                         let result: Option<String> = {
                             let executor = executor.clone();
@@ -657,13 +645,10 @@ where
                         };
 
                         if let Err(err) = &result {
-                            if matches!(err.downcast_ref::<application::ChargeForUsageError>(), Some(application::ChargeForUsageError::InsufficientBalance | application::ChargeForUsageError::SpendLimitExceeded)) {
-                                metrics::counter!("checks_skipped_total", "reason" => "billing_block")
+                            {
+metrics::counter!("checks_failed_total", "kind" => "monitor")
                                     .increment(1);
-                            } else {
-                                metrics::counter!("checks_failed_total", "kind" => "monitor")
-                                    .increment(1);
-                            }
+}
                             warn!(
                                 monitor_id = %monitor.id.0,
                                 error = %err,

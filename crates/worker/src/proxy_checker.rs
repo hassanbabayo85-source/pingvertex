@@ -37,7 +37,6 @@ use std::{
 };
 
 use application::ports::ProxyCheckJobRepository;
-use application::{MeterUsageInput, MeterUsageUseCase, MeteredAttempt};
 use base64::Engine;
 use domain::ProxyScheme;
 use domain::entities::{ProxyCheckJob, ProxyEntry};
@@ -1306,7 +1305,6 @@ pub async fn run_proxy_check_job<R>(
     mut job: ProxyCheckJob,
     entries: Vec<ProxyEntry>,
     worker_id: &str,
-    metering: Option<Arc<MeterUsageUseCase>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>>
 where
     R: ProxyCheckJobRepository + ?Sized,
@@ -1345,7 +1343,6 @@ where
     for entry in entries {
         let had_existing_result = entry.result().is_some();
         let semaphore = Arc::clone(&semaphore);
-        let metering = metering.clone();
         let job_for_task = job.clone();
 
         tasks.spawn(async move {
@@ -1354,58 +1351,12 @@ where
                 .await
                 .expect("semaphore remains open");
             let mut entry = entry;
-            let entry_id = entry.id();
-            let job_id = job_for_task.id();
-            let (result, billing_blocked) = if let Some(metering) = metering.clone() {
-                let request_id = format!("proxy-check:{}:{}", job_id, entry_id);
-                if had_existing_result && metering.find_by_request(job_for_task.tenant_id().0, &request_id).await?.is_some() {
-                    (entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("PAYG execution was already finalized".to_owned()))), false)
-                } else {
-                match metering.execute_classified_attempt_with_output(
-                    MeterUsageInput {
-                        tenant_id: job_for_task.tenant_id().0,
-                        operation: domain::PaygOperation::ProxyMonitoring.as_str().to_owned(),
-                        units: 1,
-                        request_id,
-
-            monitor_id: None,
-            execution_id: None,
-            pricing_context: None,
-        },
-                    || async {
-                        if had_existing_result {
-                            let result = entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("persisted proxy result missing".to_owned())));
-                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted: true, error: None, egress_bytes: 0, actual_units: None }, result))
-                        } else {
-                            let (result, attempted) = check_single_entry(&entry).await;
-                            Ok::<_, std::convert::Infallible>((MeteredAttempt { attempted, error: None, egress_bytes: 0, actual_units: None }, result))
-                        }
-                    },
-                ).await {
-                    Ok((_, Some(result))) => (result, false),
-                    Ok((_, None)) => {
-                        (entry.result().cloned().unwrap_or_else(|| proxy_result(&entry, Instant::now(), false, false, Some("PAYG execution was already finalized".to_owned()))), false)
-                    }
-                    Err(application::ChargeForUsageError::InsufficientBalance) => {
-                        let result = entry.result().cloned().unwrap_or_else(|| proxy_result(
-                            &entry, Instant::now(), false, false,
-                            Some("PAYG balance exhausted; top up the wallet to resume proxy checks".to_owned()),
-                        ));
-                        (result, true)
-                    }
-                    Err(application::ChargeForUsageError::OperationNotAttempted(reason)) => {
-                        let result = proxy_result(&entry, Instant::now(), false, false, Some(reason));
-                        (result, false)
-                    }
-                    Err(err) => return Err(Box::new(err) as Box<dyn Error + Send + Sync>),
-                }
-                }
-            } else {
+            let (result, billing_blocked) = {
                 let (result, _) = check_single_entry(&entry).await;
                 (result, false)
             };
             entry.set_result(result);
-            Ok((entry, !had_existing_result, billing_blocked))
+            Ok::<_, Box<dyn Error + Send + Sync>>((entry, !had_existing_result, billing_blocked))
         });
     }
 
@@ -1559,7 +1510,7 @@ mod tests {
             .await
             .unwrap();
 
-        run_proxy_check_job(&repo, running_job, entries, "test-worker", None)
+        run_proxy_check_job(&repo, running_job, entries, "test-worker")
             .await
             .unwrap();
 

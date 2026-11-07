@@ -4,7 +4,6 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::proxy_checker::run_proxy_check_job;
-use application::MeterUsageUseCase;
 use application::ports::ProxyCheckJobRepository;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -17,29 +16,16 @@ const PROXY_JOB_MAX_RETRIES: u32 = 3;
 #[derive(Clone)]
 pub struct ProxyCheckWorker {
     repository: Arc<dyn ProxyCheckJobRepository>,
-    metering: Option<Arc<MeterUsageUseCase>>,
     worker_id: String,
 }
 impl ProxyCheckWorker {
-    /// TASK 5 — the worker no longer requires a `MeterUsageUseCase`.
-    /// By default it runs proxy checks without PAYG metering, so wallet
-    /// balance can no longer authorize (or reject) a check. Call
-    /// `.with_metering(...)` to re-enable PAYG metering during the
-    /// transition; TASK 8 will decide whether to keep this at all.
     pub fn new(repository: Arc<dyn ProxyCheckJobRepository>) -> Self {
         Self {
             repository,
-            metering: None,
             worker_id: Uuid::new_v4().to_string(),
         }
     }
 
-    /// Opts the worker back into PAYG metering for this run. Kept for
-    /// the Task 8 transition window; not required for correctness.
-    pub fn with_metering(mut self, metering: Arc<MeterUsageUseCase>) -> Self {
-        self.metering = Some(metering);
-        self
-    }
 
     pub async fn run_once(&self) -> Result<()> {
         let stale_before = chrono::Utc::now() - chrono::Duration::seconds(PROXY_JOB_LEASE_SECS);
@@ -116,7 +102,6 @@ impl ProxyCheckWorker {
                     running_job,
                     entries,
                     &self.worker_id,
-                    None,
                 )
                 .await
                 {
@@ -134,14 +119,11 @@ impl ProxyCheckWorker {
             // The default is `None`, so proxy checks run without touching
             // the PAYG layer. `.with_metering(...)` opts back in for
             // development or for the Task 8 transition window.
-            let metering_opt = self.metering.clone();
-
             let result = run_proxy_check_job(
                 &*self.repository,
                 running_job,
                 entries,
                 &self.worker_id,
-                metering_opt,
             )
             .await;
 

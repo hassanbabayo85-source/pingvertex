@@ -102,36 +102,6 @@ impl ApiError {
             action: err.action,
         }
     }
-
-    pub fn from_payg_error(err: application::ChargeForUsageError) -> Self {
-        match err {
-            application::ChargeForUsageError::SpendLimitExceeded => {
-                Self::payment_required("PAYG spend limit exceeded", "PAYG_SPEND_LIMIT_EXCEEDED")
-            }
-            application::ChargeForUsageError::InsufficientBalance => {
-                Self::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE")
-            }
-            application::ChargeForUsageError::InvalidInput(message) => Self::bad_request(message),
-            application::ChargeForUsageError::ReservationInProgress => {
-                Self::conflict("PAYG request is already in progress")
-            }
-            application::ChargeForUsageError::OperationFailed(message) => {
-                Self::internal_with_source("metered operation failed", message)
-            }
-            application::ChargeForUsageError::OperationNotAttempted(message) => {
-                Self::bad_request(message)
-            }
-            application::ChargeForUsageError::NoPricing
-            | application::ChargeForUsageError::InvalidPricing(_) => {
-                Self::internal("PAYG pricing is unavailable")
-            }
-            application::ChargeForUsageError::Repository(err)
-            | application::ChargeForUsageError::CaptureFailed(err) => {
-                Self::internal_with_source("PAYG operation failed", err)
-            }
-        }
-    }
-
     pub fn internal(message: impl Into<String>) -> Self {
         Self::Internal(message.into())
     }
