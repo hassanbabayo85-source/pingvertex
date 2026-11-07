@@ -13,7 +13,7 @@ use api::{
     state::AppState,
 };
 use application::ports::{
-    CheckRepository, DiagnosticReportRepository, IncidentRepository, MonitorRepository,
+    CheckRepository, DiagnosticReportRepository, IncidentRepository,
     SecretCipher, SecretCipherError,
 };
 use axum::{
