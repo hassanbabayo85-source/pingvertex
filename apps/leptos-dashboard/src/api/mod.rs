@@ -1,16 +1,11 @@
 pub mod account;
 pub mod advanced_monitoring;
-pub mod billing;
+pub mod audit;
 pub mod client;
 pub mod developer;
 pub mod monitoring;
+pub mod proxy_checks;
 pub mod rum;
 pub mod status_pages;
 pub mod support;
 pub mod team;
-
-pub mod proxy_checks;
-
-pub mod wallet;
-
-pub mod audit;

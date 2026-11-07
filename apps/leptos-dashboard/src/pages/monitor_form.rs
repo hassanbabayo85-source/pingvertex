@@ -1,7 +1,4 @@
-use crate::api::{
-    billing,
-    monitoring::{self, MonitorPayload},
-};
+use crate::api::monitoring::{self, MonitorPayload};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -45,8 +42,6 @@ pub fn MonitorFormPage() -> impl IntoView {
     let forecast_days: RwSignal<String> = RwSignal::new("30".to_string());
     let custom_forecast_days: RwSignal<String> = RwSignal::new("30".to_string());
     let region_count: RwSignal<String> = RwSignal::new("1".to_string());
-    let payg_preview = RwSignal::new(None::<billing::PaygPreview>);
-    let payg_preview_error = RwSignal::new(None::<String>);
     let public = RwSignal::new(false);
     let ssl = RwSignal::new(true);
     let ssl_days = RwSignal::new("14".into());
@@ -102,50 +97,6 @@ pub fn MonitorFormPage() -> impl IntoView {
                 Err(e) => {
                     load_error.set(Some(e));
                     loading.set(false);
-                }
-            }
-        });
-    });
-
-    // PAYG pricing preview is informational only. It uses server-controlled
-    // pricing and never reserves or charges wallet credit.
-    Effect::new(move |_| {
-        let kind_value = kind.get().trim().to_lowercase();
-        let interval_value = interval.get().trim().parse::<u32>().ok();
-        let forecast_selection = forecast_days.get();
-        let forecast_value = if forecast_selection == "custom" {
-            custom_forecast_days.get().trim().parse::<u32>().ok()
-        } else {
-            forecast_selection.trim().parse::<u32>().ok()
-        };
-        let regions_value = region_count.get().trim().parse::<u32>().ok();
-        let (Some(interval_value), Some(forecast_value), Some(regions_value)) =
-            (interval_value, forecast_value, regions_value)
-        else {
-            payg_preview.set(None);
-            return;
-        };
-        // The preview endpoint is authoritative for interval/region/forecast
-        // validation. The browser deliberately does not duplicate business
-        // policy constants here, so UI validation cannot drift from the API.
-        let kind_for_request = kind_value.clone();
-        spawn_local(async move {
-            match billing::payg_preview(&billing::PaygPreviewRequest {
-                monitors: 1,
-                interval_seconds: interval_value,
-                regions: regions_value,
-                forecast_days: forecast_value,
-                kind: kind_for_request,
-            })
-            .await
-            {
-                Ok(preview) => {
-                    payg_preview_error.set(None);
-                    payg_preview.set(Some(preview));
-                }
-                Err(error) => {
-                    payg_preview.set(None);
-                    payg_preview_error.set(Some(error.to_string()));
                 }
             }
         });
@@ -577,36 +528,6 @@ pub fn MonitorFormPage() -> impl IntoView {
                                     <span class="form-help">"Forecast only; this monitor currently runs in its configured region set."</span>
                                 </label>
                             </div>
-                            {move || if forecast_days.get() == "custom" {
-                                view! {
-                                    <label>
-                                        "Custom forecast days"
-                                        <input type="number" min="1" max="3650"
-                                            prop:value=custom_forecast_days
-                                            on:input=move |e| custom_forecast_days.set(event_target_value(&e))/>
-                                    </label>
-                                }.into_any()
-                            } else { ().into_any() }}
-
-                            <section class="pricing-preview" aria-live="polite">
-                                <h3>"Estimated PAYG cost"</h3>
-                                {move || match payg_preview.get() {
-                                    Some(p) => view! {
-                                        <dl>
-                                            <div><dt>"Checks/day"</dt><dd>{p.checks_per_day}</dd></div>
-                                            <div><dt>"Checks in period"</dt><dd>{p.checks_total}</dd></div>
-                                            <div><dt>"Price/check"</dt><dd>{format_micro_usd(p.price_per_check_units)}</dd></div>
-                                            <div><dt>"Estimated cost"</dt><dd>{format_micro_usd(p.estimated_cost_units)}</dd></div>
-                                        </dl>
-                                        <p class="form-help">"Estimated cost only. Actual charges are based on billable executions."</p>
-                                    }.into_any(),
-                                    None => match payg_preview_error.get() {
-                                        Some(e) => view! { <div class="form-help">{e}</div> }.into_any(),
-                                        None => view! { <div class="form-help">"Enter a valid interval to preview PAYG usage."</div> }.into_any(),
-                                    }
-                                }}
-                            </section>
-
                             <label>
                                 "Timeout (seconds)"
                                 <input type="number" min="1" prop:value=timeout on:input=move |e| {

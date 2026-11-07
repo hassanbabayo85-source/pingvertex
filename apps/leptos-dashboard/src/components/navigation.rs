@@ -138,44 +138,12 @@ pub const NAV_GROUPS: &[NavGroup] = &[
         ],
     },
     NavGroup {
-        label: "BILLING",
-        items: &[
-            NavItem {
-                label: "PAYG billing",
-                href: "/billing",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Add-ons",
-                href: "/billing/addons",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Wallet",
-                href: "/billing/wallet",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Usage",
-                href: "/billing/usage",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Invoices",
-                href: "/billing/invoices",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Transactions",
-                href: "/billing/transactions",
-                status: NavStatus::Available,
-            },
-            NavItem {
-                label: "Audit log",
-                href: "/audit",
-                status: NavStatus::Available,
-            },
-        ],
+        label: "SECURITY",
+        items: &[NavItem {
+            label: "Audit log",
+            href: "/audit",
+            status: NavStatus::Available,
+        }],
     },
     NavGroup {
         label: "SUPPORT",

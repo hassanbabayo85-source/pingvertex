@@ -1,8 +1,8 @@
 pub mod account;
-pub mod add_ons;
 pub mod api_flows;
 pub mod api_keys;
-pub mod billing;
+pub mod audit;
+pub mod bulk_import;
 pub mod dashboard_overview;
 pub mod escalation;
 pub mod forgot_password;
@@ -18,7 +18,8 @@ pub mod monitor_form;
 pub mod monitors;
 pub mod not_found;
 pub mod notifications;
-pub mod pricing;
+pub mod platform_admin;
+pub mod proxy_checks;
 pub mod register;
 pub mod reset_password;
 pub mod rum_dashboard;
@@ -29,19 +30,3 @@ pub mod status_pages;
 pub mod support;
 pub mod team;
 pub mod verify_email;
-
-pub mod proxy_checks;
-
-pub mod wallet;
-
-pub mod usage;
-
-pub mod invoices;
-
-pub mod transactions;
-
-pub mod bulk_import;
-
-pub mod platform_admin;
-
-pub mod audit;

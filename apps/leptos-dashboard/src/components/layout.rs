@@ -194,7 +194,7 @@ fn nav_badge_count(href: &str, badges: &DashboardBadges) -> u32 {
     match href {
         "/incidents" => badges.active_incidents,
         "/team/invitations" => badges.pending_invitations,
-        "/billing/wallet" => badges.unread_notifications,
+        "/settings/notifications" => badges.unread_notifications,
         _ => 0,
     }
 }
@@ -526,7 +526,7 @@ pub fn Layout() -> impl IntoView {
                         </button>
 
                         <A
-                            href="/billing/wallet"
+                            href="/settings/notifications"
                             attr:class="topbar-icon topbar-icon-link notification-trigger"
                             attr:aria-label=move || {
                                 let count = nav_badges.get().unread_notifications;
