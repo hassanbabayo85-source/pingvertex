@@ -2,8 +2,6 @@
 pub mod accept_invitation;
 pub mod acknowledge_incident;
 pub mod add_member;
-pub mod billing_support;
-pub mod billing_webhook_support;
 pub mod change_member_role;
 pub mod change_password;
 pub mod confirm_totp_setup;
@@ -61,18 +59,12 @@ pub mod request_password_reset;
 pub mod resend_verification;
 pub mod reset_password;
 pub mod reset_password_support;
-/// **LEGACY.** No production caller; kept for subscription tests and
-/// migration work. See the `ResolveEntitlementsUseCase` doc comment.
-#[doc(hidden)]
-pub mod resolve_entitlements;
 pub mod revoke_invitation;
 pub mod send_test_notification;
 pub mod session_invalidation;
 pub mod submit_proxy_check_job;
-pub mod subscription_lifecycle_support;
 pub mod totp_support;
 pub mod update_api_flow;
-pub mod update_invoice_status;
 pub mod update_monitor;
 pub mod update_monitor_enabled;
 pub mod update_status_page;
@@ -93,8 +85,6 @@ pub mod update_support_ticket_status;
 pub use accept_invitation::*;
 pub use acknowledge_incident::*;
 pub use add_member::*;
-pub use billing_support::*;
-pub use billing_webhook_support::*;
 pub use change_member_role::*;
 pub use change_password::*;
 pub use confirm_totp_setup::*;
@@ -152,36 +142,19 @@ pub use request_password_reset::*;
 pub use resend_verification::*;
 pub use reset_password::*;
 pub use reset_password_support::*;
-pub use resolve_entitlements::*;
 pub use revoke_invitation::*;
 pub use send_test_notification::*;
 pub use session_invalidation::*;
 pub use submit_proxy_check_job::*;
-pub use subscription_lifecycle_support::*;
 pub use update_api_flow::*;
-pub use update_invoice_status::*;
 pub use update_monitor::*;
 pub use update_monitor_enabled::*;
 pub use update_status_page::*;
 pub use upload_status_page_logo::*;
 pub use verify_email::*;
 pub use verify_totp_and_login::*;
-pub mod calculate_payg_preview;
-pub mod calculate_pricing_quote;
 
-// Proration Service:
-pub mod calculate_subscription_cycle_cost;
-pub mod update_subscription_usage;
-pub use calculate_subscription_cycle_cost::*;
-pub use update_subscription_usage::*;
 
-pub mod add_on_subscription;
-pub mod change_subscription_plan;
-pub mod generate_invoice;
-pub mod verify_addon_checkout;
-pub use change_subscription_plan::*;
-pub use generate_invoice::*;
-pub use verify_addon_checkout::*;
 
 // Help Center & Support:
 pub use create_support_ticket::{CreateSupportTicketError, CreateSupportTicketUseCase};
@@ -219,8 +192,3 @@ pub use meter_usage::{MeterUsageInput, MeterUsageUseCase};
 pub mod list_external_monitors;
 pub use list_external_monitors::*;
 
-// Task 6 — subscription checkout:
-pub mod initiate_subscription_checkout;
-pub mod verify_subscription_checkout;
-pub use initiate_subscription_checkout::*;
-pub use verify_subscription_checkout::*;
