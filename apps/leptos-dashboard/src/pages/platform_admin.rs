@@ -17,7 +17,6 @@ struct Company {
     id: String,
     name: String,
     status: String,
-    wallet_balance_units: i64,
 }
 #[derive(Clone, Debug, Deserialize)]
 struct PlatformUser {
@@ -36,12 +35,6 @@ struct AuditEntry {
     target_id: String,
     metadata: serde_json::Value,
     created_at: String,
-}
-#[derive(Clone, Debug, Serialize)]
-struct AdjustmentRequest {
-    delta_units: i64,
-    idempotency_key: String,
-    description: Option<String>,
 }
 
 fn load_audit(
@@ -112,7 +105,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
     let audit_from = RwSignal::new(String::new());
     let audit_to = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);
-    let adjustment = RwSignal::new(String::new());
     let pricing_operation = RwSignal::new("http_check.monitoring".to_owned());
     let pricing_units = RwSignal::new("2".to_owned());
     let pricing_reason = RwSignal::new(String::new());
@@ -215,7 +207,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                     {companies.get().into_iter().map(|company| {
                                         let company_id = company.id.clone();
                                         let next_status = if company.status == "active" { "suspended" } else { "active" };
-                                        let adjustment_signal = adjustment;
 
                                         // Domin Status Toggle
                                         let status_id = company_id.clone();
@@ -229,17 +220,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                             });
                                         };
 
-                                        // Domin Wallet Adjust
-                                        let adjust_id = company_id.clone();
-                                        let on_adjust = move |_| {
-                                            let amount = adjustment_signal.get().parse::<i64>().unwrap_or(0);
-                                            if amount == 0 { return; }
-                                            let id = adjust_id.clone();
-                                            spawn_local(async move {
-                                                let body = AdjustmentRequest { delta_units: amount, idempotency_key: format!("admin-adjust-{}", js_sys::Date::now() as u64), description: Some("Platform administrator wallet adjustment".to_owned()) };
-                                                let _ = client::post_json::<serde_json::Value, _>(&format!("/admin/companies/{id}/wallet-adjustment"), &body).await;
-                                            });
-                                        };
 
                                         // Make the company name clickable to view its usage.
                                         let usage_id = company.id.clone();
@@ -253,12 +233,8 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                             <tr>
                                                 <td><a href="#" on:click=on_company_click style="text-decoration: underline; color: var(--primary-color);">{company.name}</a></td>
                                                 <td>{company.status}</td>
-                                                <td>{company.wallet_balance_units}</td>
                                                 <td>
                                                     <button class="button button-secondary" on:click=on_status>{next_status}</button>
-                                                    <input aria-label="wallet adjustment" placeholder="delta" prop:value=move || adjustment_signal.get() on:input=move |event| adjustment_signal.set(event_target_value(&event)) />
-                                                    <button class="button button-secondary" on:click=on_adjust>{"Adjust"}</button>
-                                                    <button class="button button-secondary" on:click={move |_| { let amount=adjustment_signal.get().parse::<i64>().unwrap_or(0); if amount<=0{return;} let id=company_id.clone(); spawn_local(async move { let body=AdjustmentRequest{delta_units:amount,idempotency_key:format!("admin-promo-{}",js_sys::Date::now() as u64),description:Some("Platform administrator promotional credit".to_owned())}; let _=client::post_json::<serde_json::Value,_>(&format!("/admin/companies/{id}/promotional-credit"),&body).await; }); }}>{"Promo"}</button>
                                                 </td>
                                             </tr>
                                         }

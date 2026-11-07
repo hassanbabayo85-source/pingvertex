@@ -31,7 +31,6 @@ pub struct CompanyResponse {
     pub owner_user_id: String,
     pub account_type: String,
     pub status: String,
-    pub wallet_balance_units: i64,
 }
 
 #[derive(Serialize)]
@@ -73,13 +72,6 @@ pub async fn list_companies(
             owner_user_id: t.owner_user_id.0.to_string(),
             account_type: t.account_type.as_str().into(),
             status: t.status.as_str().into(),
-            wallet_balance_units: s
-                .wallet_repository
-                .find(t.id.0)
-                .await
-                .map_err(|e| ApiError::internal_with_source("failed to load company wallet", e))?
-                .map(|w| w.balance_units)
-                .unwrap_or(0),
         })
     }
     Ok(Json(out))
@@ -261,191 +253,7 @@ pub async fn set_user_status(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn adjust_company_wallet(
-    State(s): State<AppState>,
-    Extension(u): Extension<AuthenticatedUser>,
-    Path(id): Path<Uuid>,
-    Json(r): Json<WalletAdjustmentRequest>,
-) -> Result<Json<domain::WalletTransaction>, ApiError> {
-    admin(&u)?;
-    if r.idempotency_key.trim().is_empty() || r.idempotency_key.len() > 200 {
-        return Err(ApiError::bad_request(
-            "idempotency_key must be 1-200 characters",
-        ));
-    }
 
-    // Snapshot the balance BEFORE the adjustment so the audit trail
-    // records the `old_state` alongside the `new_state` and the delta.
-    let old_balance_units = s
-        .wallet_repository
-        .find(id)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to load wallet", e))?
-        .map(|w| w.balance_units);
-
-    let tx = s
-        .wallet_repository
-        .adjust_balance(
-            id,
-            r.delta_units,
-            &r.idempotency_key,
-            r.description.as_deref(),
-        )
-        .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
-
-    let new_balance_units = s
-        .wallet_repository
-        .find(id)
-        .await
-        .ok()
-        .flatten()
-        .map(|w| w.balance_units);
-
-    // Financial audit entry. `old_state`/`new_state` here are wallet
-    // balances; `amount` is the signed delta; `idempotency_key` is the
-    // caller-supplied request identifier. Together these let
-    // investigators reconstruct exactly what happened, whether the
-    // operation was retried, and by how much the balance moved.
-    let audit = domain::FinancialAuditLogEntry::new(
-        u.user_id().0.to_string(),
-        Some(id),
-        "platform_wallet_adjusted",
-        "wallet",
-        Some(tx.id.to_string()),
-        serde_json::json!({
-            "actor_user_id": u.user_id().0.to_string(),
-            "target_id": id.to_string(),
-            "action": "wallet_adjustment",
-            "old_state": old_balance_units,
-            "new_state": new_balance_units,
-            "amount": r.delta_units,
-            "idempotency_key": r.idempotency_key,
-            "description": r.description,
-        }),
-    );
-    s.financial_audit_log_repository
-        .create(&audit)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to audit wallet adjustment", e))?;
-
-    // Also record in the generic platform audit stream so it shows up
-    // in `GET /api/v1/admin/audit` alongside non-financial events.
-    let generic_entry = domain::AuditLogEntry {
-        id: domain::AuditLogEntryId::new(),
-        actor_user_id: u.user_id(),
-        tenant_id: Some(domain::TenantId(id)),
-        action: domain::AuditAction::PlatformWalletAdjusted,
-        target_id: id.to_string(),
-        metadata: serde_json::json!({
-            "actor_user_id": u.user_id().0.to_string(),
-            "target_id": id.to_string(),
-            "action": "wallet_adjustment",
-            "amount": r.delta_units,
-            "idempotency_key": r.idempotency_key,
-            "transaction_id": tx.id.to_string(),
-        }),
-        created_at: chrono::Utc::now(),
-    };
-    s.audit_log_entry_repository
-        .create(&generic_entry)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to audit wallet adjustment", e))?;
-
-    Ok(Json(tx))
-}
-
-pub async fn grant_company_promo(
-    State(s): State<AppState>,
-    Extension(u): Extension<AuthenticatedUser>,
-    Path(id): Path<Uuid>,
-    Json(r): Json<WalletAdjustmentRequest>,
-) -> Result<Json<domain::WalletTransaction>, ApiError> {
-    admin(&u)?;
-    if r.delta_units <= 0 {
-        return Err(ApiError::bad_request("promotional credit must be positive"));
-    }
-    if r.idempotency_key.trim().is_empty() || r.idempotency_key.len() > 200 {
-        return Err(ApiError::bad_request(
-            "idempotency_key must be 1-200 characters",
-        ));
-    }
-    let expires = chrono::Utc::now() + chrono::Duration::days(30);
-
-    let old_balance_units = s
-        .wallet_repository
-        .find(id)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to load wallet", e))?
-        .map(|w| w.balance_units);
-
-    let tx = s
-        .wallet_repository
-        .grant_promotional_credit(
-            id,
-            r.delta_units,
-            expires,
-            &r.idempotency_key,
-            r.description.as_deref(),
-        )
-        .await
-        .map_err(|e| ApiError::bad_request(e.to_string()))?;
-
-    let new_balance_units = s
-        .wallet_repository
-        .find(id)
-        .await
-        .ok()
-        .flatten()
-        .map(|w| w.balance_units);
-
-    let audit = domain::FinancialAuditLogEntry::new(
-        u.user_id().0.to_string(),
-        Some(id),
-        "platform_promotional_credit_granted",
-        "wallet",
-        Some(tx.id.to_string()),
-        serde_json::json!({
-            "actor_user_id": u.user_id().0.to_string(),
-            "target_id": id.to_string(),
-            "action": "promotional_credit",
-            "old_state": old_balance_units,
-            "new_state": new_balance_units,
-            "amount": r.delta_units,
-            "expires_at": expires,
-            "idempotency_key": r.idempotency_key,
-            "description": r.description,
-        }),
-    );
-    s.financial_audit_log_repository
-        .create(&audit)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to audit promotional credit", e))?;
-
-    let generic_entry = domain::AuditLogEntry {
-        id: domain::AuditLogEntryId::new(),
-        actor_user_id: u.user_id(),
-        tenant_id: Some(domain::TenantId(id)),
-        action: domain::AuditAction::PlatformPromotionalCreditGranted,
-        target_id: id.to_string(),
-        metadata: serde_json::json!({
-            "actor_user_id": u.user_id().0.to_string(),
-            "target_id": id.to_string(),
-            "action": "promotional_credit",
-            "amount": r.delta_units,
-            "expires_at": expires,
-            "idempotency_key": r.idempotency_key,
-            "transaction_id": tx.id.to_string(),
-        }),
-        created_at: chrono::Utc::now(),
-    };
-    s.audit_log_entry_repository
-        .create(&generic_entry)
-        .await
-        .map_err(|e| ApiError::internal_with_source("failed to audit promotional credit", e))?;
-
-    Ok(Json(tx))
-}
 
 #[derive(Debug, Deserialize)]
 pub struct PlatformAuditQuery {
