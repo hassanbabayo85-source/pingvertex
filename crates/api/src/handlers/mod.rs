@@ -1,9 +1,7 @@
 pub use audit::*;
-pub use billing_allowance::*;
 pub mod acknowledge_incident;
 pub mod api_key_types;
 pub mod audit;
-pub mod billing_allowance;
 pub mod bulk_monitor_action;
 pub mod bulk_monitor_import_confirm;
 pub mod bulk_monitor_import_control;
@@ -76,7 +74,6 @@ pub mod update_status_page;
 pub mod verify_email;
 pub mod verify_email_otp;
 pub mod verify_totp;
-pub mod wallet;
 
 // Membership management:
 pub mod add_member;
@@ -93,12 +90,7 @@ pub mod list_invitations;
 pub mod revoke_invitation;
 
 // Admin Pricing:
-pub mod admin_pricing;
-pub mod payg_preview;
-pub mod payg_pricing;
-pub mod paystack_webhook;
 pub mod platform_admin;
-pub mod pricing_types;
 
 // Help Center & Support:
 pub mod help_center;
@@ -183,24 +175,11 @@ pub use list_invitations::*;
 pub use revoke_invitation::*;
 
 // Billing Provider Abstraction & Checkout:
-pub mod billing_finalization;
-pub mod billing_types;
-pub use billing_finalization::get_invoice;
-pub use billing_types::*;
 
 // Billing Webhooks:
-pub mod billing_webhook;
-pub use billing_webhook::*;
-pub use paystack_webhook::paystack_webhook;
 
 // Subscription Usage Update:
-pub mod update_subscription_usage;
-pub use update_subscription_usage::*;
 
-pub mod add_on_billing;
-pub mod invoices;
-pub use add_on_billing::{billing_summary, cancel_add_on, create_add_on, verify_add_on};
-pub use invoices::list_invoices;
 
 // Help Center & Support:
 pub use help_center::{
@@ -219,7 +198,6 @@ pub use support_types::{
 pub mod advanced_monitoring;
 pub use advanced_monitoring::*;
 
-pub use wallet::*;
 
 pub mod cancel_proxy_check_job;
 pub mod list_proxy_check_results;
@@ -230,8 +208,5 @@ pub use platform_admin::*;
 
 pub use pagination::{NEXT_CURSOR_HEADER, PaginationQuery, pagination_headers};
 
-// Task 6 — subscription checkout / lifecycle:
-pub mod subscription_billing;
 
 // Task 8 — PAYG retirement:
-pub mod payg_retired;

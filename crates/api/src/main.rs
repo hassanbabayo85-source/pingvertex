@@ -17,10 +17,10 @@ use axum_server_mtls::MtlsAcceptor;
 use infra::PostgresAgentRegistryRepository;
 use infra::services::MaxMindGeoIpLookup;
 use infra::{
-    AesGcmProxyCredentialCipher, Argon2PasswordHasher, BillingConfig, DisabledBillingProvider,
+    AesGcmProxyCredentialCipher, Argon2PasswordHasher, DisabledBillingProvider,
     DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
-    FakeBillingProvider, HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    OidcIdTokenVerifier, PaystackBillingProvider, PostgresAddOnSubscriptionRepository,
+    HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
+    OidcIdTokenVerifier, PostgresAddOnSubscriptionRepository,
     PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
     PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
     PostgresBillingAuditLogRepository, PostgresBillingWebhookIdempotencyRepository,
@@ -87,22 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pool = create_pool(&config.database_url).await?;
 
-    let billing_config = BillingConfig::try_from_env()?;
-    let billing_provider: Arc<dyn PaymentProvider> = match billing_config.provider.as_str() {
-        "fake" => Arc::new(FakeBillingProvider),
-        "disabled" => Arc::new(DisabledBillingProvider),
-        "paystack" => Arc::new(
-            PaystackBillingProvider::new(
-                billing_config
-                    .secret_key
-                    .clone()
-                    .ok_or("Paystack secret key is required")?,
-            )
-            .map_err(|e| e as Box<dyn std::error::Error>)?,
-        ),
-        other => return Err(format!("unsupported billing provider: {other}").into()),
-    };
-
+        
     let status_page_cache: Arc<dyn StatusPageCache> = match &config.redis_url {
         Some(redis_url) => Arc::new(RedisStatusPageCache::new(redis_url)?),
         None => {
@@ -155,6 +140,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `wallet_repository` and `financial_audit_repository` are still
     // constructed below because the PAYG wallet webhook paths (Task 6
     // wallet credit/refund) still consume them.
+    // Open-source: no payment provider by default. Downstream SaaS deployments
+    // can inject via AppState::with_payment_provider(...) after construction.
+    let billing_provider: Arc<dyn PaymentProvider> = Arc::new(DisabledBillingProvider);
+
     let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
     let financial_audit_repository = std::sync::Arc::new(
         infra::PostgresFinancialAuditLogRepository::new(pool.clone()),
@@ -287,11 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let app_state = match billing_config.webhook_secret {
-        Some(secret) => app_state.with_billing_webhook_secret(secret),
-        None => app_state,
-    };
-
+    
     let tenant_membership_repository = PostgresTenantMembershipRepository::new(pool.clone());
     let registration_transaction = PostgresRegistrationTransaction::new(pool.clone());
 
