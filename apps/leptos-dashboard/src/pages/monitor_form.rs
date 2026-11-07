@@ -3,10 +3,6 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
 
-fn format_micro_usd(units: i64) -> String {
-    format!("${}.{:06}", units / 1_000_000, units.abs() % 1_000_000)
-}
-
 fn parse_u32_field(value: &str, field: &str, min: u32, max: Option<u32>) -> Result<u32, String> {
     let parsed = value
         .trim()
@@ -40,7 +36,6 @@ pub fn MonitorFormPage() -> impl IntoView {
     let interval = RwSignal::new("60".into());
     let timeout = RwSignal::new("10".into());
     let forecast_days: RwSignal<String> = RwSignal::new("30".to_string());
-    let custom_forecast_days: RwSignal<String> = RwSignal::new("30".to_string());
     let region_count: RwSignal<String> = RwSignal::new("1".to_string());
     let public = RwSignal::new(false);
     let ssl = RwSignal::new(true);
