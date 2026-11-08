@@ -6,7 +6,6 @@
 //! fields (`plan_tier`, `entitlement_version`).
 
 use crate::entitlements::Entitlements;
-use crate::enums::PlanTier;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvConfigError {
@@ -42,8 +41,6 @@ fn env_u64(name: &'static str, default: u64) -> Result<u64, EnvConfigError> {
 impl Entitlements {
     pub fn from_env() -> Result<Self, EnvConfigError> {
         Ok(Self {
-            plan_tier: PlanTier::Enterprise,
-            entitlement_version: 0,
             max_uptime_monitors: env_u32("PV_MAX_UPTIME_MONITORS", 100)?,
             min_uptime_interval_seconds: env_u32("PV_MIN_UPTIME_INTERVAL_SECONDS", 60)?,
             max_regions_per_monitor: env_u32("PV_MAX_REGIONS_PER_MONITOR", 3)?,

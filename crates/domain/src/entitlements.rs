@@ -47,8 +47,6 @@ pub enum EntitlementResolutionError {
 /// Money is *not* part of this struct — pricing lives in `plan_prices`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Entitlements {
-    pub plan_tier: PlanTier,
-    pub entitlement_version: i64,
 
     // ── HTTP / TCP / DNS monitors (shared quota) ───────────────────
     pub max_uptime_monitors: u32,
@@ -144,8 +142,6 @@ impl Entitlements {
         }
 
         Ok(Self {
-            plan_tier,
-            entitlement_version: first_version,
             max_uptime_monitors: get!(MAX_UPTIME_MONITORS, u32, max_uptime_monitors),
             min_uptime_interval_seconds: get!(
                 MIN_UPTIME_INTERVAL_SECONDS,
@@ -209,18 +205,12 @@ impl Entitlements {
         })
     }
 
-    pub fn is_free(&self) -> bool {
-        matches!(self.plan_tier, PlanTier::Free)
-    }
-
     /// v1 fixtures for every tier, matching migration 0125 (15 keys) plus
     /// migration 0127 (3 new keys). Test-only.
 
     #[doc(hidden)]
     pub fn free_v1_fixture() -> Self {
         Self {
-            plan_tier: PlanTier::Free,
-            entitlement_version: 1,
             max_uptime_monitors: 20,
             min_uptime_interval_seconds: 300,
             max_regions_per_monitor: 1,
@@ -244,8 +234,6 @@ impl Entitlements {
     #[doc(hidden)]
     pub fn starter_v1_fixture() -> Self {
         Self {
-            plan_tier: PlanTier::Starter,
-            entitlement_version: 1,
             max_uptime_monitors: 30,
             min_uptime_interval_seconds: 60,
             max_regions_per_monitor: 2,
@@ -269,8 +257,6 @@ impl Entitlements {
     #[doc(hidden)]
     pub fn pro_v1_fixture() -> Self {
         Self {
-            plan_tier: PlanTier::Pro,
-            entitlement_version: 1,
             max_uptime_monitors: 80,
             min_uptime_interval_seconds: 60,
             max_regions_per_monitor: 3,
@@ -294,8 +280,6 @@ impl Entitlements {
     #[doc(hidden)]
     pub fn business_v1_fixture() -> Self {
         Self {
-            plan_tier: PlanTier::Business,
-            entitlement_version: 1,
             max_uptime_monitors: 100,
             min_uptime_interval_seconds: 30,
             max_regions_per_monitor: 3,
@@ -319,8 +303,6 @@ impl Entitlements {
     #[doc(hidden)]
     pub fn enterprise_v1_fixture() -> Self {
         Self {
-            plan_tier: PlanTier::Enterprise,
-            entitlement_version: 1,
             max_uptime_monitors: 1_000,
             min_uptime_interval_seconds: 30,
             max_regions_per_monitor: 10,
@@ -382,8 +364,6 @@ mod tests {
     #[test]
     fn parses_the_full_v1_free_seed_successfully() {
         let e = Entitlements::from_rows(PlanTier::Free, &free_v1_rows()).unwrap();
-        assert_eq!(e.plan_tier, PlanTier::Free);
-        assert_eq!(e.entitlement_version, 1);
         assert_eq!(e.max_uptime_monitors, 20);
         assert_eq!(e.min_uptime_interval_seconds, 300);
         assert_eq!(e.max_recurring_proxy_monitors, 0);
@@ -391,7 +371,6 @@ mod tests {
         assert_eq!(e.max_api_keys, 1);
         assert_eq!(e.max_team_members, 1);
         assert_eq!(e.max_history_retention_days, 2);
-        assert!(e.is_free());
     }
 
     #[test]
