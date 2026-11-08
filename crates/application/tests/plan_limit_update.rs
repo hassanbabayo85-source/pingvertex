@@ -73,7 +73,7 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
     // Create a monitor at the Free minimum.
     let create_uc =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver.clone());
+            .with_resource_limit_resolver(resolver.clone());
 
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
@@ -82,7 +82,7 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
 
     // Try to update to 299s → must fail with a structured PlanLimitError.
     let update_uc = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-        .with_entitlement_resolver(resolver.clone());
+        .with_resource_limit_resolver(resolver.clone());
 
     let err = update_uc
         .execute(update_command(monitor.id, 299), auth_user(user_id, tenant))
@@ -108,15 +108,15 @@ async fn update_permits_exactly_the_plan_minimum() {
 
     let create_uc =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver.clone());
+            .with_resource_limit_resolver(resolver.clone());
 
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
         .await
         .unwrap();
 
-    let update_uc =
-        UpdateMonitorUseCase::new(repository, new_audit_repo()).with_entitlement_resolver(resolver);
+    let update_uc = UpdateMonitorUseCase::new(repository, new_audit_repo())
+        .with_resource_limit_resolver(resolver);
 
     // 300s == plan minimum → should succeed.
     let updated = update_uc
@@ -138,14 +138,14 @@ async fn starter_plan_permits_60s_and_rejects_59s() {
 
     let create_uc =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver.clone());
+            .with_resource_limit_resolver(resolver.clone());
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
         .await
         .unwrap();
 
-    let update_uc =
-        UpdateMonitorUseCase::new(repository, new_audit_repo()).with_entitlement_resolver(resolver);
+    let update_uc = UpdateMonitorUseCase::new(repository, new_audit_repo())
+        .with_resource_limit_resolver(resolver);
 
     // 60s → allowed.
     update_uc
@@ -176,13 +176,13 @@ async fn update_without_resolver_fails_closed() {
 
     let create_uc =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver);
+            .with_resource_limit_resolver(resolver);
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
         .await
         .unwrap();
 
-    // No `.with_entitlement_resolver(...)` on the update use case.
+    // No `.with_resource_limit_resolver(...)` on the update use case.
     let update_uc = UpdateMonitorUseCase::new(repository, new_audit_repo());
     let err = update_uc
         .execute(update_command(monitor.id, 300), auth_user(user_id, tenant))

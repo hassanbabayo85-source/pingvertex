@@ -7,8 +7,8 @@ use crate::{
     commands::UpdateMonitor,
     errors::PlanLimitError,
     ports::{
-        AuditLogEntryRepository, EntitlementResolver, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository,
+        AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository,
+        PricingConfigRepository, ResourceLimitResolver,
     },
 };
 use domain::{
@@ -25,7 +25,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 pub struct UpdateMonitorUseCase<R> {
     repository: R,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
 }
 
 impl<R> UpdateMonitorUseCase<R>
@@ -39,12 +39,15 @@ where
         Self {
             repository,
             audit_log_entry_repository,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
         }
     }
 
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -85,7 +88,7 @@ where
             return Ok(None);
         }
 
-        let resolver = self.entitlement_resolver.as_ref().ok_or_else(|| {
+        let resolver = self.resource_limit_resolver.as_ref().ok_or_else(|| {
             Box::<dyn Error + Send + Sync>::from(
                 "entitlement resolver is not configured; cannot enforce plan limits",
             )

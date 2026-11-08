@@ -31,7 +31,7 @@ async fn lists_only_status_pages_in_tenant() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(starter_resolver(tid));
+    .with_resource_limit_resolver(starter_resolver(tid));
 
     create_use_case
         .execute(

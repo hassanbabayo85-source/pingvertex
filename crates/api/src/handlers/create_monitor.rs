@@ -49,7 +49,7 @@ pub async fn create_monitor(
         state.id_generator,
         state.audit_log_entry_repository.clone(),
     )
-    .with_entitlement_resolver(state.entitlement_resolver.clone())
+    .with_resource_limit_resolver(state.resource_limit_resolver.clone())
     .with_tenant_repository(state.platform_tenant_repository.clone());
 
     let monitor = use_case

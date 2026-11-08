@@ -7,7 +7,7 @@ use std::{
 use rand::{Rng, rng};
 
 use application::ports::{
-    EntitlementResolver, MonitorRepository, SchedulingRepository, TenantRepository,
+    MonitorRepository, ResourceLimitResolver, SchedulingRepository, TenantRepository,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -142,7 +142,7 @@ pub struct DurableScheduler<R, E> {
     monitor_repository: Option<Arc<dyn MonitorRepository>>,
     /// TASK 5 — resolves the tenant's subscription entitlements. When
     /// absent, the scheduler fails safe (skips monitor checks).
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
     max_concurrency_per_tenant: usize,
     due_claim_limit_per_tenant: usize,
     deterministic_spread_seconds: u64,
@@ -199,7 +199,7 @@ where
             ),
             tenant_repository: None,
             monitor_repository: None,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
             max_concurrency_per_tenant: 4,
             due_claim_limit_per_tenant: 4,
             deterministic_spread_seconds: 5,
@@ -218,10 +218,10 @@ where
     pub fn with_entitlement_repositories(
         mut self,
         monitor_repository: Arc<dyn MonitorRepository>,
-        entitlement_resolver: Arc<dyn EntitlementResolver>,
+        resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     ) -> Self {
         self.monitor_repository = Some(monitor_repository);
-        self.entitlement_resolver = Some(entitlement_resolver);
+        self.resource_limit_resolver = Some(resource_limit_resolver);
         self
     }
 
@@ -258,7 +258,7 @@ where
         &self,
         tenant_id: domain::TenantId,
     ) -> Result<Option<domain::ResourceLimits>> {
-        let Some(resolver) = &self.entitlement_resolver else {
+        let Some(resolver) = &self.resource_limit_resolver else {
             return Ok(None);
         };
         match resolver.resolve(tenant_id).await {

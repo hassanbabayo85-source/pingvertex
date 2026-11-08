@@ -36,7 +36,7 @@ pub async fn create_api_key(
         state.password_hasher.clone(),
         state.audit_log_entry_repository.clone(),
     )
-    .with_entitlement_resolver(state.entitlement_resolver.clone());
+    .with_resource_limit_resolver(state.resource_limit_resolver.clone());
 
     let created = use_case
         .execute(

@@ -268,7 +268,7 @@ pub async fn build() -> axum::Router {
         InMemoryTenantMembershipRepository::new(),
         InMemoryRegistrationTransaction::new(),
     )
-    .with_entitlement_resolver(infra::InMemoryEntitlementResolver::default());
+    .with_resource_limit_resolver(infra::InMemoryEntitlementResolver::default());
 
     build_test_router(app_state, auth_state)
 }

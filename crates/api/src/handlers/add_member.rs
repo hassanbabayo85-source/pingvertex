@@ -33,7 +33,7 @@ pub async fn add_member(
     );
 
     let created = use_case
-        .with_entitlement_resolver(auth_state.entitlement_resolver.clone())
+        .with_resource_limit_resolver(auth_state.resource_limit_resolver.clone())
         .with_audit_log_repository(auth_state.audit_log_entry_repository.clone())
         .execute(
             AddMemberCommand {

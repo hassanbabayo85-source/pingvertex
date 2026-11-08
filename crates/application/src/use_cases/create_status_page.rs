@@ -7,7 +7,7 @@ use crate::{
     dto::CreateStatusPageRequest,
     errors::PlanLimitError,
     ports::{
-        AuditLogEntryRepository, EntitlementResolver, IdGenerator, MonitorRepository,
+        AuditLogEntryRepository, IdGenerator, MonitorRepository, ResourceLimitResolver,
         StatusPageRepository,
     },
 };
@@ -26,7 +26,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 // NOTE (TASK 4A): The old hardcoded `MAX_STATUS_PAGES_PER_USER = 3`
 // constant has been REMOVED. The effective limit for a tenant is now
 // resolved per-request from `plan_entitlements.max_status_pages`
-// via `EntitlementResolver`. Existing tenants' pages are not deleted or
+// via `ResourceLimitResolver`. Existing tenants' pages are not deleted or
 // transferred; only new creation is limited.
 
 #[derive(Debug)]
@@ -77,7 +77,7 @@ pub struct CreateStatusPageUseCase<R, G, M> {
     id_generator: G,
     monitor_repository: M,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
 }
 
 impl<R, G, M> CreateStatusPageUseCase<R, G, M>
@@ -97,15 +97,18 @@ where
             id_generator,
             monitor_repository,
             audit_log_entry_repository,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
         }
     }
 
-    /// TASK 4A — installs the authoritative `EntitlementResolver`.
+    /// TASK 4A — installs the authoritative `ResourceLimitResolver`.
     /// Production handlers MUST call this. If absent, `execute` fails
     /// closed with `EntitlementResolverMissing`.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -123,7 +126,7 @@ where
 
         // ── Resolve entitlements (fail closed) ──────────────────
         let resolver = self
-            .entitlement_resolver
+            .resource_limit_resolver
             .as_ref()
             .ok_or(CreateStatusPageError::EntitlementResolverMissing)?;
         let entitlements = resolver

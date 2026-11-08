@@ -42,7 +42,7 @@ pub async fn create_status_page(
         state.monitor_repository.clone(),
         state.audit_log_entry_repository.clone(),
     )
-    .with_entitlement_resolver(state.entitlement_resolver.clone());
+    .with_resource_limit_resolver(state.resource_limit_resolver.clone());
 
     let status_page = use_case
         .execute(request, authenticated_user)

@@ -2,7 +2,7 @@
 //! entitlements for the current billing state.
 //!
 //! `ResourceLimits` is the **authority** for numeric limits (quotas and
-//! minimum intervals). It is produced by `EntitlementResolver` from
+//! minimum intervals). It is produced by `ResourceLimitResolver` from
 //! `plan_entitlements` rows for the tenant's current plan.
 //!
 //! The struct is not `Serialize` / `Deserialize` on purpose: it is a

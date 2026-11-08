@@ -1,4 +1,4 @@
-//! In-memory `EntitlementResolver` for tests.
+//! In-memory `ResourceLimitResolver` for tests.
 //!
 //! Mirrors `PostgresEntitlementResolver`'s fallback behavior: a tenant
 //! with no override resolves to `free_default`. Tests seed specific
@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use application::ports::{EntitlementResolver, RepoResult};
+use application::ports::{RepoResult, ResourceLimitResolver};
 use async_trait::async_trait;
 use domain::{ResourceLimits, shared::ids::TenantId};
 
@@ -59,7 +59,7 @@ impl Default for InMemoryEntitlementResolver {
 }
 
 #[async_trait]
-impl EntitlementResolver for InMemoryEntitlementResolver {
+impl ResourceLimitResolver for InMemoryEntitlementResolver {
     async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         if let Some(ent) = self.overrides.read().unwrap().get(&tenant_id) {
             return Ok(*ent);

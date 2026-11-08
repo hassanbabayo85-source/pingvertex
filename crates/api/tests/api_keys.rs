@@ -286,7 +286,7 @@ async fn build_test_app_with_repo() -> (axum::Router, InMemoryApiKeyRepository) 
         InMemoryAuditLogEntryRepository::new(),
     )
     .with_api_key_repository(api_key_repo.clone())
-    .with_entitlement_resolver(infra::InMemoryEntitlementResolver::default_enterprise());
+    .with_resource_limit_resolver(infra::InMemoryEntitlementResolver::default_enterprise());
 
     let tenant_repository = InMemoryTenantRepository::new();
     let membership_repository = InMemoryTenantMembershipRepository::new();

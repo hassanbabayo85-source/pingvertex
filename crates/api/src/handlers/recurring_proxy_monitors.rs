@@ -52,7 +52,7 @@ pub async fn create_recurring_proxy_monitor(
 ) -> Result<(StatusCode, Json<RecurringProxyMonitorResponse>), ApiError> {
     let uc = CreateRecurringProxyMonitorUseCase::new(
         state.recurring_proxy_monitor_repository.clone(),
-        state.entitlement_resolver.clone(),
+        state.resource_limit_resolver.clone(),
     );
 
     let response = uc.execute(body, user).await.map_err(|err| match err {
@@ -76,7 +76,7 @@ pub async fn list_recurring_proxy_monitors(
 ) -> Result<Json<Vec<RecurringProxyMonitorResponse>>, ApiError> {
     let uc = ListRecurringProxyMonitorsUseCase::new(
         state.recurring_proxy_monitor_repository.clone(),
-        state.entitlement_resolver.clone(),
+        state.resource_limit_resolver.clone(),
     );
 
     let monitors = uc.execute(user).await.map_err(|e| {
@@ -94,7 +94,7 @@ pub async fn get_recurring_proxy_monitor(
     let monitor_id = parse_monitor_uuid(&id)?;
     let uc = GetRecurringProxyMonitorUseCase::new(
         state.recurring_proxy_monitor_repository.clone(),
-        state.entitlement_resolver.clone(),
+        state.resource_limit_resolver.clone(),
     );
 
     let monitor = uc
@@ -116,7 +116,7 @@ pub async fn update_recurring_proxy_monitor(
     let monitor_id = parse_monitor_uuid(&id)?;
     let uc = UpdateRecurringProxyMonitorUseCase::new(
         state.recurring_proxy_monitor_repository.clone(),
-        state.entitlement_resolver.clone(),
+        state.resource_limit_resolver.clone(),
     );
 
     let response = uc

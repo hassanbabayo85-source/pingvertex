@@ -127,8 +127,8 @@ pub use reset_password_token_repository::ResetPasswordTokenRepository;
 pub use tenant_invitation_repository::TenantInvitationRepository;
 
 // Plan / Subscription / Entitlement model:
-pub mod entitlement_resolver;
-pub use entitlement_resolver::EntitlementResolver;
+pub mod resource_limit_resolver;
+pub use resource_limit_resolver::ResourceLimitResolver;
 
 // Billing Provider Abstraction & Checkout:
 

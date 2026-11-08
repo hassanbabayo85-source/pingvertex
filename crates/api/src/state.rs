@@ -5,11 +5,11 @@ use application::ports::RecurringProxyMonitorRepository;
 use application::ports::{
     AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
     BulkMonitorImportRepository, CheckRepository, CustomDomainVerifier, DashboardRepository,
-    DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository, GeoIpLookup,
-    HealthCheckPort, HealthCheckResult, HelpArticleRepository, HelpCategoryRepository,
-    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository,
-    MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
-    ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
+    DiagnosticReportRepository, EscalationPolicyRepository, GeoIpLookup, HealthCheckPort,
+    HealthCheckResult, HelpArticleRepository, HelpCategoryRepository, IncidentRepository,
+    LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
+    NotificationChannelRepository, NotificationService, PasswordHasher, ProxyCheckJobRepository,
+    RateLimiter, RateLimiterResult, ResourceLimitResolver, RumAnalyticsRepository,
     RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache,
     StatusPageRepository, SupportTicketRepository, TenantAlertAllowanceRepository,
     TenantRepository, TenantRetentionSettingsRepository, UserRepository,
@@ -33,7 +33,7 @@ pub struct AppState {
     /// TASK 2 — the single authoritative source for the tenant's
     /// hard subscription entitlements (quotas and minimums).
     /// All hard-quota enforcement paths must go through this.
-    pub entitlement_resolver: Arc<dyn EntitlementResolver>,
+    pub resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     pub bulk_monitor_import_repository: Option<Arc<dyn BulkMonitorImportRepository>>,
     pub bulk_monitor_action_repository:
         Option<Arc<dyn application::ports::BulkMonitorActionRepository>>,
@@ -926,7 +926,7 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
-            entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
 
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
@@ -1010,7 +1010,7 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
-            entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
 
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
@@ -1266,15 +1266,15 @@ impl AppState {
         self
     }
 
-    /// TASK 2 — substitutes a real `EntitlementResolver` in place of
+    /// TASK 2 — substitutes a real `ResourceLimitResolver` in place of
     /// the Free-default `InMemoryEntitlementResolver`. Production
     /// `main.rs` wires `PostgresEntitlementResolver`; tests may leave
     /// the default in place or install their own overrides.
-    pub fn with_entitlement_resolver<R>(mut self, resolver: R) -> Self
+    pub fn with_resource_limit_resolver<R>(mut self, resolver: R) -> Self
     where
-        R: EntitlementResolver + 'static,
+        R: ResourceLimitResolver + 'static,
     {
-        self.entitlement_resolver = Arc::new(resolver);
+        self.resource_limit_resolver = Arc::new(resolver);
         self
     }
 }

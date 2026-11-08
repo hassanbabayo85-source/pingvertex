@@ -13,7 +13,8 @@ use crate::{
     commands::CreateApiKey,
     errors::PlanLimitError,
     ports::{
-        ApiKeyRepository, AuditLogEntryRepository, EntitlementResolver, IdGenerator, PasswordHasher,
+        ApiKeyRepository, AuditLogEntryRepository, IdGenerator, PasswordHasher,
+        ResourceLimitResolver,
     },
 };
 
@@ -85,7 +86,7 @@ pub struct CreateApiKeyUseCase {
     id_generator: Arc<dyn IdGenerator>,
     password_hasher: Arc<dyn PasswordHasher>,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
 }
 
 impl CreateApiKeyUseCase {
@@ -100,15 +101,18 @@ impl CreateApiKeyUseCase {
             id_generator,
             password_hasher,
             audit_log_entry_repository,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
         }
     }
 
-    /// TASK 4A — installs the authoritative `EntitlementResolver`.
+    /// TASK 4A — installs the authoritative `ResourceLimitResolver`.
     /// Production handlers MUST call this; `execute` fails closed with
     /// `EntitlementResolverMissing` if it is absent.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -151,7 +155,7 @@ impl CreateApiKeyUseCase {
         // 4. Resolve entitlements (fail closed if the resolver is not
         //    wired — deployment bug).
         let resolver = self
-            .entitlement_resolver
+            .resource_limit_resolver
             .as_ref()
             .ok_or(CreateApiKeyError::EntitlementResolverMissing)?;
         let user_id = authenticated_user.user_id();

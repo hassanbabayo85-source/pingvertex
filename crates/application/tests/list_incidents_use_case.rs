@@ -55,7 +55,7 @@ async fn lists_incidents_for_monitor() {
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();

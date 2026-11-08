@@ -28,7 +28,7 @@ pub async fn accept_invitation(
         auth_state.user_repository.clone(),
         auth_state.password_hasher.clone(),
     )
-    .with_entitlement_resolver(auth_state.entitlement_resolver.clone());
+    .with_resource_limit_resolver(auth_state.resource_limit_resolver.clone());
 
     let membership = use_case
         .execute(payload.token, authenticated_user)

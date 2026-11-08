@@ -46,7 +46,7 @@ async fn create_monitor_persists_monitor() {
     let repository = InMemoryMonitorRepository::new();
     let use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver_default());
+            .with_resource_limit_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let monitor = use_case
@@ -60,7 +60,7 @@ async fn create_monitor_persists_monitor() {
 async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
     let repository = InMemoryMonitorRepository::new();
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_entitlement_resolver(resolver_default());
+        .with_resource_limit_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
@@ -86,7 +86,7 @@ async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
 async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
     let repository = InMemoryMonitorRepository::new();
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_entitlement_resolver(resolver_default());
+        .with_resource_limit_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
@@ -121,7 +121,7 @@ async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let resolver =
         Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter));
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_entitlement_resolver(resolver);
+        .with_resource_limit_resolver(resolver);
 
     let user_id = UserId(Uuid::new_v4());
 
@@ -150,7 +150,7 @@ async fn starter_plan_allows_60_seconds_and_30_monitors() {
 async fn free_tier_rejects_more_than_one_region() {
     let repository = InMemoryMonitorRepository::new();
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
-        .with_entitlement_resolver(resolver_default());
+        .with_resource_limit_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
@@ -178,7 +178,7 @@ async fn free_tier_rejects_more_than_one_region() {
 #[tokio::test]
 async fn missing_entitlement_resolver_fails_closed() {
     let repository = InMemoryMonitorRepository::new();
-    // Note: NO `.with_entitlement_resolver(...)` call.
+    // Note: NO `.with_resource_limit_resolver(...)` call.
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo());
 
     let err = use_case

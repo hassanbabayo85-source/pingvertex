@@ -3,7 +3,7 @@
 //!
 //! # Authority
 //!
-//! `EntitlementResolver::resolve(tenant)` is the *only* sanctioned way
+//! `ResourceLimitResolver::resolve(tenant)` is the *only* sanctioned way
 //! to answer "what does this tenant's plan allow right now?". Every
 //! hard-quota enforcement path in the application MUST go through this
 //! trait. Reading `plan_entitlements` directly from a use case is a
@@ -26,7 +26,7 @@ use domain::{ResourceLimits, shared::ids::TenantId};
 use super::RepoResult;
 
 #[async_trait]
-pub trait EntitlementResolver: Send + Sync {
+pub trait ResourceLimitResolver: Send + Sync {
     /// Resolves `tenant_id`'s effective entitlements for the *current*
     /// moment:
     ///
@@ -47,9 +47,9 @@ pub trait EntitlementResolver: Send + Sync {
 }
 
 #[async_trait]
-impl<T> EntitlementResolver for std::sync::Arc<T>
+impl<T> ResourceLimitResolver for std::sync::Arc<T>
 where
-    T: EntitlementResolver + ?Sized,
+    T: ResourceLimitResolver + ?Sized,
 {
     async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         (**self).resolve(tenant_id).await

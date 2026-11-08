@@ -28,7 +28,7 @@ async fn remove_custom_domain_clears_pending_domain() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -91,7 +91,7 @@ async fn removing_custom_domain_when_none_set_is_a_no_op() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -132,7 +132,7 @@ async fn cannot_remove_custom_domain_for_someone_elses_status_page() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());

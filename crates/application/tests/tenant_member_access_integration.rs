@@ -133,7 +133,7 @@ async fn viewer_can_read_but_not_write_monitor_in_same_tenant() {
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
 
     let monitor = create_monitor
         .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
@@ -150,7 +150,7 @@ async fn viewer_can_read_but_not_write_monitor_in_same_tenant() {
 
     // Bob (Member) CANNOT update Alice's monitor — Member is read-only.
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
-        .with_entitlement_resolver(free_resolver());
+        .with_resource_limit_resolver(free_resolver());
     let update_err = update_use_case
         .execute(
             UpdateMonitor {
@@ -215,7 +215,7 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
 
     let monitor = create_monitor
         .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
@@ -237,7 +237,7 @@ async fn outsider_cannot_access_monitor_in_other_tenant() {
     // (so has UpdateMonitor), tenant isolation still blocks cross-tenant
     // access and returns None, same as before this permission patch.
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
-        .with_entitlement_resolver(free_resolver());
+        .with_resource_limit_resolver(free_resolver());
     let updated = update_use_case
         .execute(
             UpdateMonitor {
@@ -291,7 +291,7 @@ async fn viewer_can_read_but_not_write_status_pages_or_custom_domain_in_same_ten
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
     let monitor = create_monitor
         .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
         .await
@@ -303,7 +303,7 @@ async fn viewer_can_read_but_not_write_status_pages_or_custom_domain_in_same_ten
         monitor_repo.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
     let status_page = create_status_page
         .execute(
             CreateStatusPageRequest {
@@ -398,7 +398,7 @@ async fn viewer_can_read_but_not_write_notification_channels_in_same_tenant() {
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
     let monitor = create_monitor
         .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
         .await
@@ -483,14 +483,14 @@ async fn owner_can_still_write_monitor_in_own_tenant() {
         UuidIdGenerator::new(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(free_resolver());
+    .with_resource_limit_resolver(free_resolver());
     let monitor = create_monitor
         .execute(monitor_request("Alice Monitor"), auth_owner(alice_id, tid))
         .await
         .unwrap();
 
     let update_use_case = UpdateMonitorUseCase::new(monitor_repo.clone(), new_audit_repo())
-        .with_entitlement_resolver(free_resolver());
+        .with_resource_limit_resolver(free_resolver());
     let updated = update_use_case
         .execute(
             UpdateMonitor {

@@ -1,8 +1,8 @@
-//! Environment-driven `EntitlementResolver` for self-hostable
+//! Environment-driven `ResourceLimitResolver` for self-hostable
 //! deployments. Parses `PV_*` env vars once at construction time and
 //! returns that snapshot from every `resolve` call. Phase 1L-a-2.
 
-use application::ports::{EntitlementResolver, RepoResult};
+use application::ports::{RepoResult, ResourceLimitResolver};
 use async_trait::async_trait;
 use domain::ResourceLimits;
 use domain::resource_limits_env::EnvConfigError;
@@ -25,7 +25,7 @@ impl EnvEntitlementResolver {
 }
 
 #[async_trait]
-impl EntitlementResolver for EnvEntitlementResolver {
+impl ResourceLimitResolver for EnvEntitlementResolver {
     async fn resolve(&self, _tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         Ok(self.entitlements)
     }

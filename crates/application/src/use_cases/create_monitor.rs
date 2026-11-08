@@ -7,8 +7,8 @@ use crate::{
     dto::CreateMonitorRequest,
     errors::PlanLimitError,
     ports::{
-        AuditLogEntryRepository, EntitlementResolver, IdGenerator, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository, QuotaCheckOutcome, TenantRepository,
+        AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository, MonitorRepository,
+        PricingConfigRepository, QuotaCheckOutcome, ResourceLimitResolver, TenantRepository,
     },
 };
 use domain::{
@@ -38,7 +38,7 @@ pub enum CreateMonitorError {
     TenantSuspended,
     /// The resolver was not wired. This is a *deployment* bug (a
     /// production `main.rs` that forgot to call
-    /// `.with_entitlement_resolver(...)`), not a customer error.
+    /// `.with_resource_limit_resolver(...)`), not a customer error.
     EntitlementResolverMissing,
     Other(Box<dyn Error + Send + Sync>),
 }
@@ -79,7 +79,7 @@ pub struct CreateMonitorUseCase<R, G> {
     repository: R,
     id_generator: G,
     audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
     tenant_repository: Option<Arc<dyn TenantRepository>>,
 }
 
@@ -97,16 +97,19 @@ where
             repository,
             id_generator,
             audit_log_entry_repository,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
             tenant_repository: None,
         }
     }
 
-    /// TASK 2 — installs the authoritative `EntitlementResolver`.
+    /// TASK 2 — installs the authoritative `ResourceLimitResolver`.
     /// Production MUST call this; tests that don't get a resolver will
     /// fail closed with `EntitlementResolverMissing`.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -239,7 +242,7 @@ where
         tenant_id: TenantId,
     ) -> Result<ResourceLimits, CreateMonitorError> {
         let resolver = self
-            .entitlement_resolver
+            .resource_limit_resolver
             .as_ref()
             .ok_or(CreateMonitorError::EntitlementResolverMissing)?;
         resolver

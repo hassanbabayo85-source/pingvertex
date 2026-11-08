@@ -6,7 +6,7 @@ use domain::{TenantMembership, entities::MAX_TEAM_MEMBERS, shared::types::Authen
 use crate::errors::PlanLimitError;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::ports::{
-    EntitlementResolver, PasswordHasher, TenantInvitationRepository, TenantMembershipRepository,
+    PasswordHasher, ResourceLimitResolver, TenantInvitationRepository, TenantMembershipRepository,
     UserRepository,
 };
 use crate::use_cases::{
@@ -24,7 +24,7 @@ use crate::use_cases::{
 /// - The invitation is single-use: `mark_accepted` only succeeds once.
 ///
 /// TASK 4A — `max_team_members` quota:
-/// - When `entitlement_resolver` is wired, membership creation goes
+/// - When `resource_limit_resolver` is wired, membership creation goes
 ///   through `TenantMembershipRepository::save_if_within_quota`, which
 ///   is atomic (`pg_advisory_xact_lock` + `COUNT` + `INSERT` inside one
 ///   transaction). Concurrent acceptances across different tenants
@@ -41,7 +41,7 @@ pub struct AcceptInvitationUseCase<IR, MR, UR, H> {
     membership_repository: MR,
     user_repository: UR,
     password_hasher: H,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
 }
 
 impl<IR, MR, UR, H> AcceptInvitationUseCase<IR, MR, UR, H>
@@ -62,14 +62,17 @@ where
             membership_repository,
             user_repository,
             password_hasher,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
         }
     }
 
-    /// TASK 4A — installs the authoritative `EntitlementResolver` and
+    /// TASK 4A — installs the authoritative `ResourceLimitResolver` and
     /// turns on atomic quota enforcement at acceptance time.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -139,7 +142,7 @@ where
         // IMPORTANT: this happens BEFORE `mark_accepted`. If the quota
         // is exhausted, the invitation remains pending — the user can
         // retry later after the tenant frees up a slot.
-        if let Some(resolver) = &self.entitlement_resolver {
+        if let Some(resolver) = &self.resource_limit_resolver {
             let entitlements = resolver
                 .resolve(invitation.tenant_id)
                 .await

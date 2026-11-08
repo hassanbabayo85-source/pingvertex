@@ -20,7 +20,7 @@ async fn updates_monitor_successfully() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver_default());
+            .with_resource_limit_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
 
@@ -50,7 +50,7 @@ async fn updates_monitor_successfully() {
         .unwrap();
 
     let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-        .with_entitlement_resolver(resolver_default())
+        .with_resource_limit_resolver(resolver_default())
         .with_pricing_config_repository(std::sync::Arc::new(
             infra::InMemoryPricingConfigRepository::new()
                 .with_config(domain::pricing::PricingConfig::default_config()),
@@ -93,7 +93,7 @@ async fn cannot_update_monitor_owned_by_another_user() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver_default());
+            .with_resource_limit_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let attacker_id = UserId(Uuid::new_v4());
 
@@ -123,7 +123,7 @@ async fn cannot_update_monitor_owned_by_another_user() {
         .unwrap();
 
     let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-        .with_entitlement_resolver(resolver_default())
+        .with_resource_limit_resolver(resolver_default())
         .with_pricing_config_repository(std::sync::Arc::new(
             infra::InMemoryPricingConfigRepository::new()
                 .with_config(domain::pricing::PricingConfig::default_config()),

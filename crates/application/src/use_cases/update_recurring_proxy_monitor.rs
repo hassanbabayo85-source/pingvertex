@@ -3,7 +3,7 @@ use std::{error::Error, fmt, sync::Arc};
 use crate::{
     dto::{RecurringProxyMonitorResponse, UpdateRecurringProxyMonitorRequest},
     errors::PlanLimitError,
-    ports::{EntitlementResolver, RecurringProxyMonitorRepository},
+    ports::{RecurringProxyMonitorRepository, ResourceLimitResolver},
 };
 use domain::entities::MIN_RECURRING_PROXY_INTERVAL_SECONDS;
 use domain::shared::types::{AuthenticatedUser, Permission};
@@ -42,17 +42,17 @@ impl Error for UpdateRecurringProxyMonitorError {
 
 pub struct UpdateRecurringProxyMonitorUseCase<R> {
     repository: R,
-    entitlement_resolver: Arc<dyn EntitlementResolver>,
+    resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
 }
 
 impl<R> UpdateRecurringProxyMonitorUseCase<R>
 where
     R: RecurringProxyMonitorRepository,
 {
-    pub fn new(repository: R, entitlement_resolver: Arc<dyn EntitlementResolver>) -> Self {
+    pub fn new(repository: R, resource_limit_resolver: Arc<dyn ResourceLimitResolver>) -> Self {
         Self {
             repository,
-            entitlement_resolver,
+            resource_limit_resolver,
         }
     }
 
@@ -67,7 +67,7 @@ where
         }
         let tenant_id = authenticated_user.tenant_context().tenant_id();
         let entitlements = self
-            .entitlement_resolver
+            .resource_limit_resolver
             .resolve(tenant_id)
             .await
             .map_err(UpdateRecurringProxyMonitorError::Other)?;

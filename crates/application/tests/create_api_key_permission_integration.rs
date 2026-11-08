@@ -45,7 +45,7 @@ fn make_use_case() -> CreateApiKeyUseCase {
         Arc::new(Argon2PasswordHasher),
         Arc::new(InMemoryAuditLogEntryRepository::new()),
     )
-    .with_entitlement_resolver(Arc::new(InMemoryEntitlementResolver::default()))
+    .with_resource_limit_resolver(Arc::new(InMemoryEntitlementResolver::default()))
 }
 
 fn make_use_case_with_resolver(resolver: InMemoryEntitlementResolver) -> CreateApiKeyUseCase {
@@ -55,7 +55,7 @@ fn make_use_case_with_resolver(resolver: InMemoryEntitlementResolver) -> CreateA
         Arc::new(Argon2PasswordHasher),
         Arc::new(InMemoryAuditLogEntryRepository::new()),
     )
-    .with_entitlement_resolver(Arc::new(resolver))
+    .with_resource_limit_resolver(Arc::new(resolver))
 }
 
 fn valid_command() -> CreateApiKey {
@@ -229,7 +229,7 @@ async fn starter_plan_allows_more_api_keys_than_free() {
 /// Missing resolver must fail closed — no key is ever saved.
 #[tokio::test]
 async fn missing_entitlement_resolver_fails_closed() {
-    // Note: no `.with_entitlement_resolver(...)` call.
+    // Note: no `.with_resource_limit_resolver(...)` call.
     let use_case = CreateApiKeyUseCase::new(
         Arc::new(InMemoryApiKeyRepository::new()),
         Arc::new(UuidIdGenerator::new()),

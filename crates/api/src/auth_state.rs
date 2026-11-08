@@ -11,12 +11,11 @@ use domain::{
 
 use application::ports::{
     AuditLogEntryRepository, BackupCodeRepository, EmailVerificationMailer,
-    EmailVerificationTokenRepository, EntitlementResolver, IdTokenVerifier,
-    OAuthIdentityRepository, PasswordHasher, PasswordResetMailer, PasswordResetMailerResult,
-    PendingAuthCache, PendingAuthCacheResult, RateLimiter, RateLimiterResult,
-    RegistrationTransaction, ResetPasswordTokenRepository, SecretCipher, SecretCipherError,
-    TenantInvitationRepository, TenantMembershipRepository, TenantRepository, TokenService,
-    UserRepository,
+    EmailVerificationTokenRepository, IdTokenVerifier, OAuthIdentityRepository, PasswordHasher,
+    PasswordResetMailer, PasswordResetMailerResult, PendingAuthCache, PendingAuthCacheResult,
+    RateLimiter, RateLimiterResult, RegistrationTransaction, ResetPasswordTokenRepository,
+    ResourceLimitResolver, SecretCipher, SecretCipherError, TenantInvitationRepository,
+    TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
 };
 use infra::{InMemoryEntitlementResolver, UuidIdGenerator};
 
@@ -370,7 +369,7 @@ pub struct AuthState {
     /// hard subscription entitlements. Defaults to the Free-tier
     /// in-memory resolver for tests; production `main.rs` overrides
     /// with `PostgresEntitlementResolver`.
-    pub entitlement_resolver: Arc<dyn EntitlementResolver>,
+    pub resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
 }
 
 impl AuthState {
@@ -412,7 +411,7 @@ impl AuthState {
             apple_id_token_verifier: Arc::new(NoopIdTokenVerifier),
             oauth_identity_repository: Arc::new(NoopOAuthIdentityRepository),
             audit_log_entry_repository: Arc::new(NoopAuditLogEntryRepository),
-            entitlement_resolver: Arc::new(InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(InMemoryEntitlementResolver::default()),
         }
     }
 
@@ -469,14 +468,14 @@ impl AuthState {
         self
     }
 
-    /// TASK 4A — installs the authoritative `EntitlementResolver` used
+    /// TASK 4A — installs the authoritative `ResourceLimitResolver` used
     /// by every use case that enforces `max_team_members`,
     /// `max_status_pages`, or `max_api_keys`.
-    pub fn with_entitlement_resolver<R>(mut self, resolver: R) -> Self
+    pub fn with_resource_limit_resolver<R>(mut self, resolver: R) -> Self
     where
-        R: EntitlementResolver + 'static,
+        R: ResourceLimitResolver + 'static,
     {
-        self.entitlement_resolver = Arc::new(resolver);
+        self.resource_limit_resolver = Arc::new(resolver);
         self
     }
 

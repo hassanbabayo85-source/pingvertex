@@ -30,7 +30,7 @@
 
 use std::{error::Error, sync::Arc};
 
-use crate::ports::{EntitlementResolver, MonitorRepository};
+use crate::ports::{MonitorRepository, ResourceLimitResolver};
 use domain::{Monitor, shared::ids::TenantId};
 
 pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -45,7 +45,7 @@ pub struct TenantReconciliationResult {
 }
 
 pub struct ReconcileMonitorEntitlementsUseCase<R> {
-    entitlement_resolver: Arc<dyn EntitlementResolver>,
+    resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     monitor_repository: R,
 }
 
@@ -53,9 +53,12 @@ impl<R> ReconcileMonitorEntitlementsUseCase<R>
 where
     R: MonitorRepository,
 {
-    pub fn new(entitlement_resolver: Arc<dyn EntitlementResolver>, monitor_repository: R) -> Self {
+    pub fn new(
+        resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
+        monitor_repository: R,
+    ) -> Self {
         Self {
-            entitlement_resolver,
+            resource_limit_resolver,
             monitor_repository,
         }
     }
@@ -64,7 +67,7 @@ where
         &self,
         tenant_id: TenantId,
     ) -> UseCaseResult<TenantReconciliationResult> {
-        let entitlements = self.entitlement_resolver.resolve(tenant_id).await?;
+        let entitlements = self.resource_limit_resolver.resolve(tenant_id).await?;
         let limit = entitlements.max_uptime_monitors;
 
         let monitors = self

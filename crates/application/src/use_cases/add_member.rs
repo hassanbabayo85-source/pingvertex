@@ -13,7 +13,7 @@ use domain::{
 use crate::errors::PlanLimitError;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::ports::{
-    AuditLogEntryRepository, EntitlementResolver, TenantMembershipRepository, UserRepository,
+    AuditLogEntryRepository, ResourceLimitResolver, TenantMembershipRepository, UserRepository,
 };
 
 use super::membership_common::MembershipError;
@@ -31,7 +31,7 @@ pub struct AddMemberCommand {
 /// - `Owner` or `Admin` may assign `Member`, `Viewer`, or `Auditor`.
 ///
 /// TASK 4A — `max_team_members` quota:
-/// - When `entitlement_resolver` is wired, membership creation goes
+/// - When `resource_limit_resolver` is wired, membership creation goes
 ///   through `save_if_within_quota` (atomic per-tenant).
 /// - If the quota is exhausted, the request is rejected without
 ///   altering any existing membership.
@@ -42,7 +42,7 @@ pub struct AddMemberUseCase {
     tenant_membership_repository: Arc<dyn TenantMembershipRepository>,
     user_repository: Arc<dyn UserRepository>,
     audit_log_repository: Option<Arc<dyn AuditLogEntryRepository>>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
 }
 
 impl AddMemberUseCase {
@@ -54,7 +54,7 @@ impl AddMemberUseCase {
             tenant_membership_repository,
             user_repository,
             audit_log_repository: None,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
         }
     }
 
@@ -66,10 +66,13 @@ impl AddMemberUseCase {
         self
     }
 
-    /// TASK 4A — installs the authoritative `EntitlementResolver` and
+    /// TASK 4A — installs the authoritative `ResourceLimitResolver` and
     /// turns on atomic `max_team_members` enforcement.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
@@ -127,7 +130,7 @@ impl AddMemberUseCase {
         };
 
         // ── TASK 4A: atomic quota check + insert (if wired) ─────
-        if let Some(resolver) = &self.entitlement_resolver {
+        if let Some(resolver) = &self.resource_limit_resolver {
             let entitlements = resolver
                 .resolve(tenant_id)
                 .await

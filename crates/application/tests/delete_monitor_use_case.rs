@@ -21,7 +21,7 @@ async fn deletes_monitor_successfully() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
         CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
-            .with_entitlement_resolver(resolver_default());
+            .with_resource_limit_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
 

@@ -5,7 +5,7 @@
 //!   * an explicit override is returned for that tenant only;
 //!   * other tenants are unaffected.
 
-use application::ports::EntitlementResolver;
+use application::ports::ResourceLimitResolver;
 use domain::{ResourceLimits, shared::ids::TenantId};
 use infra::InMemoryEntitlementResolver;
 

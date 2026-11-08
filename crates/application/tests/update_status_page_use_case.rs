@@ -42,7 +42,7 @@ async fn updates_status_page_successfully() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -94,7 +94,7 @@ async fn cannot_update_status_page_owned_by_another_user() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
@@ -148,7 +148,7 @@ async fn rejects_adding_a_monitor_not_owned_by_the_requesting_user() {
         monitors.clone(),
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver_default());
+    .with_resource_limit_resolver(resolver_default());
 
     let status_page = create_use_case
         .execute(

@@ -7,8 +7,8 @@ use std::{
 use application::{
     dto::{BulkMonitorImportJob, BulkMonitorImportJobStatus, BulkMonitorImportRow},
     ports::{
-        AuditLogEntryRepository, BulkMonitorImportRepository, EntitlementResolver,
-        MonitorRepository, TenantMembershipRepository, TenantRepository,
+        AuditLogEntryRepository, BulkMonitorImportRepository, MonitorRepository,
+        ResourceLimitResolver, TenantMembershipRepository, TenantRepository,
     },
     use_cases::{CreateMonitorError, CreateMonitorUseCase},
 };
@@ -32,7 +32,7 @@ pub struct BulkMonitorImportWorker {
     audits: Arc<dyn AuditLogEntryRepository>,
     tenant_repository: Arc<dyn TenantRepository>,
     /// TASK 5 — authoritative subscription entitlement source.
-    entitlement_resolver: Arc<dyn EntitlementResolver>,
+    resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     worker_id: Uuid,
     poll_interval: Duration,
     lease_duration: Duration,
@@ -51,7 +51,7 @@ impl BulkMonitorImportWorker {
         memberships: Arc<dyn TenantMembershipRepository>,
         audits: Arc<dyn AuditLogEntryRepository>,
         tenant_repository: Arc<dyn TenantRepository>,
-        entitlement_resolver: Arc<dyn EntitlementResolver>,
+        resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     ) -> Self {
         Self {
             jobs,
@@ -59,7 +59,7 @@ impl BulkMonitorImportWorker {
             memberships,
             audits,
             tenant_repository,
-            entitlement_resolver,
+            resource_limit_resolver,
             worker_id: Uuid::new_v4(),
             poll_interval: Duration::from_secs(env_u64("BULK_IMPORT_POLL_SECONDS", 2, 1, 60)),
             lease_duration: Duration::from_secs(env_u64("BULK_IMPORT_LEASE_SECONDS", 60, 15, 600)),
@@ -352,7 +352,7 @@ impl BulkMonitorImportWorker {
                     UuidIdGenerator::new(),
                     self.audits.clone(),
                 )
-                .with_entitlement_resolver(self.entitlement_resolver.clone())
+                .with_resource_limit_resolver(self.resource_limit_resolver.clone())
                 .with_tenant_repository(self.tenant_repository.clone());
 
                 match create
@@ -428,7 +428,7 @@ impl BulkMonitorImportWorker {
         &self,
         tenant_id: TenantId,
     ) -> Result<domain::ResourceLimits, Box<dyn Error + Send + Sync>> {
-        self.entitlement_resolver.resolve(tenant_id).await
+        self.resource_limit_resolver.resolve(tenant_id).await
     }
 }
 

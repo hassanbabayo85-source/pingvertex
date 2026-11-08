@@ -1,4 +1,4 @@
-//! Task 8C — retention sweep driven by `EntitlementResolver`.
+//! Task 8C — retention sweep driven by `ResourceLimitResolver`.
 //!
 //! The per-tenant cutoff is `entitlements.max_history_retention_days`,
 //! optionally narrowed by a `TenantRetentionSettings` row (Legacy or
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use application::ports::{
-    EntitlementResolver, HistoryRetentionRepository, TenantRepository,
+    HistoryRetentionRepository, ResourceLimitResolver, TenantRepository,
     TenantRetentionSettingsRepository,
 };
 use chrono::{Duration as ChronoDuration, Utc};
@@ -38,7 +38,7 @@ where
 {
     tenant_repository: Arc<T>,
     history_repository: Arc<H>,
-    entitlement_resolver: Arc<dyn EntitlementResolver>,
+    resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     batch_size: u32,
     interval: Duration,
     max_concurrent_tenants: usize,
@@ -54,7 +54,7 @@ where
     pub fn new(
         tenant_repository: Arc<T>,
         history_repository: Arc<H>,
-        entitlement_resolver: Arc<dyn EntitlementResolver>,
+        resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
         batch_size: u32,
         interval: Duration,
         max_concurrent_tenants: usize,
@@ -63,7 +63,7 @@ where
         Self {
             tenant_repository,
             history_repository,
-            entitlement_resolver,
+            resource_limit_resolver,
             batch_size,
             interval,
             max_concurrent_tenants,
@@ -84,7 +84,7 @@ where
         for tenant in tenants {
             let permit = semaphore.clone().acquire_owned().await?;
             let history_repository = self.history_repository.clone();
-            let entitlement_resolver = self.entitlement_resolver.clone();
+            let resource_limit_resolver = self.resource_limit_resolver.clone();
             let retention_settings_repository = self.retention_settings_repository.clone();
             let batch_size = self.batch_size;
             let checks_deleted = checks_deleted.clone();
@@ -92,10 +92,10 @@ where
             join_set.spawn(async move {
                 let _permit = permit;
 
-                // Task 8C — retention comes from EntitlementResolver.
+                // Task 8C — retention comes from ResourceLimitResolver.
                 // A `TenantRetentionSettings` row (Legacy/Addon) may narrow
                 // the window but never widen it above the plan maximum.
-                let entitlements = match entitlement_resolver.resolve(tenant.id).await {
+                let entitlements = match resource_limit_resolver.resolve(tenant.id).await {
                     Ok(e) => e,
                     Err(err) => {
                         error!(

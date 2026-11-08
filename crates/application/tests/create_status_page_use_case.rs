@@ -52,7 +52,7 @@ fn use_case_with_resolver(
         monitors,
         new_audit_repo(),
     )
-    .with_entitlement_resolver(resolver)
+    .with_resource_limit_resolver(resolver)
 }
 
 fn sample_monitor(user_id: UserId, tenant_id: domain::TenantId) -> Monitor {
@@ -266,7 +266,7 @@ async fn starter_plan_allows_its_own_higher_quota() {
 async fn missing_entitlement_resolver_fails_closed() {
     let repository = InMemoryStatusPageRepository::new();
     let monitors = InMemoryMonitorRepository::new();
-    // No `.with_entitlement_resolver(...)` call.
+    // No `.with_resource_limit_resolver(...)` call.
     let use_case = CreateStatusPageUseCase::new(
         repository,
         UuidIdGenerator::new(),

@@ -77,7 +77,7 @@ fn build_state_with(
     )
     .with_pricing_config_repository(pricing_repo)
     .with_recurring_proxy_monitor_repository(repo)
-    .with_entitlement_resolver(resolver)
+    .with_resource_limit_resolver(resolver)
 }
 
 fn owner_of(tenant: TenantId) -> AuthenticatedUser {

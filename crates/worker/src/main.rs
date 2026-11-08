@@ -266,7 +266,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let retention_settings_repository =
         Arc::new(PostgresTenantRetentionSettingsRepository::new(pool.clone()));
-    // Task 8C — retention is now driven by EntitlementResolver
+    // Task 8C — retention is now driven by ResourceLimitResolver
     // (`max_history_retention_days`); PricingConfig and Wallet are no
     // longer consulted for the retention cutoff.
     let retention_worker = RetentionWorker::new(

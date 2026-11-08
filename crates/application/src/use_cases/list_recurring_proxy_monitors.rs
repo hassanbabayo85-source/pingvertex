@@ -2,7 +2,7 @@ use std::{error::Error, sync::Arc};
 
 use crate::{
     dto::RecurringProxyMonitorResponse,
-    ports::{EntitlementResolver, RecurringProxyMonitorRepository},
+    ports::{RecurringProxyMonitorRepository, ResourceLimitResolver},
 };
 use domain::shared::types::{AuthenticatedUser, Permission};
 
@@ -10,17 +10,17 @@ type BoxError = Box<dyn Error + Send + Sync>;
 
 pub struct ListRecurringProxyMonitorsUseCase<R> {
     repository: R,
-    entitlement_resolver: Arc<dyn EntitlementResolver>,
+    resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
 }
 
 impl<R> ListRecurringProxyMonitorsUseCase<R>
 where
     R: RecurringProxyMonitorRepository,
 {
-    pub fn new(repository: R, entitlement_resolver: Arc<dyn EntitlementResolver>) -> Self {
+    pub fn new(repository: R, resource_limit_resolver: Arc<dyn ResourceLimitResolver>) -> Self {
         Self {
             repository,
-            entitlement_resolver,
+            resource_limit_resolver,
         }
     }
 
@@ -33,7 +33,7 @@ where
         // Resolve entitlements so a downgraded tenant sees
         // `entitlement_suspended = true` on their existing monitors
         // (computed by the worker, not here).
-        let _ = self.entitlement_resolver.resolve(tenant_id).await?;
+        let _ = self.resource_limit_resolver.resolve(tenant_id).await?;
 
         let monitors = self.repository.list_for_tenant(tenant_id).await?;
         Ok(monitors

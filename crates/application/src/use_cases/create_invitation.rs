@@ -9,7 +9,7 @@ use domain::{
 
 use crate::errors::PlanLimitError;
 use crate::ports::{
-    AuditLogEntryRepository, EntitlementResolver, IdGenerator, PasswordHasher,
+    AuditLogEntryRepository, IdGenerator, PasswordHasher, ResourceLimitResolver,
     TenantInvitationRepository, TenantMembershipRepository,
 };
 use crate::use_cases::{
@@ -31,7 +31,7 @@ pub struct CreatedTenantInvitation {
 /// with `role`.
 ///
 /// TASK 4A — `max_team_members` quota:
-/// - If **both** `entitlement_resolver` and `membership_repository` are
+/// - If **both** `resource_limit_resolver` and `membership_repository` are
 ///   wired, the use case counts `(existing_members + pending_invitations)`
 ///   and rejects when that sum already reaches the tenant's limit.
 /// - If either dependency is missing, the quota check is skipped
@@ -50,7 +50,7 @@ pub struct CreateInvitationUseCase<G, H, R> {
     password_hasher: H,
     invitation_repository: R,
     audit_log_repository: Option<Arc<dyn AuditLogEntryRepository>>,
-    entitlement_resolver: Option<Arc<dyn EntitlementResolver>>,
+    resource_limit_resolver: Option<Arc<dyn ResourceLimitResolver>>,
     membership_repository: Option<Arc<dyn TenantMembershipRepository>>,
 }
 
@@ -66,7 +66,7 @@ where
             password_hasher,
             invitation_repository,
             audit_log_repository: None,
-            entitlement_resolver: None,
+            resource_limit_resolver: None,
             membership_repository: None,
         }
     }
@@ -81,12 +81,15 @@ where
 
     /// TASK 4A — enables `max_team_members` quota enforcement when
     /// combined with `.with_membership_repository(...)`.
-    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
-        self.entitlement_resolver = Some(resolver);
+    pub fn with_resource_limit_resolver(
+        mut self,
+        resolver: Arc<dyn ResourceLimitResolver>,
+    ) -> Self {
+        self.resource_limit_resolver = Some(resolver);
         self
     }
 
-    /// TASK 4A — required (together with `entitlement_resolver`) for
+    /// TASK 4A — required (together with `resource_limit_resolver`) for
     /// quota enforcement.
     pub fn with_membership_repository(mut self, repo: Arc<dyn TenantMembershipRepository>) -> Self {
         self.membership_repository = Some(repo);
@@ -124,7 +127,7 @@ where
         // Only runs when both dependencies are wired. See the type
         // doc comment for the atomicity limitation and why it is safe.
         if let (Some(resolver), Some(membership_repo)) =
-            (&self.entitlement_resolver, &self.membership_repository)
+            (&self.resource_limit_resolver, &self.membership_repository)
         {
             let entitlements = resolver
                 .resolve(tenant_id)
