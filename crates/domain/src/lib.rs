@@ -28,16 +28,7 @@ pub use value_objects::*;
 pub mod pricing;
 pub use pricing::*;
 
-pub mod proration;
-pub use proration::*;
-
-pub mod payg;
-pub use payg::*;
-
 // Billing invoice exports
 pub use entities::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};
 
-// Task 6 — calendar billing periods:
-pub mod billing_period;
-pub use billing_period::{BillingPeriodError, period_end_from};
 pub mod entitlements_env;
