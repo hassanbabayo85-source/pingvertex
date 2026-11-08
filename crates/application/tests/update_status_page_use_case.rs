@@ -11,8 +11,12 @@ use domain::shared::ids::{MonitorId, UserId};
 use domain::{
     CheckInterval, ExpectedStatus, HttpMethod, Monitor, MonitorBuilder, MonitorName, Timeout, Url,
 };
-use infra::{InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 fn sample_monitor(user_id: UserId, tenant_id: domain::TenantId) -> Monitor {
     MonitorBuilder::new(MonitorId(Uuid::new_v4()), user_id, tenant_id)
@@ -34,7 +38,7 @@ async fn updates_status_page_successfully() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -85,7 +89,7 @@ async fn cannot_update_status_page_owned_by_another_user() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
@@ -138,7 +142,7 @@ async fn rejects_adding_a_monitor_not_owned_by_the_requesting_user() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
 
     let status_page = create_use_case
         .execute(

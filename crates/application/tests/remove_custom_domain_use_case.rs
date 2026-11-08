@@ -8,8 +8,12 @@ use application::use_cases::{
     CreateStatusPageUseCase, RemoveCustomDomainUseCase, RequestCustomDomainUseCase,
 };
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[tokio::test]
 async fn remove_custom_domain_clears_pending_domain() {
@@ -20,7 +24,7 @@ async fn remove_custom_domain_clears_pending_domain() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -82,7 +86,7 @@ async fn removing_custom_domain_when_none_set_is_a_no_op() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -122,7 +126,7 @@ async fn cannot_remove_custom_domain_for_someone_elses_status_page() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());

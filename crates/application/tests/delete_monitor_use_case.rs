@@ -9,14 +9,18 @@ use application::{
 };
 use domain::HttpMethod;
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[tokio::test]
 async fn deletes_monitor_successfully() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
-        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo()).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
 

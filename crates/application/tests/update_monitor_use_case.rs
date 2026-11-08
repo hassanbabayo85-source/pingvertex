@@ -8,14 +8,18 @@ use application::{
 };
 use domain::HttpMethod;
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[tokio::test]
 async fn updates_monitor_successfully() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
-        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo()).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
 
@@ -44,7 +48,7 @@ async fn updates_monitor_successfully() {
         .await
         .unwrap();
 
-    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
+    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo()).with_entitlement_resolver(resolver_default())
         .with_pricing_config_repository(std::sync::Arc::new(
             infra::InMemoryPricingConfigRepository::new()
                 .with_config(domain::pricing::PricingConfig::default_config()),
@@ -86,7 +90,7 @@ async fn updates_monitor_successfully() {
 async fn cannot_update_monitor_owned_by_another_user() {
     let repository = InMemoryMonitorRepository::new();
     let create_use_case =
-        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo());
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo()).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let attacker_id = UserId(Uuid::new_v4());
 
@@ -115,7 +119,7 @@ async fn cannot_update_monitor_owned_by_another_user() {
         .await
         .unwrap();
 
-    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
+    let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo()).with_entitlement_resolver(resolver_default())
         .with_pricing_config_repository(std::sync::Arc::new(
             infra::InMemoryPricingConfigRepository::new()
                 .with_config(domain::pricing::PricingConfig::default_config()),

@@ -8,8 +8,12 @@ use application::use_cases::{
     CreateStatusPageUseCase, RequestCustomDomainError, RequestCustomDomainUseCase,
 };
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[tokio::test]
 async fn request_custom_domain_starts_in_pending_state() {
@@ -20,7 +24,7 @@ async fn request_custom_domain_starts_in_pending_state() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -72,7 +76,7 @@ async fn cannot_request_custom_domain_for_someone_elses_status_page() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());
@@ -116,7 +120,7 @@ async fn cannot_claim_a_domain_already_verified_by_another_tenant() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
 
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();

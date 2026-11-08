@@ -5,8 +5,12 @@ use application::dto::CreateStatusPageRequest;
 use application::ports::StatusPageRepository;
 use application::use_cases::{CreateStatusPageUseCase, DeleteStatusPageUseCase};
 use domain::shared::ids::UserId;
-use infra::{InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[tokio::test]
 async fn deletes_status_page_successfully() {
@@ -17,7 +21,7 @@ async fn deletes_status_page_successfully() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
@@ -57,7 +61,7 @@ async fn deleting_status_page_as_another_tenant_member_succeeds() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let tenant_mate_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
@@ -95,7 +99,7 @@ async fn deleting_status_page_from_another_tenant_returns_false() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
     let owner_id = UserId(Uuid::new_v4());
     let owner_tenant_id = tenant_id();
     let attacker_id = UserId(Uuid::new_v4());

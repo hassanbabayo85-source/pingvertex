@@ -12,8 +12,12 @@ use async_trait::async_trait;
 use domain::HttpMethod;
 use domain::Incident;
 use domain::shared::ids::{IncidentId, MonitorId, UserId};
-use infra::{InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 use uuid::Uuid;
+
+fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
+    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+}
 
 #[derive(Clone, Default)]
 struct NoopIncidentRepository;
@@ -50,7 +54,7 @@ async fn lists_incidents_for_monitor() {
         monitor_repository.clone(),
         UuidIdGenerator::new(),
         new_audit_repo(),
-    );
+    ).with_entitlement_resolver(resolver_default());
 
     let user_id = UserId(Uuid::new_v4());
     let tenant_id = tenant_id();
