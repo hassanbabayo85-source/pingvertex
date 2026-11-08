@@ -101,23 +101,12 @@ pub async fn preview_bulk_monitor_import(
         .map_err(|error| {
             ApiError::internal_with_source("failed to load existing monitor snapshot", error)
         })?;
-
-    // Open-source: PAYG billing is not part of this build. Bulk import
-    // always uses the free tier; wallet-based eligibility is not consulted.
-    let payg_activated = false;
-
-    let preview = PreviewBulkMonitorImportUseCase::new(
-        state.payg_pricing_repository.clone(),
-        state.monitor_interval_policy_repository.clone(),
-    )
-    .with_pricing_config_repository(state.pricing_config_repository.clone())
+    let preview = PreviewBulkMonitorImportUseCase::new()
     .execute(
         authenticated_user,
         rows,
         parse_errors,
-        snapshot,
-        payg_activated,
-        query.forecast_days,
+        snapshot, query.forecast_days,
     )
     .await
     .map_err(|error| match error {

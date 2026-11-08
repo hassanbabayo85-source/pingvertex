@@ -33,19 +33,6 @@ pub struct BulkMonitorImportError {
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BulkMonitorImportPricingVersion {
-    pub operation: String,
-    pub account_type: Option<domain::AccountType>,
-    pub monitor_kind: domain::MonitorKind,
-    pub region: domain::RegionCode,
-    pub quantity: u64,
-    pub unit_price: i64,
-    pub estimated_charge_units: i64,
-    pub currency: String,
-    pub version: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkMonitorImportPreview {
     pub total_rows: usize,
@@ -54,16 +41,6 @@ pub struct BulkMonitorImportPreview {
     pub duplicate_rows: usize,
     pub forecast_days: u32,
     pub estimated_execution_quantity: u64,
-    pub estimated_payg_cost_units: i64,
-    pub currency: String,
-    /// Present when every operation in this preview resolves to the same
-    /// immutable pricing version. Mixed-operation previews may legitimately
-    /// span multiple versions, in which case this is `None` and
-    /// `pricing_versions` is authoritative.
-    pub pricing_version: Option<i64>,
-    pub pricing_versions: Vec<BulkMonitorImportPricingVersion>,
-    pub pricing_snapshot_hash: String,
-    pub payg_eligible: bool,
     pub errors: Vec<BulkMonitorImportError>,
 }
 

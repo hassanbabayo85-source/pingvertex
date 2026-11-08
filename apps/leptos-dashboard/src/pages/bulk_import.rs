@@ -111,7 +111,6 @@ pub fn BulkImportPage() -> impl IntoView {
                 name,
                 days,
                 key,
-                value.pricing_snapshot_hash.clone(),
             )
             .await
             {
@@ -202,35 +201,8 @@ pub fn BulkImportPage() -> impl IntoView {
                         <div><strong>{value.invalid_rows}</strong><span>"Invalid"</span></div>
                         <div><strong>{value.duplicate_rows}</strong><span>"Duplicate"</span></div>
                         <div><strong>{value.estimated_execution_quantity}</strong><span>"Estimated usage"</span></div>
-                        <div><strong>{format_units(value.estimated_payg_cost_units, &value.currency)}</strong><span>"Estimated cost"</span></div>
                     </div>
                     <div class="stack-form">
-                        <p class="muted">{format!(
-                            "Pricing snapshot: {} version(s), {} day forecast{}",
-                            value.pricing_versions.len(),
-                            value.forecast_days,
-                            value.pricing_version
-                                .map(|v| format!(", pinned version {v}"))
-                                .unwrap_or_default()
-                        )}</p>
-                        <p class="muted"><code>{value.pricing_snapshot_hash.clone()}</code></p>
-                        <div class="table-wrap">
-                            <table class="data-table">
-                                <thead><tr><th>"Region"</th><th>"Operation"</th><th>"Quantity"</th><th>"Unit price"</th><th>"Estimated cost"</th><th>"Version"</th></tr></thead>
-                                <tbody>
-                                    {value.pricing_versions.iter().map(|item| view! {
-                                        <tr>
-                                            <td>{item.region.clone()}</td>
-                                            <td>{item.operation.clone()}</td>
-                                            <td>{item.quantity}</td>
-                                            <td>{format_units(item.unit_price, &item.currency)}</td>
-                                            <td>{format_units(item.estimated_charge_units, &item.currency)}</td>
-                                            <td>{item.version}</td>
-                                        </tr>
-                                    }).collect_view()}
-                                </tbody>
-                            </table>
-                        </div>
                     </div>
                     {if value.errors.is_empty() {
                         view! { <p class="muted">"No validation errors."</p> }.into_any()

@@ -76,31 +76,6 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
-pub(crate) fn pricing_snapshot_hash(
-    pricing_versions: &[application::dto::BulkMonitorImportPricingVersion],
-) -> Result<String, ApiError> {
-    let bytes = serde_json::to_vec(pricing_versions)
-        .map_err(|_| ApiError::internal("failed to serialize pricing snapshot"))?;
-    Ok(sha256_hex(&bytes))
-}
-
-fn validated_pricing_snapshot_hash(headers: &HeaderMap) -> Result<String, ApiError> {
-    let value = headers
-        .get("x-bulk-pricing-snapshot")
-        .ok_or_else(|| ApiError::bad_request("X-Bulk-Pricing-Snapshot header is required"))?
-        .to_str()
-        .map_err(|_| ApiError::bad_request("invalid X-Bulk-Pricing-Snapshot header"))?
-        .trim()
-        .to_owned();
-
-    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(ApiError::bad_request(
-            "X-Bulk-Pricing-Snapshot must be a 64-character SHA-256 digest",
-        ));
-    }
-    Ok(value.to_ascii_lowercase())
-}
-
 pub async fn confirm_bulk_monitor_import(
     State(state): State<AppState>,
     Extension(authenticated_user): Extension<AuthenticatedUser>,
@@ -199,7 +174,6 @@ pub async fn confirm_bulk_monitor_import(
         ));
     }
 
-    let requested_pricing_snapshot_hash = validated_pricing_snapshot_hash(&headers)?;
     let (rows, parse_errors) = parse_csv(csv).map_err(ApiError::bad_request)?;
 
     let snapshot = state
@@ -209,22 +183,12 @@ pub async fn confirm_bulk_monitor_import(
         .map_err(|error| {
             ApiError::internal_with_source("failed to load existing monitor snapshot", error)
         })?;
-    // Open-source: PAYG billing is not part of this build. Bulk import
-    // always uses the free tier; wallet-based eligibility is not consulted.
-    let payg_activated = false;
-
-    let preview = PreviewBulkMonitorImportUseCase::new(
-        state.payg_pricing_repository.clone(),
-        state.monitor_interval_policy_repository.clone(),
-    )
-    .with_pricing_config_repository(state.pricing_config_repository.clone())
+    let preview = PreviewBulkMonitorImportUseCase::new()
     .execute(
         authenticated_user,
         rows.clone(),
         parse_errors.clone(),
-        snapshot,
-        payg_activated,
-        query.forecast_days,
+        snapshot, query.forecast_days,
     )
     .await
     .map_err(|error| match error {
@@ -239,13 +203,6 @@ pub async fn confirm_bulk_monitor_import(
             ApiError::internal_with_source("failed to validate bulk import confirmation", source)
         }
     })?;
-
-    let actual_pricing_snapshot_hash = pricing_snapshot_hash(&preview.pricing_versions)?;
-    if actual_pricing_snapshot_hash != requested_pricing_snapshot_hash {
-        return Err(ApiError::conflict(
-            "pricing snapshot changed since preview; request a new preview before confirming",
-        ));
-    }
 
     if preview.valid_rows == 0 {
         return Err(ApiError::bad_request(
@@ -304,11 +261,10 @@ pub async fn confirm_bulk_monitor_import(
             .map_err(|_| ApiError::bad_request("forecast_days is too large"))?,
         estimated_checks: i64::try_from(preview.estimated_execution_quantity)
             .map_err(|_| ApiError::bad_request("bulk import estimate is too large"))?,
-        estimated_charge_units: preview.estimated_payg_cost_units,
+        estimated_charge_units: 0,
         currency: "USD".to_string(),
         batch_size: configured_batch_size(),
-        pricing_snapshot: serde_json::to_value(&preview.pricing_versions)
-            .map_err(|_| ApiError::internal("failed to serialize pricing snapshot"))?,
+        pricing_snapshot: serde_json::json!({}),
         rows: durable_rows,
     };
 
