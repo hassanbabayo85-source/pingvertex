@@ -14,14 +14,14 @@
 //!
 //! # Boundaries
 //!
-//! The resolver returns a single immutable `Entitlements` snapshot. It
+//! The resolver returns a single immutable `ResourceLimits` snapshot. It
 //! does not cache — caching would risk handing a stale snapshot to a
 //! race-sensitive quota check. Callers that need a snapshot across
 //! several operations should call `resolve` once and reuse the
 //! returned value.
 
 use async_trait::async_trait;
-use domain::{Entitlements, shared::ids::TenantId};
+use domain::{ResourceLimits, shared::ids::TenantId};
 
 use super::RepoResult;
 
@@ -39,11 +39,11 @@ pub trait EntitlementResolver: Send + Sync {
     ///   * the "current" version of `plan_entitlements` for that plan
     ///     is the latest `version` row.
     ///
-    /// The returned `Entitlements` must be treated as a hard ceiling:
+    /// The returned `ResourceLimits` must be treated as a hard ceiling:
     /// no operation may be performed that would exceed one of its
     /// numeric limits without returning
     /// `crate::errors::PlanLimitError`.
-    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<Entitlements>;
+    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits>;
 }
 
 #[async_trait]
@@ -51,7 +51,7 @@ impl<T> EntitlementResolver for std::sync::Arc<T>
 where
     T: EntitlementResolver + ?Sized,
 {
-    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<Entitlements> {
+    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         (**self).resolve(tenant_id).await
     }
 }

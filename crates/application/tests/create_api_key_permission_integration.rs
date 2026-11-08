@@ -15,7 +15,7 @@ use application::{
     commands::CreateApiKey,
     use_cases::{CreateApiKeyError, CreateApiKeyUseCase},
 };
-use domain::Entitlements;
+use domain::ResourceLimits;
 use domain::enums::ApiKeyScope;
 use domain::shared::ids::UserId;
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
@@ -151,7 +151,7 @@ async fn free_tier_rejects_the_second_api_key() {
     let tenant = tenant_id();
     let admin = auth_with_role_in_tenant(Role::Admin, tenant);
 
-    let free_limit = Entitlements::free_v1_fixture().max_api_keys;
+    let free_limit = ResourceLimits::free_v1_fixture().max_api_keys;
     assert!(
         free_limit >= 1,
         "Free tier must allow at least one api key for this test"
@@ -187,7 +187,7 @@ async fn different_tenants_have_independent_api_key_quotas() {
     let admin_a = auth_with_role_in_tenant(Role::Admin, tenant_a);
     let admin_b = auth_with_role_in_tenant(Role::Admin, tenant_b);
 
-    let free_limit = Entitlements::free_v1_fixture().max_api_keys;
+    let free_limit = ResourceLimits::free_v1_fixture().max_api_keys;
 
     // Fill tenant A to its limit.
     for _ in 0..free_limit {
@@ -204,8 +204,8 @@ async fn different_tenants_have_independent_api_key_quotas() {
 /// Starter tier allows more keys than Free.
 #[tokio::test]
 async fn starter_plan_allows_more_api_keys_than_free() {
-    let starter_entitlements = Entitlements::starter_v1_fixture();
-    let free_entitlements = Entitlements::free_v1_fixture();
+    let starter_entitlements = ResourceLimits::starter_v1_fixture();
+    let free_entitlements = ResourceLimits::free_v1_fixture();
     assert!(
         starter_entitlements.max_api_keys > free_entitlements.max_api_keys,
         "Starter must allow more api keys than Free for this test"

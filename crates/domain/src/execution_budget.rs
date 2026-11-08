@@ -4,8 +4,8 @@
 //! resources at exactly these intervals, how many network executions
 //! does that produce per 30-day month?"
 //!
-//! They are deliberately separated from `Entitlements`:
-//!   * `Entitlements` says **what a plan allows**;
+//! They are deliberately separated from `ResourceLimits`:
+//!   * `ResourceLimits` says **what a plan allows**;
 //!   * `execution_budget` says **what that allowance actually costs**
 //!     in executions.
 //!

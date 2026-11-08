@@ -1,11 +1,11 @@
 //! Environment-driven resource limits for self-hostable deployments.
 //!
-//! Phase 1L-a: additive only. `Entitlements::from_env()` is new and
+//! Phase 1L-a: additive only. `ResourceLimits::from_env()` is new and
 //! nothing calls it yet. Phase 1L-b will wire it into api/worker
 //! main.rs. Phase 1L-c will remove `from_rows()` and the billing
 //! fields (`plan_tier`, `entitlement_version`).
 
-use crate::entitlements::Entitlements;
+use crate::resource_limits::ResourceLimits;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvConfigError {
@@ -38,7 +38,7 @@ fn env_u64(name: &'static str, default: u64) -> Result<u64, EnvConfigError> {
     }
 }
 
-impl Entitlements {
+impl ResourceLimits {
     pub fn from_env() -> Result<Self, EnvConfigError> {
         Ok(Self {
             max_uptime_monitors: env_u32("PV_MAX_UPTIME_MONITORS", 100)?,

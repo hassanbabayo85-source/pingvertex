@@ -1,7 +1,7 @@
 //! The immutable snapshot of a tenant's effective subscription
 //! entitlements for the current billing state.
 //!
-//! `Entitlements` is the **authority** for numeric limits (quotas and
+//! `ResourceLimits` is the **authority** for numeric limits (quotas and
 //! minimum intervals). It is produced by `EntitlementResolver` from
 //! `plan_entitlements` rows for the tenant's current plan.
 //!
@@ -10,13 +10,13 @@
 //! a DTO layer, so the resolver contract cannot accidentally leak
 //! internal plan details into an API response.
 
-// ─── Entitlements ──────────────────────────────────────────────────
+// ─── ResourceLimits ──────────────────────────────────────────────────
 
 /// A tenant's effective numeric entitlements. Every field is a hard
 /// limit; the backend must reject any operation that would exceed one.
 /// Money is *not* part of this struct — pricing lives in `plan_prices`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Entitlements {
+pub struct ResourceLimits {
     // ── HTTP / TCP / DNS monitors (shared quota) ───────────────────
     pub max_uptime_monitors: u32,
     pub min_uptime_interval_seconds: u32,
@@ -51,8 +51,8 @@ pub struct Entitlements {
     pub max_history_retention_days: u32,
 }
 
-impl Entitlements {
-    /// Constructs the authoritative `Entitlements` snapshot from the
+impl ResourceLimits {
+    /// Constructs the authoritative `ResourceLimits` snapshot from the
     /// `plan_entitlements` rows for the tenant's plan.
     ///
     /// Strict on purpose:

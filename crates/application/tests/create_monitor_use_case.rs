@@ -117,7 +117,7 @@ async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
 async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let repository = InMemoryMonitorRepository::new();
     let tenant_id = tenant_id();
-    let starter = domain::Entitlements::starter_v1_fixture();
+    let starter = domain::ResourceLimits::starter_v1_fixture();
     let resolver =
         Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter));
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())

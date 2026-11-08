@@ -427,7 +427,7 @@ impl BulkMonitorImportWorker {
     async fn resolve_entitlements(
         &self,
         tenant_id: TenantId,
-    ) -> Result<domain::Entitlements, Box<dyn Error + Send + Sync>> {
+    ) -> Result<domain::ResourceLimits, Box<dyn Error + Send + Sync>> {
         self.entitlement_resolver.resolve(tenant_id).await
     }
 }

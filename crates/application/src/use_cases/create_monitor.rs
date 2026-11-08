@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use domain::{
-    AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, Entitlements, ExpectedStatus,
-    HeartbeatToken, Host, Monitor, MonitorBuilder, MonitorKind, MonitorName, Timeout, Url,
+    AuditAction, AuditLogEntry, AuditLogEntryId, CheckInterval, ExpectedStatus, HeartbeatToken,
+    Host, Monitor, MonitorBuilder, MonitorKind, MonitorName, ResourceLimits, Timeout, Url,
     entities::Assertion,
     entities::{MAX_REGIONS_PER_MONITOR, MAX_UPTIME_MONITORS, MIN_UPTIME_INTERVAL_SECONDS},
     shared::ids::{TenantId, UserId},
@@ -237,7 +237,7 @@ where
     async fn resolve_entitlements(
         &self,
         tenant_id: TenantId,
-    ) -> Result<Entitlements, CreateMonitorError> {
+    ) -> Result<ResourceLimits, CreateMonitorError> {
         let resolver = self
             .entitlement_resolver
             .as_ref()

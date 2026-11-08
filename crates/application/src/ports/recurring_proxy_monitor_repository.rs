@@ -20,7 +20,7 @@
 //! * **Quota.** `save_monitor_if_within_quota` uses the same
 //!   advisory-lock pattern as `MonitorRepository::save_if_within_quota`
 //!   (see that trait for the detailed rationale). The limit comes from
-//!   `Entitlements::max_recurring_proxy_monitors`, resolved by the
+//!   `ResourceLimits::max_recurring_proxy_monitors`, resolved by the
 //!   caller before invoking this method.
 //!
 //! * **History.** Each successful or failed execution is recorded as a

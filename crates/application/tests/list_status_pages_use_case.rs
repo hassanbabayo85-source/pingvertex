@@ -12,7 +12,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 fn starter_resolver(tenant_id: domain::shared::ids::TenantId) -> Arc<InMemoryEntitlementResolver> {
-    let starter = domain::Entitlements::starter_v1_fixture();
+    let starter = domain::ResourceLimits::starter_v1_fixture();
     Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter))
 }
 

@@ -257,7 +257,7 @@ where
     async fn resolve_entitlements(
         &self,
         tenant_id: domain::TenantId,
-    ) -> Result<Option<domain::Entitlements>> {
+    ) -> Result<Option<domain::ResourceLimits>> {
         let Some(resolver) = &self.entitlement_resolver else {
             return Ok(None);
         };

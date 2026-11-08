@@ -10,27 +10,27 @@ use std::sync::RwLock;
 
 use application::ports::{EntitlementResolver, RepoResult};
 use async_trait::async_trait;
-use domain::{Entitlements, shared::ids::TenantId};
+use domain::{ResourceLimits, shared::ids::TenantId};
 
 #[derive(Debug)]
 pub struct InMemoryEntitlementResolver {
-    free_default: Entitlements,
-    overrides: RwLock<HashMap<TenantId, Entitlements>>,
+    free_default: ResourceLimits,
+    overrides: RwLock<HashMap<TenantId, ResourceLimits>>,
 }
 
 impl InMemoryEntitlementResolver {
     /// Builds a resolver whose default (for any tenant without an
     /// override) is `free_default`. Tests should pass
-    /// `Entitlements::free_v1_fixture()`; production never constructs
+    /// `ResourceLimits::free_v1_fixture()`; production never constructs
     /// this type.
     /// Task 8A — test-only constructor that returns Enterprise for every
     /// tenant. Existing quota tests keep using `default()` (Free), so this
     /// method is purely additive.
     pub fn default_enterprise() -> Self {
-        Self::new(Entitlements::enterprise_v1_fixture())
+        Self::new(ResourceLimits::enterprise_v1_fixture())
     }
 
-    pub fn new(free_default: Entitlements) -> Self {
+    pub fn new(free_default: ResourceLimits) -> Self {
         Self {
             free_default,
             overrides: RwLock::new(HashMap::new()),
@@ -38,29 +38,29 @@ impl InMemoryEntitlementResolver {
     }
 
     #[must_use]
-    pub fn with_override(self, tenant_id: TenantId, ent: Entitlements) -> Self {
+    pub fn with_override(self, tenant_id: TenantId, ent: ResourceLimits) -> Self {
         self.set_override(tenant_id, ent);
         self
     }
 
-    pub fn set_override(&self, tenant_id: TenantId, ent: Entitlements) {
+    pub fn set_override(&self, tenant_id: TenantId, ent: ResourceLimits) {
         self.overrides.write().unwrap().insert(tenant_id, ent);
     }
 
-    pub fn remove_override(&self, tenant_id: TenantId) -> Option<Entitlements> {
+    pub fn remove_override(&self, tenant_id: TenantId) -> Option<ResourceLimits> {
         self.overrides.write().unwrap().remove(&tenant_id)
     }
 }
 
 impl Default for InMemoryEntitlementResolver {
     fn default() -> Self {
-        Self::new(Entitlements::free_v1_fixture())
+        Self::new(ResourceLimits::free_v1_fixture())
     }
 }
 
 #[async_trait]
 impl EntitlementResolver for InMemoryEntitlementResolver {
-    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<Entitlements> {
+    async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         if let Some(ent) = self.overrides.read().unwrap().get(&tenant_id) {
             return Ok(*ent);
         }

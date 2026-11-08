@@ -1,6 +1,6 @@
 //! Versioned numeric entitlement attached to a plan.
 //!
-//! Entitlements are (key, limit_value) pairs, e.g.
+//! ResourceLimits are (key, limit_value) pairs, e.g.
 //! `("max_uptime_monitors", 20)`.
 //!
 //! Versioning means a subscription can keep the entitlement_version it

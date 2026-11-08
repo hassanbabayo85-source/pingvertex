@@ -6,7 +6,7 @@
 //!   * other tenants are unaffected.
 
 use application::ports::EntitlementResolver;
-use domain::{Entitlements, shared::ids::TenantId};
+use domain::{ResourceLimits, shared::ids::TenantId};
 use infra::InMemoryEntitlementResolver;
 
 #[tokio::test]
@@ -22,7 +22,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
     let tenant_a = TenantId::new();
     let tenant_b = TenantId::new();
 
-    let starter = Entitlements::starter_v1_fixture();
+    let starter = ResourceLimits::starter_v1_fixture();
 
     let resolver = InMemoryEntitlementResolver::default().with_override(tenant_a, starter);
 
@@ -37,7 +37,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
 async fn remove_override_falls_back_to_free() {
     let tenant = TenantId::new();
     let resolver = InMemoryEntitlementResolver::default();
-    let starter = Entitlements::starter_v1_fixture();
+    let starter = ResourceLimits::starter_v1_fixture();
 
     resolver.set_override(tenant, starter);
 

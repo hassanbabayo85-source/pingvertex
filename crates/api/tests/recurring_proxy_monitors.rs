@@ -30,7 +30,7 @@ use axum::Json;
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use common::*;
-use domain::Entitlements;
+use domain::ResourceLimits;
 use domain::enums::ProxyScheme;
 use domain::pricing::PricingConfig;
 use domain::shared::ids::{TenantId, UserId};
@@ -46,8 +46,8 @@ use infra::{
 
 /// Pro-tier entitlements matching migration 0125's seed.
 /// `max_recurring_proxy_monitors = 5`, `min_interval = 300s`.
-fn pro_entitlements() -> Entitlements {
-    Entitlements::pro_v1_fixture()
+fn pro_entitlements() -> ResourceLimits {
+    ResourceLimits::pro_v1_fixture()
 }
 
 /// Builds an `AppState` that uses the caller-supplied recurring-proxy

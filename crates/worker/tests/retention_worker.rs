@@ -9,7 +9,7 @@ use std::time::Duration;
 use application::ports::{TenantRepository, TenantRetentionSettingsRepository};
 use chrono::{Duration as ChronoDuration, Utc};
 use domain::{
-    Check, CheckStatus, Entitlements, ErrorType, RegionCode, Tenant,
+    Check, CheckStatus, ErrorType, RegionCode, ResourceLimits, Tenant,
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
 use infra::{
@@ -82,7 +82,7 @@ async fn retention_uses_plan_max_for_business_tier() {
     history_repo.seed_check(sample_check_older_than_days(10), business_tenant.id);
 
     let resolver = InMemoryEntitlementResolver::default()
-        .with_override(business_tenant.id, Entitlements::business_v1_fixture());
+        .with_override(business_tenant.id, ResourceLimits::business_v1_fixture());
 
     let worker = RetentionWorker::new(
         tenant_repo,
@@ -115,7 +115,7 @@ async fn retention_sweep_processes_all_tenants() {
     history_repo.seed_check(sample_check_older_than_days(10), business_tenant.id);
 
     let resolver = InMemoryEntitlementResolver::default()
-        .with_override(business_tenant.id, Entitlements::business_v1_fixture());
+        .with_override(business_tenant.id, ResourceLimits::business_v1_fixture());
 
     let worker = RetentionWorker::new(
         tenant_repo,
@@ -145,7 +145,7 @@ async fn retention_uses_starter_plan_max() {
     history_repo.seed_check(sample_check_older_than_days(29), starter_tenant.id);
 
     let resolver = InMemoryEntitlementResolver::default()
-        .with_override(starter_tenant.id, Entitlements::starter_v1_fixture());
+        .with_override(starter_tenant.id, ResourceLimits::starter_v1_fixture());
 
     let worker = RetentionWorker::new(
         tenant_repo,

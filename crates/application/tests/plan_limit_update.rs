@@ -132,7 +132,7 @@ async fn update_permits_exactly_the_plan_minimum() {
 async fn starter_plan_permits_60s_and_rejects_59s() {
     let repository = InMemoryMonitorRepository::new();
     let tenant = tenant_id();
-    let starter = domain::Entitlements::starter_v1_fixture();
+    let starter = domain::ResourceLimits::starter_v1_fixture();
     let resolver = Arc::new(InMemoryEntitlementResolver::default().with_override(tenant, starter));
     let user_id = UserId(Uuid::new_v4());
 

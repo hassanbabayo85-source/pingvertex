@@ -4,14 +4,14 @@
 
 use application::ports::{EntitlementResolver, RepoResult};
 use async_trait::async_trait;
-use domain::Entitlements;
-use domain::entitlements_env::EnvConfigError;
+use domain::ResourceLimits;
+use domain::resource_limits_env::EnvConfigError;
 use domain::shared::ids::TenantId;
 
-/// A resolver that holds a single `Entitlements` snapshot parsed from
+/// A resolver that holds a single `ResourceLimits` snapshot parsed from
 /// environment variables at construction time.
 pub struct EnvEntitlementResolver {
-    entitlements: Entitlements,
+    entitlements: ResourceLimits,
 }
 
 impl EnvEntitlementResolver {
@@ -19,14 +19,14 @@ impl EnvEntitlementResolver {
     /// variable is invalid, so `main.rs` can fail fast on startup.
     pub fn from_env() -> Result<Self, EnvConfigError> {
         Ok(Self {
-            entitlements: Entitlements::from_env()?,
+            entitlements: ResourceLimits::from_env()?,
         })
     }
 }
 
 #[async_trait]
 impl EntitlementResolver for EnvEntitlementResolver {
-    async fn resolve(&self, _tenant_id: TenantId) -> RepoResult<Entitlements> {
+    async fn resolve(&self, _tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         Ok(self.entitlements)
     }
 }

@@ -119,7 +119,7 @@ async fn rejects_creation_past_free_tier_quota() {
 
     // Read the limit from the same source the resolver uses — do NOT
     // hardcode it, so this test stays valid if the v1 seed changes.
-    let limit = domain::Entitlements::free_v1_fixture().max_status_pages;
+    let limit = domain::ResourceLimits::free_v1_fixture().max_status_pages;
     assert!(
         limit >= 1,
         "Free tier must allow at least 1 status page for this test to be meaningful"
@@ -159,7 +159,7 @@ async fn same_tenant_different_users_share_the_quota() {
     let user_b = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
-    let limit = domain::Entitlements::free_v1_fixture().max_status_pages;
+    let limit = domain::ResourceLimits::free_v1_fixture().max_status_pages;
     let use_case = use_case(repository.clone(), monitors);
 
     // User A creates up to (but not past) the tenant's limit.
@@ -194,7 +194,7 @@ async fn different_tenants_have_independent_quotas() {
     let tenant_a = tenant_id();
     let tenant_b = tenant_id();
 
-    let limit = domain::Entitlements::free_v1_fixture().max_status_pages;
+    let limit = domain::ResourceLimits::free_v1_fixture().max_status_pages;
     let use_case = use_case(repository.clone(), monitors);
 
     // Fill tenant A to the limit.
@@ -224,9 +224,9 @@ async fn starter_plan_allows_its_own_higher_quota() {
     let user_id = UserId(Uuid::new_v4());
     let tid = tenant_id();
 
-    let starter = domain::Entitlements::starter_v1_fixture();
+    let starter = domain::ResourceLimits::starter_v1_fixture();
     let limit = starter.max_status_pages;
-    let free_limit = domain::Entitlements::free_v1_fixture().max_status_pages;
+    let free_limit = domain::ResourceLimits::free_v1_fixture().max_status_pages;
     assert!(
         limit > free_limit,
         "test only meaningful if Starter is higher than Free"
