@@ -131,12 +131,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let secret_cipher_for_auth = secret_cipher.clone();
 
-    // Task 8F — PAYG metering retired from the API.
-    // `wallet_repository` and `financial_audit_repository` are still
-    // constructed below because the PAYG wallet webhook paths (Task 6
-    // wallet credit/refund) still consume them.
-    let wallet_repository = infra::PostgresWalletRepository::new(pool.clone());
-
     // Shared distributed rate limiter. Constructed once and cloned into
     // both `AppState` (RUM ingestion) and `AuthState` (auth endpoints)
     // below — `RedisRateLimiter` is `Clone` (cheap: it only wraps a
@@ -203,9 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rum_site_repository(PostgresRumSiteRepository::new(pool.clone()))
     .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
-    .with_rate_limiter(redis_rate_limiter.clone())
-    .with_wallet_repository(wallet_repository)
-    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
+    .with_rate_limiter(redis_rate_limiter.clone())    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
         pool.clone(),
     ))
     .with_tenant_retention_settings_repository(PostgresTenantRetentionSettingsRepository::new(

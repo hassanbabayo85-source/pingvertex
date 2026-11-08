@@ -102,13 +102,9 @@ pub async fn preview_bulk_monitor_import(
             ApiError::internal_with_source("failed to load existing monitor snapshot", error)
         })?;
 
-    // Read-only lookup is deliberate: a preview must not create a wallet row.
-    let payg_activated = state
-        .wallet_repository
-        .find(tenant_id.0)
-        .await
-        .map_err(|error| ApiError::internal_with_source("failed to read PAYG eligibility", error))?
-        .is_some_and(|wallet| wallet.payg_activated_at.is_some());
+    // Open-source: PAYG billing is not part of this build. Bulk import
+    // always uses the free tier; wallet-based eligibility is not consulted.
+    let payg_activated = false;
 
     let preview = PreviewBulkMonitorImportUseCase::new(
         state.payg_pricing_repository.clone(),

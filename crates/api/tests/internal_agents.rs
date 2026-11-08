@@ -23,7 +23,7 @@ use infra::{
     InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
     InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
-    InMemoryWalletRepository, NoopNotificationService, UuidIdGenerator,
+    NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::Arc;
@@ -321,7 +321,6 @@ async fn build_test_app(
     for monitor in &monitors {
         agent_lease_repository.seed_due_monitor(monitor.clone());
     }
-    let wallet_repository = Arc::new(InMemoryWalletRepository::default());
     let payg_pricing_repository = Arc::new(InMemoryPAYGPricingRepository::new());
     let _ = application::ports::PAYGPricingRepository::create_version(
         &*payg_pricing_repository,
@@ -350,7 +349,6 @@ async fn build_test_app(
     )
     .with_agent_lease_repository(agent_lease_repository.clone())
     .with_agent_registry(seed_test_agents())
-    .with_wallet_repository(wallet_repository.clone())
     .with_payg_pricing_repository(payg_pricing_repository.clone())
     .with_pricing_config_repository(pricing_config_repository.clone());
 

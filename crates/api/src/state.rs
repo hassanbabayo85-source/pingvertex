@@ -15,7 +15,7 @@ use application::ports::{
     RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
     SupportTicketRepository,
     TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
-    UsageEventRepository, UserRepository, WalletRepository,
+    UsageEventRepository, UserRepository,
 };
 
 use async_trait::async_trait;
@@ -102,7 +102,6 @@ pub struct AppState {
     /// real one (e.g. `infra::MaxMindGeoIpLookup`).
     pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
     pub rate_limiter: Arc<dyn RateLimiter>,
-    pub wallet_repository: Arc<dyn WalletRepository>,
     pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
     pub tenant_alert_allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
     pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
@@ -878,215 +877,6 @@ impl application::ports::AgentRegistry for NoopAgentRegistry {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopWalletRepository;
-
-#[async_trait]
-impl WalletRepository for NoopWalletRepository {
-    async fn get_balance_summary(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _currency: &str,
-    ) -> RepoResult<domain::WalletBalanceSummary> {
-        Ok(domain::WalletBalanceSummary {
-            balance_units: 0,
-            reserved_units: 0,
-            available_units: 0,
-        })
-    }
-    async fn get_or_create(
-        &self,
-        tenant_id: uuid::Uuid,
-        currency: &str,
-    ) -> RepoResult<domain::Wallet> {
-        Ok(domain::Wallet::new(
-            uuid::Uuid::new_v4(),
-            tenant_id,
-            currency,
-        ))
-    }
-    async fn list_transactions(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _limit: u32,
-    ) -> RepoResult<Vec<domain::WalletTransaction>> {
-        Ok(vec![])
-    }
-    async fn renew_reservation_by_request(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _request_id: &str,
-        _expires_at: chrono::DateTime<chrono::Utc>,
-    ) -> application::ports::WalletRepoResult<bool> {
-        Ok(false)
-    }
-
-    async fn reserve(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _amount_units: i64,
-        _operation: &str,
-        _unit_price: i64,
-        _pricing_version: i64,
-        _currency: &str,
-        _request_id: &str,
-        _expires_at: DateTime<Utc>,
-    ) -> RepoResult<application::ports::ReservationOutcome> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn capture(
-        &self,
-        _reservation_id: uuid::Uuid,
-        _usage_event: Option<&domain::UsageEvent>,
-        _audit_entries: &[domain::FinancialAuditLogEntry],
-        _actual_charge_units: Option<i64>,
-    ) -> RepoResult<domain::WalletTransaction> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn release(&self, _reservation_id: uuid::Uuid) -> RepoResult<()> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn credit(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _amount_units: i64,
-        _transaction_type: domain::WalletTransactionType,
-        _idempotency_key: &str,
-        _description: Option<&str>,
-    ) -> RepoResult<domain::WalletTransaction> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn create_top_up_session(&self, _session: &domain::WalletTopUpSession) -> RepoResult<()> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn find_top_up_session(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _provider_checkout_id: &str,
-    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
-        Ok(None)
-    }
-    async fn complete_top_up_session(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _provider_checkout_id: &str,
-        _provider_payment_id: &str,
-    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
-        Ok(None)
-    }
-    async fn refundable_top_up(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _provider_payment_id: &str,
-        _amount_units: i64,
-    ) -> RepoResult<Option<domain::WalletTopUpSession>> {
-        Ok(None)
-    }
-    async fn record_verified_refund(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _provider_payment_id: &str,
-        _amount_units: i64,
-        _provider_refund_id: &str,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
-    async fn record_auto_top_up_attempt(
-        &self,
-        _attempt: &domain::AutoTopUpAttempt,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn create_refund_request(
-        &self,
-        _request: &domain::WalletRefundRequest,
-    ) -> RepoResult<Option<domain::WalletRefundRequest>> {
-        Ok(None)
-    }
-    async fn set_refund_provider_id(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _idempotency_key: &str,
-        _provider_refund_id: &str,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn claim_auto_top_up(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _lease_id: uuid::Uuid,
-        _lease_for: std::time::Duration,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
-    async fn release_auto_top_up(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _lease_id: uuid::Uuid,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn get_settings(&self, tenant_id: uuid::Uuid) -> RepoResult<domain::WalletSettings> {
-        let s = domain::WalletSettings {
-            tenant_id,
-            ..domain::WalletSettings::default()
-        };
-        Ok(s)
-    }
-    async fn update_settings(
-        &self,
-        settings: &domain::WalletSettings,
-    ) -> RepoResult<domain::WalletSettings> {
-        Ok(settings.clone())
-    }
-    async fn expire_credit(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _amount_units: i64,
-        _idempotency_key: &str,
-        _description: Option<&str>,
-    ) -> RepoResult<Option<domain::WalletTransaction>> {
-        Ok(None)
-    }
-    async fn grant_promotional_credit(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _amount_units: i64,
-        _expires_at: DateTime<Utc>,
-        _idempotency_key: &str,
-        _description: Option<&str>,
-    ) -> RepoResult<domain::WalletTransaction> {
-        Err("wallet repository is not configured".into())
-    }
-    async fn expire_promotional_credits(&self, _limit: u32) -> RepoResult<u64> {
-        Ok(0)
-    }
-    async fn expire_pending_reservations(&self, _limit: u32) -> RepoResult<u64> {
-        Ok(0)
-    }
-    async fn auto_top_up_candidates(
-        &self,
-        _limit: u32,
-    ) -> RepoResult<Vec<domain::AutoTopUpCandidate>> {
-        Ok(vec![])
-    }
-    async fn record_balance_notification(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _event_type: &str,
-        _dedupe_key: &str,
-        _message: &str,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
-    async fn list_balance_notifications(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _limit: u32,
-    ) -> RepoResult<Vec<domain::WalletNotification>> {
-        Ok(vec![])
-    }
-}
 
 /// Default `TenantAlertAllowanceRepository`. Returns a zeroed allowance for
 /// the current cycle — the fair-use path is only wired in production via
@@ -1397,7 +1187,6 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
-            wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
@@ -1489,7 +1278,6 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
-            wallet_repository: Arc::new(NoopWalletRepository),
             payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
@@ -1677,14 +1465,7 @@ impl AppState {
         self
     }
 
-    pub fn with_wallet_repository<R>(mut self, repository: R) -> Self
-    where
-        R: WalletRepository + 'static,
-    {
-        self.wallet_repository = Arc::new(repository);
-        self
-    }
-
+    
     pub fn with_payg_pricing_repository<R>(mut self, repository: R) -> Self
     where
         R: PAYGPricingRepository + 'static,

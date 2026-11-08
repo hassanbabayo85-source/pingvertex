@@ -16,8 +16,7 @@ use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, PasswordHasher,
     PendingAuthCache, PendingAuthCacheResult, SecretCipher, SecretCipherError,
-    TenantMembershipRepository, TenantRepository, TokenService, UserRepository, WalletRepository,
-};
+    TenantMembershipRepository, TenantRepository, TokenService, UserRepository, };
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -36,7 +35,7 @@ use infra::{
     InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
     InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-    InMemoryUsageEventRepository, InMemoryWalletRepository, NoopNotificationService,
+    InMemoryUsageEventRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::json;
@@ -387,7 +386,6 @@ async fn build_harness() -> Harness {
     )
     .with_platform_admin_repositories(users.clone(), tenants.clone())
     .with_pricing_config_repository(InMemoryPricingConfigRepository::new())
-    .with_wallet_repository(InMemoryWalletRepository::default())
     .with_payg_pricing_repository(InMemoryPAYGPricingRepository::new())
     .with_usage_event_repository(InMemoryUsageEventRepository::default());
 
@@ -590,64 +588,9 @@ async fn platform_admin_cannot_suspend_themselves() {
 // 6. Wallet adjustment is idempotent
 // =====================================================================
 
-#[tokio::test]
-async fn wallet_adjustment_is_idempotent() {
-    let repo = InMemoryWalletRepository::default();
-    let tenant = Uuid::new_v4();
-    let key = "idem-wallet-001";
-
-    // Ensure the wallet row exists before adjusting its balance.
-    repo.get_or_create(tenant, "USD").await.unwrap();
-
-    let tx1 = repo
-        .adjust_balance(tenant, 500, key, Some("first"))
-        .await
-        .unwrap();
-    let tx2 = repo
-        .adjust_balance(tenant, 500, key, Some("retry"))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        tx1.id, tx2.id,
-        "same idempotency key must not create a second transaction"
-    );
-    let wallet = repo.find(tenant).await.unwrap().unwrap();
-    assert_eq!(
-        wallet.balance_units, 500,
-        "replaying the same idempotency key must not double-credit"
-    );
-}
-
 // =====================================================================
 // 7. Promotional credit is idempotent
 // =====================================================================
-
-#[tokio::test]
-async fn promotional_credit_is_idempotent() {
-    let repo = InMemoryWalletRepository::default();
-    let tenant = Uuid::new_v4();
-    let key = "idem-promo-001";
-    let expires = chrono::Utc::now() + chrono::Duration::days(30);
-
-    repo.get_or_create(tenant, "USD").await.unwrap();
-
-    let tx1 = repo
-        .grant_promotional_credit(tenant, 100, expires, key, Some("first"))
-        .await
-        .unwrap();
-    let tx2 = repo
-        .grant_promotional_credit(tenant, 100, expires, key, Some("retry"))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        tx1.id, tx2.id,
-        "same idempotency key must not double-credit promotional balance"
-    );
-    let wallet = repo.find(tenant).await.unwrap().unwrap();
-    assert_eq!(wallet.balance_units, 100);
-}
 
 // =====================================================================
 // 8. Pricing change is audited

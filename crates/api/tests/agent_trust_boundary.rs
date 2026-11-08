@@ -20,7 +20,7 @@ use infra::{
     InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
     InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-    InMemoryUsageEventRepository, InMemoryWalletRepository, NoopNotificationService,
+    InMemoryUsageEventRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
@@ -223,7 +223,6 @@ async fn build_app(registry: Arc<InMemoryAgentRegistry>) -> axum::Router {
     .with_pricing_config_repository(pricing_repo)
     .with_agent_lease_repository(InMemoryAgentLeaseRepository::new())
     .with_payg_pricing_repository(InMemoryPAYGPricingRepository::new())
-    .with_wallet_repository(InMemoryWalletRepository::default())
     .with_usage_event_repository(InMemoryUsageEventRepository::default())
     .with_agent_registry((*registry).clone());
 
