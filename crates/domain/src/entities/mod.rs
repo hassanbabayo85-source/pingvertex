@@ -1,5 +1,3 @@
-mod financial_audit_log;
-pub use financial_audit_log::FinancialAuditLogEntry;
 pub mod agent;
 pub mod assertion;
 pub use assertion::*;
@@ -64,8 +62,6 @@ mod plan;
 pub use plan::Plan;
 
 // TASK 1 — versioned price book and plan entitlements
-mod plan_price;
-pub use plan_price::{PlanPrice, PlanPriceError};
 
 mod plan_entitlements;
 pub use plan_entitlements::{
@@ -80,8 +76,6 @@ pub use plan_entitlements::{
 
 mod subscription;
 pub use subscription::Subscription;
-mod subscription_plan_change;
-pub use subscription_plan_change::*;
 
 // TASK 1 — recurring proxy monitoring (distinct from one-time ProxyCheckJob)
 mod recurring_proxy_monitor;
@@ -91,14 +85,8 @@ pub use recurring_proxy_monitor::{
 };
 
 // Billing Provider Abstraction & Checkout:
-mod checkout_session;
-pub use checkout_session::CheckoutSession;
 
 // Billing Webhooks:
-pub mod billing_audit_log_entry;
-pub mod billing_webhook_event;
-pub use billing_audit_log_entry::BillingAuditLogEntry;
-pub use billing_webhook_event::BillingWebhookEvent;
 
 // Pricing Audit Log:
 mod pricing_audit_log_entry;
@@ -142,8 +130,6 @@ pub use help_category::{CreateHelpCategory, HelpCategory};
 pub use support_message::{CreateSupportMessage, SupportMessage};
 pub use support_ticket::{CreateSupportTicket, SupportTicket};
 
-mod add_on_subscription;
-pub use add_on_subscription::{AddOnStatus, AddOnSubscription, AddOnType, RetentionTier};
 
 // RUM (Real User Monitoring):
 mod rum_site;
