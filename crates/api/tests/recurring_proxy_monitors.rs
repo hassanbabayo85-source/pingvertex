@@ -274,7 +274,7 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
     // Create at the legal 300s floor.
     let (_, Json(created)) = create_recurring_proxy_monitor(
         State(state.clone()),
-        Extension(user.clone()),
+        Extension(user),
         Json(request("interval-test")),
     )
     .await

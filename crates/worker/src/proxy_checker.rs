@@ -1840,7 +1840,7 @@ mod tests {
 
     #[test]
     fn classify_connect_io_error_maps_other_to_protocol_failure() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "boom");
+        let err = std::io::Error::other("boom");
         let (kind, code, _msg) = classify_connect_io_error(&err);
         assert_eq!(kind, ProxyFailureKind::ProtocolFailure);
         assert_eq!(code, "CONNECTION_FAILED");

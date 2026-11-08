@@ -48,6 +48,12 @@ pub struct PreviewBulkMonitorImportUseCase {
     tenant_repository: Option<Arc<dyn crate::ports::TenantRepository>>,
 }
 
+impl Default for PreviewBulkMonitorImportUseCase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PreviewBulkMonitorImportUseCase {
     pub fn new() -> Self {
         Self {

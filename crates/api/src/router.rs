@@ -644,14 +644,6 @@ pub fn build_auth_only_router_with_rate_limit(auth_state: AuthState) -> Router {
     Router::new().nest("/api/v1/auth", auth_routes)
 }
 
-/// Minimal router exposing ONLY the billing routes with the same
-/// production `GovernorLayer` wired onto them in `build_router` above,
-/// for isolated E2E rate-limit testing.
-///
-/// `build_test_router` deliberately omits `GovernorLayer` from route groups
-/// so the rest of the E2E suite is not flaky/order-dependent under
-/// IP-based rate limiting. This constructor allows the real production
-/// billing limiter to be tested end-to-end without affecting other tests.
 // =====================================================================
 // URI redaction for tracing spans
 // =====================================================================

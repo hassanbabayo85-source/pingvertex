@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 ///
 ///   * [`ProxyResult::effective_outcome`] to distinguish "proxy is dead"
 ///     from "proxy is fine but the target was unreachable". The whole
-/// point of is that a target failure is NOT a dead proxy.
+///     point of is that a target failure is NOT a dead proxy.
 ///   * [`ProxyResult::effective_failure_kind`] to get a structured reason
 ///     without matching on the free-form `error_code` string.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,6 +69,7 @@ pub struct ProxyResult {
     ///   * for HTTPS proxies, the handshake with the proxy itself;
     ///   * for any tunneled scheme (HTTP CONNECT / SOCKS4 / SOCKS5),
     ///     the handshake with the target through the tunnel.
+    ///
     /// `None` when no TLS handshake was attempted (e.g. an HTTP-only
     /// check that never got to the tunnel step).
     #[serde(default)]

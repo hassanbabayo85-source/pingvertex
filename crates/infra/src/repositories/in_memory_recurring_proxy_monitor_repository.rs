@@ -207,7 +207,7 @@ impl RecurringProxyMonitorRepository for InMemoryRecurringProxyMonitorRepository
                 out.push(m.to_entity()?);
             }
         }
-        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(out)
     }
 
@@ -264,7 +264,7 @@ impl RecurringProxyMonitorRepository for InMemoryRecurringProxyMonitorRepository
                 m.user_enabled
                     && !m.entitlement_suspended
                     && m.next_run_at.is_some_and(|t| t <= now)
-                    && m.lease_expires_at.map_or(true, |t| t < now)
+                    && m.lease_expires_at.is_none_or(|t| t < now)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -360,7 +360,7 @@ impl RecurringProxyMonitorRepository for InMemoryRecurringProxyMonitorRepository
             .filter(|c| c.monitor_id == monitor_id && c.tenant_id == tenant_id)
             .cloned()
             .collect();
-        all.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        all.sort_by_key(|a| std::cmp::Reverse(a.started_at));
         let total = all.len() as u64;
         let page = all
             .into_iter()

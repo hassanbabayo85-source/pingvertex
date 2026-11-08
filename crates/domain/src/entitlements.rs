@@ -69,7 +69,6 @@ impl Entitlements {
     /// CHECK constraint from migration 0125.
     /// v1 fixtures for every tier, matching migration 0125 (15 keys) plus
     /// migration 0127 (3 new keys). Test-only.
-
     #[doc(hidden)]
     pub fn free_v1_fixture() -> Self {
         Self {

@@ -28,6 +28,11 @@ use crate::{auth_state::AuthState, error::ApiError};
 /// Every failure mode (missing user id, cache read error, absent
 /// marker) fails CLOSED — the caller gets a 4xx, never an accidental
 /// bypass.
+//
+// `Result<Response, Response>` is axum's required middleware signature.
+// Same rationale as origin_check.rs: boxing the Err variant would ripple
+// to every call site for a security middleware that mostly succeeds.
+#[allow(clippy::result_large_err)]
 pub async fn require_recent_mfa(
     State(auth): State<AuthState>,
     request: Request<Body>,

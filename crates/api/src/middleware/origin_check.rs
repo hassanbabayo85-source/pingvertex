@@ -40,6 +40,12 @@ use crate::error::ApiError;
 /// `Origin`/`Referer` for cross-site requests. Only a *mismatched* value
 /// is rejected; an absent one is allowed through to the normal auth
 /// checks.
+//
+// `Result<Response, Response>` is axum's required middleware signature.
+// The Err variant (Response) exceeds clippy's size threshold, but boxing
+// it would require wrapping at every call site. Not worth the churn for
+// a security middleware whose happy path is the fast case.
+#[allow(clippy::result_large_err)]
 pub async fn require_matching_origin(
     request: Request<Body>,
     next: Next,

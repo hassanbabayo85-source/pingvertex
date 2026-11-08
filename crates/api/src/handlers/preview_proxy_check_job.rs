@@ -4,7 +4,7 @@
 //!   * requires authentication (so unauthenticated callers cannot burn
 //!     server CPU on large CSV/JSON inputs),
 //!   * accepts `application/json` with a small wrapper:
-//!         { "format": "csv" | "json", "content": "..." }
+//!     { "format": "csv" | "json", "content": "..." }
 //!   * dispatches to `parse_csv_with_summary` / `parse_json_with_summary`,
 //!     which classify every input unit and never abort the batch on a
 //!     single bad line,

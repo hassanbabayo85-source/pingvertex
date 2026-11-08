@@ -49,8 +49,8 @@ const MAX_RAW_SNIPPET_BYTES: usize = 256;
 /// - `accepted`   — passed shape parsing + domain validation, unique in batch
 /// - `duplicates` — passed validation but matched an earlier entry's dedup key
 /// - `rejected`   — failed shape parsing OR domain validation (both are
-///                  reported here with a human-readable `reason`; `invalid`
-///                  is a COUNT of the shape-parse subset for convenience)
+///   reported here with a human-readable `reason`; `invalid` is a
+///   COUNT of the shape-parse subset for convenience)
 ///
 /// Invariant after a successful parse:
 ///   `total == invalid + rejected.len() + valid`

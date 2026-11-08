@@ -126,15 +126,13 @@ fn build_steps(
                     .steps()
                     .iter()
                     .find(|s| s.order == step_input.order)
-                {
-                    if let Some(existing_header) = existing_step
+                    && let Some(existing_header) = existing_step
                         .headers
                         .iter()
                         .find(|h| h.name() == header_input.name)
-                    {
-                        value = existing_header.value().to_string();
-                        found = true;
-                    }
+                {
+                    value = existing_header.value().to_string();
+                    found = true;
                 }
                 if !found {
                     return Err(format!(

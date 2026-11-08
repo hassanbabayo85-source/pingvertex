@@ -160,7 +160,7 @@ async fn free_tier_rejects_the_second_api_key() {
     // Create up to (but not past) the Free limit.
     for i in 0..free_limit {
         use_case
-            .execute(valid_command(), admin.clone())
+            .execute(valid_command(), admin)
             .await
             .unwrap_or_else(|e| panic!("create #{} should succeed: {e:?}", i));
     }
@@ -191,10 +191,7 @@ async fn different_tenants_have_independent_api_key_quotas() {
 
     // Fill tenant A to its limit.
     for _ in 0..free_limit {
-        use_case
-            .execute(valid_command(), admin_a.clone())
-            .await
-            .unwrap();
+        use_case.execute(valid_command(), admin_a).await.unwrap();
     }
 
     // Tenant B is unaffected.
@@ -223,7 +220,7 @@ async fn starter_plan_allows_more_api_keys_than_free() {
     // Create one MORE than the Free tier would allow.
     for i in 0..=free_entitlements.max_api_keys {
         use_case
-            .execute(valid_command(), admin.clone())
+            .execute(valid_command(), admin)
             .await
             .unwrap_or_else(|e| panic!("Starter create #{} should succeed: {e:?}", i));
     }
