@@ -22,8 +22,6 @@ pub struct CreateOneTimeCheckRequest {
 pub struct OneTimeCheckRegionResult {
     pub region: String,
     pub status: String,
-    pub billable: bool,
-    pub charge_units: i64,
     pub error: Option<String>,
 }
 
@@ -48,8 +46,6 @@ fn build_response(
         .map(|e| OneTimeCheckRegionResult {
             region: e.region,
             status: e.status,
-            billable: e.billable,
-            charge_units: e.charge_units,
             error: e.error,
         })
         .collect();

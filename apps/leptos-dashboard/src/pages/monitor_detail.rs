@@ -503,20 +503,14 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                 } else {
                                     "status-badge"
                                 };
-                                let billable_label = if reg.billable { "billable" } else { "released" };
-                                let charge = format!("{}.{:06}", reg.charge_units / 1_000_000, (reg.charge_units % 1_000_000).abs());
                                 view! {
                                     <tr>
                                         <td><code>{reg.region.clone()}</code></td>
                                         <td><span class=status_class>{reg.status.clone()}</span></td>
-                                        <td>{billable_label}</td>
-                                        <td>{format!("${charge}")}</td>
                                         <td>{reg.error.clone().unwrap_or_default()}</td>
                                     </tr>
                                 }
                             }).collect_view();
-                            let billed_count = r.regions.iter().filter(|x| x.billable).count();
-                            let released_count = r.regions.iter().filter(|x| !x.billable).count();
                             view! {
                                 <section class="card">
                                     <div class="section-heading">
@@ -524,12 +518,10 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                             <h2>"One-Time Check"</h2>
                                             <p class="muted">
                                                 {format!(
-                                                    "Request {} · {} · {} region(s) · {} billed · {} released",
+                                                    "Request {} · {} · {} region(s)",
                                                     r.request_id.clone(),
                                                     r.status.clone(),
                                                     r.regions.len(),
-                                                    billed_count,
-                                                    released_count,
                                                 )}
                                             </p>
                                         </div>
@@ -540,8 +532,6 @@ pub fn MonitorDetailPage() -> impl IntoView {
                                                 <tr>
                                                     <th>"Region"</th>
                                                     <th>"Status"</th>
-                                                    <th>"Billing"</th>
-                                                    <th>"Charge"</th>
                                                     <th>"Error"</th>
                                                 </tr>
                                             </thead>

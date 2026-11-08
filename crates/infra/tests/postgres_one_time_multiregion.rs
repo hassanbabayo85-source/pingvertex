@@ -211,7 +211,7 @@ async fn complete_executions_rolls_up_parent_status() {
         .unwrap();
     assert_eq!(claimed.len(), 2);
 
-    // First region succeeds with a billable charge.
+    // First region succeeds.
     let first = &claimed[0].execution;
     sched
         .complete_one_time_execution(
@@ -220,8 +220,6 @@ async fn complete_executions_rolls_up_parent_status() {
             domain::OneTimeCheckExecution::SUCCEEDED,
             None,
             true,
-            true,
-            2,
         )
         .await
         .unwrap();
@@ -234,7 +232,7 @@ async fn complete_executions_rolls_up_parent_status() {
         .unwrap();
     assert_eq!(mid.status, domain::OneTimeCheckRequest::RUNNING);
 
-    // Second region fails without a billable attempt.
+    // Second region fails.
     let second = &claimed[1].execution;
     sched
         .complete_one_time_execution(
@@ -243,8 +241,6 @@ async fn complete_executions_rolls_up_parent_status() {
             domain::OneTimeCheckExecution::FAILED,
             Some("pre-attempt failure"),
             false,
-            false,
-            0,
         )
         .await
         .unwrap();

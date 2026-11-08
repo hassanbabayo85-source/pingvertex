@@ -447,8 +447,6 @@ pub async fn acknowledge_incident(incident_id: &str) -> Result<(), String> {
 pub struct OneTimeCheckRegionResult {
     pub region: String,
     pub status: String,
-    pub billable: bool,
-    pub charge_units: i64,
     pub error: Option<String>,
 }
 

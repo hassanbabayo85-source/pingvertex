@@ -25,11 +25,10 @@ impl OneTimeCheckRequest {
     pub const FAILED: &'static str = "FAILED";
 }
 
-/// One independent, billable regional execution of a one-time check.
+/// One independent regional execution of a one-time check.
 ///
-/// Each row has its own durable `execution_id` used as the wallet
-/// idempotency component, so a scheduler retry of one region can never
-/// double-charge while other regions are still running.
+/// Each row has its own durable `execution_id`, so a scheduler retry
+/// of one region is idempotent while other regions are still running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OneTimeCheckExecution {
     pub id: Uuid,
@@ -42,8 +41,6 @@ pub struct OneTimeCheckExecution {
     pub lease_owner: Option<Uuid>,
     pub lease_expires_at: Option<DateTime<Utc>>,
     pub attempted: bool,
-    pub billable: bool,
-    pub charge_units: i64,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,

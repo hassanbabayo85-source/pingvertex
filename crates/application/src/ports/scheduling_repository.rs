@@ -115,8 +115,6 @@ pub trait SchedulingRepository: Send + Sync {
         status: &str,
         error: Option<&str>,
         attempted: bool,
-        billable: bool,
-        charge_units: i64,
     ) -> RepoResult<()>;
 
     /// Returns every regional execution belonging to a request, ordered by
@@ -238,11 +236,9 @@ where
         s: &str,
         err: Option<&str>,
         attempted: bool,
-        billable: bool,
-        charge_units: i64,
     ) -> RepoResult<()> {
         (**self)
-            .complete_one_time_execution(e, o, s, err, attempted, billable, charge_units)
+            .complete_one_time_execution(e, o, s, err, attempted)
             .await
     }
 

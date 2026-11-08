@@ -67,8 +67,6 @@ struct OneTimeExecutionRow {
     lease_owner: Option<Uuid>,
     lease_expires_at: Option<DateTime<Utc>>,
     attempted: bool,
-    billable: bool,
-    charge_units: i64,
     error: Option<String>,
     created_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
@@ -87,8 +85,6 @@ impl OneTimeExecutionRow {
             lease_owner: self.lease_owner,
             lease_expires_at: self.lease_expires_at,
             attempted: self.attempted,
-            billable: self.billable,
-            charge_units: self.charge_units,
             error: self.error,
             created_at: self.created_at,
             started_at: self.started_at,
@@ -508,7 +504,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
             WHERE e.id = selected.id
             RETURNING e.id, e.request_id, e.tenant_id, e.monitor_id, e.region,
                       e.execution_id, e.status, e.lease_owner, e.lease_expires_at,
-                      e.attempted, e.billable, e.charge_units, e.error,
+                      e.attempted, e.error,
                       e.created_at, e.started_at, e.completed_at
             "#,
         )
@@ -552,8 +548,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         status: &str,
         error: Option<&str>,
         attempted: bool,
-        billable: bool,
-        charge_units: i64,
     ) -> RepoResult<()> {
         if !matches!(
             status,
@@ -568,7 +562,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
             r#"UPDATE one_time_check_executions
                SET status=$3, error=$4, completed_at=now(),
                    lease_owner=NULL, lease_expires_at=NULL,
-                   attempted=$5, billable=$6, charge_units=$7
+                   attempted=$5
                WHERE id=$1 AND lease_owner=$2 AND status='RUNNING'"#,
         )
         .bind(execution_id)
@@ -576,8 +570,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         .bind(status)
         .bind(error)
         .bind(attempted)
-        .bind(billable)
-        .bind(charge_units)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -630,7 +622,7 @@ impl SchedulingRepository for PostgresSchedulingRepository {
     ) -> RepoResult<Vec<domain::OneTimeCheckExecution>> {
         let rows = sqlx::query_as::<_, OneTimeExecutionRow>(
             r#"SELECT id, request_id, tenant_id, monitor_id, region, execution_id, status,
-                      lease_owner, lease_expires_at, attempted, billable, charge_units, error,
+                      lease_owner, lease_expires_at, attempted, error,
                       created_at, started_at, completed_at
                FROM one_time_check_executions
                WHERE request_id = $1

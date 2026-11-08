@@ -203,8 +203,6 @@ impl SchedulingRepository for NoopSchedulingRepository {
         _: &str,
         _: Option<&str>,
         _: bool,
-        _: bool,
-        _: i64,
     ) -> RepoResult<()> {
         Ok(())
     }

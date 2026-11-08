@@ -377,8 +377,6 @@ where
                                             domain::OneTimeCheckExecution::FAILED,
                                             Some("tenant is not active"),
                                             false,
-                                            false,
-                                            0,
                                         )
                                         .await
                                     {
@@ -391,18 +389,11 @@ where
                             None
                         };
 
-                        // Narrow the monitor to the billed region for this
-                        // execution so its billing context is region-scoped.
+                        // Narrow the monitor to the target region for this
+                        // execution so its context is region-scoped.
                         if let Some(rc) = &region_code {
                             monitor.regions = vec![rc.clone()];
                         }
-
-                        // Task 8E — PAYG metering is retired. One-time
-                        // executions now run directly with no billing. The
-                        // `billable` and `charge_units` values written back
-                        // to the durable execution are always 0/false.
-                        let billable = false;
-                        let charge_units: i64 = 0;
 
                         let result: Option<String> = {
                             let executor = executor.clone();
@@ -443,9 +434,7 @@ where
                                 lease_owner,
                                 status,
                                 result.as_deref(),
-                                billable,
-                                billable,
-                                charge_units,
+                                false,
                             )
                             .await
                         {
