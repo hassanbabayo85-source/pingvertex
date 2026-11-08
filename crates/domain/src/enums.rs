@@ -90,8 +90,6 @@ pub use plan_tier::PlanTier;
 // Subscription Lifecycle:
 
 // Billing Provider Abstraction & Checkout:
-pub mod checkout_status;
-pub use checkout_status::CheckoutStatus;
 
 // Billing Webhooks:
 

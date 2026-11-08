@@ -261,24 +261,6 @@ pub enum DomainError {
     #[error("invalid tenant status: {0}")]
     InvalidTenantStatus(String),
 
-    // Subscription Lifecycle:
-    #[error("scheduled cancellation requires a current period end")]
-    ScheduledCancellationMissingPeriodEnd,
-
-    // Billing Provider Abstraction & Checkout:
-    #[error("invalid checkout status: {0}")]
-    InvalidCheckoutStatus(String),
-
-    // Billing Webhooks:
-    #[error("invalid billing webhook event type: {0}")]
-    InvalidBillingWebhookEventType(String),
-
-    // Proration Service:
-    #[error("usage period is already closed")]
-    UsagePeriodAlreadyClosed,
-
-    #[error("usage period end_at must be after start_at")]
-    UsagePeriodEndBeforeStart,
     #[error("help article status is invalid: {0}")]
     InvalidHelpArticleStatus(String),
 
