@@ -5,7 +5,7 @@ use std::{error::Error, sync::Arc, time::Duration};
 use application::ports::StatusPageCache;
 use async_trait::async_trait;
 use infra::{
-    AesGcmProxyCredentialCipher, BillingConfig,
+    AesGcmProxyCredentialCipher,
     HickoryCustomDomainVerifier, NotificationDispatcher,
     PostgresApiFlowRepository, PostgresAuditLogEntryRepository,
     PostgresBulkMonitorImportRepository, PostgresCheckRepository,
@@ -82,12 +82,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let pool = create_pool(&worker_config.database_url).await?;
 
     let cancel_token = CancellationToken::new();
-    // Task 8D — `billing_provider` was only consumed by the PAYG
-    // auto-top-up worker, now removed. `BillingConfig::try_from_env()`
-    // is retained so the worker still validates BILLING_PROVIDER /
-    // BILLING_SECRET_KEY at startup (production requires the real
-    // Paystack provider).
-    let _billing_config = BillingConfig::try_from_env()?;
 
     let monitor_repository = Arc::new(PostgresMonitorRepository::new(pool.clone()));
     let check_repository = Arc::new(PostgresCheckRepository::new(pool.clone()));

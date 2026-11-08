@@ -1,6 +1,6 @@
 # E2E test overlay for docker-compose.yml.
 # - migrate: image added to satisfy compose validation, command no-ops.
-# - api/worker: SMTP/BILLING configured for Mailpit/fake billing.
+# - api/worker: SMTP configured for Mailpit.
 # - worker: PINGVERTEX_SSRF_ALLOW_PRIVATE=true (test-only).
 # - worker: METRICS_TOKEN set for TASK A worker metrics auth test.
 services:
@@ -26,8 +26,6 @@ services:
       SMTP_FROM_NAME: PingVertex E2E
       SMTP_STARTTLS: "false"
       SMTP_ALLOW_EMPTY_CREDENTIALS: "true"
-      BILLING_PROVIDER: fake
-      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-e2e-test-webhook-secret}
 
   worker:
     environment:
