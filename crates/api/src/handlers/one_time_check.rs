@@ -105,14 +105,6 @@ pub async fn create_one_time_check(
         return Err(ApiError::forbidden("tenant is suspended"));
     }
 
-    // Canonical one-time operations must be configured; price resolution for
-    // each regional execution happens inside the metering layer at run time.
-    let operation = domain::monitor_operation(monitor.kind, true);
-    if !domain::PaygOperation::is_canonical(operation.as_str()) {
-        return Err(ApiError::bad_request(
-            "PAYG pricing is not configured for one-time checks",
-        ));
-    }
 
     let request_id = payload
         .idempotency_key

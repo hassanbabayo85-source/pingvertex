@@ -222,10 +222,6 @@ pub use tenant_retention_settings_repository::{
     RepoResult as TenantRetentionRepoResult, TenantRetentionSettingsRepository,
 };
 
-pub mod payg_pricing_repository;
-pub use payg_pricing_repository::{
-    PAYGPricingRepository, PaygPricingRepoResult, PricingContext, PricingRuleContext, resolve_price,
-};
 pub mod usage_event_repository;
 pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
