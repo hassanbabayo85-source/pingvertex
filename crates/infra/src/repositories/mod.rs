@@ -166,14 +166,10 @@ pub mod in_memory_tenant_alert_allowance_repository;
 pub use in_memory_tenant_alert_allowance_repository::InMemoryTenantAlertAllowanceRepository;
 pub mod in_memory_tenant_retention_settings_repository;
 pub use in_memory_tenant_retention_settings_repository::InMemoryTenantRetentionSettingsRepository;
-pub mod in_memory_usage_event_repository;
 pub mod postgres_tenant_alert_allowance_repository;
 pub use postgres_tenant_alert_allowance_repository::PostgresTenantAlertAllowanceRepository;
 pub mod postgres_tenant_retention_settings_repository;
 pub use postgres_tenant_retention_settings_repository::PostgresTenantRetentionSettingsRepository;
-pub mod postgres_usage_event_repository;
-pub use in_memory_usage_event_repository::InMemoryUsageEventRepository;
-pub use postgres_usage_event_repository::PostgresUsageEventRepository;
 
 // PAYG durable CSV bulk import.
 pub mod postgres_bulk_monitor_action_repository;

@@ -13,7 +13,7 @@ use application::ports::{
     ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
     RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository,     SupportTicketRepository,
     TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
-    UsageEventRepository, UserRepository,
+    UserRepository,
 };
 
 use async_trait::async_trait;
@@ -97,7 +97,6 @@ pub struct AppState {
     pub tenant_alert_allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
     pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
-    pub usage_event_repository: Arc<dyn UsageEventRepository>,
     pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
     pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
 }
@@ -915,40 +914,6 @@ impl TenantRepository for NoopTenantRepository {
     }
 }
 
-#[derive(Clone, Default)]
-struct NoopUsageEventRepository;
-#[async_trait]
-impl UsageEventRepository for NoopUsageEventRepository {
-    async fn find_by_request(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _request_id: &str,
-    ) -> RepoResult<Option<domain::UsageEvent>> {
-        Ok(None)
-    }
-    async fn create(&self, event: &domain::UsageEvent) -> RepoResult<domain::UsageEvent> {
-        Ok(event.clone())
-    }
-    async fn report(
-        &self,
-        _tenant_id: uuid::Uuid,
-        _from: DateTime<Utc>,
-        _to: DateTime<Utc>,
-        _operation: Option<&str>,
-        _status: Option<&str>,
-        _limit: u32,
-    ) -> RepoResult<application::ports::UsageReport> {
-        Ok(application::ports::UsageReport {
-            today_usage_units: 0,
-            month_usage_units: 0,
-            month_spend_units: 0,
-            daily: vec![],
-            by_operation: vec![],
-            rows: vec![],
-        })
-    }
-}
-
 impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new<M, C, D, I, N, S, A, P, AL>(
@@ -1019,7 +984,6 @@ impl AppState {
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
-            usage_event_repository: Arc::new(NoopUsageEventRepository),
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1104,7 +1068,6 @@ impl AppState {
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
-            usage_event_repository: Arc::new(NoopUsageEventRepository),
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1308,13 +1271,6 @@ impl AppState {
         self
     }
 
-    pub fn with_usage_event_repository<R>(mut self, repository: R) -> Self
-    where
-        R: UsageEventRepository + 'static,
-    {
-        self.usage_event_repository = Arc::new(repository);
-        self
-    }
 
     pub fn with_rum_analytics_repository<R>(mut self, repo: R) -> Self
     where

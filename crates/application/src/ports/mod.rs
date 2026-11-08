@@ -188,9 +188,6 @@ pub use tenant_retention_settings_repository::{
     RepoResult as TenantRetentionRepoResult, TenantRetentionSettingsRepository,
 };
 
-pub mod usage_event_repository;
-pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
-pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
 
 
 // PAYG durable CSV bulk import.
