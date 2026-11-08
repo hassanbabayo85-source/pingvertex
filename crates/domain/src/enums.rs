@@ -83,10 +83,6 @@ pub use audit_action::AuditAction;
 pub mod api_key_scope;
 pub use api_key_scope::ApiKeyScope;
 
-// Plan / Subscription / Entitlement model:
-pub mod plan_tier;
-pub use plan_tier::PlanTier;
-
 // Subscription Lifecycle:
 
 // Billing Provider Abstraction & Checkout:

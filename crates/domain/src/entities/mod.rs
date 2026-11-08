@@ -57,10 +57,6 @@ pub use reset_password_token::ResetPasswordToken;
 mod tenant_invitation;
 pub use tenant_invitation::TenantInvitation;
 
-// Plan / Subscription / Entitlement model:
-mod plan;
-pub use plan::Plan;
-
 // TASK 1 — versioned price book and plan entitlements
 
 mod plan_entitlements;
@@ -138,6 +134,3 @@ pub use rum_resource_error::{RumResourceError, RumResourceType};
 
 mod rum_daily_aggregate;
 pub use rum_daily_aggregate::RumDailyAggregate;
-
-// Task 8C — retention entitlement constant (additive to the existing block):
-pub use plan_entitlements::MAX_HISTORY_RETENTION_DAYS;

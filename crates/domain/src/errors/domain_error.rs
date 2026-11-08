@@ -253,9 +253,6 @@ pub enum DomainError {
     #[error("invalid or expired verification token")]
     InvalidOrExpiredVerificationToken,
 
-    // Plan / Subscription / Entitlement model:
-    #[error("invalid plan tier: {0}")]
-    InvalidPlanTier(String),
     #[error("invalid tenant account type: {0}")]
     InvalidTenantAccountType(String),
     #[error("invalid tenant status: {0}")]
