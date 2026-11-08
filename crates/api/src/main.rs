@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_bulk_monitor_import_repository(PostgresBulkMonitorImportRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
-    .with_entitlement_resolver(infra::PostgresEntitlementResolver::new(pool.clone()))
+    .with_entitlement_resolver(infra::EnvEntitlementResolver::from_env().expect("bad env"))
     .with_recurring_proxy_monitor_repository(recurring_proxy_monitor_repository)
     .with_help_category_repository(PostgresHelpCategoryRepository::new(pool.clone()))
     .with_help_article_repository(PostgresHelpArticleRepository::new(pool.clone()))
