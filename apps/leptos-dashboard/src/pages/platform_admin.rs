@@ -112,7 +112,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
     // Signals for pricing and usage.
     let active_pricing = RwSignal::new(None::<String>);
     let pricing_logs = RwSignal::new(None::<String>);
-    let selected_company_usage = RwSignal::new(None::<(String, String)>);
 
     spawn_local(async move {
         match client::get_json::<Session>("/auth/me").await {
@@ -152,22 +151,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
         }
     });
 
-    // Fetch company usage.
-    let fetch_company_usage = move |id: String, name: String| {
-        spawn_local(async move {
-            match client::get_json::<serde_json::Value>(&format!("/admin/companies/{}/usage", id))
-                .await
-            {
-                Ok(v) => selected_company_usage.set(Some((
-                    name,
-                    serde_json::to_string_pretty(&v).unwrap_or_default(),
-                ))),
-                Err(e) => {
-                    selected_company_usage.set(Some((name, format!("Error loading usage: {}", e))))
-                }
-            }
-        });
-    };
 
     view! {
         <div class="feature-page">
@@ -184,25 +167,12 @@ pub fn PlatformAdminPage() -> impl IntoView {
             {move || if allowed.get() {
                 view! {
                     // Show the full company usage details when one is selected.
-                    {move || selected_company_usage.get().map(|(name, usage_data)| {
-                        view! {
-                            <div class="card" style="margin-bottom: 2rem; border-left: 4px solid var(--primary-color);">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                                    <h2>"Usage Report: " {name}</h2>
-                                    <button class="btn" on:click=move |_| selected_company_usage.set(None)>"Close"</button>
-                                </div>
-                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 400px; margin-top: 1rem;">
-                                    {usage_data}
-                                </pre>
-                            </div>
-                        }
-                    })}
 
                     <section class="card">
                         <h2>"Companies"</h2>
                         <div class="table-shell">
                             <table class="data-table">
-                                <thead><tr><th>"Company"</th><th>"Status"</th><th>"Wallet"</th><th>"Actions"</th></tr></thead>
+                                <thead><tr><th>"Company"</th><th>"Status"</th><th>"Actions"</th></tr></thead>
                                 <tbody>
                                     {companies.get().into_iter().map(|company| {
                                         let company_id = company.id.clone();
@@ -221,17 +191,10 @@ pub fn PlatformAdminPage() -> impl IntoView {
                                         };
 
 
-                                        // Make the company name clickable to view its usage.
-                                        let usage_id = company.id.clone();
-                                        let usage_name = company.name.clone();
-                                        let on_company_click = move |e: leptos::ev::MouseEvent| {
-                                            e.prevent_default();
-                                            fetch_company_usage(usage_id.clone(), usage_name.clone());
-                                        };
 
                                         view! {
                                             <tr>
-                                                <td><a href="#" on:click=on_company_click style="text-decoration: underline; color: var(--primary-color);">{company.name}</a></td>
+                                                <td>{company.name}</td>
                                                 <td>{company.status}</td>
                                                 <td>
                                                     <button class="button button-secondary" on:click=on_status>{next_status}</button>
