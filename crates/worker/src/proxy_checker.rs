@@ -1270,23 +1270,18 @@ where
                 .await
                 .expect("semaphore remains open");
             let mut entry = entry;
-            let (result, billing_blocked) = {
-                let (result, _) = check_single_entry(&entry).await;
-                (result, false)
-            };
+            let (result, _) = check_single_entry(&entry).await;
             entry.set_result(result);
-            Ok::<_, Box<dyn Error + Send + Sync>>((entry, !had_existing_result, billing_blocked))
+            Ok::<_, Box<dyn Error + Send + Sync>>((entry, !had_existing_result))
         });
     }
 
     let mut fatal_reason: Option<String> = None;
-    let mut billing_blocked = false;
     let heartbeat_every = Duration::from_secs(15);
 
     loop {
         match timeout(heartbeat_every, tasks.join_next()).await {
-            Ok(Some(Ok(Ok((entry, should_count, entry_billing_blocked))))) => {
-                billing_blocked |= entry_billing_blocked;
+            Ok(Some(Ok(Ok((entry, should_count))))) => {
                 if let Err(err) = repository.update_entry(&entry, job.tenant_id()).await {
                     fatal_reason.get_or_insert_with(|| {
                         format!("failed to persist proxy entry result: {err}")
@@ -1357,14 +1352,6 @@ where
                 }
             },
         }
-    }
-
-    if billing_blocked {
-        // Keep the durable job Running when one or more entries were blocked by
-        // insufficient PAYG balance. The lease will expire, stale-job recovery
-        // will return it to Pending, and a later sweep can retry after top-up.
-        repository.update_job(&job).await?;
-        return Ok(());
     }
 
     if let Some(reason) = fatal_reason {

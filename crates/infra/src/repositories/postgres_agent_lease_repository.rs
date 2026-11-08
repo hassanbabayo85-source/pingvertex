@@ -235,7 +235,6 @@ impl PostgresAgentLeaseRepository {
                 monitor_id: MonitorId(monitor_id),
                 region: region.clone(),
                 lease_expires_at,
-                billing_reserved: false,
             });
         }
 
@@ -374,29 +373,5 @@ impl AgentLeaseRepository for PostgresAgentLeaseRepository {
         .await?;
 
         Ok(result.rows_affected())
-    }
-
-    async fn mark_billing_reserved(&self, check_id: CheckId) -> RepoResult<()> {
-        let affected = sqlx::query(
-            "UPDATE agent_check_leases SET billing_reserved=TRUE WHERE check_id=$1 AND completed_at IS NULL",
-        )
-        .bind(check_id.0)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
-        if affected != 1 {
-            return Err("agent check lease is no longer active".into());
-        }
-        Ok(())
-    }
-
-    async fn billing_reserved(&self, check_id: CheckId) -> RepoResult<bool> {
-        Ok(
-            sqlx::query_scalar("SELECT billing_reserved FROM agent_check_leases WHERE check_id=$1")
-                .bind(check_id.0)
-                .fetch_optional(&self.pool)
-                .await?
-                .unwrap_or(false),
-        )
     }
 }
