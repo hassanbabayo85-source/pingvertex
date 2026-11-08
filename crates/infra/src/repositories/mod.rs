@@ -194,3 +194,6 @@ pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;
 // Task 6 — subscription billing records:
 
 
+
+pub mod env_entitlement_resolver;
+pub use env_entitlement_resolver::EnvEntitlementResolver;
