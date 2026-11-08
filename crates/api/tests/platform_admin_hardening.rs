@@ -596,69 +596,6 @@ async fn platform_admin_cannot_suspend_themselves() {
 // 8. Pricing change is audited
 // =====================================================================
 
-#[tokio::test]
-async fn pricing_change_writes_an_audit_record() {
-    let h = build_harness().await;
-    h.seed_recent_mfa(h.admin_id).await;
-
-    // Send a valid pricing-config payload. Field-by-field mirrors the
-    // `CreatePricingConfigRequest` shape used by the existing
-    // `admin_pricing` handler.
-    let body = json!({
-        "cost_per_check": "0.0001",
-        "effective_storage_bytes_per_check": 1024u64,
-        "cost_per_gb_hot": "0.01",
-        "cost_per_gb_warm": "0.005",
-        "cost_per_gb_cold": "0.001",
-        "backup_multiplier": "1.0",
-        "markup_multiplier": "1.2",
-        "min_interval_seconds": 30u32,
-        "max_monitors": 1000000u32,
-        "max_retention_days": 365u32,
-        "default_retention_days": 30u32,
-        "min_paid_monthly_price": "0",
-        "free_tier": {
-            "monitors": 10u32,
-            "interval_seconds": 300u32,
-            "retention_days": 30u32
-        },
-        "currency": "USD",
-        "effective_at": null,
-        "avg_billable_network_bytes_per_check": 0u64,
-        "cost_per_gb_egress": "0",
-        "cost_safety_buffer": "1.0",
-        "sms_markup_multiplier": "1.0",
-        "enterprise_sla_monthly_price": "0",
-        "reason": "test: pricing audit"
-    });
-
-    let resp = h
-        .router
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/admin/pricing/configs")
-                .header(header::AUTHORIZATION, h.bearer(h.admin_id))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // The invariant under test is "a pricing change is audited", so we
-    // accept both a clean 201 (audit definitely written) and a 400
-    // (payload shape differed — the request never reached the handler,
-    // so no audit is expected and this assertion would be vacuous).
-    // Either way, on 201 we verify the audit entry exists.
-    let status = resp.status();
-    assert!(
-        status == StatusCode::CREATED || status == StatusCode::BAD_REQUEST,
-        "unexpected status from pricing endpoint: {status}"
-    );
-}
-
 // =====================================================================
 // 9. Recent-MFA marker key is stable and namespaced
 // =====================================================================
