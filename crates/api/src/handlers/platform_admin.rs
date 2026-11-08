@@ -326,17 +326,3 @@ pub async fn audit_records(
     }))
 }
 
-pub async fn company_usage(
-    State(s): State<AppState>,
-    Extension(u): Extension<AuthenticatedUser>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<application::ports::UsageReport>, ApiError> {
-    admin(&u)?;
-    let now = chrono::Utc::now();
-    Ok(Json(
-        s.usage_event_repository
-            .report(id, now - chrono::Duration::days(30), now, None, None, 100)
-            .await
-            .map_err(|e| ApiError::internal_with_source("failed to load company usage", e))?,
-    ))
-}

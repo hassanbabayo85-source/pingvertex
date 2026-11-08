@@ -1,6 +1,6 @@
 use crate::{
     handlers::{
-        audit_records, company_usage, list_companies, list_users, set_company_status,
+        audit_records, list_companies, list_users, set_company_status,
         set_user_status,
     },
     state::AppState,
@@ -18,7 +18,6 @@ pub fn router_reads() -> Router<AppState> {
         .route("/audit", get(audit_records))
         .route("/companies", get(list_companies))
         .route("/users", get(list_users))
-        .route("/companies/{id}/usage", get(company_usage))
 }
 
 /// Mutating platform-admin routes. Every one of these is a high-risk
