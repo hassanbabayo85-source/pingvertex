@@ -34,7 +34,7 @@ use infra::{
     InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-    InMemoryUsageEventRepository, NoopNotificationService,
+NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::json;
@@ -384,8 +384,7 @@ async fn build_harness() -> Harness {
         InMemoryAuditLogEntryRepository::new(),
     )
     .with_platform_admin_repositories(users.clone(), tenants.clone())
-    .with_pricing_config_repository(InMemoryPricingConfigRepository::new())
-    .with_usage_event_repository(InMemoryUsageEventRepository::default());
+    .with_pricing_config_repository(InMemoryPricingConfigRepository::new());
 
     let cache = Arc::new(RealPendingAuthCache::new());
 

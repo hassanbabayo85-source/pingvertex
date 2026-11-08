@@ -33,7 +33,7 @@ use infra::{
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-    InMemoryUsageEventRepository, NoopNotificationService,
+NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::Value;
@@ -275,7 +275,6 @@ async fn build_app_with_monitors(n: usize) -> (axum::Router, UserId) {
     )
     .with_pricing_config_repository(pricing_repo)
     .with_agent_lease_repository(InMemoryAgentLeaseRepository::new())
-    .with_usage_event_repository(InMemoryUsageEventRepository::default())
     .with_agent_registry(InMemoryAgentRegistry::new());
 
     let memberships = InMemoryTenantMembershipRepository::new();
