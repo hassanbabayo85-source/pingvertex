@@ -43,8 +43,8 @@ pub fn init_rustls_crypto_provider() {
 mod proxy_tls;
 
 pub mod proxy_check_worker;
-pub mod recurring_proxy_monitor_worker;
 pub mod proxy_checker;
+pub mod recurring_proxy_monitor_worker;
 pub use proxy_check_worker::ProxyCheckWorker;
 pub use proxy_checker::run_proxy_check_job;
 
@@ -75,8 +75,6 @@ pub use allowance_reset_worker::AllowanceResetWorker;
 
 pub mod rum_aggregation_worker;
 pub use rum_aggregation_worker::RumAggregationWorker;
-
-
 
 pub mod bulk_monitor_action_worker;
 mod bulk_monitor_import_worker;

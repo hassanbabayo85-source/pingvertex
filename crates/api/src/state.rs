@@ -3,17 +3,16 @@ use std::sync::Arc;
 use application::ports::AgentRegistry;
 use application::ports::RecurringProxyMonitorRepository;
 use application::ports::{
-    AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository,
-    AuditLogEntryRepository, BulkMonitorImportRepository, CheckRepository, CustomDomainVerifier, DashboardRepository,
-    DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository,
-    GeoIpLookup, HealthCheckPort, HealthCheckResult,
-    HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
-    MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
-    NotificationChannelRepository, NotificationService, PasswordHasher,
+    AgentLeaseRepository, ApiFlowRepository, ApiKeyRepository, AuditLogEntryRepository,
+    BulkMonitorImportRepository, CheckRepository, CustomDomainVerifier, DashboardRepository,
+    DiagnosticReportRepository, EntitlementResolver, EscalationPolicyRepository, GeoIpLookup,
+    HealthCheckPort, HealthCheckResult, HelpArticleRepository, HelpCategoryRepository,
+    IncidentRepository, LogoStorage, MaintenanceWindowRepository, MonitorIntervalPolicyRepository,
+    MonitorRepository, NotificationChannelRepository, NotificationService, PasswordHasher,
     ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
-    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository,     SupportTicketRepository,
-    TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
-    UserRepository,
+    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache,
+    StatusPageRepository, SupportTicketRepository, TenantAlertAllowanceRepository,
+    TenantRepository, TenantRetentionSettingsRepository, UserRepository,
 };
 
 use async_trait::async_trait;
@@ -434,8 +433,6 @@ impl HealthCheckPort for NoopHealthCheckPort {
     }
 }
 
-
-
 #[derive(Clone, Default)]
 struct NoopHelpCategoryRepository;
 
@@ -751,7 +748,6 @@ impl application::ports::AgentRegistry for NoopAgentRegistry {
     }
 }
 
-
 /// Default `TenantAlertAllowanceRepository`. Returns a zeroed allowance for
 /// the current cycle — the fair-use path is only wired in production via
 /// `with_tenant_alert_allowance_repository`. A zeroed response is safe:
@@ -844,7 +840,6 @@ impl MonitorIntervalPolicyRepository for NoopMonitorIntervalPolicyRepository {
         })
     }
 }
-
 
 #[derive(Clone, Default)]
 struct NoopUserRepository;
@@ -1117,15 +1112,6 @@ impl AppState {
         self
     }
 
-
-
-
-
-
-
-
-
-
     pub fn with_agent_lease_repository<R>(mut self, agent_lease_repository: R) -> Self
     where
         R: AgentLeaseRepository + 'static,
@@ -1167,7 +1153,7 @@ impl AppState {
     /// Dashboard Overview:
     /// Substitutes a real `DashboardRepository` (e.g. `PostgresDashboardRepository`)
     /// in place of the no-op default.
-        pub fn with_pricing_config_repository<R>(self, _repository: R) -> Self {
+    pub fn with_pricing_config_repository<R>(self, _repository: R) -> Self {
         // No-op stub: this field was removed in Phase 1G-c-b-b.
         // Kept for API compatibility so existing call sites
         // (including test harnesses) still compile. Deferred to
@@ -1183,10 +1169,6 @@ impl AppState {
         self.dashboard_repository = Arc::new(dashboard_repository);
         self
     }
-
-
-
-
 
     pub fn with_help_category_repository<R>(mut self, repo: R) -> Self
     where
@@ -1237,8 +1219,7 @@ impl AppState {
         self
     }
 
-    
-        pub fn with_payg_pricing_repository<R>(self, _repository: R) -> Self {
+    pub fn with_payg_pricing_repository<R>(self, _repository: R) -> Self {
         // No-op stub: this field was removed in Phase 1G-c-b-b.
         // Kept for API compatibility so existing call sites
         // (including test harnesses) still compile. Deferred to
@@ -1271,7 +1252,6 @@ impl AppState {
         self
     }
 
-
     pub fn with_rum_analytics_repository<R>(mut self, repo: R) -> Self
     where
         R: RumAnalyticsRepository + 'static,
@@ -1288,7 +1268,6 @@ impl AppState {
         self
     }
 
-    
     /// TASK 3 — installs the real recurring proxy monitor repository.
     pub fn with_recurring_proxy_monitor_repository<R>(mut self, repo: R) -> Self
     where
@@ -1309,5 +1288,4 @@ impl AppState {
         self.entitlement_resolver = Arc::new(resolver);
         self
     }
-
 }

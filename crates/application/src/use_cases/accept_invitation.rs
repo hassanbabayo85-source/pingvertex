@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use domain::{
-    TenantMembership,
-    entities::MAX_TEAM_MEMBERS,
-    shared::types::AuthenticatedUser,
-};
+use domain::{TenantMembership, entities::MAX_TEAM_MEMBERS, shared::types::AuthenticatedUser};
 
 use crate::errors::PlanLimitError;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
@@ -72,10 +68,7 @@ where
 
     /// TASK 4A — installs the authoritative `EntitlementResolver` and
     /// turns on atomic quota enforcement at acceptance time.
-    pub fn with_entitlement_resolver(
-        mut self,
-        resolver: Arc<dyn EntitlementResolver>,
-    ) -> Self {
+    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
         self.entitlement_resolver = Some(resolver);
         self
     }

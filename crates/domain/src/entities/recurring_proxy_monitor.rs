@@ -109,7 +109,8 @@ impl RecurringProxyMonitor {
     ) -> Result<(), RecurringProxyMonitorError> {
         Self::validate_interval(interval_seconds)?;
         self.interval_seconds = interval_seconds;
-        self.next_run_at = Some(Utc::now() + chrono::Duration::seconds(i64::from(interval_seconds)));
+        self.next_run_at =
+            Some(Utc::now() + chrono::Duration::seconds(i64::from(interval_seconds)));
         self.updated_at = Utc::now();
         Ok(())
     }
@@ -351,10 +352,7 @@ mod tests {
             RecurringProxyCheckStatus::Failed,
             RecurringProxyCheckStatus::TimedOut,
         ] {
-            assert_eq!(
-                s.as_str().parse::<RecurringProxyCheckStatus>().unwrap(),
-                s
-            );
+            assert_eq!(s.as_str().parse::<RecurringProxyCheckStatus>().unwrap(), s);
         }
     }
 }

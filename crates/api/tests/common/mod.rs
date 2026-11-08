@@ -9,14 +9,11 @@ use application::ports::{
 };
 use async_trait::async_trait;
 use domain::pricing::PricingConfig;
-use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId };
-use domain::{
-    Check, DiagnosticReport, Incident, User,
-};
+use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
+use domain::{Check, DiagnosticReport, Incident, User};
 use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
-    InMemoryApiFlowRepository,
-    InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
+    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
     NoopNotificationService, UuidIdGenerator,
@@ -275,4 +272,3 @@ pub async fn build() -> axum::Router {
 
     build_test_router(app_state, auth_state)
 }
-

@@ -43,12 +43,7 @@ pub struct PlanLimitError {
 }
 
 impl PlanLimitError {
-    pub fn new(
-        quota: &'static str,
-        current: u64,
-        allowed: u64,
-        action: &'static str,
-    ) -> Self {
+    pub fn new(quota: &'static str, current: u64, allowed: u64, action: &'static str) -> Self {
         Self {
             quota,
             current,
@@ -127,8 +122,12 @@ mod tests {
 
     #[test]
     fn boxed_error_can_be_downcast_back() {
-        let boxed: Box<dyn std::error::Error + Send + Sync> =
-            Box::new(PlanLimitError::new("max_uptime_monitors", 5, 5, "upgrade_plan"));
+        let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(PlanLimitError::new(
+            "max_uptime_monitors",
+            5,
+            5,
+            "upgrade_plan",
+        ));
         let recovered = boxed.downcast_ref::<PlanLimitError>().unwrap();
         assert_eq!(recovered.quota, "max_uptime_monitors");
     }
@@ -165,7 +164,12 @@ mod tests {
             }
         }
 
-        let w = Wrapper(PlanLimitError::new("max_uptime_monitors", 1, 1, "upgrade_plan"));
+        let w = Wrapper(PlanLimitError::new(
+            "max_uptime_monitors",
+            1,
+            1,
+            "upgrade_plan",
+        ));
         assert!(is_plan_limit_error(&w));
     }
 }

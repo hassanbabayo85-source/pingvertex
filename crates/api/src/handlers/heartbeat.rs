@@ -37,8 +37,6 @@ const HEARTBEAT_RATE_LIMIT_MAX_REQUESTS: u32 = 6;
 /// not collide with the RUM ingest or auth namespaces.
 const HEARTBEAT_RATE_LIMIT_NAMESPACE: &str = "heartbeat";
 
-
-
 /// `GET /api/v1/public/heartbeat/{token}` (LEGACY).
 ///
 /// Kept for backwards compatibility with clients that already embed the

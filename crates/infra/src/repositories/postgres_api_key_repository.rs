@@ -215,11 +215,10 @@ impl ApiKeyRepository for PostgresApiKeyRepository {
             .execute(&mut *tx)
             .await?;
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1")
-                .bind(tenant_id.0)
-                .fetch_one(&mut *tx)
-                .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE tenant_id = $1")
+            .bind(tenant_id.0)
+            .fetch_one(&mut *tx)
+            .await?;
 
         if count as u32 >= limit {
             return Ok(QuotaCheckOutcome::QuotaExceeded);

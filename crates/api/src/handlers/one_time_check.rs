@@ -105,7 +105,6 @@ pub async fn create_one_time_check(
         return Err(ApiError::forbidden("tenant is suspended"));
     }
 
-
     let request_id = payload
         .idempotency_key
         .filter(|k| !k.trim().is_empty())

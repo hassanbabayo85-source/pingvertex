@@ -12,12 +12,11 @@ pub mod members;
 pub mod monitors;
 pub mod notifications;
 pub mod proxy_checks;
-pub mod recurring_proxy_monitors;
 pub mod public;
+pub mod recurring_proxy_monitors;
 pub mod rum_dashboard;
 pub mod status_pages;
 
 // Help Center & Support:
 pub mod help;
 pub mod support;
-

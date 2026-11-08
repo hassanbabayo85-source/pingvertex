@@ -91,9 +91,9 @@ where
             .ok_or(UpdateRecurringProxyMonitorError::NotFound)?;
 
         monitor.name = request.name;
-        monitor.set_interval(request.interval_seconds).map_err(|e| {
-            UpdateRecurringProxyMonitorError::Other(Box::new(e))
-        })?;
+        monitor
+            .set_interval(request.interval_seconds)
+            .map_err(|e| UpdateRecurringProxyMonitorError::Other(Box::new(e)))?;
 
         self.repository
             .update_monitor(&monitor)

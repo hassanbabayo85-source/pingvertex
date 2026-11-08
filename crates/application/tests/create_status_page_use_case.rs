@@ -232,17 +232,13 @@ async fn starter_plan_allows_its_own_higher_quota() {
         "test only meaningful if Starter is higher than Free"
     );
 
-    let resolver =
-        Arc::new(InMemoryEntitlementResolver::default().with_override(tid, starter));
+    let resolver = Arc::new(InMemoryEntitlementResolver::default().with_override(tid, starter));
     let use_case = use_case_with_resolver(repository.clone(), monitors, resolver);
 
     // Create Free+1 pages; only a Starter tenant can go past the Free limit.
     for i in 0..=free_limit {
         use_case
-            .execute(
-                request(user_id, &format!("s-{i}")),
-                auth_user(user_id, tid),
-            )
+            .execute(request(user_id, &format!("s-{i}")), auth_user(user_id, tid))
             .await
             .unwrap_or_else(|e| panic!("Starter create #{} should succeed: {e:?}", i));
     }
@@ -250,10 +246,7 @@ async fn starter_plan_allows_its_own_higher_quota() {
     // Fill the rest of the Starter limit, then verify the next one fails.
     for i in (free_limit + 1)..limit {
         use_case
-            .execute(
-                request(user_id, &format!("s-{i}")),
-                auth_user(user_id, tid),
-            )
+            .execute(request(user_id, &format!("s-{i}")), auth_user(user_id, tid))
             .await
             .unwrap_or_else(|e| panic!("Starter create #{} should succeed: {e:?}", i));
     }
@@ -274,8 +267,12 @@ async fn missing_entitlement_resolver_fails_closed() {
     let repository = InMemoryStatusPageRepository::new();
     let monitors = InMemoryMonitorRepository::new();
     // No `.with_entitlement_resolver(...)` call.
-    let use_case =
-        CreateStatusPageUseCase::new(repository, UuidIdGenerator::new(), monitors, new_audit_repo());
+    let use_case = CreateStatusPageUseCase::new(
+        repository,
+        UuidIdGenerator::new(),
+        monitors,
+        new_audit_repo(),
+    );
     let user_id = UserId(Uuid::new_v4());
 
     let result = use_case

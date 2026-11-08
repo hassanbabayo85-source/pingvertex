@@ -151,7 +151,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
         }
     });
 
-
     view! {
         <div class="feature-page">
             <header class="page-header">

@@ -20,9 +20,9 @@ use crate::{
         require_recent_mfa::require_recent_mfa,
     },
     routes::{
-        admin, api_flows, api_keys, audit, auth, checks, dashboard, health, help,
-        internal_agents, invitations, members, monitors, notifications, proxy_checks,
-        public, recurring_proxy_monitors, rum_dashboard, status_pages, support,
+        admin, api_flows, api_keys, audit, auth, checks, dashboard, health, help, internal_agents,
+        invitations, members, monitors, notifications, proxy_checks, public,
+        recurring_proxy_monitors, rum_dashboard, status_pages, support,
     },
     state::AppState,
 };
@@ -202,12 +202,9 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    
-    
     // Compatibility shell: the subscription handler is permanently retired
     // from the product model and returns HTTP 410.
-    
-    
+
     let auth_rate_limit = GovernorConfigBuilder::default()
         .per_second(60)
         .burst_size(5)
@@ -307,15 +304,14 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
 
     // Public pricing quotes are deliberately read-only and rate-limited.
     // Actual PAYG previews and wallet mutations remain authenticated.
-    
+
     // Admin pricing routes: protected by JWT only; permission check is done
     // inside handlers (require ManageBilling, available to Owner only).
     // SECURITY: /admin pricing READS are gated on `jwt_auth` only.
     // WRITES are additionally gated on `require_recent_mfa` — a fresh
     // TOTP/backup-code step-up within RECENT_MFA_TTL_SECONDS — so a
     // plain session JWT can never change platform-wide pricing.
-    
-    
+
     let tenant_audit_routes = audit::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -508,10 +504,8 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    
     // Compatibility shell: returns HTTP 410; no subscription mutation is possible.
-    
-    
+
     let api_key_routes = api_keys::router()
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
@@ -554,7 +548,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
     // under `oneshot()`). Isolated billing rate-limit coverage lives in
     // `crates/api/tests/pricing_rate_limit.rs`, which uses the dedicated
     // `build_billing_only_router_with_rate_limit` helper instead.
-    
+
     let help_routes = help::router().with_state(app_state.clone());
 
     let support_routes = support::router()
@@ -566,9 +560,9 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .with_state(app_state.clone());
 
     // Admin pricing READS: JWT only (no MFA — reads are safe).
-    
+
     // Admin pricing WRITES: JWT + recent-MFA step-up.
-        let tenant_audit_routes = audit::router()
+    let tenant_audit_routes = audit::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
                 .per_second(5)

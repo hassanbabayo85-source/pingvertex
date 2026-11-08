@@ -17,26 +17,25 @@ use axum_server_mtls::MtlsAcceptor;
 use infra::PostgresAgentRegistryRepository;
 use infra::services::MaxMindGeoIpLookup;
 use infra::{
-    AesGcmProxyCredentialCipher, Argon2PasswordHasher, DisabledEmailVerificationMailer, DisabledIdTokenVerifier, DisabledPasswordResetMailer,
-    HickoryCustomDomainVerifier, JsonWebTokenService, NotificationDispatcher,
-    OidcIdTokenVerifier, PostgresAgentLeaseRepository, PostgresApiFlowRepository, PostgresApiKeyRepository,
-    PostgresAuditLogEntryRepository, PostgresBackupCodeRepository,
-    PostgresBulkMonitorActionRepository, PostgresBulkMonitorImportRepository,
-    PostgresCheckRepository, PostgresDashboardRepository,
+    AesGcmProxyCredentialCipher, Argon2PasswordHasher, DisabledEmailVerificationMailer,
+    DisabledIdTokenVerifier, DisabledPasswordResetMailer, HickoryCustomDomainVerifier,
+    JsonWebTokenService, NotificationDispatcher, OidcIdTokenVerifier, PostgresAgentLeaseRepository,
+    PostgresApiFlowRepository, PostgresApiKeyRepository, PostgresAuditLogEntryRepository,
+    PostgresBackupCodeRepository, PostgresBulkMonitorActionRepository,
+    PostgresBulkMonitorImportRepository, PostgresCheckRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
-    PostgresHelpCategoryRepository, PostgresIncidentRepository, 
+    PostgresHelpCategoryRepository, PostgresIncidentRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresOAuthIdentityRepository,
-    PostgresProxyCheckJobRepository,
-    PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
-    PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
-    PostgresStatusPageRepository, PostgresSupportTicketRepository,
-    PostgresTenantAlertAllowanceRepository, PostgresTenantInvitationRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository,
-    PostgresTenantRetentionSettingsRepository, PostgresUserRepository, RedisPendingAuthCache,
-    RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig, SmtpEmailVerificationMailer,
-    SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
+    PostgresProxyCheckJobRepository, PostgresRegistrationTransaction,
+    PostgresResetPasswordTokenRepository, PostgresRumAnalyticsRepository,
+    PostgresRumEventRepository, PostgresRumSiteRepository, PostgresStatusPageRepository,
+    PostgresSupportTicketRepository, PostgresTenantAlertAllowanceRepository,
+    PostgresTenantInvitationRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresTenantRetentionSettingsRepository, PostgresUserRepository,
+    RedisPendingAuthCache, RedisRateLimiter, RedisStatusPageCache, S3LogoStorage, SmtpConfig,
+    SmtpEmailVerificationMailer, SmtpPasswordResetMailer, UuidIdGenerator, create_pool,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -82,7 +81,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pool = create_pool(&config.database_url).await?;
 
-        
     let status_page_cache: Arc<dyn StatusPageCache> = match &config.redis_url {
         Some(redis_url) => Arc::new(RedisStatusPageCache::new(redis_url)?),
         None => {
@@ -194,16 +192,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_rum_site_repository(PostgresRumSiteRepository::new(pool.clone()))
     .with_rum_event_repository(PostgresRumEventRepository::new(pool.clone()))
     .with_rum_analytics_repository(PostgresRumAnalyticsRepository::new(pool.clone()))
-    .with_rate_limiter(redis_rate_limiter.clone())    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
+    .with_rate_limiter(redis_rate_limiter.clone())
+    .with_tenant_alert_allowance_repository(PostgresTenantAlertAllowanceRepository::new(
         pool.clone(),
     ))
     .with_tenant_retention_settings_repository(PostgresTenantRetentionSettingsRepository::new(
         pool.clone(),
     ))
-    .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
-        pool.clone(),
-    ))
-    ;
+    .with_monitor_interval_policy_repository(
+        infra::PostgresMonitorIntervalPolicyRepository::new(pool.clone()),
+    );
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the
@@ -229,7 +227,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    
     let tenant_membership_repository = PostgresTenantMembershipRepository::new(pool.clone());
     let registration_transaction = PostgresRegistrationTransaction::new(pool.clone());
 

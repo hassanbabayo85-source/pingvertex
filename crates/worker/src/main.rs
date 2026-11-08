@@ -5,19 +5,17 @@ use std::{error::Error, sync::Arc, time::Duration};
 use application::ports::StatusPageCache;
 use async_trait::async_trait;
 use infra::{
-    AesGcmProxyCredentialCipher,
-    HickoryCustomDomainVerifier, NotificationDispatcher,
+    AesGcmProxyCredentialCipher, HickoryCustomDomainVerifier, NotificationDispatcher,
     PostgresApiFlowRepository, PostgresAuditLogEntryRepository,
     PostgresBulkMonitorImportRepository, PostgresCheckRepository,
     PostgresDiagnosticReportRepository, PostgresEscalationPolicyRepository,
     PostgresHistoryRetentionRepository, PostgresIncidentRepository,
-    PostgresMaintenanceWindowRepository,     PostgresMonitorRepository, PostgresNotificationChannelRepository,
-    PostgresNotificationOutboxRepository,
-    PostgresProxyCheckJobRepository,
-    PostgresRumRetentionRepository, PostgresRumSiteRepository, PostgresSchedulingRepository,
-    PostgresStatusPageRepository, PostgresTenantAlertAllowanceRepository,
-    PostgresTenantMembershipRepository, PostgresTenantRepository,
-    PostgresTenantRetentionSettingsRepository, RedisStatusPageCache,
+    PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
+    PostgresNotificationChannelRepository, PostgresNotificationOutboxRepository,
+    PostgresProxyCheckJobRepository, PostgresRumRetentionRepository, PostgresRumSiteRepository,
+    PostgresSchedulingRepository, PostgresStatusPageRepository,
+    PostgresTenantAlertAllowanceRepository, PostgresTenantMembershipRepository,
+    PostgresTenantRepository, PostgresTenantRetentionSettingsRepository, RedisStatusPageCache,
     UuidIdGenerator, create_pool,
 };
 use tokio_util::sync::CancellationToken;
@@ -27,8 +25,7 @@ use worker::{
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
     RealNotificationOutboxSender, RetentionWorker, RumAggregationWorker,
-    TenantNotificationRateLimiter,
-    init_rustls_crypto_provider, metrics,
+    TenantNotificationRateLimiter, init_rustls_crypto_provider, metrics,
 };
 
 #[derive(Clone, Default)]
@@ -141,12 +138,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let secret_cipher = Arc::new(AesGcmProxyCredentialCipher::try_from_env()?);
     let allowance_repository = Arc::new(PostgresTenantAlertAllowanceRepository::new(pool.clone()));
     let notification_service = Arc::new(
-        NotificationDispatcher::from_env(secret_cipher.clone())
-            .with_alert_allowance(
-                allowance_repository.clone(),
-                monitor_repository.clone(),
-                notification_channel_repository.clone(),
-            ),
+        NotificationDispatcher::from_env(secret_cipher.clone()).with_alert_allowance(
+            allowance_repository.clone(),
+            monitor_repository.clone(),
+            notification_channel_repository.clone(),
+        ),
     );
     // GAP 3 Kashi E: RUM raw-event -> daily aggregate rollup and 7-day
     // raw retention. The dashboard reads raw events for the last 7 days
@@ -341,32 +337,32 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     tracing::info!("worker started; press Ctrl+C or send SIGTERM to shut down");
 
     tokio::select! {
-            result = worker::DurableScheduler::new(
-                scheduling_repository,
-                executor,
-                Duration::from_secs(worker_config.lease_seconds),
-                worker_config.max_concurrent_checks,
-            )
-            .with_tenant_repository(tenant_repository.clone())
-            .with_entitlement_repositories(
-                monitor_repository.clone(),
-                std::sync::Arc::new(infra::EnvEntitlementResolver::from_env().expect("bad env")),
-            )
-            .with_backpressure(
-                worker_config.scheduler_max_concurrency_per_tenant,
-                worker_config.scheduler_due_claim_limit_per_tenant,
-            )
-            .with_deterministic_spread(worker_config.scheduler_deterministic_spread_seconds)
-            .with_heartbeat_interval(Duration::from_secs(
-                worker_config.heartbeat_interval_seconds,
-            ))
-            .run() => {
-                result?;
-            }
-            _ = shutdown_signal() => {
-                tracing::info!("shutdown signal received, cancelling background workers");
-            }
+        result = worker::DurableScheduler::new(
+            scheduling_repository,
+            executor,
+            Duration::from_secs(worker_config.lease_seconds),
+            worker_config.max_concurrent_checks,
+        )
+        .with_tenant_repository(tenant_repository.clone())
+        .with_entitlement_repositories(
+            monitor_repository.clone(),
+            std::sync::Arc::new(infra::EnvEntitlementResolver::from_env().expect("bad env")),
+        )
+        .with_backpressure(
+            worker_config.scheduler_max_concurrency_per_tenant,
+            worker_config.scheduler_due_claim_limit_per_tenant,
+        )
+        .with_deterministic_spread(worker_config.scheduler_deterministic_spread_seconds)
+        .with_heartbeat_interval(Duration::from_secs(
+            worker_config.heartbeat_interval_seconds,
+        ))
+        .run() => {
+            result?;
         }
+        _ = shutdown_signal() => {
+            tracing::info!("shutdown signal received, cancelling background workers");
+        }
+    }
 
     cancel_token.cancel();
     tracing::info!(

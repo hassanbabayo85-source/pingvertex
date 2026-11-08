@@ -2,11 +2,8 @@ use std::collections::HashSet;
 use std::{error::Error, fmt, sync::Arc};
 
 use crate::{
-    dto::{
-        BulkMonitorImportError, BulkMonitorImportPreview, BulkMonitorImportRow,
-    },
-    ports::{
-        BulkImportExistingMonitor, BulkImportMonitorSnapshot, },
+    dto::{BulkMonitorImportError, BulkMonitorImportPreview, BulkMonitorImportRow},
+    ports::{BulkImportExistingMonitor, BulkImportMonitorSnapshot},
 };
 use domain::{
     CheckInterval, ExpectedStatus, Host, MonitorKind, MonitorName, Timeout, Url,
@@ -66,8 +63,6 @@ impl PreviewBulkMonitorImportUseCase {
         self
     }
 
-
-
     #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
@@ -97,16 +92,27 @@ impl PreviewBulkMonitorImportUseCase {
         const FREE_MONITOR_LIMIT: u64 = 20;
         const FREE_MIN_INTERVAL_SECONDS: u32 = 300;
 
-        let existing_signatures = snapshot.monitors.iter().map(existing_signature).collect::<HashSet<_>>();
-        let existing_names = snapshot.monitors.iter()
-            .map(|m| m.name.as_str().trim().to_ascii_lowercase()).collect::<HashSet<_>>();
-        let existing_targets = snapshot.monitors.iter()
-            .map(|m| normalized_target(m.kind, &m.url)).collect::<HashSet<_>>();
+        let existing_signatures = snapshot
+            .monitors
+            .iter()
+            .map(existing_signature)
+            .collect::<HashSet<_>>();
+        let existing_names = snapshot
+            .monitors
+            .iter()
+            .map(|m| m.name.as_str().trim().to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        let existing_targets = snapshot
+            .monitors
+            .iter()
+            .map(|m| normalized_target(m.kind, &m.url))
+            .collect::<HashSet<_>>();
         let mut seen_signatures = HashSet::new();
         let mut seen_names = HashSet::new();
         let mut seen_targets = HashSet::new();
         let mut duplicate_rows = 0usize;
-        let free_remaining = FREE_MONITOR_LIMIT.saturating_sub(snapshot.total_count as u64) as usize;
+        let free_remaining =
+            FREE_MONITOR_LIMIT.saturating_sub(snapshot.total_count as u64) as usize;
         let mut accepted_free_rows = 0usize;
         let mut estimated_execution_quantity = 0u64;
         let mut valid_rows = 0usize;
@@ -125,20 +131,31 @@ impl PreviewBulkMonitorImportUseCase {
             let mut duplicate = false;
             if existing_signatures.contains(&signature) {
                 duplicate = true;
-                row_errors.push("duplicate monitor identity already exists in this tenant".to_owned());
+                row_errors
+                    .push("duplicate monitor identity already exists in this tenant".to_owned());
             } else if !seen_signatures.insert(signature) {
                 duplicate = true;
-                row_errors.push("duplicate monitor identity appears more than once in this CSV".to_owned());
+                row_errors.push(
+                    "duplicate monitor identity appears more than once in this CSV".to_owned(),
+                );
             }
             if existing_names.contains(&normalized_name) || !seen_names.insert(normalized_name) {
                 duplicate = true;
-                row_errors.push("duplicate monitor name already exists in this tenant or CSV".to_owned());
+                row_errors
+                    .push("duplicate monitor name already exists in this tenant or CSV".to_owned());
             }
-            if existing_targets.contains(&normalized_target_value) || !seen_targets.insert(normalized_target_value) {
+            if existing_targets.contains(&normalized_target_value)
+                || !seen_targets.insert(normalized_target_value)
+            {
                 duplicate = true;
-                row_errors.push("duplicate monitor target URL/host already exists in this tenant or CSV".to_owned());
+                row_errors.push(
+                    "duplicate monitor target URL/host already exists in this tenant or CSV"
+                        .to_owned(),
+                );
             }
-            if duplicate { duplicate_rows = duplicate_rows.saturating_add(1); }
+            if duplicate {
+                duplicate_rows = duplicate_rows.saturating_add(1);
+            }
 
             if row_errors.is_empty() && accepted_free_rows >= free_remaining {
                 row_errors.push(format!(
@@ -147,15 +164,21 @@ impl PreviewBulkMonitorImportUseCase {
             }
 
             let execution_interval = if row.kind == MonitorKind::Heartbeat {
-                row.heartbeat_interval_seconds.expect("heartbeat interval validated")
-            } else { row.interval_seconds };
+                row.heartbeat_interval_seconds
+                    .expect("heartbeat interval validated")
+            } else {
+                row.interval_seconds
+            };
             let executions_per_region = SECONDS_PER_DAY
                 .checked_div(u64::from(execution_interval))
                 .and_then(|per_day| per_day.checked_mul(u64::from(forecast_days)))
                 .ok_or(BulkMonitorImportPreviewError::Overflow)?;
 
             if !row_errors.is_empty() {
-                errors.push(BulkMonitorImportError { row: row.source_row, errors: row_errors });
+                errors.push(BulkMonitorImportError {
+                    row: row.source_row,
+                    errors: row_errors,
+                });
                 continue;
             }
 
@@ -380,4 +403,3 @@ fn existing_signature(monitor: &BulkImportExistingMonitor) -> String {
         "none",
     )
 }
-

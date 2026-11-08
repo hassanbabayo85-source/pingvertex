@@ -118,9 +118,8 @@ async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let repository = InMemoryMonitorRepository::new();
     let tenant_id = tenant_id();
     let starter = domain::Entitlements::starter_v1_fixture();
-    let resolver = Arc::new(
-        InMemoryEntitlementResolver::default().with_override(tenant_id, starter),
-    );
+    let resolver =
+        Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter));
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
         .with_entitlement_resolver(resolver);
 
@@ -183,7 +182,10 @@ async fn missing_entitlement_resolver_fails_closed() {
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo());
 
     let err = use_case
-        .execute(req("no-resolver", 300), auth_user(UserId(Uuid::new_v4()), tenant_id()))
+        .execute(
+            req("no-resolver", 300),
+            auth_user(UserId(Uuid::new_v4()), tenant_id()),
+        )
         .await
         .unwrap_err();
 

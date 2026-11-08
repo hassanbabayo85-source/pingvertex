@@ -26,8 +26,8 @@ pub use update_monitor_request::UpdateMonitorRequest;
 pub use variable_extraction_input::{ExtractSourceInput, VariableExtractionInput};
 pub mod recurring_proxy_monitor;
 pub use recurring_proxy_monitor::{
-    CreateRecurringProxyMonitorRequest, RecurringProxyCheckResponse,
-    RecurringProxyMonitorResponse, UpdateRecurringProxyMonitorRequest,
+    CreateRecurringProxyMonitorRequest, RecurringProxyCheckResponse, RecurringProxyMonitorResponse,
+    UpdateRecurringProxyMonitorRequest,
 };
 
 pub mod proxy_entry_input;

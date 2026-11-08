@@ -68,10 +68,7 @@ impl AddMemberUseCase {
 
     /// TASK 4A — installs the authoritative `EntitlementResolver` and
     /// turns on atomic `max_team_members` enforcement.
-    pub fn with_entitlement_resolver(
-        mut self,
-        resolver: Arc<dyn EntitlementResolver>,
-    ) -> Self {
+    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
         self.entitlement_resolver = Some(resolver);
         self
     }

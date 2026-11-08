@@ -17,10 +17,9 @@ use domain::{Agent, AgentStatus, Check, DiagnosticReport, Incident, User};
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository,
-    InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
-    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-NoopNotificationService,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
+    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
+    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;

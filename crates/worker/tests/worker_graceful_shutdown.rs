@@ -22,8 +22,8 @@ use domain::{
 use infra::{
     InMemoryEscalationPolicyRepository, InMemoryHistoryRetentionRepository,
     InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryNotificationOutboxRepository,
-    InMemoryProxyCheckJobRepository, InMemoryStatusPageRepository, InMemoryTenantRepository,
+    InMemoryNotificationOutboxRepository, InMemoryProxyCheckJobRepository,
+    InMemoryStatusPageRepository, InMemoryTenantRepository,
     InMemoryTenantRetentionSettingsRepository,
 };
 use worker::{

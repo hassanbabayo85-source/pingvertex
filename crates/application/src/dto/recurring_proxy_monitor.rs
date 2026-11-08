@@ -119,10 +119,7 @@ impl RecurringProxyCheckResponse {
             status: c.status.as_str().to_owned(),
             started_at: c.started_at,
             finished_at: c.finished_at,
-            result: c
-                .result
-                .as_ref()
-                .and_then(|r| serde_json::to_value(r).ok()),
+            result: c.result.as_ref().and_then(|r| serde_json::to_value(r).ok()),
             error_message: c.error_message.clone(),
         }
     }

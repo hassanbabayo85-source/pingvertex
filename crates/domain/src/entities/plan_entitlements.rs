@@ -98,14 +98,7 @@ mod tests {
 
     #[test]
     fn new_rejects_empty_key() {
-        let result = PlanEntitlement::new(
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            "   ",
-            10,
-            1,
-            Utc::now(),
-        );
+        let result = PlanEntitlement::new(Uuid::new_v4(), Uuid::new_v4(), "   ", 10, 1, Utc::now());
         assert_eq!(result, Err(PlanEntitlementError::EmptyKey));
     }
 

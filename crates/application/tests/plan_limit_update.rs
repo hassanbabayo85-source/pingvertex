@@ -9,8 +9,8 @@ use std::sync::Arc;
 use application::commands::UpdateMonitor;
 use application::dto::CreateMonitorRequest;
 use application::use_cases::{CreateMonitorUseCase, UpdateMonitorUseCase};
-use domain::shared::ids::UserId;
 use domain::HttpMethod;
+use domain::shared::ids::UserId;
 use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
 
 use uuid::Uuid;
@@ -71,12 +71,9 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
     let tenant = tenant_id();
 
     // Create a monitor at the Free minimum.
-    let create_uc = CreateMonitorUseCase::new(
-        repository.clone(),
-        UuidIdGenerator::new(),
-        new_audit_repo(),
-    )
-    .with_entitlement_resolver(resolver.clone());
+    let create_uc =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
+            .with_entitlement_resolver(resolver.clone());
 
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
@@ -84,9 +81,8 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
         .unwrap();
 
     // Try to update to 299s → must fail with a structured PlanLimitError.
-    let update_uc =
-        UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-            .with_entitlement_resolver(resolver.clone());
+    let update_uc = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
+        .with_entitlement_resolver(resolver.clone());
 
     let err = update_uc
         .execute(update_command(monitor.id, 299), auth_user(user_id, tenant))
@@ -110,12 +106,9 @@ async fn update_permits_exactly_the_plan_minimum() {
     let user_id = UserId(Uuid::new_v4());
     let tenant = tenant_id();
 
-    let create_uc = CreateMonitorUseCase::new(
-        repository.clone(),
-        UuidIdGenerator::new(),
-        new_audit_repo(),
-    )
-    .with_entitlement_resolver(resolver.clone());
+    let create_uc =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
+            .with_entitlement_resolver(resolver.clone());
 
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
@@ -123,8 +116,7 @@ async fn update_permits_exactly_the_plan_minimum() {
         .unwrap();
 
     let update_uc =
-        UpdateMonitorUseCase::new(repository, new_audit_repo())
-            .with_entitlement_resolver(resolver);
+        UpdateMonitorUseCase::new(repository, new_audit_repo()).with_entitlement_resolver(resolver);
 
     // 300s == plan minimum → should succeed.
     let updated = update_uc
@@ -141,24 +133,19 @@ async fn starter_plan_permits_60s_and_rejects_59s() {
     let repository = InMemoryMonitorRepository::new();
     let tenant = tenant_id();
     let starter = domain::Entitlements::starter_v1_fixture();
-    let resolver =
-        Arc::new(InMemoryEntitlementResolver::default().with_override(tenant, starter));
+    let resolver = Arc::new(InMemoryEntitlementResolver::default().with_override(tenant, starter));
     let user_id = UserId(Uuid::new_v4());
 
-    let create_uc = CreateMonitorUseCase::new(
-        repository.clone(),
-        UuidIdGenerator::new(),
-        new_audit_repo(),
-    )
-    .with_entitlement_resolver(resolver.clone());
+    let create_uc =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
+            .with_entitlement_resolver(resolver.clone());
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
         .await
         .unwrap();
 
     let update_uc =
-        UpdateMonitorUseCase::new(repository, new_audit_repo())
-            .with_entitlement_resolver(resolver);
+        UpdateMonitorUseCase::new(repository, new_audit_repo()).with_entitlement_resolver(resolver);
 
     // 60s → allowed.
     update_uc
@@ -187,12 +174,9 @@ async fn update_without_resolver_fails_closed() {
     let user_id = UserId(Uuid::new_v4());
     let tenant = tenant_id();
 
-    let create_uc = CreateMonitorUseCase::new(
-        repository.clone(),
-        UuidIdGenerator::new(),
-        new_audit_repo(),
-    )
-    .with_entitlement_resolver(resolver);
+    let create_uc =
+        CreateMonitorUseCase::new(repository.clone(), UuidIdGenerator::new(), new_audit_repo())
+            .with_entitlement_resolver(resolver);
     let monitor = create_uc
         .execute(create_request(), auth_user(user_id, tenant))
         .await

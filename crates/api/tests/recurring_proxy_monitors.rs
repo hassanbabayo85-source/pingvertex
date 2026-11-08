@@ -21,14 +21,11 @@ use std::sync::Arc;
 
 use api::error::ApiError;
 use api::handlers::recurring_proxy_monitors::{
-    create_recurring_proxy_monitor, delete_recurring_proxy_monitor,
-    get_recurring_proxy_monitor, list_recurring_proxy_monitors,
-    update_recurring_proxy_monitor,
+    create_recurring_proxy_monitor, delete_recurring_proxy_monitor, get_recurring_proxy_monitor,
+    list_recurring_proxy_monitors, update_recurring_proxy_monitor,
 };
 use api::state::AppState;
-use application::dto::{
-    CreateRecurringProxyMonitorRequest, UpdateRecurringProxyMonitorRequest,
-};
+use application::dto::{CreateRecurringProxyMonitorRequest, UpdateRecurringProxyMonitorRequest};
 use axum::Json;
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
@@ -40,10 +37,9 @@ use domain::shared::ids::{TenantId, UserId};
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
 use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
-    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
-    InMemoryEntitlementResolver, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
-    InMemoryRecurringProxyMonitorRepository, UuidIdGenerator,
+    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryEntitlementResolver,
+    InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    InMemoryProxyCheckJobRepository, InMemoryRecurringProxyMonitorRepository, UuidIdGenerator,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -117,8 +113,7 @@ fn update_cmd(interval_seconds: u32) -> UpdateRecurringProxyMonitorRequest {
 async fn create_returns_201_with_no_credentials_in_response() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver =
-        InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo.clone(), resolver);
     let user = owner_of(tenant);
 
@@ -164,13 +159,10 @@ async fn create_on_free_tier_returns_409_plan_limit_reached() {
     let state = build_state_with(repo, InMemoryEntitlementResolver::default());
     let user = owner_of(tenant);
 
-    let err = create_recurring_proxy_monitor(
-        State(state),
-        Extension(user),
-        Json(request("free-tier")),
-    )
-    .await
-    .unwrap_err();
+    let err =
+        create_recurring_proxy_monitor(State(state), Extension(user), Json(request("free-tier")))
+            .await
+            .unwrap_err();
 
     match err {
         ApiError::PlanLimitReached { quota, allowed, .. } => {
@@ -254,22 +246,17 @@ async fn list_returns_only_own_monitors() {
     .expect("tenant B create should succeed");
 
     // List for A → exactly 2, names start with "a-".
-    let Json(list_a) = list_recurring_proxy_monitors(
-        State(state.clone()),
-        Extension(owner_of(tenant_a)),
-    )
-    .await
-    .unwrap();
+    let Json(list_a) =
+        list_recurring_proxy_monitors(State(state.clone()), Extension(owner_of(tenant_a)))
+            .await
+            .unwrap();
     assert_eq!(list_a.len(), 2);
     assert!(list_a.iter().all(|m| m.name.starts_with("a-")));
 
     // List for B → exactly 1.
-    let Json(list_b) = list_recurring_proxy_monitors(
-        State(state),
-        Extension(owner_of(tenant_b)),
-    )
-    .await
-    .unwrap();
+    let Json(list_b) = list_recurring_proxy_monitors(State(state), Extension(owner_of(tenant_b)))
+        .await
+        .unwrap();
     assert_eq!(list_b.len(), 1);
     assert_eq!(list_b[0].name, "b-1");
 }
@@ -280,8 +267,7 @@ async fn list_returns_only_own_monitors() {
 async fn update_below_300s_returns_409_plan_limit_reached() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver =
-        InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo, resolver);
     let user = owner_of(tenant);
 
@@ -305,7 +291,12 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
     .unwrap_err();
 
     match err {
-        ApiError::PlanLimitReached { quota, current, allowed, .. } => {
+        ApiError::PlanLimitReached {
+            quota,
+            current,
+            allowed,
+            ..
+        } => {
             assert_eq!(quota, "min_recurring_proxy_interval_seconds");
             assert_eq!(current, 299);
             assert_eq!(allowed, 300);
@@ -320,8 +311,7 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
 async fn delete_requires_delete_permission() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver =
-        InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo, resolver);
 
     // Owner creates a monitor.

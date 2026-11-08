@@ -253,8 +253,6 @@ pub async fn set_user_status(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
-
 #[derive(Debug, Deserialize)]
 pub struct PlatformAuditQuery {
     pub cursor: Option<String>,
@@ -293,8 +291,6 @@ pub async fn audit_records(
         .await
         .map_err(|e| ApiError::internal_with_source("failed to load audit records", e))?;
 
-
-
     let mut items: Vec<crate::handlers::audit::AuditEntryResponse> =
         Vec::with_capacity(generic_page.entries.len());
     for entry in generic_page.entries {
@@ -325,4 +321,3 @@ pub async fn audit_records(
         next_cursor,
     }))
 }
-

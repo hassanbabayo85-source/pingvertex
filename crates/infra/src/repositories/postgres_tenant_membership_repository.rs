@@ -221,12 +221,11 @@ impl TenantMembershipRepository for PostgresTenantMembershipRepository {
             .execute(&mut *tx)
             .await?;
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1",
-        )
-        .bind(tenant_id.0)
-        .fetch_one(&mut *tx)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&mut *tx)
+                .await?;
 
         if count as u32 >= limit {
             return Ok(QuotaCheckOutcome::QuotaExceeded);
@@ -250,12 +249,11 @@ impl TenantMembershipRepository for PostgresTenantMembershipRepository {
     }
 
     async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1",
-        )
-        .bind(tenant_id.0)
-        .fetch_one(&self.pool)
-        .await?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1")
+                .bind(tenant_id.0)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
 

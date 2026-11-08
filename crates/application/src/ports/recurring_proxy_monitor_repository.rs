@@ -33,8 +33,8 @@ use domain::entities::{RecurringProxyCheck, RecurringProxyMonitor};
 use domain::shared::ids::TenantId;
 use uuid::Uuid;
 
-use super::monitor_repository::QuotaCheckOutcome;
 use super::RepoResult;
+use super::monitor_repository::QuotaCheckOutcome;
 
 /// A monitor that a worker has just claimed.
 ///
@@ -74,10 +74,7 @@ pub trait RecurringProxyMonitorRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> RepoResult<Option<RecurringProxyMonitor>>;
 
-    async fn list_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<Vec<RecurringProxyMonitor>>;
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RecurringProxyMonitor>>;
 
     async fn update_monitor(&self, monitor: &RecurringProxyMonitor) -> RepoResult<()>;
 
@@ -180,10 +177,7 @@ where
     ) -> RepoResult<Option<RecurringProxyMonitor>> {
         (**self).find_by_id(id, tenant_id).await
     }
-    async fn list_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<Vec<RecurringProxyMonitor>> {
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RecurringProxyMonitor>> {
         (**self).list_for_tenant(tenant_id).await
     }
     async fn update_monitor(&self, monitor: &RecurringProxyMonitor) -> RepoResult<()> {

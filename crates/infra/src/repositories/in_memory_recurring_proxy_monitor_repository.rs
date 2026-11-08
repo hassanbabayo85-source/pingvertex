@@ -14,9 +14,7 @@ use std::{
 };
 
 use application::ports::monitor_repository::QuotaCheckOutcome;
-use application::ports::{
-    ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository,
-};
+use application::ports::{ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::entities::{RecurringProxyCheck, RecurringProxyMonitor};
@@ -83,11 +81,10 @@ impl StoredMonitor {
 
     fn to_entity(&self) -> RepoResult<RecurringProxyMonitor> {
         let credentials = match &self.credentials {
-            Some((u, p)) => {
-                Some(ProxyCredentials::new(u.clone(), p.clone()).map_err(|e| {
-                    format!("stored proxy credentials failed validation: {e}")
-                })?)
-            }
+            Some((u, p)) => Some(
+                ProxyCredentials::new(u.clone(), p.clone())
+                    .map_err(|e| format!("stored proxy credentials failed validation: {e}"))?,
+            ),
             None => None,
         };
         Ok(RecurringProxyMonitor {
@@ -202,10 +199,7 @@ impl RecurringProxyMonitorRepository for InMemoryRecurringProxyMonitorRepository
         }
     }
 
-    async fn list_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<Vec<RecurringProxyMonitor>> {
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RecurringProxyMonitor>> {
         let monitors = self.monitors.read().unwrap();
         let mut out = Vec::new();
         for m in monitors.values() {

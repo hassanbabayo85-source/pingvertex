@@ -6,12 +6,10 @@
 
 use std::sync::Arc;
 
-use application::ports::monitor_repository::QuotaCheckOutcome;
 use application::ports::RecurringProxyMonitorRepository;
+use application::ports::monitor_repository::QuotaCheckOutcome;
 use chrono::{Duration, Utc};
-use domain::entities::{
-    RecurringProxyCheck, RecurringProxyCheckStatus, RecurringProxyMonitor,
-};
+use domain::entities::{RecurringProxyCheck, RecurringProxyCheckStatus, RecurringProxyMonitor};
 use domain::enums::ProxyScheme;
 use domain::shared::ids::{TenantId, UserId};
 use domain::value_objects::{ProxyCredentials, ProxyHost, ProxyResult};
@@ -189,7 +187,10 @@ async fn quota_is_per_tenant_and_atomic() {
             QuotaCheckOutcome::QuotaExceeded => rejected += 1,
         }
     }
-    assert_eq!(saved, 1, "exactly one of 10 concurrent calls should succeed");
+    assert_eq!(
+        saved, 1,
+        "exactly one of 10 concurrent calls should succeed"
+    );
     assert_eq!(rejected, 9);
 }
 
@@ -330,12 +331,7 @@ async fn reschedule_advances_next_run_and_releases_lease() {
     repo.save_monitor(&m).await.unwrap();
 
     let claimed = repo
-        .claim_due_monitors(
-            Utc::now(),
-            "worker-1",
-            Utc::now() + Duration::minutes(1),
-            1,
-        )
+        .claim_due_monitors(Utc::now(), "worker-1", Utc::now() + Duration::minutes(1), 1)
         .await
         .unwrap();
     assert_eq!(claimed.len(), 1);
@@ -369,28 +365,15 @@ async fn release_lease_without_advancing_schedule_makes_monitor_reclaimable() {
     let id = m.id;
     repo.save_monitor(&m).await.unwrap();
 
-    repo.claim_due_monitors(
-        Utc::now(),
-        "worker-1",
-        Utc::now() + Duration::minutes(1),
-        1,
-    )
-    .await
-    .unwrap();
-
-    assert!(repo
-        .release_lease(id, tenant, "worker-1")
+    repo.claim_due_monitors(Utc::now(), "worker-1", Utc::now() + Duration::minutes(1), 1)
         .await
-        .unwrap());
+        .unwrap();
+
+    assert!(repo.release_lease(id, tenant, "worker-1").await.unwrap());
 
     // Still due → can be claimed again.
     let reclaimed = repo
-        .claim_due_monitors(
-            Utc::now(),
-            "worker-2",
-            Utc::now() + Duration::minutes(1),
-            1,
-        )
+        .claim_due_monitors(Utc::now(), "worker-2", Utc::now() + Duration::minutes(1), 1)
         .await
         .unwrap();
     assert_eq!(reclaimed.len(), 1);

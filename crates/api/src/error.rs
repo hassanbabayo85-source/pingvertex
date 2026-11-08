@@ -28,7 +28,10 @@ pub enum ApiError {
     Forbidden(String),
     Unauthorized(String),
     TooManyRequests(String),
-    PaymentRequired { message: String, code: &'static str },
+    PaymentRequired {
+        message: String,
+        code: &'static str,
+    },
     /// TASK 2 — a hard subscription quota was exceeded. Distinct from
     /// `PaymentRequired`: this is not a "pay more to continue" error,
     /// it is a plan limit that only a plan change can lift. Serialized
@@ -248,30 +251,46 @@ mod tests {
 
     #[test]
     fn bad_request_and_not_found_still_carry_their_own_message() {
-        assert_eq!(ApiError::bad_request("invalid uuid").message(), "invalid uuid");
-        assert_eq!(ApiError::not_found("monitor not found").message(), "monitor not found");
-        assert_eq!(ApiError::bad_request("x").status_code(), StatusCode::BAD_REQUEST);
-        assert_eq!(ApiError::not_found("x").status_code(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            ApiError::bad_request("invalid uuid").message(),
+            "invalid uuid"
+        );
+        assert_eq!(
+            ApiError::not_found("monitor not found").message(),
+            "monitor not found"
+        );
+        assert_eq!(
+            ApiError::bad_request("x").status_code(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            ApiError::not_found("x").status_code(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[test]
     fn forbidden_carries_its_own_message_and_status() {
-        assert_eq!(ApiError::forbidden("x").status_code(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            ApiError::forbidden("x").status_code(),
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
     fn payment_required_uses_402_and_application_code() {
-        let err = ApiError::payment_required(
-            "PAYG balance is insufficient",
-            "PAYG_INSUFFICIENT_BALANCE",
-        );
+        let err =
+            ApiError::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE");
         assert_eq!(err.status_code(), StatusCode::PAYMENT_REQUIRED);
         assert_eq!(err.message(), "PAYG balance is insufficient");
     }
 
     #[test]
     fn too_many_requests_carries_its_own_message() {
-        assert_eq!(ApiError::too_many_requests("x").status_code(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            ApiError::too_many_requests("x").status_code(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
     }
 
     #[test]
@@ -285,14 +304,15 @@ mod tests {
 
     #[test]
     fn from_plan_limit_preserves_all_fields() {
-        let pl = application::PlanLimitError::new(
-            "max_recurring_proxy_monitors",
-            5,
-            5,
-            "upgrade_plan",
-        );
+        let pl =
+            application::PlanLimitError::new("max_recurring_proxy_monitors", 5, 5, "upgrade_plan");
         match ApiError::from_plan_limit(pl) {
-            ApiError::PlanLimitReached { quota, current, allowed, action } => {
+            ApiError::PlanLimitReached {
+                quota,
+                current,
+                allowed,
+                action,
+            } => {
                 assert_eq!(quota, "max_recurring_proxy_monitors");
                 assert_eq!(current, 5);
                 assert_eq!(allowed, 5);

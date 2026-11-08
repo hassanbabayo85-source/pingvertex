@@ -81,20 +81,14 @@ where
 
     /// TASK 4A — enables `max_team_members` quota enforcement when
     /// combined with `.with_membership_repository(...)`.
-    pub fn with_entitlement_resolver(
-        mut self,
-        resolver: Arc<dyn EntitlementResolver>,
-    ) -> Self {
+    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
         self.entitlement_resolver = Some(resolver);
         self
     }
 
     /// TASK 4A — required (together with `entitlement_resolver`) for
     /// quota enforcement.
-    pub fn with_membership_repository(
-        mut self,
-        repo: Arc<dyn TenantMembershipRepository>,
-    ) -> Self {
+    pub fn with_membership_repository(mut self, repo: Arc<dyn TenantMembershipRepository>) -> Self {
         self.membership_repository = Some(repo);
         self
     }

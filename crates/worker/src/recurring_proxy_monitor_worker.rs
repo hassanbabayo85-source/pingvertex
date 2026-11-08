@@ -40,9 +40,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
-use application::ports::{
-    ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository,
-};
+use application::ports::{ClaimedRecurringProxyMonitor, RecurringProxyMonitorRepository};
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
 use domain::entities::{ProxyEntry, RecurringProxyCheck, RecurringProxyMonitor};
@@ -182,8 +180,7 @@ impl RecurringProxyMonitorWorker {
 
         // Create the history row first, so a crash mid-check leaves
         // evidence that a check was attempted.
-        let mut check =
-            RecurringProxyCheck::new_running(Uuid::new_v4(), monitor_id, tenant_id);
+        let mut check = RecurringProxyCheck::new_running(Uuid::new_v4(), monitor_id, tenant_id);
         self.repository.save_check(&check).await?;
 
         // Move credentials out of the monitor. After this point the

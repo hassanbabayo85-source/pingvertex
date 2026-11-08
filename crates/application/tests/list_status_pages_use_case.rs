@@ -4,7 +4,10 @@ use common::*;
 use application::dto::CreateStatusPageRequest;
 use application::use_cases::{CreateStatusPageUseCase, ListStatusPagesUseCase};
 use domain::shared::ids::UserId;
-use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository, UuidIdGenerator};
+use infra::{
+    InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository,
+    UuidIdGenerator,
+};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -27,7 +30,8 @@ async fn lists_only_status_pages_in_tenant() {
         UuidIdGenerator::new(),
         monitors.clone(),
         new_audit_repo(),
-    ).with_entitlement_resolver(starter_resolver(tid));
+    )
+    .with_entitlement_resolver(starter_resolver(tid));
 
     create_use_case
         .execute(

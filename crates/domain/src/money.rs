@@ -217,12 +217,18 @@ mod tests {
 
     #[test]
     fn money_formats_usd_cents_and_ngn_kobo() {
-        assert_eq!(Money::new(500, Currency::Usd).unwrap().format_minor(), "$5.00");
+        assert_eq!(
+            Money::new(500, Currency::Usd).unwrap().format_minor(),
+            "$5.00"
+        );
         assert_eq!(
             Money::new(800_000, Currency::Ngn).unwrap().format_minor(),
             "₦8000.00"
         );
-        assert_eq!(Money::new(0, Currency::Usd).unwrap().format_minor(), "$0.00");
+        assert_eq!(
+            Money::new(0, Currency::Usd).unwrap().format_minor(),
+            "$0.00"
+        );
     }
 
     #[test]

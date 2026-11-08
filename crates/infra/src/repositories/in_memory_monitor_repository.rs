@@ -263,7 +263,10 @@ impl MonitorRepository for InMemoryMonitorRepository {
         if monitor_ids.is_empty() {
             return Ok(0);
         }
-        let ids = monitor_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let ids = monitor_ids
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         let mut monitors = self.monitors.write().unwrap();
         let mut changed = 0u64;
         for monitor in monitors.values_mut() {

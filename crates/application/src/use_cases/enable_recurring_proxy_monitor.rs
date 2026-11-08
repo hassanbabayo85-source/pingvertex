@@ -1,9 +1,6 @@
 use std::{error::Error, fmt};
 
-use crate::{
-    dto::RecurringProxyMonitorResponse,
-    ports::RecurringProxyMonitorRepository,
-};
+use crate::{dto::RecurringProxyMonitorResponse, ports::RecurringProxyMonitorRepository};
 use domain::shared::types::{AuthenticatedUser, Permission};
 use uuid::Uuid;
 

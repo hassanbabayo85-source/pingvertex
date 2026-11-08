@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
+use async_trait::async_trait;
 use domain::{
     TenantMembership,
     shared::{

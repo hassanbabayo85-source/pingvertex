@@ -32,7 +32,9 @@ pub enum CreateMonitorError {
     /// `Other`: carries the machine-readable quota id, current usage,
     /// plan maximum, and a suggested action.
     PlanLimitExceeded(PlanLimitError),
-    TooManyAssertions { limit: usize },
+    TooManyAssertions {
+        limit: usize,
+    },
     TenantSuspended,
     /// The resolver was not wired. This is a *deployment* bug (a
     /// production `main.rs` that forgot to call

@@ -150,5 +150,4 @@ pub trait IdGenerator: Send + Sync {
     /// exactly once to the inviting admin; only its Argon2id hash is
     /// persisted.
     async fn next_invitation_token(&self) -> String;
-
 }

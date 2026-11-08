@@ -31,9 +31,9 @@ use domain::{
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
-    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-NoopNotificationService,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
+    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
+    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::Value;

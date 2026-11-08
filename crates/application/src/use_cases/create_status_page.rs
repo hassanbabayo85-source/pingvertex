@@ -15,8 +15,8 @@ use domain::shared::policies::{AuthorizationPolicy, TenantOwned};
 use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::{
     AuditAction, AuditLogEntry, AuditLogEntryId, MonitorId, Subdomain,
-    entities::{CreateStatusPage, StatusPage},
     entities::MAX_STATUS_PAGES,
+    entities::{CreateStatusPage, StatusPage},
 };
 
 use crate::ports::monitor_repository::QuotaCheckOutcome;
@@ -104,10 +104,7 @@ where
     /// TASK 4A — installs the authoritative `EntitlementResolver`.
     /// Production handlers MUST call this. If absent, `execute` fails
     /// closed with `EntitlementResolverMissing`.
-    pub fn with_entitlement_resolver(
-        mut self,
-        resolver: Arc<dyn EntitlementResolver>,
-    ) -> Self {
+    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
         self.entitlement_resolver = Some(resolver);
         self
     }
@@ -168,12 +165,14 @@ where
         {
             QuotaCheckOutcome::Saved => {}
             QuotaCheckOutcome::QuotaExceeded => {
-                return Err(CreateStatusPageError::PlanLimitExceeded(PlanLimitError::new(
-                    MAX_STATUS_PAGES,
-                    u64::from(entitlements.max_status_pages),
-                    u64::from(entitlements.max_status_pages),
-                    "upgrade_plan",
-                )));
+                return Err(CreateStatusPageError::PlanLimitExceeded(
+                    PlanLimitError::new(
+                        MAX_STATUS_PAGES,
+                        u64::from(entitlements.max_status_pages),
+                        u64::from(entitlements.max_status_pages),
+                        "upgrade_plan",
+                    ),
+                ));
             }
         }
 

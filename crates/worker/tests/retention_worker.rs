@@ -13,8 +13,8 @@ use domain::{
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
 use infra::{
-    InMemoryEntitlementResolver, InMemoryHistoryRetentionRepository,
-    InMemoryTenantRepository, InMemoryTenantRetentionSettingsRepository,
+    InMemoryEntitlementResolver, InMemoryHistoryRetentionRepository, InMemoryTenantRepository,
+    InMemoryTenantRetentionSettingsRepository,
 };
 use uuid::Uuid;
 use worker::RetentionWorker;

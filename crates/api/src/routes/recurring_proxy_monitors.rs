@@ -9,9 +9,8 @@ use crate::{
     handlers::{
         create_recurring_proxy_monitor, delete_recurring_proxy_monitor,
         disable_recurring_proxy_monitor, enable_recurring_proxy_monitor,
-        get_latest_recurring_proxy_check, get_recurring_proxy_monitor,
-        list_recurring_proxy_checks, list_recurring_proxy_monitors,
-        update_recurring_proxy_monitor,
+        get_latest_recurring_proxy_check, get_recurring_proxy_monitor, list_recurring_proxy_checks,
+        list_recurring_proxy_monitors, update_recurring_proxy_monitor,
     },
     state::AppState,
 };

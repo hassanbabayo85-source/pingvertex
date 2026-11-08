@@ -2,11 +2,11 @@
 //! deployments. Parses `PV_*` env vars once at construction time and
 //! returns that snapshot from every `resolve` call. Phase 1L-a-2.
 
-use async_trait::async_trait;
 use application::ports::{EntitlementResolver, RepoResult};
+use async_trait::async_trait;
+use domain::Entitlements;
 use domain::entitlements_env::EnvConfigError;
 use domain::shared::ids::TenantId;
-use domain::Entitlements;
 
 /// A resolver that holds a single `Entitlements` snapshot parsed from
 /// environment variables at construction time.

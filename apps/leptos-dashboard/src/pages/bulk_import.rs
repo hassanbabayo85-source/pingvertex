@@ -106,14 +106,7 @@ pub fn BulkImportPage() -> impl IntoView {
         polling_started.set(false);
         job.set(None);
         spawn_local(async move {
-            match monitoring::bulk_import_confirm(
-                bytes,
-                name,
-                days,
-                key,
-            )
-            .await
-            {
+            match monitoring::bulk_import_confirm(bytes, name, days, key).await {
                 Ok(value) => job.set(Some(value.job)),
                 Err(value) => error.set(Some(value)),
             }

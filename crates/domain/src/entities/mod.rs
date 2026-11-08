@@ -65,21 +65,19 @@ pub use plan::Plan;
 
 mod plan_entitlements;
 pub use plan_entitlements::{
-    PlanEntitlement, PlanEntitlementError,
-    MAX_API_FLOW_MONITORS, MAX_API_FLOW_STEPS, MAX_CONCURRENT_PROXY_JOBS,
+    MAX_API_FLOW_MONITORS, MAX_API_FLOW_STEPS, MAX_API_KEYS, MAX_CONCURRENT_PROXY_JOBS,
     MAX_HEARTBEAT_MONITORS, MAX_PROXY_ENTRIES_PER_JOB, MAX_RECURRING_PROXY_EXECUTIONS_PER_MONTH,
-    MAX_RECURRING_PROXY_MONITORS, MAX_REGIONS_PER_MONITOR, MAX_RUM_EVENTS_PER_MONTH,
-    MAX_RUM_SITES, MAX_UPTIME_MONITORS, MAX_STATUS_PAGES, MAX_API_KEYS,
-    MAX_TEAM_MEMBERS,
-    MIN_RECURRING_PROXY_INTERVAL_SECONDS, MIN_UPTIME_INTERVAL_SECONDS,
+    MAX_RECURRING_PROXY_MONITORS, MAX_REGIONS_PER_MONITOR, MAX_RUM_EVENTS_PER_MONTH, MAX_RUM_SITES,
+    MAX_STATUS_PAGES, MAX_TEAM_MEMBERS, MAX_UPTIME_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS,
+    MIN_UPTIME_INTERVAL_SECONDS, PlanEntitlement, PlanEntitlementError,
 };
-
 
 // TASK 1 — recurring proxy monitoring (distinct from one-time ProxyCheckJob)
 mod recurring_proxy_monitor;
 pub use recurring_proxy_monitor::{
+    MIN_RECURRING_PROXY_INTERVAL_SECONDS as RECURRING_PROXY_MIN_INTERVAL_SECONDS,
     RecurringProxyCheck, RecurringProxyCheckStatus, RecurringProxyMonitor,
-    RecurringProxyMonitorError, MIN_RECURRING_PROXY_INTERVAL_SECONDS as RECURRING_PROXY_MIN_INTERVAL_SECONDS,
+    RecurringProxyMonitorError,
 };
 
 // Billing Provider Abstraction & Checkout:
@@ -126,7 +124,6 @@ pub use help_category::{CreateHelpCategory, HelpCategory};
 pub use support_message::{CreateSupportMessage, SupportMessage};
 pub use support_ticket::{CreateSupportTicket, SupportTicket};
 
-
 // RUM (Real User Monitoring):
 mod rum_site;
 pub use rum_site::RumSite;
@@ -141,8 +138,6 @@ pub use rum_resource_error::{RumResourceError, RumResourceType};
 
 mod rum_daily_aggregate;
 pub use rum_daily_aggregate::RumDailyAggregate;
-
-
 
 // Task 8C — retention entitlement constant (additive to the existing block):
 pub use plan_entitlements::MAX_HISTORY_RETENTION_DAYS;

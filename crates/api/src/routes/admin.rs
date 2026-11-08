@@ -1,8 +1,5 @@
 use crate::{
-    handlers::{
-        audit_records, list_companies, list_users, set_company_status,
-        set_user_status,
-    },
+    handlers::{audit_records, list_companies, list_users, set_company_status, set_user_status},
     state::AppState,
 };
 use axum::{

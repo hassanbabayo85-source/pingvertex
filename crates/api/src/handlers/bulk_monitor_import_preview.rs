@@ -102,24 +102,25 @@ pub async fn preview_bulk_monitor_import(
             ApiError::internal_with_source("failed to load existing monitor snapshot", error)
         })?;
     let preview = PreviewBulkMonitorImportUseCase::new()
-    .execute(
-        authenticated_user,
-        rows,
-        parse_errors,
-        snapshot, query.forecast_days,
-    )
-    .await
-    .map_err(|error| match error {
-        BulkMonitorImportPreviewError::Forbidden => {
-            ApiError::forbidden("you do not have permission to create monitors")
-        }
-        BulkMonitorImportPreviewError::Invalid(message) => ApiError::bad_request(message),
-        BulkMonitorImportPreviewError::Overflow => {
-            ApiError::bad_request("bulk import estimate is too large")
-        }
-        BulkMonitorImportPreviewError::Repository(source) => {
-            ApiError::internal_with_source("failed to calculate bulk import preview", source)
-        }
-    })?;
+        .execute(
+            authenticated_user,
+            rows,
+            parse_errors,
+            snapshot,
+            query.forecast_days,
+        )
+        .await
+        .map_err(|error| match error {
+            BulkMonitorImportPreviewError::Forbidden => {
+                ApiError::forbidden("you do not have permission to create monitors")
+            }
+            BulkMonitorImportPreviewError::Invalid(message) => ApiError::bad_request(message),
+            BulkMonitorImportPreviewError::Overflow => {
+                ApiError::bad_request("bulk import estimate is too large")
+            }
+            BulkMonitorImportPreviewError::Repository(source) => {
+                ApiError::internal_with_source("failed to calculate bulk import preview", source)
+            }
+        })?;
     Ok(Json(preview))
 }

@@ -17,7 +17,6 @@
 /// Money is *not* part of this struct — pricing lives in `plan_prices`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Entitlements {
-
     // ── HTTP / TCP / DNS monitors (shared quota) ───────────────────
     pub max_uptime_monitors: u32,
     pub min_uptime_interval_seconds: u32,
@@ -188,4 +187,3 @@ impl Entitlements {
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
-

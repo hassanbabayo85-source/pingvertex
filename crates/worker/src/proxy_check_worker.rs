@@ -26,7 +26,6 @@ impl ProxyCheckWorker {
         }
     }
 
-
     pub async fn run_once(&self) -> Result<()> {
         let stale_before = chrono::Utc::now() - chrono::Duration::seconds(PROXY_JOB_LEASE_SECS);
         if let Err(err) = self
@@ -97,13 +96,9 @@ impl ProxyCheckWorker {
             // A zero-entry job and a malformed persisted job do not perform a
             // network attempt, so they must never consume PAYG credit.
             if entries.is_empty() || entries.len() != running_job.total_count() as usize {
-                if let Err(err) = run_proxy_check_job(
-                    &*self.repository,
-                    running_job,
-                    entries,
-                    &self.worker_id,
-                )
-                .await
+                if let Err(err) =
+                    run_proxy_check_job(&*self.repository, running_job, entries, &self.worker_id)
+                        .await
                 {
                     error!(job_id=%job_id, error=%err, "proxy preflight failure");
                 }
@@ -119,13 +114,8 @@ impl ProxyCheckWorker {
             // The default is `None`, so proxy checks run without touching
             // the PAYG layer. `.with_metering(...)` opts back in for
             // development or for the Task 8 transition window.
-            let result = run_proxy_check_job(
-                &*self.repository,
-                running_job,
-                entries,
-                &self.worker_id,
-            )
-            .await;
+            let result =
+                run_proxy_check_job(&*self.repository, running_job, entries, &self.worker_id).await;
 
             if let Err(err) = result {
                 let reason = format!("proxy billing/execution failed: {err}");

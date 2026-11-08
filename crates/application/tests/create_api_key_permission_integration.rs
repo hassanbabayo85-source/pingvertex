@@ -48,9 +48,7 @@ fn make_use_case() -> CreateApiKeyUseCase {
     .with_entitlement_resolver(Arc::new(InMemoryEntitlementResolver::default()))
 }
 
-fn make_use_case_with_resolver(
-    resolver: InMemoryEntitlementResolver,
-) -> CreateApiKeyUseCase {
+fn make_use_case_with_resolver(resolver: InMemoryEntitlementResolver) -> CreateApiKeyUseCase {
     CreateApiKeyUseCase::new(
         Arc::new(InMemoryApiKeyRepository::new()),
         Arc::new(UuidIdGenerator::new()),

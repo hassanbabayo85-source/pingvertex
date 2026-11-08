@@ -125,10 +125,7 @@ impl PostgresRecurringProxyMonitorRepository {
 
     fn decrypt_credentials(&self, encrypted: Option<Vec<u8>>) -> Option<ProxyCredentials> {
         let bytes = encrypted?;
-        match self
-            .cipher
-            .decrypt(&EncryptedProxyCredentials::from(bytes))
-        {
+        match self.cipher.decrypt(&EncryptedProxyCredentials::from(bytes)) {
             Ok(c) => Some(c),
             Err(e) => {
                 tracing::warn!(
@@ -178,9 +175,8 @@ impl PostgresRecurringProxyMonitorRepository {
             .status
             .parse::<RecurringProxyCheckStatus>()
             .map_err(boxed)?;
-        let result: Option<ProxyResult> = row
-            .result_json
-            .and_then(|v| serde_json::from_value(v).ok());
+        let result: Option<ProxyResult> =
+            row.result_json.and_then(|v| serde_json::from_value(v).ok());
         Ok(RecurringProxyCheck {
             id: row.id,
             monitor_id: row.monitor_id,
@@ -306,11 +302,12 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
             .execute(&mut *tx)
             .await?;
 
-        let current: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM recurring_proxy_monitors WHERE tenant_id = $1")
-                .bind(tenant_id.0)
-                .fetch_one(&mut *tx)
-                .await?;
+        let current: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM recurring_proxy_monitors WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_one(&mut *tx)
+        .await?;
 
         if current as u32 >= limit {
             // Drop the tx — implicit rollback releases the advisory lock.
@@ -341,10 +338,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
         }
     }
 
-    async fn list_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<Vec<RecurringProxyMonitor>> {
+    async fn list_for_tenant(&self, tenant_id: TenantId) -> RepoResult<Vec<RecurringProxyMonitor>> {
         let q = format!(
             "SELECT {MONITOR_COLUMNS} FROM recurring_proxy_monitors WHERE tenant_id = $1 ORDER BY created_at DESC"
         );
@@ -404,22 +398,22 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
     async fn delete_for_tenant(&self, id: Uuid, tenant_id: TenantId) -> RepoResult<bool> {
         // `recurring_proxy_checks` cascades on delete via ON DELETE CASCADE
         // (migration 0125), so one statement is enough.
-        let result = sqlx::query(
-            "DELETE FROM recurring_proxy_monitors WHERE id = $1 AND tenant_id = $2",
-        )
-        .bind(id)
-        .bind(tenant_id.0)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM recurring_proxy_monitors WHERE id = $1 AND tenant_id = $2")
+                .bind(id)
+                .bind(tenant_id.0)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
     async fn count_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM recurring_proxy_monitors WHERE tenant_id = $1")
-                .bind(tenant_id.0)
-                .fetch_one(&self.pool)
-                .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM recurring_proxy_monitors WHERE tenant_id = $1",
+        )
+        .bind(tenant_id.0)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
 

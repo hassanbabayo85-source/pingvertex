@@ -13,8 +13,7 @@ use crate::{
     commands::CreateApiKey,
     errors::PlanLimitError,
     ports::{
-        ApiKeyRepository, AuditLogEntryRepository, EntitlementResolver, IdGenerator,
-        PasswordHasher,
+        ApiKeyRepository, AuditLogEntryRepository, EntitlementResolver, IdGenerator, PasswordHasher,
     },
 };
 
@@ -108,10 +107,7 @@ impl CreateApiKeyUseCase {
     /// TASK 4A — installs the authoritative `EntitlementResolver`.
     /// Production handlers MUST call this; `execute` fails closed with
     /// `EntitlementResolverMissing` if it is absent.
-    pub fn with_entitlement_resolver(
-        mut self,
-        resolver: Arc<dyn EntitlementResolver>,
-    ) -> Self {
+    pub fn with_entitlement_resolver(mut self, resolver: Arc<dyn EntitlementResolver>) -> Self {
         self.entitlement_resolver = Some(resolver);
         self
     }

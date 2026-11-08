@@ -67,7 +67,10 @@ where
         let entitlements = self.entitlement_resolver.resolve(tenant_id).await?;
         let limit = entitlements.max_uptime_monitors;
 
-        let monitors = self.monitor_repository.find_all_for_tenant(tenant_id).await?;
+        let monitors = self
+            .monitor_repository
+            .find_all_for_tenant(tenant_id)
+            .await?;
         let total_monitors = monitors.len() as u64;
 
         let plan = plan_suspension(&monitors, limit);
@@ -101,10 +104,7 @@ where
     /// results. A failure on one tenant does NOT abort the batch — it
     /// appears as an entry with `error: Some(...)` and the sweep moves
     /// on. This is the shape the periodic sweep worker consumes.
-    pub async fn reconcile_batch(
-        &self,
-        tenant_ids: &[TenantId],
-    ) -> Vec<BatchReconciliationEntry> {
+    pub async fn reconcile_batch(&self, tenant_ids: &[TenantId]) -> Vec<BatchReconciliationEntry> {
         let mut out = Vec::with_capacity(tenant_ids.len());
         for &tenant_id in tenant_ids {
             match self.reconcile_tenant(tenant_id).await {
@@ -166,19 +166,14 @@ mod tests {
     use super::*;
     use chrono::{Duration, Utc};
     use domain::{
-        MonitorBuilder, entities::Monitor,
+        MonitorBuilder,
+        entities::Monitor,
         enums::{HttpMethod, MonitorKind},
         shared::ids::{MonitorId, TenantId, UserId},
-        value_objects::{
-            CheckInterval, ExpectedStatus, MonitorName, Timeout, Url,
-        },
+        value_objects::{CheckInterval, ExpectedStatus, MonitorName, Timeout, Url},
     };
 
-    fn m(
-        id: u128,
-        age_secs: i64,
-        suspended: bool,
-    ) -> Monitor {
+    fn m(id: u128, age_secs: i64, suspended: bool) -> Monitor {
         let mut monitor = MonitorBuilder::new(
             MonitorId(uuid_from_u128(id)),
             UserId::new(),
@@ -230,15 +225,19 @@ mod tests {
         let second = m(2, 50, false);
         let third = m(3, 10, false);
         let newest = m(4, 1, false);
-        let monitors = vec![third.clone(), newest.clone(), oldest.clone(), second.clone()];
+        let monitors = vec![
+            third.clone(),
+            newest.clone(),
+            oldest.clone(),
+            second.clone(),
+        ];
 
         let plan = plan_suspension(&monitors, 2);
 
         // Keep oldest two (id=1, id=2), suspend the rest.
         assert_eq!(plan.to_unsuspend, Vec::<MonitorId>::new());
         assert_eq!(plan.to_suspend.len(), 2);
-        let suspended_set: std::collections::HashSet<_> =
-            plan.to_suspend.iter().copied().collect();
+        let suspended_set: std::collections::HashSet<_> = plan.to_suspend.iter().copied().collect();
         assert!(suspended_set.contains(&third.id));
         assert!(suspended_set.contains(&newest.id));
     }
@@ -314,8 +313,7 @@ mod tests {
 
         assert!(plan.to_unsuspend.is_empty());
         assert_eq!(plan.to_suspend.len(), 2);
-        let suspended_set: std::collections::HashSet<_> =
-            plan.to_suspend.iter().copied().collect();
+        let suspended_set: std::collections::HashSet<_> = plan.to_suspend.iter().copied().collect();
         assert!(suspended_set.contains(&m1.id));
         assert!(suspended_set.contains(&m2.id));
     }

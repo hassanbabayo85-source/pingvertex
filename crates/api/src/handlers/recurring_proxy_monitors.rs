@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use application::dto::{
-    CreateRecurringProxyMonitorRequest, RecurringProxyCheckResponse,
-    RecurringProxyMonitorResponse, UpdateRecurringProxyMonitorRequest,
+    CreateRecurringProxyMonitorRequest, RecurringProxyCheckResponse, RecurringProxyMonitorResponse,
+    UpdateRecurringProxyMonitorRequest,
 };
 use application::use_cases::{
     CreateRecurringProxyMonitorError, CreateRecurringProxyMonitorUseCase,
@@ -168,9 +168,7 @@ async fn set_enabled_impl(
         .await
         .map_err(|err| match err {
             SetEnabledError::Forbidden => ApiError::forbidden("forbidden"),
-            SetEnabledError::NotFound => {
-                ApiError::not_found("recurring proxy monitor not found")
-            }
+            SetEnabledError::NotFound => ApiError::not_found("recurring proxy monitor not found"),
             SetEnabledError::Other(e) => {
                 ApiError::internal_with_source("failed to update recurring proxy monitor state", e)
             }
@@ -188,15 +186,17 @@ pub async fn delete_recurring_proxy_monitor(
     let uc =
         DeleteRecurringProxyMonitorUseCase::new(state.recurring_proxy_monitor_repository.clone());
 
-    uc.execute(monitor_id, user).await.map_err(|err| match err {
-        DeleteRecurringProxyMonitorError::Forbidden => ApiError::forbidden("forbidden"),
-        DeleteRecurringProxyMonitorError::NotFound => {
-            ApiError::not_found("recurring proxy monitor not found")
-        }
-        DeleteRecurringProxyMonitorError::Other(e) => {
-            ApiError::internal_with_source("failed to delete recurring proxy monitor", e)
-        }
-    })?;
+    uc.execute(monitor_id, user)
+        .await
+        .map_err(|err| match err {
+            DeleteRecurringProxyMonitorError::Forbidden => ApiError::forbidden("forbidden"),
+            DeleteRecurringProxyMonitorError::NotFound => {
+                ApiError::not_found("recurring proxy monitor not found")
+            }
+            DeleteRecurringProxyMonitorError::Other(e) => {
+                ApiError::internal_with_source("failed to delete recurring proxy monitor", e)
+            }
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -211,8 +211,7 @@ pub async fn list_recurring_proxy_checks(
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
 
-    let uc =
-        ListRecurringProxyChecksUseCase::new(state.recurring_proxy_monitor_repository.clone());
+    let uc = ListRecurringProxyChecksUseCase::new(state.recurring_proxy_monitor_repository.clone());
 
     let result = uc
         .execute(monitor_id, offset, limit, user)
@@ -242,15 +241,18 @@ pub async fn get_latest_recurring_proxy_check(
     let uc =
         GetLatestRecurringProxyCheckUseCase::new(state.recurring_proxy_monitor_repository.clone());
 
-    let latest = uc.execute(monitor_id, user).await.map_err(|err| match err {
-        GetLatestRecurringProxyCheckError::Forbidden => ApiError::forbidden("forbidden"),
-        GetLatestRecurringProxyCheckError::NotFound => {
-            ApiError::not_found("recurring proxy monitor not found")
-        }
-        GetLatestRecurringProxyCheckError::Other(e) => {
-            ApiError::internal_with_source("failed to get latest recurring proxy check", e)
-        }
-    })?;
+    let latest = uc
+        .execute(monitor_id, user)
+        .await
+        .map_err(|err| match err {
+            GetLatestRecurringProxyCheckError::Forbidden => ApiError::forbidden("forbidden"),
+            GetLatestRecurringProxyCheckError::NotFound => {
+                ApiError::not_found("recurring proxy monitor not found")
+            }
+            GetLatestRecurringProxyCheckError::Other(e) => {
+                ApiError::internal_with_source("failed to get latest recurring proxy check", e)
+            }
+        })?;
 
     Ok(Json(latest))
 }

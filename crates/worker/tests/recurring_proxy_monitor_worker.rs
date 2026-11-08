@@ -15,9 +15,7 @@ use domain::shared::ids::{TenantId, UserId};
 use domain::value_objects::{ProxyHost, ProxyResult};
 use infra::InMemoryRecurringProxyMonitorRepository;
 use uuid::Uuid;
-use worker::recurring_proxy_monitor_worker::{
-    ProxyCheckRunner, RecurringProxyMonitorWorker,
-};
+use worker::recurring_proxy_monitor_worker::{ProxyCheckRunner, RecurringProxyMonitorWorker};
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -180,7 +178,10 @@ async fn records_timeout_as_timed_out() {
     let id = seed_due_monitor(&repo, tenant, user, "slow").await;
 
     let worker = RecurringProxyMonitorWorker::new(repo.clone())
-        .with_checker(FakeChecker::delayed(working_result(), Duration::from_secs(5)))
+        .with_checker(FakeChecker::delayed(
+            working_result(),
+            Duration::from_secs(5),
+        ))
         .with_check_timeout(Duration::from_millis(50));
 
     let count = worker.run_once().await.unwrap();
@@ -189,7 +190,13 @@ async fn records_timeout_as_timed_out() {
     let (checks, _) = repo.list_checks(id, tenant, 0, 10).await.unwrap();
     assert_eq!(checks.len(), 1);
     assert_eq!(checks[0].status, RecurringProxyCheckStatus::TimedOut);
-    assert!(checks[0].error_message.as_ref().unwrap().contains("timeout"));
+    assert!(
+        checks[0]
+            .error_message
+            .as_ref()
+            .unwrap()
+            .contains("timeout")
+    );
 }
 
 #[tokio::test]
@@ -223,11 +230,13 @@ async fn bad_port_is_recorded_as_failed_and_rescheduled() {
 
     let (checks, _) = repo.list_checks(id, tenant, 0, 10).await.unwrap();
     assert_eq!(checks[0].status, RecurringProxyCheckStatus::Failed);
-    assert!(checks[0]
-        .error_message
-        .as_ref()
-        .unwrap()
-        .contains("invalid proxy configuration"));
+    assert!(
+        checks[0]
+            .error_message
+            .as_ref()
+            .unwrap()
+            .contains("invalid proxy configuration")
+    );
 
     // Still rescheduled.
     let loaded = repo.find_by_id(id, tenant).await.unwrap().unwrap();
@@ -351,14 +360,26 @@ async fn reschedule_is_noop_after_lease_expired_and_reclaimed() {
 
     // Worker A's reschedule is a no-op: worker_id mismatch.
     let a_ok = repo
-        .reschedule(id, tenant, "worker-a", later, later + ChronoDuration::seconds(300))
+        .reschedule(
+            id,
+            tenant,
+            "worker-a",
+            later,
+            later + ChronoDuration::seconds(300),
+        )
         .await
         .unwrap();
     assert!(!a_ok);
 
     // Worker B's reschedule succeeds.
     let b_ok = repo
-        .reschedule(id, tenant, "worker-b", later, later + ChronoDuration::seconds(300))
+        .reschedule(
+            id,
+            tenant,
+            "worker-b",
+            later,
+            later + ChronoDuration::seconds(300),
+        )
         .await
         .unwrap();
     assert!(b_ok);

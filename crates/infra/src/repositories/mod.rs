@@ -102,12 +102,9 @@ pub use in_memory_entitlement_resolver::InMemoryEntitlementResolver;
 
 // Plan / Subscription / Entitlement model:
 
-
 // Billing Provider Abstraction & Checkout:
 
-
 // Billing Webhooks:
-
 
 // Durable Scheduler:
 pub mod postgres_scheduling_repository;
@@ -132,7 +129,6 @@ pub use in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;
 
 // Proration Service:
-
 
 // Help Center & Support:
 pub mod in_memory_help_article_repository;
@@ -159,7 +155,6 @@ pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
 pub use postgres_rum_event_repository::PostgresRumEventRepository;
 pub use postgres_rum_site_repository::PostgresRumSiteRepository;
 
-
 pub mod in_memory_tenant_alert_allowance_repository;
 pub use in_memory_tenant_alert_allowance_repository::InMemoryTenantAlertAllowanceRepository;
 pub mod in_memory_tenant_retention_settings_repository;
@@ -182,8 +177,6 @@ pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;
 // Task 6 — plan prices:
 
 // Task 6 — subscription billing records:
-
-
 
 pub mod env_entitlement_resolver;
 pub use env_entitlement_resolver::EnvEntitlementResolver;

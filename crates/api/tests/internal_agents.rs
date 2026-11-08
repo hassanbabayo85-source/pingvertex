@@ -21,8 +21,8 @@ use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
-    NoopNotificationService, UuidIdGenerator,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
+    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::Arc;

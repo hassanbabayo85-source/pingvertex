@@ -16,7 +16,8 @@ use api::{auth_state::AuthState, router::build_test_router, state::AppState};
 use application::ports::{
     CheckRepository, DiagnosticReportRepository, IncidentRepository, PasswordHasher,
     PendingAuthCache, PendingAuthCacheResult, SecretCipher, SecretCipherError,
-    TenantMembershipRepository, TenantRepository, TokenService, UserRepository, };
+    TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
+};
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -30,11 +31,10 @@ use domain::{
     },
 };
 use infra::{
-    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
-    InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
-    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
-NoopNotificationService,
+    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
+    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
+    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
     UuidIdGenerator,
 };
 use serde_json::json;

@@ -207,11 +207,7 @@ where
         }
     }
 
-
-    pub fn with_tenant_repository(
-        mut self,
-        tenant_repository: Arc<dyn TenantRepository>,
-    ) -> Self {
+    pub fn with_tenant_repository(mut self, tenant_repository: Arc<dyn TenantRepository>) -> Self {
         self.tenant_repository = Some(tenant_repository);
         self
     }
@@ -544,9 +540,7 @@ where
                     // Defense in depth: if the tenant currently has more
                     // monitors than the plan allows, skip this claim now.
                     // (Reconciliation should already have suspended it.)
-                    if let (Some(ent), Some(mon_repo)) =
-                        (&entitlements, &self.monitor_repository)
-                    {
+                    if let (Some(ent), Some(mon_repo)) = (&entitlements, &self.monitor_repository) {
                         let total = mon_repo
                             .count_for_tenant(claim.monitor.tenant_id)
                             .await
@@ -582,8 +576,7 @@ where
                         // analytics-only recording.
                         let result: Result<()> = if let Some(ent) = entitlements {
                             if monitor.interval_seconds < ent.min_uptime_interval_seconds {
-                                metrics::counter!("scheduler_entitlement_skips_total")
-                                    .increment(1);
+                                metrics::counter!("scheduler_entitlement_skips_total").increment(1);
                                 metrics::counter!(
                                     "checks_skipped_total",
                                     "reason" => "interval_below_plan"
@@ -646,9 +639,9 @@ where
 
                         if let Err(err) = &result {
                             {
-metrics::counter!("checks_failed_total", "kind" => "monitor")
+                                metrics::counter!("checks_failed_total", "kind" => "monitor")
                                     .increment(1);
-}
+                            }
                             warn!(
                                 monitor_id = %monitor.id.0,
                                 error = %err,

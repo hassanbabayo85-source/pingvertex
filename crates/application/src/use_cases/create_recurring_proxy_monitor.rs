@@ -5,10 +5,8 @@ use crate::{
     errors::PlanLimitError,
     ports::{EntitlementResolver, RecurringProxyMonitorRepository},
 };
-use domain::entities::{
-    MAX_RECURRING_PROXY_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS,
-};
 use domain::entities::RecurringProxyMonitor;
+use domain::entities::{MAX_RECURRING_PROXY_MONITORS, MIN_RECURRING_PROXY_INTERVAL_SECONDS};
 use domain::shared::types::{AuthenticatedUser, Permission};
 use domain::value_objects::{ProxyCredentials, ProxyHost, is_allowed_proxy_port};
 use uuid::Uuid;
@@ -94,9 +92,8 @@ where
             ));
         }
 
-        let host = ProxyHost::new(request.host.clone()).map_err(|e| {
-            CreateRecurringProxyMonitorError::InvalidHost(e.to_string())
-        })?;
+        let host = ProxyHost::new(request.host.clone())
+            .map_err(|e| CreateRecurringProxyMonitorError::InvalidHost(e.to_string()))?;
 
         if !is_allowed_proxy_port(request.port) {
             return Err(CreateRecurringProxyMonitorError::InvalidHost(format!(
@@ -108,8 +105,10 @@ where
         let credentials = match (request.username.as_deref(), request.password.as_deref()) {
             (None, None) => None,
             (u, p) => {
-                let creds = ProxyCredentials::new(u.unwrap_or(""), p.unwrap_or(""))
-                    .map_err(|e| CreateRecurringProxyMonitorError::InvalidCredentials(e.to_string()))?;
+                let creds =
+                    ProxyCredentials::new(u.unwrap_or(""), p.unwrap_or("")).map_err(|e| {
+                        CreateRecurringProxyMonitorError::InvalidCredentials(e.to_string())
+                    })?;
                 Some(creds)
             }
         };
