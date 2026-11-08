@@ -41,7 +41,7 @@ async fn execute_with_controls<E: CheckExecutor>(
             tokio::time::sleep(wait_for).await;
         }
 
-        metrics::counter!("checks_executed_total", "kind" => domain::monitor_operation(monitor.kind, false).as_str()).increment(1);
+        metrics::counter!("checks_executed_total", "kind" => domain::monitor_operation(monitor.kind, false)).increment(1);
         match executor.execute(&monitor).await {
             Ok(result) => {
                 let elapsed = started.elapsed().as_secs_f64();
@@ -607,7 +607,7 @@ where
                             }
                             metrics::counter!(
                                 "checks_executed_total",
-                                "kind" => domain::monitor_operation(monitor.kind, false).as_str()
+                                "kind" => domain::monitor_operation(monitor.kind, false)
                             )
                             .increment(1);
                             match execute_with_controls(
