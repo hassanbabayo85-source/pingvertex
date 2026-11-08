@@ -8,7 +8,7 @@ use crate::{
     errors::PlanLimitError,
     ports::{
         AuditLogEntryRepository, EntitlementResolver, MonitorIntervalPolicyRepository,
-        MonitorRepository, PricingConfigRepository, WalletRepository,
+        MonitorRepository, PricingConfigRepository,
     },
 };
 use domain::{
@@ -49,10 +49,6 @@ where
     }
 
     // Deprecated no-ops (see `CreateMonitorUseCase` for the rationale).
-    pub fn with_wallet_repository(self, _repository: Arc<dyn WalletRepository>) -> Self {
-        self
-    }
-
     pub fn with_interval_policy_repository(
         self,
         _repository: Arc<dyn MonitorIntervalPolicyRepository>,

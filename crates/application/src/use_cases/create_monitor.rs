@@ -9,7 +9,6 @@ use crate::{
     ports::{
         AuditLogEntryRepository, EntitlementResolver, IdGenerator, MonitorIntervalPolicyRepository,
         MonitorRepository, PricingConfigRepository, QuotaCheckOutcome, TenantRepository,
-        WalletRepository,
     },
 };
 use domain::{
@@ -123,10 +122,6 @@ where
     // (bulk import, preview) still compile against this use case. They
     // have no effect: PAYG is no longer consulted at creation time.
     // TASK 8 will delete them along with the rest of the PAYG runtime.
-
-    pub fn with_wallet_repository(self, _repository: Arc<dyn WalletRepository>) -> Self {
-        self
-    }
 
     pub fn with_interval_policy_repository(
         self,

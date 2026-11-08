@@ -133,19 +133,8 @@ pub use entitlement_resolver::EntitlementResolver;
 pub use subscription_repository::SubscriptionRepository;
 
 // Billing Provider Abstraction & Checkout:
-pub mod checkout_session_repository;
-pub mod payment_provider;
-pub use checkout_session_repository::CheckoutSessionRepository;
-pub use payment_provider::{
-    CheckoutDetails, CheckoutRequest, PaymentProvider, PaymentProviderResult, PaymentVerification,
-};
-pub use payment_provider::{RefundDetails, RefundRequest, WalletTopUpRequest};
 
 // Billing Webhooks:
-pub mod billing_audit_log_repository;
-pub mod billing_webhook_idempotency_repository;
-pub use billing_audit_log_repository::BillingAuditLogRepository;
-pub use billing_webhook_idempotency_repository::BillingWebhookIdempotencyRepository;
 
 // Durable Scheduler:
 pub mod scheduling_repository;
@@ -170,15 +159,7 @@ pub mod pricing_config_repository;
 pub use pricing_config_repository::PricingConfigRepository;
 
 // Proration Service:
-pub mod subscription_usage_period_repository;
-pub mod subscription_usage_transaction;
-pub use subscription_usage_period_repository::SubscriptionUsagePeriodRepository;
-pub use subscription_usage_transaction::{
-    SubscriptionUsageTransaction, SubscriptionUsageTransactionResult,
-};
 
-pub mod add_on_subscription_repository;
-pub use add_on_subscription_repository::AddOnSubscriptionRepository;
 
 pub mod sms_provider_pricing;
 pub use sms_provider_pricing::{SmsPricingResult, SmsProviderPricing};
@@ -201,13 +182,7 @@ pub use rum_event_repository::{RumEventRepository, UpsertedRumSession};
 pub use rum_site_repository::RumSiteRepository;
 
 pub mod invoice_repository;
-pub mod subscription_plan_change_repository;
-pub mod wallet_repository;
 pub use invoice_repository::{InvoiceRepoResult, InvoiceRepository};
-pub use subscription_plan_change_repository::{
-    PlanChangeRepoResult, SubscriptionPlanChangeRepository,
-};
-pub use wallet_repository::{ReservationOutcome, WalletRepoResult, WalletRepository};
 pub mod tenant_alert_allowance_repository;
 pub mod tenant_retention_settings_repository;
 pub use tenant_alert_allowance_repository::{
@@ -221,8 +196,6 @@ pub mod usage_event_repository;
 pub use usage_event_repository::{UsageDailyPoint, UsageOperationPoint, UsageReport};
 pub use usage_event_repository::{UsageEventRepoResult, UsageEventRepository};
 
-pub mod payment_repository;
-pub use payment_repository::{PaymentRepoResult, PaymentRepository};
 
 // PAYG durable CSV bulk import.
 pub mod bulk_monitor_action_repository;
@@ -242,14 +215,3 @@ pub mod plan_price_repository;
 pub use plan_price_repository::{PlanPriceRepoResult, PlanPriceRepository};
 
 // Task 6 — subscription billing records:
-pub mod subscription_activation_repository;
-pub use subscription_activation_repository::{
-    ActivationOutcome, SubscriptionAction, SubscriptionActivationError,
-    SubscriptionActivationRepository, SubscriptionActivationResult,
-};
-pub mod subscription_billing_record_repository;
-pub use payment_provider::{SubscriptionCheckoutRequest, SubscriptionPaymentVerification};
-pub use subscription_billing_record_repository::{
-    BillingRecordStatus, InsertBillingRecordOutcome, SubscriptionBillingRecord,
-    SubscriptionBillingRecordRepository,
-};
