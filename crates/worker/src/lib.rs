@@ -77,8 +77,6 @@ pub mod rum_aggregation_worker;
 pub use rum_aggregation_worker::RumAggregationWorker;
 
 
-pub mod reconciliation_worker;
-pub use reconciliation_worker::ReconciliationWorker;
 
 pub mod bulk_monitor_action_worker;
 mod bulk_monitor_import_worker;

@@ -26,7 +26,7 @@ use worker::{
     AllowanceResetWorker, BulkMonitorActionWorker, BulkMonitorImportWorker,
     CustomDomainVerificationWorker, EscalationWorker, HeartbeatSweeper, IncidentEvaluator,
     IncidentManager, MultiCheckExecutor, OutboxWorker, ProxyCheckWorker,
-    RealNotificationOutboxSender, ReconciliationWorker, RetentionWorker, RumAggregationWorker,
+    RealNotificationOutboxSender, RetentionWorker, RumAggregationWorker,
     TenantNotificationRateLimiter,
     init_rustls_crypto_provider, metrics,
 };
@@ -271,17 +271,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 error = %err,
                 "proxy check worker stopped unexpectedly"
             );
-        }
-    });
-
-    let reconciliation_worker = ReconciliationWorker::new(pool.clone(), Duration::from_secs(300));
-    let reconciliation_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        if let Err(err) = reconciliation_worker
-            .run_forever(reconciliation_cancel)
-            .await
-        {
-            tracing::error!(error=%err, "billing reconciliation worker stopped unexpectedly");
         }
     });
 
