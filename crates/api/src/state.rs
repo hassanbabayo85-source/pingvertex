@@ -11,15 +11,13 @@ use application::ports::{
     MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
     NotificationChannelRepository, NotificationService, PasswordHasher,
     ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
-    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
-    SupportTicketRepository,
+    RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository,     SupportTicketRepository,
     TenantAlertAllowanceRepository, TenantRepository, TenantRetentionSettingsRepository,
     UsageEventRepository, UserRepository,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::Subscription;
 use domain::entities::{ApiKey, StatusPage};
 use domain::shared::ids::{ApiKeyId, MonitorId, StatusPageId, TenantId, UserId};
 use domain::{EscalationPolicy, MaintenanceWindow};
@@ -63,9 +61,7 @@ pub struct AppState {
     pub audit_log_entry_repository: Arc<dyn AuditLogEntryRepository>,
     pub api_key_repository: Arc<dyn ApiKeyRepository>,
     pub password_hasher: Arc<dyn PasswordHasher>,
-    pub subscription_repository: Arc<dyn SubscriptionRepository>,
     /// Task 6 — server-side plan prices. Defaults to Noop (returns None).
-    pub plan_price_repository: Arc<dyn application::ports::PlanPriceRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
     /// Server-side agent identity registry.
     pub agent_registry: Arc<dyn AgentRegistry>,
@@ -102,7 +98,6 @@ pub struct AppState {
     pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
     pub usage_event_repository: Arc<dyn UsageEventRepository>,
-    pub invoice_repository: Arc<dyn application::ports::InvoiceRepository>,
     pub platform_user_repository: Arc<dyn application::ports::UserRepository>,
     pub platform_tenant_repository: Arc<dyn application::ports::TenantRepository>,
 }
@@ -439,88 +434,6 @@ impl HealthCheckPort for NoopHealthCheckPort {
         Ok(())
     }
 }
-
-
-
-struct NoopInvoiceRepository;
-#[async_trait]
-impl application::ports::InvoiceRepository for NoopInvoiceRepository {
-    async fn create_invoice(
-        &self,
-        _: &domain::Invoice,
-        _: &[domain::InvoiceLine],
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-    async fn list_by_tenant(&self, _: uuid::Uuid, _: u32) -> RepoResult<Vec<domain::Invoice>> {
-        Ok(vec![])
-    }
-    async fn find_by_id_for_tenant(
-        &self,
-        _: uuid::Uuid,
-        _: uuid::Uuid,
-    ) -> RepoResult<Option<domain::Invoice>> {
-        Ok(None)
-    }
-    async fn update_status_for_tenant(
-        &self,
-        _: uuid::Uuid,
-        _: uuid::Uuid,
-        _: domain::InvoiceStatus,
-        _: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Clone, Default)]
-struct NoopSubscriptionRepository;
-
-#[async_trait]
-impl SubscriptionRepository for NoopSubscriptionRepository {
-    async fn create(&self, _subscription: &Subscription) -> RepoResult<()> {
-        Ok(())
-    }
-
-    async fn find_by_tenant_id(&self, _tenant_id: TenantId) -> RepoResult<Option<Subscription>> {
-        Ok(None)
-    }
-
-    async fn update(&self, _subscription: &Subscription) -> RepoResult<()> {
-        Ok(())
-    }
-}
-
-
-
-#[derive(Clone, Default)]
-struct NoopPlanPriceRepository;
-
-#[async_trait]
-impl application::ports::PlanPriceRepository for NoopPlanPriceRepository {
-    async fn find_effective(
-        &self,
-        _plan_tier: domain::PlanTier,
-        _currency: domain::money::Currency,
-        _billing_interval: domain::money::BillingInterval,
-    ) -> application::ports::PlanPriceRepoResult<Option<domain::entities::PlanPrice>> {
-        Ok(None)
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1090,8 +1003,6 @@ impl AppState {
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),
-            subscription_repository: Arc::new(NoopSubscriptionRepository),
-            plan_price_repository: Arc::new(NoopPlanPriceRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
@@ -1109,7 +1020,6 @@ impl AppState {
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
             usage_event_repository: Arc::new(NoopUsageEventRepository),
-            invoice_repository: Arc::new(NoopInvoiceRepository),
             platform_user_repository: Arc::new(NoopUserRepository),
             platform_tenant_repository: Arc::new(NoopTenantRepository),
         }
@@ -1151,7 +1061,6 @@ impl AppState {
         AL: AuditLogEntryRepository + 'static,
     {
         Self {
-            invoice_repository: Arc::new(NoopInvoiceRepository),
             monitor_repository: Arc::new(monitor_repository),
             entitlement_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
 
@@ -1179,8 +1088,6 @@ impl AppState {
             audit_log_entry_repository: Arc::new(audit_log_entry_repository),
             api_key_repository: Arc::new(NoopApiKeyRepository),
             password_hasher: Arc::new(Argon2PasswordHasher),
-            subscription_repository: Arc::new(NoopSubscriptionRepository),
-            plan_price_repository: Arc::new(NoopPlanPriceRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
@@ -1247,24 +1154,10 @@ impl AppState {
         self
     }
 
-    pub fn with_subscription_repository<R>(mut self, subscription_repository: R) -> Self
-    where
-        R: SubscriptionRepository + 'static,
-    {
-        self.subscription_repository = Arc::new(subscription_repository);
-        self
-    }
 
 
 
 
-    pub fn with_plan_price_repository<R>(mut self, repository: R) -> Self
-    where
-        R: application::ports::PlanPriceRepository + 'static,
-    {
-        self.plan_price_repository = Arc::new(repository);
-        self
-    }
 
 
 
@@ -1461,11 +1354,4 @@ impl AppState {
         self
     }
 
-    pub fn with_invoice_repository<R>(mut self, repo: R) -> Self
-    where
-        R: application::ports::InvoiceRepository + 'static,
-    {
-        self.invoice_repository = Arc::new(repo);
-        self
-    }
 }

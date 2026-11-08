@@ -128,9 +128,7 @@ pub use tenant_invitation_repository::TenantInvitationRepository;
 
 // Plan / Subscription / Entitlement model:
 pub mod entitlement_resolver;
-pub mod subscription_repository;
 pub use entitlement_resolver::EntitlementResolver;
-pub use subscription_repository::SubscriptionRepository;
 
 // Billing Provider Abstraction & Checkout:
 
@@ -181,8 +179,6 @@ pub use rum_analytics_repository::RumAnalyticsRepository;
 pub use rum_event_repository::{RumEventRepository, UpsertedRumSession};
 pub use rum_site_repository::RumSiteRepository;
 
-pub mod invoice_repository;
-pub use invoice_repository::{InvoiceRepoResult, InvoiceRepository};
 pub mod tenant_alert_allowance_repository;
 pub mod tenant_retention_settings_repository;
 pub use tenant_alert_allowance_repository::{
@@ -211,7 +207,5 @@ pub use bulk_monitor_action_repository::{
 pub use agent_registry::{AgentRegistry, AgentRegistryResult};
 
 // Task 6 — server-side plan prices:
-pub mod plan_price_repository;
-pub use plan_price_repository::{PlanPriceRepoResult, PlanPriceRepository};
 
 // Task 6 — subscription billing records:
