@@ -262,12 +262,6 @@ pub enum DomainError {
     InvalidTenantStatus(String),
 
     // Subscription Lifecycle:
-    #[error("invalid subscription status: {0}")]
-    InvalidSubscriptionStatus(String),
-
-    #[error("invalid subscription transition: {0}")]
-    InvalidSubscriptionTransition(String),
-
     #[error("scheduled cancellation requires a current period end")]
     ScheduledCancellationMissingPeriodEnd,
 
@@ -280,15 +274,6 @@ pub enum DomainError {
     InvalidBillingWebhookEventType(String),
 
     // Proration Service:
-    #[error("subscription usage monitors must be greater than zero")]
-    SubscriptionUsageMonitorsZero,
-
-    #[error("subscription usage interval_seconds must be greater than zero")]
-    SubscriptionUsageIntervalSecondsZero,
-
-    #[error("subscription usage retention_days must be greater than zero")]
-    SubscriptionUsageRetentionDaysZero,
-
     #[error("usage period is already closed")]
     UsagePeriodAlreadyClosed,
 

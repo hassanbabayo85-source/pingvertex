@@ -74,8 +74,6 @@ pub use plan_entitlements::{
     MIN_RECURRING_PROXY_INTERVAL_SECONDS, MIN_UPTIME_INTERVAL_SECONDS,
 };
 
-mod subscription;
-pub use subscription::Subscription;
 
 // TASK 1 — recurring proxy monitoring (distinct from one-time ProxyCheckJob)
 mod recurring_proxy_monitor;

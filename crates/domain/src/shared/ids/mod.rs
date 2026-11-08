@@ -71,8 +71,6 @@ pub mod invitation_id;
 pub use invitation_id::InvitationId;
 
 // Plan / Subscription / Entitlement model:
-pub mod subscription_id;
-pub use subscription_id::SubscriptionId;
 
 // Billing Provider Abstraction & Checkout:
 

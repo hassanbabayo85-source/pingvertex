@@ -88,8 +88,6 @@ pub mod plan_tier;
 pub use plan_tier::PlanTier;
 
 // Subscription Lifecycle:
-pub mod subscription_status;
-pub use subscription_status::SubscriptionStatus;
 
 // Billing Provider Abstraction & Checkout:
 pub mod checkout_status;
