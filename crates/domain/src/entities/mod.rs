@@ -96,8 +96,6 @@ mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;
 
 // Proration Service:
-mod subscription_usage_period;
-pub use subscription_usage_period::SubscriptionUsagePeriod;
 
 mod check;
 pub use check::Check;
@@ -146,17 +144,9 @@ pub use rum_resource_error::{RumResourceError, RumResourceType};
 mod rum_daily_aggregate;
 pub use rum_daily_aggregate::RumDailyAggregate;
 
-pub mod wallet;
-pub use wallet::{
-    AutoTopUpAttempt, AutoTopUpCandidate, CreditReservation, Wallet, WalletBalanceSummary,
-    WalletNotification, WalletRefundRequest, WalletSettings, WalletTopUpSession, WalletTransaction,
-    WalletTransactionType,
-};
 
 mod payg;
 pub use payg::{PAYGPricing, Payment, UsageEvent};
-mod invoice;
-pub use invoice::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, InvoiceStatus};
 
 // Task 8C — retention entitlement constant (additive to the existing block):
 pub use plan_entitlements::MAX_HISTORY_RETENTION_DAYS;
