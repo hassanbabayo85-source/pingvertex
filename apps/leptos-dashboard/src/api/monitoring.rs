@@ -20,10 +20,6 @@ pub struct Monitor {
     pub interval_seconds: u64,
     pub timeout_seconds: u64,
     pub enabled: bool,
-    #[serde(default)]
-    pub billing_blocked: bool,
-    #[serde(default)]
-    pub billing_block_reason: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub status: Option<String>,

@@ -121,7 +121,7 @@ pub fn MonitorsPage() -> impl IntoView {
 
             {move || {
                 let list = monitors.get();
-                let active = list.iter().filter(|m| m.enabled && !m.billing_blocked).count();
+                let active = list.iter().filter(|m| m.enabled).count();
                 let paused = list.len().saturating_sub(active);
                 view! {
                     <div class="monitor-summary">
@@ -438,20 +438,13 @@ pub fn MonitorsPage() -> impl IntoView {
                                                     let name = m.name.clone();
                                                     let enabled_now = m.enabled;
                                                     let status_display = effective_status(&m);
-                                                    let status_label = if m.billing_blocked {
-                                                        m.billing_block_reason
-                                                            .clone()
-                                                            .map(|reason| format!("Paused — {reason}"))
-                                                    } else {
-                                                        None
-                                                    };
-                                                    let status_badge_label = status_label.unwrap_or_else(|| match status_display.as_str() {
+                                                    let status_badge_label = match status_display.as_str() {
                                                         "up" | "operational" => "Operational".to_string(),
                                                         "down" | "outage" => "Down".to_string(),
                                                         "degraded" | "warning" | "degraded_performance" => "Warning".to_string(),
                                                         "paused" | "disabled" => "Disabled".to_string(),
                                                         _ => "Unknown".to_string(),
-                                                    });
+                                                    };
                                                     let navigate_detail = navigate.clone();
                                                     let navigate_edit = navigate.clone();
                                                     let id_detail = id.clone();
@@ -578,9 +571,6 @@ pub fn MonitorsPage() -> impl IntoView {
 }
 
 fn effective_status(m: &Monitor) -> String {
-    if m.billing_blocked {
-        return "paused".to_string();
-    }
     if !m.enabled {
         return "paused".to_string();
     }

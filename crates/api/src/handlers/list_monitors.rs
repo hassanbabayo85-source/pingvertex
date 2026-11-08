@@ -53,23 +53,11 @@ pub async fn list_monitors(
         .await
         .map_err(|err| ApiError::internal_with_source("failed to list monitors", err))?;
 
-    let billing_blocks = state
-        .monitor_repository
-        .billing_blocks_for_tenant(authenticated_user.tenant_context().tenant_id())
-        .await
-        .map_err(|err| {
-            ApiError::internal_with_source("failed to load monitor billing state", err)
-        })?;
-
     let body: Vec<MonitorResponse> = page
         .items
         .into_iter()
         .map(|monitor| {
-            let mut response = MonitorResponse::from(monitor.clone());
-            if let Some(reason) = billing_blocks.get(&monitor.id) {
-                response.billing_blocked = true;
-                response.billing_block_reason = Some(reason.clone());
-            }
+            let mut response = MonitorResponse::from(monitor);
             // List responses do not need monitor assertions. Clear them
             // explicitly so authenticated list callers cannot receive
             // assertion payloads they did not request.

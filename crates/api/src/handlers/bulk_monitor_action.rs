@@ -21,11 +21,9 @@ const MAX_AUDIT_REASON_LEN: usize = 500;
 pub enum BulkMonitorAction {
     Enable,
     Disable,
-    /// Product semantics: pause is a user-requested disable. Billing blocks
-    /// remain distinct and are represented by `billing_blocked`.
+    /// Product semantics: pause is a user-requested disable.
     Pause,
-    /// Product semantics: resume is a user-requested enable. It never clears
-    /// a durable billing block.
+    /// Product semantics: resume is a user-requested enable.
     Resume,
 }
 
