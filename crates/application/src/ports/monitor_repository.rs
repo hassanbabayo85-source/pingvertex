@@ -268,39 +268,6 @@ pub trait MonitorRepository: Send + Sync {
     ) -> RepoResult<u64> {
         Ok(0)
     }
-
-    /// Creates or replaces a durable billing block for a monitor. The
-    /// monitor must belong to tenant_id; cross-tenant ids are ignored.
-    async fn set_billing_block(
-        &self,
-        _monitor_id: MonitorId,
-        _tenant_id: TenantId,
-        _reason: &str,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
-
-    async fn clear_billing_blocks_for_tenant(&self, _tenant_id: TenantId) -> RepoResult<u64> {
-        Ok(0)
-    }
-
-    /// Clears only balance-exhaustion blocks after a wallet top-up. Spend-limit
-    /// blocks must remain until the configured limit is actually available.
-    async fn clear_balance_billing_blocks_for_tenant(
-        &self,
-        _tenant_id: TenantId,
-    ) -> RepoResult<u64> {
-        Ok(0)
-    }
-
-    /// Returns billing-block reasons for the tenant in one query, avoiding
-    /// N+1 lookups in the monitor list UI.
-    async fn billing_blocks_for_tenant(
-        &self,
-        _tenant_id: TenantId,
-    ) -> RepoResult<std::collections::HashMap<MonitorId, String>> {
-        Ok(std::collections::HashMap::new())
-    }
 }
 
 #[async_trait]
@@ -428,36 +395,5 @@ where
         (**self)
             .set_entitlement_suspended_for_tenant(tenant_id, monitor_ids, suspended)
             .await
-    }
-
-    async fn set_billing_block(
-        &self,
-        monitor_id: MonitorId,
-        tenant_id: TenantId,
-        reason: &str,
-    ) -> RepoResult<bool> {
-        (**self)
-            .set_billing_block(monitor_id, tenant_id, reason)
-            .await
-    }
-
-    async fn clear_billing_blocks_for_tenant(&self, tenant_id: TenantId) -> RepoResult<u64> {
-        (**self).clear_billing_blocks_for_tenant(tenant_id).await
-    }
-
-    async fn clear_balance_billing_blocks_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<u64> {
-        (**self)
-            .clear_balance_billing_blocks_for_tenant(tenant_id)
-            .await
-    }
-
-    async fn billing_blocks_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> RepoResult<std::collections::HashMap<MonitorId, String>> {
-        (**self).billing_blocks_for_tenant(tenant_id).await
     }
 }

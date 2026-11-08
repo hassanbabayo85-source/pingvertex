@@ -408,34 +408,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
         Ok(result.rows_affected() == 1)
     }
 
-    async fn set_billing_block(
-        &self,
-        monitor_id: MonitorId,
-        tenant_id: domain::shared::ids::TenantId,
-        reason: &str,
-    ) -> RepoResult<bool> {
-        let reason = reason.trim();
-        if reason.is_empty() || reason.len() > 500 {
-            return Err("invalid billing block reason".into());
-        }
-        let result = sqlx::query(
-            r#"
-            INSERT INTO monitor_billing_blocks(monitor_id, tenant_id, reason)
-            SELECT id, tenant_id, $3
-            FROM monitors
-            WHERE id = $1 AND tenant_id = $2
-            ON CONFLICT (monitor_id) DO UPDATE
-            SET reason = EXCLUDED.reason, updated_at = now()
-            "#,
-        )
-        .bind(monitor_id.0)
-        .bind(tenant_id.0)
-        .bind(reason)
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected() == 1)
-    }
-
     async fn enqueue_one_time_check(
         &self,
         t: domain::shared::ids::TenantId,

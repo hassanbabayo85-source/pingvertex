@@ -176,15 +176,6 @@ impl SchedulingRepository for NoopSchedulingRepository {
     async fn recover_expired_leases(&self, _now: DateTime<Utc>) -> RepoResult<u64> {
         Ok(0)
     }
-
-    async fn set_billing_block(
-        &self,
-        _monitor_id: MonitorId,
-        _tenant_id: TenantId,
-        _reason: &str,
-    ) -> RepoResult<bool> {
-        Ok(false)
-    }
     async fn enqueue_one_time_check(
         &self,
         _: TenantId,

@@ -85,13 +85,6 @@ pub trait SchedulingRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> RepoResult<bool>;
 
-    async fn set_billing_block(
-        &self,
-        monitor_id: MonitorId,
-        tenant_id: domain::shared::ids::TenantId,
-        reason: &str,
-    ) -> RepoResult<bool>;
-
     /// Persists a one-time check request together with one QUEUED execution
     /// per supplied region. Idempotent on `(tenant_id, request_id)`.
     async fn enqueue_one_time_check(
@@ -214,17 +207,6 @@ where
 
     async fn recover_expired_leases(&self, now: DateTime<Utc>) -> RepoResult<u64> {
         (**self).recover_expired_leases(now).await
-    }
-
-    async fn set_billing_block(
-        &self,
-        monitor_id: MonitorId,
-        tenant_id: domain::shared::ids::TenantId,
-        reason: &str,
-    ) -> RepoResult<bool> {
-        (**self)
-            .set_billing_block(monitor_id, tenant_id, reason)
-            .await
     }
 
     async fn enqueue_one_time_check(

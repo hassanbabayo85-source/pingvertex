@@ -11,14 +11,12 @@ use domain::shared::ids::{MonitorId, TenantId, UserId};
 #[derive(Debug, Clone, Default)]
 pub struct InMemoryMonitorRepository {
     monitors: Arc<RwLock<HashMap<MonitorId, Monitor>>>,
-    billing_blocks: Arc<RwLock<HashMap<MonitorId, (TenantId, String)>>>,
 }
 
 impl InMemoryMonitorRepository {
     pub fn new() -> Self {
         Self {
             monitors: Arc::new(RwLock::new(HashMap::new())),
-            billing_blocks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -118,9 +116,6 @@ impl MonitorRepository for InMemoryMonitorRepository {
         if belongs_to_user {
             let removed = monitors.remove(&id).is_some();
             drop(monitors);
-            if removed {
-                self.billing_blocks.write().unwrap().remove(&id);
-            }
             Ok(removed)
         } else {
             Ok(false)
@@ -144,9 +139,6 @@ impl MonitorRepository for InMemoryMonitorRepository {
         id: MonitorId,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let removed = self.monitors.write().unwrap().remove(&id).is_some();
-        if removed {
-            self.billing_blocks.write().unwrap().remove(&id);
-        }
         Ok(removed)
     }
 
@@ -165,9 +157,6 @@ impl MonitorRepository for InMemoryMonitorRepository {
         if belongs_to_tenant {
             let removed = monitors.remove(&id).is_some();
             drop(monitors);
-            if removed {
-                self.billing_blocks.write().unwrap().remove(&id);
-            }
             Ok(removed)
         } else {
             Ok(false)
@@ -280,64 +269,5 @@ impl MonitorRepository for InMemoryMonitorRepository {
             }
         }
         Ok(changed)
-    }
-
-    async fn set_billing_block(
-        &self,
-        monitor_id: MonitorId,
-        tenant_id: TenantId,
-        reason: &str,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let belongs = self
-            .monitors
-            .read()
-            .unwrap()
-            .get(&monitor_id)
-            .map(|m| m.tenant_id == tenant_id)
-            .unwrap_or(false);
-        if !belongs || reason.trim().is_empty() {
-            return Ok(false);
-        }
-        self.billing_blocks
-            .write()
-            .unwrap()
-            .insert(monitor_id, (tenant_id, reason.trim().to_owned()));
-        Ok(true)
-    }
-
-    async fn clear_billing_blocks_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let mut blocks = self.billing_blocks.write().unwrap();
-        let before = blocks.len();
-        blocks.retain(|_, (tid, _)| *tid != tenant_id);
-        Ok((before - blocks.len()) as u64)
-    }
-
-    async fn clear_balance_billing_blocks_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let mut blocks = self.billing_blocks.write().unwrap();
-        let before = blocks.len();
-        blocks.retain(|_, (tid, reason)| {
-            *tid != tenant_id || reason != "Insufficient wallet balance"
-        });
-        Ok((before - blocks.len()) as u64)
-    }
-
-    async fn billing_blocks_for_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> Result<HashMap<MonitorId, String>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self
-            .billing_blocks
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|(_, (tid, _))| *tid == tenant_id)
-            .map(|(id, (_, reason))| (*id, reason.clone()))
-            .collect())
     }
 }
