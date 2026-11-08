@@ -28,7 +28,7 @@ use infra::{
     PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresOAuthIdentityRepository,
-    PostgresPricingConfigRepository, PostgresProxyCheckJobRepository,
+    PostgresProxyCheckJobRepository,
     PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
     PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
     PostgresStatusPageRepository, PostgresSubscriptionRepository, PostgresSupportTicketRepository,
@@ -188,7 +188,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_bulk_monitor_import_repository(PostgresBulkMonitorImportRepository::new(pool.clone()))
     .with_health_check_port(PostgresHealthCheck::new(pool.clone()))
     .with_dashboard_repository(PostgresDashboardRepository::new(pool.clone()))
-    .with_pricing_config_repository(PostgresPricingConfigRepository::new(pool.clone()))
     .with_entitlement_resolver(infra::PostgresEntitlementResolver::new(pool.clone()))
     .with_recurring_proxy_monitor_repository(recurring_proxy_monitor_repository)
     .with_help_category_repository(PostgresHelpCategoryRepository::new(pool.clone()))

@@ -9,8 +9,7 @@ use application::ports::{
     GeoIpLookup, HealthCheckPort, HealthCheckResult,
     HelpArticleRepository, HelpCategoryRepository, IncidentRepository, LogoStorage,
     MaintenanceWindowRepository, MonitorIntervalPolicyRepository, MonitorRepository,
-    NotificationChannelRepository, NotificationService, PAYGPricingRepository, PasswordHasher,
-    PricingConfigRepository,
+    NotificationChannelRepository, NotificationService, PasswordHasher,
     ProxyCheckJobRepository, RateLimiter, RateLimiterResult, RumAnalyticsRepository,
     RumEventRepository, RumSiteRepository, SchedulingRepository, SecretCipher, StatusPageCache, StatusPageRepository, SubscriptionRepository,
     SupportTicketRepository,
@@ -20,10 +19,8 @@ use application::ports::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::PricingAuditLogEntry;
 use domain::Subscription;
 use domain::entities::{ApiKey, StatusPage};
-use domain::pricing::PricingConfig;
 use domain::shared::ids::{ApiKeyId, MonitorId, StatusPageId, TenantId, UserId};
 use domain::{EscalationPolicy, MaintenanceWindow};
 use infra::{Argon2PasswordHasher, UuidIdGenerator};
@@ -69,7 +66,6 @@ pub struct AppState {
     pub subscription_repository: Arc<dyn SubscriptionRepository>,
     /// Task 6 — server-side plan prices. Defaults to Noop (returns None).
     pub plan_price_repository: Arc<dyn application::ports::PlanPriceRepository>,
-    pub pricing_config_repository: Arc<dyn PricingConfigRepository>,
     pub agent_lease_repository: Option<Arc<dyn AgentLeaseRepository>>,
     /// Server-side agent identity registry.
     pub agent_registry: Arc<dyn AgentRegistry>,
@@ -102,7 +98,6 @@ pub struct AppState {
     /// real one (e.g. `infra::MaxMindGeoIpLookup`).
     pub geo_ip_lookup: Arc<dyn GeoIpLookup>,
     pub rate_limiter: Arc<dyn RateLimiter>,
-    pub payg_pricing_repository: Arc<dyn PAYGPricingRepository>,
     pub tenant_alert_allowance_repository: Arc<dyn TenantAlertAllowanceRepository>,
     pub tenant_retention_settings_repository: Arc<dyn TenantRetentionSettingsRepository>,
     pub monitor_interval_policy_repository: Arc<dyn MonitorIntervalPolicyRepository>,
@@ -523,39 +518,6 @@ impl application::ports::PlanPriceRepository for NoopPlanPriceRepository {
 
 
 
-#[derive(Clone, Default)]
-struct NoopPricingConfigRepository;
-
-#[async_trait]
-impl PricingConfigRepository for NoopPricingConfigRepository {
-    async fn find_active_config(&self) -> RepoResult<Option<PricingConfig>> {
-        Ok(None)
-    }
-
-    async fn find_by_version(&self, _version: u32) -> RepoResult<Option<PricingConfig>> {
-        Ok(None)
-    }
-
-    async fn create_version(
-        &self,
-        _config: &PricingConfig,
-        _reason: Option<String>,
-    ) -> RepoResult<()> {
-        Ok(())
-    }
-
-    async fn record_audit_log(&self, _entry: &PricingAuditLogEntry) -> RepoResult<()> {
-        Ok(())
-    }
-
-    async fn list_versions(&self) -> RepoResult<Vec<PricingConfig>> {
-        Ok(vec![])
-    }
-
-    async fn list_audit_logs(&self) -> RepoResult<Vec<PricingAuditLogEntry>> {
-        Ok(vec![])
-    }
-}
 
 
 
@@ -971,49 +933,6 @@ impl MonitorIntervalPolicyRepository for NoopMonitorIntervalPolicyRepository {
     }
 }
 
-struct NoopPAYGPricingRepository;
-#[async_trait]
-impl PAYGPricingRepository for NoopPAYGPricingRepository {
-    async fn find_active(
-        &self,
-        _operation: &str,
-    ) -> application::ports::PaygPricingRepoResult<Option<domain::PAYGPricing>> {
-        Ok(None)
-    }
-    async fn find_active_for_context(
-        &self,
-        _operation: &str,
-        _context: &application::ports::PricingContext,
-    ) -> application::ports::PaygPricingRepoResult<Option<domain::PAYGPricing>> {
-        Ok(None)
-    }
-    async fn list_active(
-        &self,
-    ) -> application::ports::PaygPricingRepoResult<Vec<domain::PAYGPricing>> {
-        Ok(Vec::new())
-    }
-    async fn create_version(
-        &self,
-        _operation: &str,
-        _unit_name: &str,
-        _unit_price: i64,
-        _currency: &str,
-        _effective_from: chrono::DateTime<chrono::Utc>,
-    ) -> application::ports::PaygPricingRepoResult<domain::PAYGPricing> {
-        Err("PAYG pricing repository is not configured".into())
-    }
-    async fn create_version_with_context(
-        &self,
-        _operation: &str,
-        _unit_name: &str,
-        _unit_price: i64,
-        _currency: &str,
-        _effective_from: chrono::DateTime<chrono::Utc>,
-        _context: &application::ports::PricingRuleContext,
-    ) -> application::ports::PaygPricingRepoResult<domain::PAYGPricing> {
-        Err("PAYG pricing repository is not configured".into())
-    }
-}
 
 #[derive(Clone, Default)]
 struct NoopUserRepository;
@@ -1173,7 +1092,6 @@ impl AppState {
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
-            pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
@@ -1187,7 +1105,6 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
-            payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
@@ -1264,7 +1181,6 @@ impl AppState {
             password_hasher: Arc::new(Argon2PasswordHasher),
             subscription_repository: Arc::new(NoopSubscriptionRepository),
             plan_price_repository: Arc::new(NoopPlanPriceRepository),
-            pricing_config_repository: Arc::new(NoopPricingConfigRepository),
             agent_lease_repository: None,
             agent_registry: Arc::new(NoopAgentRegistry),
             scheduling_repository: Arc::new(NoopSchedulingRepository),
@@ -1278,7 +1194,6 @@ impl AppState {
             rum_analytics_repository: Arc::new(NoopRumAnalyticsRepository),
             geo_ip_lookup: Arc::new(NoopGeoIpLookup),
             rate_limiter: Arc::new(NoopRateLimiter),
-            payg_pricing_repository: Arc::new(NoopPAYGPricingRepository),
             tenant_alert_allowance_repository: Arc::new(NoopTenantAlertAllowanceRepository),
             tenant_retention_settings_repository: Arc::new(NoopTenantRetentionSettingsRepository),
             monitor_interval_policy_repository: Arc::new(NoopMonitorIntervalPolicyRepository),
@@ -1396,11 +1311,12 @@ impl AppState {
     /// Dashboard Overview:
     /// Substitutes a real `DashboardRepository` (e.g. `PostgresDashboardRepository`)
     /// in place of the no-op default.
-    pub fn with_pricing_config_repository<R>(mut self, pricing_config_repository: R) -> Self
-    where
-        R: PricingConfigRepository + 'static,
-    {
-        self.pricing_config_repository = Arc::new(pricing_config_repository);
+        pub fn with_pricing_config_repository<R>(self, _repository: R) -> Self {
+        // No-op stub: this field was removed in Phase 1G-c-b-b.
+        // Kept for API compatibility so existing call sites
+        // (including test harnesses) still compile. Deferred to
+        // Phase 1L where admin-config resource limits replace
+        // this pattern.
         self
     }
 
@@ -1466,11 +1382,12 @@ impl AppState {
     }
 
     
-    pub fn with_payg_pricing_repository<R>(mut self, repository: R) -> Self
-    where
-        R: PAYGPricingRepository + 'static,
-    {
-        self.payg_pricing_repository = Arc::new(repository);
+        pub fn with_payg_pricing_repository<R>(self, _repository: R) -> Self {
+        // No-op stub: this field was removed in Phase 1G-c-b-b.
+        // Kept for API compatibility so existing call sites
+        // (including test harnesses) still compile. Deferred to
+        // Phase 1L where admin-config resource limits replace
+        // this pattern.
         self
     }
 
