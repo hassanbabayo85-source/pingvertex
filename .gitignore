@@ -11,6 +11,7 @@
 !crates/**/secret_cipher.rs
 !crates/**/proxy_credentials.rs
 !**/proxy_credentials.rs
+!**/secret_redaction.rs
 certs/
 .metrics_token
 
