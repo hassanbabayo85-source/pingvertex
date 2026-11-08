@@ -25,13 +25,13 @@ use infra::{
     PostgresCheckRepository, PostgresDashboardRepository,
     PostgresDiagnosticReportRepository, PostgresEmailVerificationTokenRepository,
     PostgresEscalationPolicyRepository, PostgresHealthCheck, PostgresHelpArticleRepository,
-    PostgresHelpCategoryRepository, PostgresIncidentRepository, PostgresInvoiceRepository,
+    PostgresHelpCategoryRepository, PostgresIncidentRepository, 
     PostgresMaintenanceWindowRepository, PostgresMonitorRepository,
     PostgresNotificationChannelRepository, PostgresOAuthIdentityRepository,
     PostgresProxyCheckJobRepository,
     PostgresRegistrationTransaction, PostgresResetPasswordTokenRepository,
     PostgresRumAnalyticsRepository, PostgresRumEventRepository, PostgresRumSiteRepository,
-    PostgresStatusPageRepository, PostgresSubscriptionRepository, PostgresSupportTicketRepository,
+    PostgresStatusPageRepository, PostgresSupportTicketRepository,
     PostgresTenantAlertAllowanceRepository, PostgresTenantInvitationRepository,
     PostgresTenantMembershipRepository, PostgresTenantRepository,
     PostgresTenantRetentionSettingsRepository, PostgresUserRepository, RedisPendingAuthCache,
@@ -178,8 +178,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         audit_log_entry_repository,
     )
     .with_api_key_repository(PostgresApiKeyRepository::new(pool.clone()))
-    .with_subscription_repository(PostgresSubscriptionRepository::new(pool.clone()))
-    .with_plan_price_repository(infra::PostgresPlanPriceRepository::new(pool.clone()))
     .with_agent_lease_repository(PostgresAgentLeaseRepository::new(pool.clone()))
     .with_agent_registry(PostgresAgentRegistryRepository::new(pool.clone()))
     .with_scheduling_repository(infra::PostgresSchedulingRepository::new(pool.clone()))
@@ -205,7 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_monitor_interval_policy_repository(infra::PostgresMonitorIntervalPolicyRepository::new(
         pool.clone(),
     ))
-    .with_invoice_repository(PostgresInvoiceRepository::new(pool.clone()));
+    ;
 
     // Geo-IP lookup for RUM sessions is best-effort: reuses the same
     // GeoLite2 database `crates/agent` already requires, but unlike the

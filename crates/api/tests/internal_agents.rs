@@ -21,8 +21,7 @@ use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
-    InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
@@ -321,16 +320,6 @@ async fn build_test_app(
     for monitor in &monitors {
         agent_lease_repository.seed_due_monitor(monitor.clone());
     }
-    let payg_pricing_repository = Arc::new(InMemoryPAYGPricingRepository::new());
-    let _ = application::ports::PAYGPricingRepository::create_version(
-        &*payg_pricing_repository,
-        "http_check.monitoring",
-        "check",
-        2,
-        "USD",
-        chrono::Utc::now() - chrono::Duration::minutes(1),
-    )
-    .await;
     let pricing_config_repository = Arc::new(
         InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
     );
@@ -349,7 +338,6 @@ async fn build_test_app(
     )
     .with_agent_lease_repository(agent_lease_repository.clone())
     .with_agent_registry(seed_test_agents())
-    .with_payg_pricing_repository(payg_pricing_repository.clone())
     .with_pricing_config_repository(pricing_config_repository.clone());
 
     let auth_state = AuthState::new(

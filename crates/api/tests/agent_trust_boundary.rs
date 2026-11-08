@@ -17,7 +17,7 @@ use domain::{Agent, AgentStatus, Check, DiagnosticReport, Incident, User};
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
+    InMemoryNotificationChannelRepository,
     InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
     InMemoryUsageEventRepository, NoopNotificationService,
@@ -222,7 +222,6 @@ async fn build_app(registry: Arc<InMemoryAgentRegistry>) -> axum::Router {
     )
     .with_pricing_config_repository(pricing_repo)
     .with_agent_lease_repository(InMemoryAgentLeaseRepository::new())
-    .with_payg_pricing_repository(InMemoryPAYGPricingRepository::new())
     .with_usage_event_repository(InMemoryUsageEventRepository::default())
     .with_agent_registry((*registry).clone());
 

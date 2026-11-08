@@ -32,8 +32,7 @@ use domain::{
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository,
     InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPAYGPricingRepository,
-    InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
+    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository, InMemoryProxyCheckJobRepository,
     InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
     InMemoryUsageEventRepository, NoopNotificationService,
     UuidIdGenerator,
@@ -386,7 +385,6 @@ async fn build_harness() -> Harness {
     )
     .with_platform_admin_repositories(users.clone(), tenants.clone())
     .with_pricing_config_repository(InMemoryPricingConfigRepository::new())
-    .with_payg_pricing_repository(InMemoryPAYGPricingRepository::new())
     .with_usage_event_repository(InMemoryUsageEventRepository::default());
 
     let cache = Arc::new(RealPendingAuthCache::new());

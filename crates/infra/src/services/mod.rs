@@ -49,12 +49,6 @@ pub use uuid_id_generator::UuidIdGenerator;
 pub use webhook_notification_service::WebhookNotificationService;
 
 // Billing Provider Abstraction & Checkout:
-pub mod disabled_billing_provider;
-pub mod fake_billing_provider;
-pub use disabled_billing_provider::DisabledBillingProvider;
-pub use fake_billing_provider::FakeBillingProvider;
-pub mod paystack_billing_provider;
-pub use paystack_billing_provider::PaystackBillingProvider;
 
 // RUM (Real User Monitoring):
 pub mod maxmind_geo_ip_lookup;

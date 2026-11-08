@@ -37,7 +37,6 @@ pub mod postgres_monitor_repository;
 pub mod postgres_notification_channel_repository;
 pub mod postgres_notification_outbox_repository;
 pub mod postgres_oauth_identity_repository;
-pub mod postgres_payment_repository;
 pub mod postgres_proxy_check_job_repository;
 pub mod postgres_recurring_proxy_monitor_repository;
 pub mod postgres_registration_transaction;
@@ -88,7 +87,6 @@ pub use postgres_monitor_repository::*;
 pub use postgres_notification_channel_repository::*;
 pub use postgres_notification_outbox_repository::PostgresNotificationOutboxRepository;
 pub use postgres_oauth_identity_repository::PostgresOAuthIdentityRepository;
-pub use postgres_payment_repository::PostgresPaymentRepository;
 pub use postgres_proxy_check_job_repository::PostgresProxyCheckJobRepository;
 pub use postgres_recurring_proxy_monitor_repository::PostgresRecurringProxyMonitorRepository;
 pub use postgres_registration_transaction::PostgresRegistrationTransaction;
@@ -109,29 +107,13 @@ pub use in_memory_entitlement_resolver::InMemoryEntitlementResolver;
 pub use postgres_entitlement_resolver::PostgresEntitlementResolver;
 
 // Plan / Subscription / Entitlement model:
-pub mod in_memory_subscription_repository;
-pub mod postgres_subscription_repository;
 
-pub use in_memory_subscription_repository::InMemorySubscriptionRepository;
-pub use postgres_subscription_repository::PostgresSubscriptionRepository;
 
 // Billing Provider Abstraction & Checkout:
-pub mod in_memory_checkout_session_repository;
-pub mod postgres_checkout_session_repository;
 
-pub use in_memory_checkout_session_repository::InMemoryCheckoutSessionRepository;
-pub use postgres_checkout_session_repository::PostgresCheckoutSessionRepository;
 
 // Billing Webhooks:
-pub mod in_memory_billing_audit_log_repository;
-pub mod in_memory_billing_webhook_idempotency_repository;
-pub mod postgres_billing_audit_log_repository;
-pub mod postgres_billing_webhook_idempotency_repository;
 
-pub use in_memory_billing_audit_log_repository::InMemoryBillingAuditLogRepository;
-pub use in_memory_billing_webhook_idempotency_repository::InMemoryBillingWebhookIdempotencyRepository;
-pub use postgres_billing_audit_log_repository::PostgresBillingAuditLogRepository;
-pub use postgres_billing_webhook_idempotency_repository::PostgresBillingWebhookIdempotencyRepository;
 
 // Durable Scheduler:
 pub mod postgres_scheduling_repository;
@@ -156,27 +138,7 @@ pub use in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 pub use postgres_pricing_config_repository::PostgresPricingConfigRepository;
 
 // Proration Service:
-pub mod in_memory_subscription_usage_period_repository;
-pub mod in_memory_subscription_usage_transaction;
-pub mod postgres_subscription_usage_period_repository;
-pub mod postgres_subscription_usage_transaction;
-pub use in_memory_subscription_usage_period_repository::InMemorySubscriptionUsagePeriodRepository;
-pub use in_memory_subscription_usage_transaction::InMemorySubscriptionUsageTransaction;
-pub use postgres_subscription_usage_period_repository::PostgresSubscriptionUsagePeriodRepository;
-pub use postgres_subscription_usage_transaction::PostgresSubscriptionUsageTransaction;
 
-pub mod in_memory_add_on_subscription_repository;
-pub mod in_memory_invoice_repository;
-pub mod in_memory_subscription_plan_change_repository;
-pub mod postgres_add_on_subscription_repository;
-pub mod postgres_invoice_repository;
-pub mod postgres_subscription_plan_change_repository;
-pub use in_memory_add_on_subscription_repository::InMemoryAddOnSubscriptionRepository;
-pub use in_memory_invoice_repository::InMemoryInvoiceRepository;
-pub use in_memory_subscription_plan_change_repository::InMemorySubscriptionPlanChangeRepository;
-pub use postgres_add_on_subscription_repository::PostgresAddOnSubscriptionRepository;
-pub use postgres_invoice_repository::PostgresInvoiceRepository;
-pub use postgres_subscription_plan_change_repository::PostgresSubscriptionPlanChangeRepository;
 
 // Help Center & Support:
 pub mod in_memory_help_article_repository;
@@ -203,26 +165,18 @@ pub use postgres_rum_analytics_repository::PostgresRumAnalyticsRepository;
 pub use postgres_rum_event_repository::PostgresRumEventRepository;
 pub use postgres_rum_site_repository::PostgresRumSiteRepository;
 
-pub mod in_memory_wallet_repository;
-pub mod postgres_wallet_repository;
-pub use in_memory_wallet_repository::InMemoryWalletRepository;
-pub use postgres_wallet_repository::PostgresWalletRepository;
 
-pub mod in_memory_payg_pricing_repository;
 pub mod in_memory_tenant_alert_allowance_repository;
 pub use in_memory_tenant_alert_allowance_repository::InMemoryTenantAlertAllowanceRepository;
 pub mod in_memory_tenant_retention_settings_repository;
 pub use in_memory_tenant_retention_settings_repository::InMemoryTenantRetentionSettingsRepository;
 pub mod in_memory_usage_event_repository;
-pub mod postgres_payg_pricing_repository;
 pub mod postgres_tenant_alert_allowance_repository;
 pub use postgres_tenant_alert_allowance_repository::PostgresTenantAlertAllowanceRepository;
 pub mod postgres_tenant_retention_settings_repository;
 pub use postgres_tenant_retention_settings_repository::PostgresTenantRetentionSettingsRepository;
 pub mod postgres_usage_event_repository;
-pub use in_memory_payg_pricing_repository::InMemoryPAYGPricingRepository;
 pub use in_memory_usage_event_repository::InMemoryUsageEventRepository;
-pub use postgres_payg_pricing_repository::PostgresPAYGPricingRepository;
 pub use postgres_usage_event_repository::PostgresUsageEventRepository;
 
 // PAYG durable CSV bulk import.
@@ -236,19 +190,7 @@ pub use in_memory_agent_registry::InMemoryAgentRegistry;
 pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;
 
 // Task 6 — plan prices:
-pub mod in_memory_plan_price_repository;
-pub mod postgres_plan_price_repository;
-pub use in_memory_plan_price_repository::InMemoryPlanPriceRepository;
-pub use postgres_plan_price_repository::PostgresPlanPriceRepository;
 
 // Task 6 — subscription billing records:
-pub mod in_memory_subscription_billing_record_repository;
-pub mod postgres_subscription_billing_record_repository;
-pub use in_memory_subscription_billing_record_repository::InMemorySubscriptionBillingRecordRepository;
-pub use postgres_subscription_billing_record_repository::PostgresSubscriptionBillingRecordRepository;
 
-pub mod postgres_subscription_activation_repository;
-pub use postgres_subscription_activation_repository::PostgresSubscriptionActivationRepository;
 
-pub mod in_memory_subscription_activation_repository;
-pub use in_memory_subscription_activation_repository::InMemorySubscriptionActivationRepository;
