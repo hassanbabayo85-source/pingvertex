@@ -96,8 +96,6 @@ pub mod checkout_status;
 pub use checkout_status::CheckoutStatus;
 
 // Billing Webhooks:
-pub mod billing_webhook_event_type;
-pub use billing_webhook_event_type::BillingWebhookEventType;
 
 pub mod notification_outbox_status;
 pub use notification_outbox_status::NotificationOutboxStatus;

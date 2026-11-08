@@ -75,15 +75,9 @@ pub mod subscription_id;
 pub use subscription_id::SubscriptionId;
 
 // Billing Provider Abstraction & Checkout:
-pub mod checkout_session_id;
-pub use checkout_session_id::CheckoutSessionId;
 
 // Proration Service:
-mod subscription_usage_period_id;
-pub use subscription_usage_period_id::SubscriptionUsagePeriodId;
 
-pub mod add_on_subscription_id;
-pub use add_on_subscription_id::AddOnSubscriptionId;
 
 // Help Center & Support:
 pub mod help_article_id;
