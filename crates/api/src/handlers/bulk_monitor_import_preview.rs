@@ -132,9 +132,5 @@ pub async fn preview_bulk_monitor_import(
             ApiError::internal_with_source("failed to calculate bulk import preview", source)
         }
     })?;
-
-    let mut preview = preview;
-    preview.pricing_snapshot_hash =
-        super::bulk_monitor_import_confirm::pricing_snapshot_hash(&preview.pricing_versions)?;
     Ok(Json(preview))
 }

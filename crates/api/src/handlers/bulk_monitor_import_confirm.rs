@@ -305,7 +305,7 @@ pub async fn confirm_bulk_monitor_import(
         estimated_checks: i64::try_from(preview.estimated_execution_quantity)
             .map_err(|_| ApiError::bad_request("bulk import estimate is too large"))?,
         estimated_charge_units: preview.estimated_payg_cost_units,
-        currency: preview.currency.clone(),
+        currency: "USD".to_string(),
         batch_size: configured_batch_size(),
         pricing_snapshot: serde_json::to_value(&preview.pricing_versions)
             .map_err(|_| ApiError::internal("failed to serialize pricing snapshot"))?,
