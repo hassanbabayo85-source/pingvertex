@@ -40,3 +40,4 @@ pub use entities::{Invoice, InvoiceLine, InvoiceLineType, InvoiceSourceType, Inv
 // Task 6 — calendar billing periods:
 pub mod billing_period;
 pub use billing_period::{BillingPeriodError, period_end_from};
+pub mod entitlements_env;
