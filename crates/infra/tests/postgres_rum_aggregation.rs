@@ -6,6 +6,8 @@
 //!   3. Running the retention twice is idempotent.
 //!   4. Sites are isolated — running site A does not touch site B.
 
+mod common;
+
 use application::ports::{RumRetentionRepository, RumSiteRepository};
 use chrono::{Duration, Utc};
 use domain::RumSite;
@@ -16,8 +18,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 async fn pool() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    infra::test_support::setup_pool_exclusive(&url).await
+    common::setup_pool_exclusive().await
 }
 
 async fn seed_site(pool: &PgPool, name: &str) -> (TenantId, RumSiteId) {

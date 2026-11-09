@@ -6,6 +6,8 @@
 //! Also proves that a beacon after the window restarts the session row
 //! (created=true) instead of silently reusing the stale one.
 
+mod common;
+
 use application::ports::{RumEventRepository, RumSiteRepository};
 use chrono::{Duration, Utc};
 use domain::RumSite;
@@ -16,8 +18,7 @@ use sqlx::PgPool;
 use std::time::Duration as StdDuration;
 
 async fn pool() -> (PgPool, infra::test_support::ExclusiveTestGuard) {
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    infra::test_support::setup_pool_exclusive(&url).await
+    common::setup_pool_exclusive().await
 }
 
 async fn seed_site(pool: &PgPool) -> (TenantId, RumSiteId) {
