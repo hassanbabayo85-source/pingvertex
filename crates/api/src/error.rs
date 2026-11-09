@@ -164,7 +164,7 @@ impl ApiError {
                 allowed,
                 action,
             } => format!(
-                "plan limit reached: '{quota}' allows at most {allowed} (current: {current}); suggested action: {action}"
+                "resource limit reached: '{quota}' allows at most {allowed} (current: {current}); suggested action: {action}"
             ),
         }
     }
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn from_plan_limit_preserves_all_fields() {
+    fn from_resource_limit_preserves_all_fields() {
         let pl = application::ResourceLimitError::new(
             "max_recurring_proxy_monitors",
             5,

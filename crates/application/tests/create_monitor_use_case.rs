@@ -57,7 +57,7 @@ async fn create_monitor_persists_monitor() {
 }
 
 #[tokio::test]
-async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
+async fn free_tier_rejects_interval_below_300_seconds_via_resource_limit_error() {
     let repository = InMemoryMonitorRepository::new();
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
         .with_resource_limit_resolver(resolver_default());

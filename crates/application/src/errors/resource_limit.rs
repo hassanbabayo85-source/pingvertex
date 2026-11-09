@@ -63,7 +63,7 @@ impl std::fmt::Display for ResourceLimitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "plan limit reached: quota '{}' allows at most {} (current {}). Suggested action: {}",
+            "resource limit reached: quota '{}' allows at most {} (current {}). Suggested action: {}",
             self.quota, self.allowed, self.current, self.action
         )
     }
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_limit_err_helper_returns_boxed_plan_limit() {
+    fn resource_limit_err_helper_returns_boxed_resource_limit() {
         let boxed = resource_limit_err("max_rum_sites", 0, 0, "increase_resource_limit");
         assert!(is_resource_limit_error(boxed.as_ref()));
     }
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn is_plan_limit_error_walks_source_chain() {
+    fn is_resource_limit_error_walks_source_chain() {
         #[derive(Debug)]
         struct Wrapper(ResourceLimitError);
         impl std::fmt::Display for Wrapper {
