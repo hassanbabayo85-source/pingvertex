@@ -6,6 +6,7 @@ target
 .architecture-security-backup-*
 .security-patch-backup-*
 .dependency-security-backup-*
+.project-cleanup-backup-*
 overview.xml
 *.cdx.json
 .metrics_token

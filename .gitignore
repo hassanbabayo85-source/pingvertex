@@ -102,5 +102,7 @@ secrets/
 *.bak.*
 # UI backup dirs (e.g. .proxy-ui-backup-YYYYMMDD-HHMMSS)
 .proxy-ui-backup-*/
+# Project-cleanup backup dirs (e.g. .project-cleanup-backup-YYYYMMDD-HHMMSS)
+.project-cleanup-backup-*/
 # Scratch part directories
 .scratch/
