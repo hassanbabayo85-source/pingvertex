@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::{
     dto::CreateStatusPageRequest,
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{
         AuditLogEntryRepository, IdGenerator, MonitorRepository, ResourceLimitResolver,
         StatusPageRepository,
@@ -32,7 +32,7 @@ pub type UseCaseResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 #[derive(Debug)]
 pub enum CreateStatusPageError {
     Forbidden,
-    PlanLimitExceeded(PlanLimitError),
+    ResourceLimitExceeded(ResourceLimitError),
     SubdomainTaken { subdomain: String },
     MonitorNotFound { monitor_id: MonitorId },
     EntitlementResolverMissing,
@@ -46,7 +46,7 @@ impl fmt::Display for CreateStatusPageError {
                 f,
                 "forbidden: you do not have permission to create status pages"
             ),
-            Self::PlanLimitExceeded(e) => write!(f, "{e}"),
+            Self::ResourceLimitExceeded(e) => write!(f, "{e}"),
             Self::SubdomainTaken { subdomain } => {
                 write!(f, "subdomain \"{subdomain}\" is already taken")
             }
@@ -65,7 +65,7 @@ impl fmt::Display for CreateStatusPageError {
 impl Error for CreateStatusPageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlanLimitExceeded(e) => Some(e),
+            Self::ResourceLimitExceeded(e) => Some(e),
             Self::Other(err) => Some(err.as_ref()),
             _ => None,
         }
@@ -168,8 +168,8 @@ where
         {
             QuotaCheckOutcome::Saved => {}
             QuotaCheckOutcome::QuotaExceeded => {
-                return Err(CreateStatusPageError::PlanLimitExceeded(
-                    PlanLimitError::new(
+                return Err(CreateStatusPageError::ResourceLimitExceeded(
+                    ResourceLimitError::new(
                         MAX_STATUS_PAGES,
                         u64::from(entitlements.max_status_pages),
                         u64::from(entitlements.max_status_pages),

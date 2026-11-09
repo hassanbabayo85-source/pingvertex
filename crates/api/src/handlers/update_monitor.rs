@@ -57,7 +57,7 @@ pub async fn update_monitor(
             if let Some(denied) = err.downcast_ref::<domain::shared::types::PermissionDenied>() {
                 return ApiError::forbidden(denied.to_string());
             }
-            if let Some(pl) = err.downcast_ref::<application::PlanLimitError>() {
+            if let Some(pl) = err.downcast_ref::<application::ResourceLimitError>() {
                 return ApiError::plan_limit_reached(pl.quota, pl.current, pl.allowed, pl.action);
             }
 

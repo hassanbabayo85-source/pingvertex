@@ -436,7 +436,7 @@ fn is_permanent(error: &CreateMonitorError) -> bool {
     matches!(
         error,
         CreateMonitorError::Forbidden
-            | CreateMonitorError::PlanLimitExceeded(_)
+            | CreateMonitorError::ResourceLimitExceeded(_)
             | CreateMonitorError::TooManyAssertions { .. }
             | CreateMonitorError::TenantSuspended
             // A missing resolver is a deployment bug, not a transient

@@ -71,14 +71,14 @@ async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
         .unwrap_err();
 
     match err {
-        CreateMonitorError::PlanLimitExceeded(pl) => {
+        CreateMonitorError::ResourceLimitExceeded(pl) => {
             assert_eq!(pl.quota, "min_uptime_interval_seconds");
             assert_eq!(pl.allowed, 300);
             assert_eq!(pl.current, 299);
             assert_eq!(pl.action, "upgrade_plan");
             assert_eq!(pl.code(), "plan_limit_reached");
         }
-        other => panic!("expected PlanLimitExceeded for interval, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded for interval, got {other:?}"),
     }
 }
 
@@ -104,12 +104,12 @@ async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
         .unwrap_err();
 
     match err {
-        CreateMonitorError::PlanLimitExceeded(pl) => {
+        CreateMonitorError::ResourceLimitExceeded(pl) => {
             assert_eq!(pl.quota, "max_uptime_monitors");
             assert_eq!(pl.allowed, 20);
             assert_eq!(pl.code(), "plan_limit_reached");
         }
-        other => panic!("expected PlanLimitExceeded for count, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded for count, got {other:?}"),
     }
 }
 
@@ -137,12 +137,12 @@ async fn starter_plan_allows_60_seconds_and_30_monitors() {
         .await
         .unwrap_err();
     match err {
-        CreateMonitorError::PlanLimitExceeded(pl) => {
+        CreateMonitorError::ResourceLimitExceeded(pl) => {
             assert_eq!(pl.quota, "min_uptime_interval_seconds");
             assert_eq!(pl.allowed, 60);
             assert_eq!(pl.current, 59);
         }
-        other => panic!("expected PlanLimitExceeded for interval, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded for interval, got {other:?}"),
     }
 }
 
@@ -166,12 +166,12 @@ async fn free_tier_rejects_more_than_one_region() {
         .await
         .unwrap_err();
     match err {
-        CreateMonitorError::PlanLimitExceeded(pl) => {
+        CreateMonitorError::ResourceLimitExceeded(pl) => {
             assert_eq!(pl.quota, "max_regions_per_monitor");
             assert_eq!(pl.allowed, 1);
             assert_eq!(pl.current, 2);
         }
-        other => panic!("expected PlanLimitExceeded for regions, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded for regions, got {other:?}"),
     }
 }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use domain::{TenantMembership, entities::MAX_TEAM_MEMBERS, shared::types::AuthenticatedUser};
 
-use crate::errors::PlanLimitError;
+use crate::errors::ResourceLimitError;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::ports::{
     PasswordHasher, ResourceLimitResolver, TenantInvitationRepository, TenantMembershipRepository,
@@ -30,7 +30,7 @@ use crate::use_cases::{
 ///   transaction). Concurrent acceptances across different tenants
 ///   and different invitations are serialized per tenant.
 /// - If the quota is exhausted, the acceptance is rejected with a
-///   `PlanLimitError` and **the invitation remains pending** — the
+///   `ResourceLimitError` and **the invitation remains pending** — the
 ///   invited user can retry after the admin removes a member.
 /// - On success, `mark_accepted` is called **after** the membership
 ///   is persisted. If `mark_accepted` fails (rare race), the user is
@@ -160,12 +160,14 @@ where
             {
                 QuotaCheckOutcome::Saved => {}
                 QuotaCheckOutcome::QuotaExceeded => {
-                    return Err(InvitationError::Internal(Box::new(PlanLimitError::new(
-                        MAX_TEAM_MEMBERS,
-                        u64::from(entitlements.max_team_members),
-                        u64::from(entitlements.max_team_members),
-                        "upgrade_plan",
-                    ))));
+                    return Err(InvitationError::Internal(Box::new(
+                        ResourceLimitError::new(
+                            MAX_TEAM_MEMBERS,
+                            u64::from(entitlements.max_team_members),
+                            u64::from(entitlements.max_team_members),
+                            "upgrade_plan",
+                        ),
+                    )));
                 }
             }
         } else {

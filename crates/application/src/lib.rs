@@ -3,7 +3,7 @@ pub use pagination::{Cursor, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, Page, PageRequest
 pub mod commands;
 pub mod dto;
 pub mod errors;
-pub use errors::PlanLimitError;
+pub use errors::ResourceLimitError;
 pub mod parsing;
 pub mod ports;
 pub mod queries;

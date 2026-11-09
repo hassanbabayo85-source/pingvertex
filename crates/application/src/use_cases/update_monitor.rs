@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::{
     commands::UpdateMonitor,
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{
         AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository,
         PricingConfigRepository, ResourceLimitResolver,
@@ -96,7 +96,7 @@ where
         let entitlements = resolver.resolve(tenant_id).await?;
 
         if command.interval_seconds < entitlements.min_uptime_interval_seconds {
-            let err = PlanLimitError::new(
+            let err = ResourceLimitError::new(
                 MIN_UPTIME_INTERVAL_SECONDS,
                 u64::from(command.interval_seconds),
                 u64::from(entitlements.min_uptime_interval_seconds),

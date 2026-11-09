@@ -59,7 +59,9 @@ pub async fn create_recurring_proxy_monitor(
         CreateRecurringProxyMonitorError::Forbidden => {
             ApiError::forbidden("you cannot create recurring proxy monitors")
         }
-        CreateRecurringProxyMonitorError::PlanLimitExceeded(pl) => ApiError::from_plan_limit(pl),
+        CreateRecurringProxyMonitorError::ResourceLimitExceeded(pl) => {
+            ApiError::from_plan_limit(pl)
+        }
         CreateRecurringProxyMonitorError::InvalidHost(m) => ApiError::bad_request(m),
         CreateRecurringProxyMonitorError::InvalidCredentials(m) => ApiError::bad_request(m),
         CreateRecurringProxyMonitorError::Other(e) => {
@@ -127,7 +129,7 @@ pub async fn update_recurring_proxy_monitor(
             UpdateRecurringProxyMonitorError::NotFound => {
                 ApiError::not_found("recurring proxy monitor not found")
             }
-            UpdateRecurringProxyMonitorError::PlanLimitExceeded(pl) => {
+            UpdateRecurringProxyMonitorError::ResourceLimitExceeded(pl) => {
                 ApiError::from_plan_limit(pl)
             }
             UpdateRecurringProxyMonitorError::Other(e) => {

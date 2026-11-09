@@ -95,9 +95,9 @@ impl ApiError {
         }
     }
 
-    /// Maps a structured `application::PlanLimitError` to this crate's
+    /// Maps a structured `application::ResourceLimitError` to this crate's
     /// `PlanLimitReached` variant.
-    pub fn from_plan_limit(err: application::PlanLimitError) -> Self {
+    pub fn from_plan_limit(err: application::ResourceLimitError) -> Self {
         Self::PlanLimitReached {
             quota: err.quota,
             current: err.current,
@@ -121,7 +121,7 @@ impl ApiError {
         if let Some(denied) = err.downcast_ref::<domain::shared::types::PermissionDenied>() {
             return Self::forbidden(denied.to_string());
         }
-        if let Some(pl) = err.downcast_ref::<application::PlanLimitError>() {
+        if let Some(pl) = err.downcast_ref::<application::ResourceLimitError>() {
             return Self::PlanLimitReached {
                 quota: pl.quota,
                 current: pl.current,
@@ -304,8 +304,12 @@ mod tests {
 
     #[test]
     fn from_plan_limit_preserves_all_fields() {
-        let pl =
-            application::PlanLimitError::new("max_recurring_proxy_monitors", 5, 5, "upgrade_plan");
+        let pl = application::ResourceLimitError::new(
+            "max_recurring_proxy_monitors",
+            5,
+            5,
+            "upgrade_plan",
+        );
         match ApiError::from_plan_limit(pl) {
             ApiError::PlanLimitReached {
                 quota,
@@ -324,7 +328,8 @@ mod tests {
 
     #[test]
     fn forbidden_or_internal_detects_plan_limit_through_boxed_error() {
-        let pl = application::PlanLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
+        let pl =
+            application::ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
         let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(pl);
         match ApiError::forbidden_or_internal("context", boxed) {
             ApiError::PlanLimitReached { quota, .. } => assert_eq!(quota, "max_uptime_monitors"),

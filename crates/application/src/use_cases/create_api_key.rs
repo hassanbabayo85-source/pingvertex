@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::{
     commands::CreateApiKey,
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{
         ApiKeyRepository, AuditLogEntryRepository, IdGenerator, PasswordHasher,
         ResourceLimitResolver,
@@ -37,7 +37,7 @@ pub enum CreateApiKeyError {
     EmptyScopes,
     ExpiryInPast,
     /// TASK 4A — the tenant has reached `entitlements.max_api_keys`.
-    PlanLimitExceeded(PlanLimitError),
+    ResourceLimitExceeded(ResourceLimitError),
     /// TASK 4A — the resolver was not wired. Deployment bug.
     EntitlementResolverMissing,
     Other(Box<dyn Error + Send + Sync>),
@@ -61,7 +61,7 @@ impl fmt::Display for CreateApiKeyError {
             ),
             Self::EmptyScopes => write!(f, "an api key must have at least one scope"),
             Self::ExpiryInPast => write!(f, "api key expiry must be in the future"),
-            Self::PlanLimitExceeded(pl) => write!(f, "{pl}"),
+            Self::ResourceLimitExceeded(pl) => write!(f, "{pl}"),
             Self::EntitlementResolverMissing => write!(
                 f,
                 "entitlement resolver is not configured; cannot enforce plan limits"
@@ -211,12 +211,14 @@ impl CreateApiKeyUseCase {
         {
             QuotaCheckOutcome::Saved => {}
             QuotaCheckOutcome::QuotaExceeded => {
-                return Err(CreateApiKeyError::PlanLimitExceeded(PlanLimitError::new(
-                    MAX_API_KEYS,
-                    u64::from(entitlements.max_api_keys),
-                    u64::from(entitlements.max_api_keys),
-                    "upgrade_plan",
-                )));
+                return Err(CreateApiKeyError::ResourceLimitExceeded(
+                    ResourceLimitError::new(
+                        MAX_API_KEYS,
+                        u64::from(entitlements.max_api_keys),
+                        u64::from(entitlements.max_api_keys),
+                        "upgrade_plan",
+                    ),
+                ));
             }
         }
 

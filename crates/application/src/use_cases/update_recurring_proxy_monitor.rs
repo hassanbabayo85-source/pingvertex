@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::{
     dto::{RecurringProxyMonitorResponse, UpdateRecurringProxyMonitorRequest},
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{RecurringProxyMonitorRepository, ResourceLimitResolver},
 };
 use domain::entities::MIN_RECURRING_PROXY_INTERVAL_SECONDS;
@@ -15,7 +15,7 @@ type BoxError = Box<dyn Error + Send + Sync>;
 pub enum UpdateRecurringProxyMonitorError {
     Forbidden,
     NotFound,
-    PlanLimitExceeded(PlanLimitError),
+    ResourceLimitExceeded(ResourceLimitError),
     Other(BoxError),
 }
 
@@ -24,7 +24,7 @@ impl fmt::Display for UpdateRecurringProxyMonitorError {
         match self {
             Self::Forbidden => write!(f, "forbidden"),
             Self::NotFound => write!(f, "recurring proxy monitor not found"),
-            Self::PlanLimitExceeded(e) => write!(f, "{e}"),
+            Self::ResourceLimitExceeded(e) => write!(f, "{e}"),
             Self::Other(e) => write!(f, "{e}"),
         }
     }
@@ -33,7 +33,7 @@ impl fmt::Display for UpdateRecurringProxyMonitorError {
 impl Error for UpdateRecurringProxyMonitorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlanLimitExceeded(e) => Some(e),
+            Self::ResourceLimitExceeded(e) => Some(e),
             Self::Other(e) => Some(e.as_ref()),
             _ => None,
         }
@@ -73,8 +73,8 @@ where
             .map_err(UpdateRecurringProxyMonitorError::Other)?;
 
         if request.interval_seconds < entitlements.min_recurring_proxy_interval_seconds {
-            return Err(UpdateRecurringProxyMonitorError::PlanLimitExceeded(
-                PlanLimitError::new(
+            return Err(UpdateRecurringProxyMonitorError::ResourceLimitExceeded(
+                ResourceLimitError::new(
                     MIN_RECURRING_PROXY_INTERVAL_SECONDS,
                     u64::from(request.interval_seconds),
                     u64::from(entitlements.min_recurring_proxy_interval_seconds),

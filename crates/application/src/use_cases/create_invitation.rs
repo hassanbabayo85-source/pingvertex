@@ -7,7 +7,7 @@ use domain::{
     shared::types::{AuthenticatedUser, Permission, Role},
 };
 
-use crate::errors::PlanLimitError;
+use crate::errors::ResourceLimitError;
 use crate::ports::{
     AuditLogEntryRepository, IdGenerator, PasswordHasher, ResourceLimitResolver,
     TenantInvitationRepository, TenantMembershipRepository,
@@ -145,12 +145,14 @@ where
                 .map_err(InvitationError::Internal)?;
 
             if members + pending >= u64::from(entitlements.max_team_members) {
-                return Err(InvitationError::Internal(Box::new(PlanLimitError::new(
-                    MAX_TEAM_MEMBERS,
-                    members + pending,
-                    u64::from(entitlements.max_team_members),
-                    "upgrade_plan",
-                ))));
+                return Err(InvitationError::Internal(Box::new(
+                    ResourceLimitError::new(
+                        MAX_TEAM_MEMBERS,
+                        members + pending,
+                        u64::from(entitlements.max_team_members),
+                        "upgrade_plan",
+                    ),
+                )));
             }
         }
 

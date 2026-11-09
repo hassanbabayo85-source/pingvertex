@@ -13,9 +13,9 @@
 //! error type and a distinct code (`plan_limit_reached`), not
 //! `PAYG_INSUFFICIENT_BALANCE` or similar.
 //!
-//! # Why there is no explicit `From<PlanLimitError> for Box<dyn Error>`
+//! # Why there is no explicit `From<ResourceLimitError> for Box<dyn Error>`
 //!
-//! `PlanLimitError: std::error::Error + Send + Sync + 'static`, so the
+//! `ResourceLimitError: std::error::Error + Send + Sync + 'static`, so the
 //! standard library's blanket impl
 //!
 //! ```ignore
@@ -28,7 +28,7 @@
 
 /// A hard subscription quota that the current operation would exceed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlanLimitError {
+pub struct ResourceLimitError {
     /// Machine-readable quota identifier, e.g. `"max_uptime_monitors"`.
     /// Always one of the `domain::entities::plan_entitlements::*`
     /// constants.
@@ -42,7 +42,7 @@ pub struct PlanLimitError {
     pub action: &'static str,
 }
 
-impl PlanLimitError {
+impl ResourceLimitError {
     pub fn new(quota: &'static str, current: u64, allowed: u64, action: &'static str) -> Self {
         Self {
             quota,
@@ -59,7 +59,7 @@ impl PlanLimitError {
     }
 }
 
-impl std::fmt::Display for PlanLimitError {
+impl std::fmt::Display for ResourceLimitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -69,9 +69,9 @@ impl std::fmt::Display for PlanLimitError {
     }
 }
 
-impl std::error::Error for PlanLimitError {}
+impl std::error::Error for ResourceLimitError {}
 
-/// Convenience helper that boxes a `PlanLimitError` into the boxed
+/// Convenience helper that boxes a `ResourceLimitError` into the boxed
 /// error type most `RepoResult<T>` call sites use.
 pub fn plan_limit_err(
     quota: &'static str,
@@ -79,20 +79,20 @@ pub fn plan_limit_err(
     allowed: u64,
     action: &'static str,
 ) -> Box<dyn std::error::Error + Send + Sync> {
-    Box::new(PlanLimitError::new(quota, current, allowed, action))
+    Box::new(ResourceLimitError::new(quota, current, allowed, action))
 }
 
 /// Returns `true` iff `err` (or anything it wraps via `source()`) is a
-/// `PlanLimitError`. Used by callers that need to branch on the
+/// `ResourceLimitError`. Used by callers that need to branch on the
 /// structured fields without a full pattern-match across the boxed
 /// dynamic error.
 pub fn is_plan_limit_error(err: &(dyn std::error::Error + 'static)) -> bool {
-    if err.downcast_ref::<PlanLimitError>().is_some() {
+    if err.downcast_ref::<ResourceLimitError>().is_some() {
         return true;
     }
     let mut source = err.source();
     while let Some(s) = source {
-        if s.downcast_ref::<PlanLimitError>().is_some() {
+        if s.downcast_ref::<ResourceLimitError>().is_some() {
             return true;
         }
         source = s.source();
@@ -107,13 +107,13 @@ mod tests {
 
     #[test]
     fn code_is_plan_limit_reached() {
-        let e = PlanLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
+        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
         assert_eq!(e.code(), "plan_limit_reached");
     }
 
     #[test]
     fn display_includes_quota_current_allowed_action() {
-        let e = PlanLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
+        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
         let s = e.to_string();
         assert!(s.contains("max_uptime_monitors"), "got: {s}");
         assert!(s.contains("20"), "got: {s}");
@@ -122,13 +122,13 @@ mod tests {
 
     #[test]
     fn boxed_error_can_be_downcast_back() {
-        let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(PlanLimitError::new(
+        let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(ResourceLimitError::new(
             "max_uptime_monitors",
             5,
             5,
             "upgrade_plan",
         ));
-        let recovered = boxed.downcast_ref::<PlanLimitError>().unwrap();
+        let recovered = boxed.downcast_ref::<ResourceLimitError>().unwrap();
         assert_eq!(recovered.quota, "max_uptime_monitors");
     }
 
@@ -141,9 +141,9 @@ mod tests {
     #[test]
     fn blanket_from_impl_via_question_mark_works() {
         // Verifies the standard-library blanket impl is enough: no
-        // manual From<PlanLimitError> impl is needed for `?` to work.
+        // manual From<ResourceLimitError> impl is needed for `?` to work.
         fn try_op() -> RepoResult<()> {
-            let e = PlanLimitError::new("max_uptime_monitors", 1, 1, "upgrade_plan");
+            let e = ResourceLimitError::new("max_uptime_monitors", 1, 1, "upgrade_plan");
             Err(e)?
         }
         assert!(try_op().is_err());
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn is_plan_limit_error_walks_source_chain() {
         #[derive(Debug)]
-        struct Wrapper(PlanLimitError);
+        struct Wrapper(ResourceLimitError);
         impl std::fmt::Display for Wrapper {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "wrapper: {}", self.0)
@@ -164,7 +164,7 @@ mod tests {
             }
         }
 
-        let w = Wrapper(PlanLimitError::new(
+        let w = Wrapper(ResourceLimitError::new(
             "max_uptime_monitors",
             1,
             1,

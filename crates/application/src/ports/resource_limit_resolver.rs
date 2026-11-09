@@ -42,7 +42,7 @@ pub trait ResourceLimitResolver: Send + Sync {
     /// The returned `ResourceLimits` must be treated as a hard ceiling:
     /// no operation may be performed that would exceed one of its
     /// numeric limits without returning
-    /// `crate::errors::PlanLimitError`.
+    /// `crate::errors::ResourceLimitError`.
     async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits>;
 }
 

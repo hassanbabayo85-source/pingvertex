@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::{
     dto::CreateMonitorRequest,
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{
         AuditLogEntryRepository, IdGenerator, MonitorIntervalPolicyRepository, MonitorRepository,
         PricingConfigRepository, QuotaCheckOutcome, ResourceLimitResolver, TenantRepository,
@@ -31,7 +31,7 @@ pub enum CreateMonitorError {
     /// TASK 2 — structured hard-quota rejection. Distinct from
     /// `Other`: carries the machine-readable quota id, current usage,
     /// plan maximum, and a suggested action.
-    PlanLimitExceeded(PlanLimitError),
+    ResourceLimitExceeded(ResourceLimitError),
     TooManyAssertions {
         limit: usize,
     },
@@ -50,7 +50,7 @@ impl fmt::Display for CreateMonitorError {
                 f,
                 "forbidden: you do not have permission to create monitors"
             ),
-            Self::PlanLimitExceeded(err) => write!(f, "{err}"),
+            Self::ResourceLimitExceeded(err) => write!(f, "{err}"),
             Self::TooManyAssertions { limit } => write!(
                 f,
                 "too many assertions: a monitor allows at most {limit} assertions"
@@ -68,7 +68,7 @@ impl fmt::Display for CreateMonitorError {
 impl Error for CreateMonitorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlanLimitExceeded(err) => Some(err),
+            Self::ResourceLimitExceeded(err) => Some(err),
             Self::Other(err) => Some(err.as_ref()),
             _ => None,
         }
@@ -189,22 +189,26 @@ where
 
         // ── Plan-level interval floor ────────────────────────────
         if request.interval_seconds < entitlements.min_uptime_interval_seconds {
-            return Err(CreateMonitorError::PlanLimitExceeded(PlanLimitError::new(
-                MIN_UPTIME_INTERVAL_SECONDS,
-                u64::from(request.interval_seconds),
-                u64::from(entitlements.min_uptime_interval_seconds),
-                "upgrade_plan",
-            )));
+            return Err(CreateMonitorError::ResourceLimitExceeded(
+                ResourceLimitError::new(
+                    MIN_UPTIME_INTERVAL_SECONDS,
+                    u64::from(request.interval_seconds),
+                    u64::from(entitlements.min_uptime_interval_seconds),
+                    "upgrade_plan",
+                ),
+            ));
         }
 
         // ── Plan-level regions cap (stricter than the domain's hard 4) ──
         if (request.regions.len() as u64) > u64::from(entitlements.max_regions_per_monitor) {
-            return Err(CreateMonitorError::PlanLimitExceeded(PlanLimitError::new(
-                MAX_REGIONS_PER_MONITOR,
-                request.regions.len() as u64,
-                u64::from(entitlements.max_regions_per_monitor),
-                "upgrade_plan",
-            )));
+            return Err(CreateMonitorError::ResourceLimitExceeded(
+                ResourceLimitError::new(
+                    MAX_REGIONS_PER_MONITOR,
+                    request.regions.len() as u64,
+                    u64::from(entitlements.max_regions_per_monitor),
+                    "upgrade_plan",
+                ),
+            ));
         }
 
         let monitor = self
@@ -221,12 +225,14 @@ where
         {
             QuotaCheckOutcome::Saved => {}
             QuotaCheckOutcome::QuotaExceeded => {
-                return Err(CreateMonitorError::PlanLimitExceeded(PlanLimitError::new(
-                    MAX_UPTIME_MONITORS,
-                    u64::from(entitlements.max_uptime_monitors),
-                    u64::from(entitlements.max_uptime_monitors),
-                    "upgrade_plan",
-                )));
+                return Err(CreateMonitorError::ResourceLimitExceeded(
+                    ResourceLimitError::new(
+                        MAX_UPTIME_MONITORS,
+                        u64::from(entitlements.max_uptime_monitors),
+                        u64::from(entitlements.max_uptime_monitors),
+                        "upgrade_plan",
+                    ),
+                ));
             }
         }
 

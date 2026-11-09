@@ -10,7 +10,7 @@ use domain::{
     },
 };
 
-use crate::errors::PlanLimitError;
+use crate::errors::ResourceLimitError;
 use crate::ports::monitor_repository::QuotaCheckOutcome;
 use crate::ports::{
     AuditLogEntryRepository, ResourceLimitResolver, TenantMembershipRepository, UserRepository,
@@ -143,7 +143,7 @@ impl AddMemberUseCase {
             {
                 QuotaCheckOutcome::Saved => {}
                 QuotaCheckOutcome::QuotaExceeded => {
-                    return Err(MembershipError::Other(Box::new(PlanLimitError::new(
+                    return Err(MembershipError::Other(Box::new(ResourceLimitError::new(
                         MAX_TEAM_MEMBERS,
                         u64::from(entitlements.max_team_members),
                         u64::from(entitlements.max_team_members),

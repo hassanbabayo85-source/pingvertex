@@ -140,12 +140,12 @@ async fn rejects_creation_past_free_tier_quota() {
         .await;
 
     match result {
-        Err(CreateStatusPageError::PlanLimitExceeded(pl)) => {
+        Err(CreateStatusPageError::ResourceLimitExceeded(pl)) => {
             assert_eq!(pl.quota, "max_status_pages");
             assert_eq!(pl.allowed, u64::from(limit));
             assert_eq!(pl.code(), "plan_limit_reached");
         }
-        other => panic!("expected PlanLimitExceeded, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded, got {other:?}"),
     }
 }
 
@@ -176,10 +176,10 @@ async fn same_tenant_different_users_share_the_quota() {
         .execute(request(user_b, "b-0"), auth_user(user_b, tid))
         .await;
     match result {
-        Err(CreateStatusPageError::PlanLimitExceeded(pl)) => {
+        Err(CreateStatusPageError::ResourceLimitExceeded(pl)) => {
             assert_eq!(pl.quota, "max_status_pages");
         }
-        other => panic!("expected PlanLimitExceeded for user B, got {other:?}"),
+        other => panic!("expected ResourceLimitExceeded for user B, got {other:?}"),
     }
 }
 
@@ -256,7 +256,7 @@ async fn starter_plan_allows_its_own_higher_quota() {
         .await;
     assert!(matches!(
         result,
-        Err(CreateStatusPageError::PlanLimitExceeded(_))
+        Err(CreateStatusPageError::ResourceLimitExceeded(_))
     ));
 }
 

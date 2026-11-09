@@ -2,7 +2,7 @@ use std::{error::Error, fmt, sync::Arc};
 
 use crate::{
     dto::{CreateRecurringProxyMonitorRequest, RecurringProxyMonitorResponse},
-    errors::PlanLimitError,
+    errors::ResourceLimitError,
     ports::{RecurringProxyMonitorRepository, ResourceLimitResolver},
 };
 use domain::entities::RecurringProxyMonitor;
@@ -18,7 +18,7 @@ type BoxError = Box<dyn Error + Send + Sync>;
 #[derive(Debug)]
 pub enum CreateRecurringProxyMonitorError {
     Forbidden,
-    PlanLimitExceeded(PlanLimitError),
+    ResourceLimitExceeded(ResourceLimitError),
     InvalidHost(String),
     InvalidCredentials(String),
     Other(BoxError),
@@ -28,7 +28,7 @@ impl fmt::Display for CreateRecurringProxyMonitorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Forbidden => write!(f, "forbidden: you cannot create recurring proxy monitors"),
-            Self::PlanLimitExceeded(e) => write!(f, "{e}"),
+            Self::ResourceLimitExceeded(e) => write!(f, "{e}"),
             Self::InvalidHost(m) => write!(f, "invalid proxy host: {m}"),
             Self::InvalidCredentials(m) => write!(f, "invalid proxy credentials: {m}"),
             Self::Other(e) => write!(f, "{e}"),
@@ -39,7 +39,7 @@ impl fmt::Display for CreateRecurringProxyMonitorError {
 impl Error for CreateRecurringProxyMonitorError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::PlanLimitExceeded(e) => Some(e),
+            Self::ResourceLimitExceeded(e) => Some(e),
             Self::Other(e) => Some(e.as_ref()),
             _ => None,
         }
@@ -82,8 +82,8 @@ where
 
         let min_interval = entitlements.min_recurring_proxy_interval_seconds;
         if request.interval_seconds < min_interval {
-            return Err(CreateRecurringProxyMonitorError::PlanLimitExceeded(
-                PlanLimitError::new(
+            return Err(CreateRecurringProxyMonitorError::ResourceLimitExceeded(
+                ResourceLimitError::new(
                     MIN_RECURRING_PROXY_INTERVAL_SECONDS,
                     u64::from(request.interval_seconds),
                     u64::from(min_interval),
@@ -138,8 +138,8 @@ where
         {
             QuotaCheckOutcome::Saved => {}
             QuotaCheckOutcome::QuotaExceeded => {
-                return Err(CreateRecurringProxyMonitorError::PlanLimitExceeded(
-                    PlanLimitError::new(
+                return Err(CreateRecurringProxyMonitorError::ResourceLimitExceeded(
+                    ResourceLimitError::new(
                         MAX_RECURRING_PROXY_MONITORS,
                         u64::from(entitlements.max_recurring_proxy_monitors),
                         u64::from(entitlements.max_recurring_proxy_monitors),

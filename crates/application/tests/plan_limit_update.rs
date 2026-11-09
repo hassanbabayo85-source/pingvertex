@@ -1,5 +1,5 @@
 //! TASK 2 — update_monitor rejects an interval below the tenant's
-//! plan minimum via `PlanLimitError`, and permits the plan minimum.
+//! plan minimum via `ResourceLimitError`, and permits the plan minimum.
 
 mod common;
 use common::*;
@@ -80,7 +80,7 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
         .await
         .unwrap();
 
-    // Try to update to 299s → must fail with a structured PlanLimitError.
+    // Try to update to 299s → must fail with a structured ResourceLimitError.
     let update_uc = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
         .with_resource_limit_resolver(resolver.clone());
 
@@ -90,8 +90,8 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
         .unwrap_err();
 
     let pl = err
-        .downcast_ref::<application::PlanLimitError>()
-        .expect("expected application::PlanLimitError, got a different error type");
+        .downcast_ref::<application::ResourceLimitError>()
+        .expect("expected application::ResourceLimitError, got a different error type");
     assert_eq!(pl.quota, "min_uptime_interval_seconds");
     assert_eq!(pl.current, 299);
     assert_eq!(pl.allowed, 300);
@@ -161,8 +161,8 @@ async fn starter_plan_permits_60s_and_rejects_59s() {
         .await
         .unwrap_err();
     let pl = err
-        .downcast_ref::<application::PlanLimitError>()
-        .expect("expected PlanLimitError");
+        .downcast_ref::<application::ResourceLimitError>()
+        .expect("expected ResourceLimitError");
     assert_eq!(pl.quota, "min_uptime_interval_seconds");
     assert_eq!(pl.allowed, 60);
     assert_eq!(pl.current, 59);
