@@ -153,8 +153,6 @@ pub use health_check::{HealthCheckPort, HealthCheckResult};
 
 // Dashboard Overview:
 pub use dashboard_repository::DashboardRepository;
-pub mod pricing_config_repository;
-pub use pricing_config_repository::PricingConfigRepository;
 
 // Proration Service:
 

@@ -3,9 +3,9 @@
 //! The per-tenant cutoff is `entitlements.max_history_retention_days`,
 //! optionally narrowed by a `TenantRetentionSettings` row (Legacy or
 //! Addon source) but never widened above the plan maximum. The PAYG
-//! era chain (`WalletRepository.payg_activated_at` + `PricingConfig
-//! .free_tier`) has been removed; history preservation is preserved
-//! because the worker still only deletes rows older than the cutoff.
+//! era chain (wallet-based free-tier defaults) has been removed; history
+//! preservation is preserved because the worker still only deletes rows
+//! older than the cutoff.
 
 use std::error::Error;
 use std::sync::Arc;

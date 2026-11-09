@@ -22,7 +22,6 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use domain::pricing::PricingConfig;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId, UserId};
 use domain::{
     Check, CheckInterval, DiagnosticReport, ExpectedStatus, HttpMethod, Incident, MonitorBuilder,
@@ -31,10 +30,9 @@ use domain::{
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
-    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
+    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -256,10 +254,6 @@ async fn build_app_with_monitors(n: usize) -> (axum::Router, UserId) {
         monitor_repo.save(&monitor).await.unwrap();
     }
 
-    let pricing_repo = Arc::new(
-        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
-    );
-
     let app_state = AppState::new(
         monitor_repo,
         NoopCheckRepository,
@@ -273,7 +267,6 @@ async fn build_app_with_monitors(n: usize) -> (axum::Router, UserId) {
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_pricing_config_repository(pricing_repo)
     .with_agent_lease_repository(InMemoryAgentLeaseRepository::new())
     .with_agent_registry(InMemoryAgentRegistry::new());
 

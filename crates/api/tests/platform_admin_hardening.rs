@@ -32,10 +32,9 @@ use domain::{
 };
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
-    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
+    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use serde_json::json;
 use tower::ServiceExt;
@@ -383,8 +382,7 @@ async fn build_harness() -> Harness {
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_platform_admin_repositories(users.clone(), tenants.clone())
-    .with_pricing_config_repository(InMemoryPricingConfigRepository::new());
+    .with_platform_admin_repositories(users.clone(), tenants.clone());
 
     let cache = Arc::new(RealPendingAuthCache::new());
 

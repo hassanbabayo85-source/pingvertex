@@ -227,7 +227,7 @@ async fn outbox_worker_stops_gracefully_on_cancellation() {
 #[tokio::test]
 async fn retention_worker_stops_gracefully_on_cancellation() {
     // Task 8C — RetentionWorker is now driven by ResourceLimitResolver;
-    // the PricingConfigRepository and WalletRepository arguments are gone.
+    // the pricing and wallet repository arguments are gone.
     let worker = RetentionWorker::new(
         Arc::new(InMemoryTenantRepository::new()),
         Arc::new(InMemoryHistoryRetentionRepository::new()),

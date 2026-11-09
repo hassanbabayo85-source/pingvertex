@@ -1,7 +1,7 @@
 //! Task 8C — retention sweep tests.
 //!
 //! Retention is now derived from `ResourceLimitResolver.max_history_retention_days`.
-//! WalletRepository and PricingConfigRepository are no longer involved.
+//! Wallet and pricing repositories are no longer involved.
 
 use std::sync::Arc;
 use std::time::Duration;

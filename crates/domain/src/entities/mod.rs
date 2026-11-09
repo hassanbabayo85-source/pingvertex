@@ -80,10 +80,6 @@ pub use recurring_proxy_monitor::{
 
 // Billing Webhooks:
 
-// Pricing Audit Log:
-mod pricing_audit_log_entry;
-pub use pricing_audit_log_entry::PricingAuditLogEntry;
-
 mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;
 

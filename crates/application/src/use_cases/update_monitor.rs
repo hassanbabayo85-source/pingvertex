@@ -8,7 +8,7 @@ use crate::{
     errors::ResourceLimitError,
     ports::{
         AuditLogEntryRepository, MonitorIntervalPolicyRepository, MonitorRepository,
-        PricingConfigRepository, ResourceLimitResolver,
+        ResourceLimitResolver,
     },
 };
 use domain::{
@@ -55,13 +55,6 @@ where
     pub fn with_interval_policy_repository(
         self,
         _repository: Arc<dyn MonitorIntervalPolicyRepository>,
-    ) -> Self {
-        self
-    }
-
-    pub fn with_pricing_config_repository(
-        self,
-        _repository: Arc<dyn PricingConfigRepository>,
     ) -> Self {
         self
     }

@@ -11,16 +11,14 @@ use axum::{
     http::{Request, StatusCode},
 };
 use axum_server_mtls::PeerCertificates;
-use domain::pricing::PricingConfig;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId, UserId};
 use domain::{Agent, AgentStatus, Check, DiagnosticReport, Incident, User};
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryAgentRegistry, InMemoryApiFlowRepository,
     InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, InMemoryRegistrationTransaction,
-    InMemoryTenantMembershipRepository, InMemoryTenantRepository, NoopNotificationService,
-    UuidIdGenerator,
+    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
+    InMemoryRegistrationTransaction, InMemoryTenantMembershipRepository, InMemoryTenantRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::Arc;
@@ -203,9 +201,6 @@ impl TokenService for NoopTok {
 }
 
 async fn build_app(registry: Arc<InMemoryAgentRegistry>) -> axum::Router {
-    let pricing_repo = Arc::new(
-        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
-    );
     let app_state = AppState::new(
         InMemoryMonitorRepository::new(),
         NoopCheckRepository,
@@ -219,7 +214,6 @@ async fn build_app(registry: Arc<InMemoryAgentRegistry>) -> axum::Router {
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_pricing_config_repository(pricing_repo)
     .with_agent_lease_repository(InMemoryAgentLeaseRepository::new())
     .with_agent_registry((*registry).clone());
 

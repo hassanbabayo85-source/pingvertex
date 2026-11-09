@@ -32,10 +32,8 @@ use axum::http::StatusCode;
 use common::*;
 use domain::ResourceLimits;
 use domain::enums::ProxyScheme;
-use domain::pricing::PricingConfig;
 use domain::shared::ids::{TenantId, UserId};
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
-use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
@@ -58,9 +56,6 @@ fn build_state_with(
     resolver: InMemoryResourceLimitResolver,
 ) -> AppState {
     let monitor_repository = InMemoryMonitorRepository::new();
-    let pricing_repo = Arc::new(
-        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
-    );
 
     AppState::new(
         monitor_repository.clone(),
@@ -75,7 +70,6 @@ fn build_state_with(
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_pricing_config_repository(pricing_repo)
     .with_recurring_proxy_monitor_repository(repo)
     .with_resource_limit_resolver(resolver)
 }

@@ -23,9 +23,6 @@ pub use resource_limits::*;
 pub use shared::ids::*;
 pub use value_objects::*;
 
-pub mod pricing;
-pub use pricing::*;
-
 pub mod resource_limits_env;
 
 pub mod monitor_operation;

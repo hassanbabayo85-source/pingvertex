@@ -50,11 +50,7 @@ async fn updates_monitor_successfully() {
         .unwrap();
 
     let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-        .with_resource_limit_resolver(resolver_default())
-        .with_pricing_config_repository(std::sync::Arc::new(
-            infra::InMemoryPricingConfigRepository::new()
-                .with_config(domain::pricing::PricingConfig::default_config()),
-        ));
+        .with_resource_limit_resolver(resolver_default());
 
     let updated = update_use_case
         .execute(
@@ -123,11 +119,7 @@ async fn cannot_update_monitor_owned_by_another_user() {
         .unwrap();
 
     let update_use_case = UpdateMonitorUseCase::new(repository.clone(), new_audit_repo())
-        .with_resource_limit_resolver(resolver_default())
-        .with_pricing_config_repository(std::sync::Arc::new(
-            infra::InMemoryPricingConfigRepository::new()
-                .with_config(domain::pricing::PricingConfig::default_config()),
-        ));
+        .with_resource_limit_resolver(resolver_default());
     let result = update_use_case
         .execute(
             UpdateMonitor {

@@ -8,10 +8,8 @@ use application::ports::{
     SecretCipherError, TokenService, UserRepository,
 };
 use async_trait::async_trait;
-use domain::pricing::PricingConfig;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, TenantId};
 use domain::{Check, DiagnosticReport, Incident, User};
-use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
     InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
     InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
@@ -240,10 +238,6 @@ impl TokenService for NoopTokenService {
 pub async fn build() -> axum::Router {
     let monitor_repository = InMemoryMonitorRepository::new();
 
-    let pricing_repo = Arc::new(
-        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
-    );
-
     let app_state = AppState::new(
         monitor_repository.clone(),
         NoopCheckRepository,
@@ -256,8 +250,7 @@ pub async fn build() -> axum::Router {
         UuidIdGenerator::new(),
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
-    )
-    .with_pricing_config_repository(pricing_repo.clone());
+    );
 
     let auth_state = AuthState::new(
         NoopUserRepository,

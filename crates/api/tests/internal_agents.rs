@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum_server_mtls::PeerCertificates;
-use domain::pricing::PricingConfig;
 use domain::shared::ids::TenantId;
 use domain::shared::ids::{CheckId, IncidentId, MonitorId, UserId};
 use domain::{
@@ -21,8 +20,8 @@ use infra::InMemoryTenantMembershipRepository;
 use infra::InMemoryTenantRepository;
 use infra::{
     InMemoryAgentLeaseRepository, InMemoryApiFlowRepository, InMemoryMonitorRepository,
-    InMemoryNotificationChannelRepository, InMemoryPricingConfigRepository,
-    InMemoryProxyCheckJobRepository, NoopNotificationService, UuidIdGenerator,
+    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
+    NoopNotificationService, UuidIdGenerator,
 };
 use rustls_pki_types::CertificateDer;
 use std::sync::Arc;
@@ -320,9 +319,6 @@ async fn build_test_app(
     for monitor in &monitors {
         agent_lease_repository.seed_due_monitor(monitor.clone());
     }
-    let pricing_config_repository = Arc::new(
-        InMemoryPricingConfigRepository::new().with_config(PricingConfig::default_config()),
-    );
     let state = AppState::new(
         monitor_repo.clone(),
         check_repo.clone(),
@@ -337,8 +333,7 @@ async fn build_test_app(
         InMemoryAuditLogEntryRepository::new(),
     )
     .with_agent_lease_repository(agent_lease_repository.clone())
-    .with_agent_registry(seed_test_agents())
-    .with_pricing_config_repository(pricing_config_repository.clone());
+    .with_agent_registry(seed_test_agents());
 
     let auth_state = AuthState::new(
         NoopUserRepository,
