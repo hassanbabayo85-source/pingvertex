@@ -1,7 +1,7 @@
 # Scheduler Backpressure Controls
 
 The durable scheduler uses layered capacity controls. Operational values are
-configuration, not Free-tier business constants.
+configuration, not hardcoded business constants.
 
 - `WORKER_MAX_CONCURRENT_CHECKS`: global execution concurrency.
 - `SCHEDULER_MAX_CONCURRENCY_PER_TENANT`: maximum active leased monitor checks
@@ -27,9 +27,9 @@ The worker publishes:
 - `scheduler_suspended_tenant_skips_total`
 - `scheduler_entitlement_skips_total`
 
-Free-tier monitor limits and minimum intervals are resolved through
-`ResolveEntitlementsUseCase`; the scheduler does not contain Free-tier
-business constants.
+Monitor limits and minimum intervals are resolved through the
+`ResourceLimitResolver` (fed by the `PV_MAX_*` environment variables on
+self-hosted installs); the scheduler does not contain hardcoded limits.
 
 
 Regional agents use the same tenant caps at the mTLS claim boundary. Their
@@ -38,7 +38,7 @@ checks returned to one agent claim request. The database tenant semaphore is
 still authoritative across agents and regions.
 
 
-HTTP execution ownership is split to avoid duplicate checks and double billing:
+HTTP execution ownership is split to avoid duplicate checks and duplicate work:
 single-region HTTP monitors remain on the durable worker scheduler, while
 multi-region HTTP monitors are claimed per region by mTLS agents. The database
 claim predicates enforce this split.

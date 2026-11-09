@@ -28,7 +28,6 @@ The project is expected to include:
 - Teams
 - Organizations
 - API Keys
-- Billing
 - RBAC
 - Audit Logs
 
