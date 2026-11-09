@@ -30,8 +30,8 @@ use domain::{
     shared::types::{AuthenticatedUser, PermissionDenied, Role, TenantContext},
 };
 use infra::{
-    InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryStatusPageRepository, UuidIdGenerator,
+    InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
+    InMemoryResourceLimitResolver, InMemoryStatusPageRepository, UuidIdGenerator,
 };
 use uuid::Uuid;
 
@@ -60,8 +60,8 @@ fn auth_owner(user_id: UserId, tenant_id: TenantId) -> AuthenticatedUser {
 /// exercise *permissions*, not quotas, so Free tier is sufficient — but
 /// every use case needs *some* resolver wired or it fails closed with
 /// `EntitlementResolverMissing`.
-fn free_resolver() -> Arc<InMemoryEntitlementResolver> {
-    Arc::new(InMemoryEntitlementResolver::default())
+fn free_resolver() -> Arc<InMemoryResourceLimitResolver> {
+    Arc::new(InMemoryResourceLimitResolver::default())
 }
 
 fn monitor_request(name: &str) -> CreateMonitorRequest {

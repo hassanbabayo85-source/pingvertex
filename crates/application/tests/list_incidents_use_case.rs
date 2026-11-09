@@ -12,11 +12,11 @@ use async_trait::async_trait;
 use domain::HttpMethod;
 use domain::Incident;
 use domain::shared::ids::{IncidentId, MonitorId, UserId};
-use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryMonitorRepository, InMemoryResourceLimitResolver, UuidIdGenerator};
 use uuid::Uuid;
 
-fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
-    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+fn resolver_default() -> std::sync::Arc<InMemoryResourceLimitResolver> {
+    std::sync::Arc::new(InMemoryResourceLimitResolver::default())
 }
 
 #[derive(Clone, Default)]

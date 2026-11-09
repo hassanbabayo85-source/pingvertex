@@ -21,7 +21,7 @@ use domain::shared::ids::UserId;
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
 use infra::{
     Argon2PasswordHasher, InMemoryApiKeyRepository, InMemoryAuditLogEntryRepository,
-    InMemoryEntitlementResolver, UuidIdGenerator,
+    InMemoryResourceLimitResolver, UuidIdGenerator,
 };
 use uuid::Uuid;
 
@@ -45,10 +45,10 @@ fn make_use_case() -> CreateApiKeyUseCase {
         Arc::new(Argon2PasswordHasher),
         Arc::new(InMemoryAuditLogEntryRepository::new()),
     )
-    .with_resource_limit_resolver(Arc::new(InMemoryEntitlementResolver::default()))
+    .with_resource_limit_resolver(Arc::new(InMemoryResourceLimitResolver::default()))
 }
 
-fn make_use_case_with_resolver(resolver: InMemoryEntitlementResolver) -> CreateApiKeyUseCase {
+fn make_use_case_with_resolver(resolver: InMemoryResourceLimitResolver) -> CreateApiKeyUseCase {
     CreateApiKeyUseCase::new(
         Arc::new(InMemoryApiKeyRepository::new()),
         Arc::new(UuidIdGenerator::new()),
@@ -213,7 +213,7 @@ async fn starter_plan_allows_more_api_keys_than_free() {
 
     let tenant = tenant_id();
     let resolver =
-        InMemoryEntitlementResolver::default().with_override(tenant, starter_entitlements);
+        InMemoryResourceLimitResolver::default().with_override(tenant, starter_entitlements);
     let use_case = make_use_case_with_resolver(resolver);
     let admin = auth_with_role_in_tenant(Role::Admin, tenant);
 

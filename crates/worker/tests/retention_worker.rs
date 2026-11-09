@@ -13,7 +13,7 @@ use domain::{
     shared::ids::{CheckId, MonitorId, TenantId, UserId},
 };
 use infra::{
-    InMemoryEntitlementResolver, InMemoryHistoryRetentionRepository, InMemoryTenantRepository,
+    InMemoryHistoryRetentionRepository, InMemoryResourceLimitResolver, InMemoryTenantRepository,
     InMemoryTenantRetentionSettingsRepository,
 };
 use uuid::Uuid;
@@ -57,7 +57,7 @@ async fn retention_uses_plan_max_for_free_tier() {
     let worker = RetentionWorker::new(
         tenant_repo,
         history_repo.clone(),
-        Arc::new(InMemoryEntitlementResolver::default()),
+        Arc::new(InMemoryResourceLimitResolver::default()),
         100,
         Duration::from_secs(3600),
         2,
@@ -81,7 +81,7 @@ async fn retention_uses_plan_max_for_business_tier() {
     history_repo.seed_check(sample_check_older_than_days(400), business_tenant.id);
     history_repo.seed_check(sample_check_older_than_days(10), business_tenant.id);
 
-    let resolver = InMemoryEntitlementResolver::default()
+    let resolver = InMemoryResourceLimitResolver::default()
         .with_override(business_tenant.id, ResourceLimits::business_v1_fixture());
 
     let worker = RetentionWorker::new(
@@ -114,7 +114,7 @@ async fn retention_sweep_processes_all_tenants() {
     // Business: 10-day-old check kept (max=365).
     history_repo.seed_check(sample_check_older_than_days(10), business_tenant.id);
 
-    let resolver = InMemoryEntitlementResolver::default()
+    let resolver = InMemoryResourceLimitResolver::default()
         .with_override(business_tenant.id, ResourceLimits::business_v1_fixture());
 
     let worker = RetentionWorker::new(
@@ -144,7 +144,7 @@ async fn retention_uses_starter_plan_max() {
     history_repo.seed_check(sample_check_older_than_days(31), starter_tenant.id);
     history_repo.seed_check(sample_check_older_than_days(29), starter_tenant.id);
 
-    let resolver = InMemoryEntitlementResolver::default()
+    let resolver = InMemoryResourceLimitResolver::default()
         .with_override(starter_tenant.id, ResourceLimits::starter_v1_fixture());
 
     let worker = RetentionWorker::new(
@@ -169,14 +169,14 @@ async fn retention_defaults_to_free_tier_for_unknown_tenant() {
     let unknown_tenant = tenant("Unknown");
     tenant_repo.create(&unknown_tenant).await.unwrap();
 
-    // No override → InMemoryEntitlementResolver defaults to Free (max=2).
+    // No override → InMemoryResourceLimitResolver defaults to Free (max=2).
     history_repo.seed_check(sample_check_older_than_days(3), unknown_tenant.id);
     history_repo.seed_check(sample_check_older_than_days(0), unknown_tenant.id);
 
     let worker = RetentionWorker::new(
         tenant_repo,
         history_repo.clone(),
-        Arc::new(InMemoryEntitlementResolver::default()),
+        Arc::new(InMemoryResourceLimitResolver::default()),
         100,
         Duration::from_secs(3600),
         2,

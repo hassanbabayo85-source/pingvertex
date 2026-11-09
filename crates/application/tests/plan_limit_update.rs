@@ -11,7 +11,7 @@ use application::dto::CreateMonitorRequest;
 use application::use_cases::{CreateMonitorUseCase, UpdateMonitorUseCase};
 use domain::HttpMethod;
 use domain::shared::ids::UserId;
-use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryMonitorRepository, InMemoryResourceLimitResolver, UuidIdGenerator};
 
 use uuid::Uuid;
 
@@ -66,7 +66,7 @@ fn update_command(id: domain::shared::ids::MonitorId, interval_seconds: u32) -> 
 #[tokio::test]
 async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
     let repository = InMemoryMonitorRepository::new();
-    let resolver = Arc::new(InMemoryEntitlementResolver::default());
+    let resolver = Arc::new(InMemoryResourceLimitResolver::default());
     let user_id = UserId(Uuid::new_v4());
     let tenant = tenant_id();
 
@@ -102,7 +102,7 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
 #[tokio::test]
 async fn update_permits_exactly_the_plan_minimum() {
     let repository = InMemoryMonitorRepository::new();
-    let resolver = Arc::new(InMemoryEntitlementResolver::default());
+    let resolver = Arc::new(InMemoryResourceLimitResolver::default());
     let user_id = UserId(Uuid::new_v4());
     let tenant = tenant_id();
 
@@ -133,7 +133,8 @@ async fn starter_plan_permits_60s_and_rejects_59s() {
     let repository = InMemoryMonitorRepository::new();
     let tenant = tenant_id();
     let starter = domain::ResourceLimits::starter_v1_fixture();
-    let resolver = Arc::new(InMemoryEntitlementResolver::default().with_override(tenant, starter));
+    let resolver =
+        Arc::new(InMemoryResourceLimitResolver::default().with_override(tenant, starter));
     let user_id = UserId(Uuid::new_v4());
 
     let create_uc =
@@ -170,7 +171,7 @@ async fn starter_plan_permits_60s_and_rejects_59s() {
 #[tokio::test]
 async fn update_without_resolver_fails_closed() {
     let repository = InMemoryMonitorRepository::new();
-    let resolver = Arc::new(InMemoryEntitlementResolver::default());
+    let resolver = Arc::new(InMemoryResourceLimitResolver::default());
     let user_id = UserId(Uuid::new_v4());
     let tenant = tenant_id();
 

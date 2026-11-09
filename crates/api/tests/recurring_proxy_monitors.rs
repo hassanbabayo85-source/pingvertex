@@ -37,9 +37,9 @@ use domain::shared::ids::{TenantId, UserId};
 use domain::shared::types::{AuthenticatedUser, Role, TenantContext};
 use infra::repositories::in_memory_pricing_config_repository::InMemoryPricingConfigRepository;
 use infra::{
-    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryEntitlementResolver,
-    InMemoryMonitorRepository, InMemoryNotificationChannelRepository,
-    InMemoryProxyCheckJobRepository, InMemoryRecurringProxyMonitorRepository, UuidIdGenerator,
+    InMemoryApiFlowRepository, InMemoryAuditLogEntryRepository, InMemoryMonitorRepository,
+    InMemoryNotificationChannelRepository, InMemoryProxyCheckJobRepository,
+    InMemoryRecurringProxyMonitorRepository, InMemoryResourceLimitResolver, UuidIdGenerator,
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ fn pro_entitlements() -> ResourceLimits {
 /// no-op defaults used by `common::build()`.
 fn build_state_with(
     repo: Arc<InMemoryRecurringProxyMonitorRepository>,
-    resolver: InMemoryEntitlementResolver,
+    resolver: InMemoryResourceLimitResolver,
 ) -> AppState {
     let monitor_repository = InMemoryMonitorRepository::new();
     let pricing_repo = Arc::new(
@@ -113,7 +113,8 @@ fn update_cmd(interval_seconds: u32) -> UpdateRecurringProxyMonitorRequest {
 async fn create_returns_201_with_no_credentials_in_response() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver =
+        InMemoryResourceLimitResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo.clone(), resolver);
     let user = owner_of(tenant);
 
@@ -154,9 +155,9 @@ async fn create_returns_201_with_no_credentials_in_response() {
 async fn create_on_free_tier_returns_409_plan_limit_reached() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    // No override → InMemoryEntitlementResolver::default() returns the
+    // No override → InMemoryResourceLimitResolver::default() returns the
     // Free v1 fixture, whose `max_recurring_proxy_monitors` is 0.
-    let state = build_state_with(repo, InMemoryEntitlementResolver::default());
+    let state = build_state_with(repo, InMemoryResourceLimitResolver::default());
     let user = owner_of(tenant);
 
     let err =
@@ -181,7 +182,7 @@ async fn cross_tenant_get_returns_404_not_403() {
     let tenant_b = TenantId::new();
 
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver = InMemoryEntitlementResolver::default()
+    let resolver = InMemoryResourceLimitResolver::default()
         .with_override(tenant_a, pro_entitlements())
         .with_override(tenant_b, pro_entitlements());
     let state = build_state_with(repo.clone(), resolver);
@@ -220,7 +221,7 @@ async fn list_returns_only_own_monitors() {
     let tenant_b = TenantId::new();
 
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver = InMemoryEntitlementResolver::default()
+    let resolver = InMemoryResourceLimitResolver::default()
         .with_override(tenant_a, pro_entitlements())
         .with_override(tenant_b, pro_entitlements());
     let state = build_state_with(repo.clone(), resolver);
@@ -267,7 +268,8 @@ async fn list_returns_only_own_monitors() {
 async fn update_below_300s_returns_409_plan_limit_reached() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver =
+        InMemoryResourceLimitResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo, resolver);
     let user = owner_of(tenant);
 
@@ -311,7 +313,8 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
 async fn delete_requires_delete_permission() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
-    let resolver = InMemoryEntitlementResolver::default().with_override(tenant, pro_entitlements());
+    let resolver =
+        InMemoryResourceLimitResolver::default().with_override(tenant, pro_entitlements());
     let state = build_state_with(repo, resolver);
 
     // Owner creates a monitor.

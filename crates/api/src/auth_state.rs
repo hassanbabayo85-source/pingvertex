@@ -17,7 +17,7 @@ use application::ports::{
     ResourceLimitResolver, SecretCipher, SecretCipherError, TenantInvitationRepository,
     TenantMembershipRepository, TenantRepository, TokenService, UserRepository,
 };
-use infra::{InMemoryEntitlementResolver, UuidIdGenerator};
+use infra::{InMemoryResourceLimitResolver, UuidIdGenerator};
 
 type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -411,7 +411,7 @@ impl AuthState {
             apple_id_token_verifier: Arc::new(NoopIdTokenVerifier),
             oauth_identity_repository: Arc::new(NoopOAuthIdentityRepository),
             audit_log_entry_repository: Arc::new(NoopAuditLogEntryRepository),
-            resource_limit_resolver: Arc::new(InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(InMemoryResourceLimitResolver::default()),
         }
     }
 

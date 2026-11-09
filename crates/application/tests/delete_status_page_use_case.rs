@@ -6,13 +6,13 @@ use application::ports::StatusPageRepository;
 use application::use_cases::{CreateStatusPageUseCase, DeleteStatusPageUseCase};
 use domain::shared::ids::UserId;
 use infra::{
-    InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository,
+    InMemoryMonitorRepository, InMemoryResourceLimitResolver, InMemoryStatusPageRepository,
     UuidIdGenerator,
 };
 use uuid::Uuid;
 
-fn resolver_default() -> std::sync::Arc<InMemoryEntitlementResolver> {
-    std::sync::Arc::new(InMemoryEntitlementResolver::default())
+fn resolver_default() -> std::sync::Arc<InMemoryResourceLimitResolver> {
+    std::sync::Arc::new(InMemoryResourceLimitResolver::default())
 }
 
 #[tokio::test]

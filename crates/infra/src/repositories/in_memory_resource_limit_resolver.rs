@@ -13,12 +13,12 @@ use async_trait::async_trait;
 use domain::{ResourceLimits, shared::ids::TenantId};
 
 #[derive(Debug)]
-pub struct InMemoryEntitlementResolver {
+pub struct InMemoryResourceLimitResolver {
     free_default: ResourceLimits,
     overrides: RwLock<HashMap<TenantId, ResourceLimits>>,
 }
 
-impl InMemoryEntitlementResolver {
+impl InMemoryResourceLimitResolver {
     /// Builds a resolver whose default (for any tenant without an
     /// override) is `free_default`. Tests should pass
     /// `ResourceLimits::free_v1_fixture()`; production never constructs
@@ -52,14 +52,14 @@ impl InMemoryEntitlementResolver {
     }
 }
 
-impl Default for InMemoryEntitlementResolver {
+impl Default for InMemoryResourceLimitResolver {
     fn default() -> Self {
         Self::new(ResourceLimits::free_v1_fixture())
     }
 }
 
 #[async_trait]
-impl ResourceLimitResolver for InMemoryEntitlementResolver {
+impl ResourceLimitResolver for InMemoryResourceLimitResolver {
     async fn resolve(&self, tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         if let Some(ent) = self.overrides.read().unwrap().get(&tenant_id) {
             return Ok(*ent);

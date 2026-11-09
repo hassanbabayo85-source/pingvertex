@@ -231,7 +231,7 @@ async fn retention_worker_stops_gracefully_on_cancellation() {
     let worker = RetentionWorker::new(
         Arc::new(InMemoryTenantRepository::new()),
         Arc::new(InMemoryHistoryRetentionRepository::new()),
-        Arc::new(infra::InMemoryEntitlementResolver::default()),
+        Arc::new(infra::InMemoryResourceLimitResolver::default()),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         Duration::from_millis(10),
         2,

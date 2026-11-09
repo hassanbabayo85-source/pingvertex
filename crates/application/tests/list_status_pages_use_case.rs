@@ -5,15 +5,17 @@ use application::dto::CreateStatusPageRequest;
 use application::use_cases::{CreateStatusPageUseCase, ListStatusPagesUseCase};
 use domain::shared::ids::UserId;
 use infra::{
-    InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository,
+    InMemoryMonitorRepository, InMemoryResourceLimitResolver, InMemoryStatusPageRepository,
     UuidIdGenerator,
 };
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn starter_resolver(tenant_id: domain::shared::ids::TenantId) -> Arc<InMemoryEntitlementResolver> {
+fn starter_resolver(
+    tenant_id: domain::shared::ids::TenantId,
+) -> Arc<InMemoryResourceLimitResolver> {
     let starter = domain::ResourceLimits::starter_v1_fixture();
-    Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter))
+    Arc::new(InMemoryResourceLimitResolver::default().with_override(tenant_id, starter))
 }
 
 #[tokio::test]

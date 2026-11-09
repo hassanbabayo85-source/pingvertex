@@ -10,7 +10,7 @@
 //! bug; so is calling `ResolveEntitlementsUseCase` (which is retired).
 //!
 //! The resolver is implemented by `PostgresEntitlementResolver` in
-//! `infra`, with an `InMemoryEntitlementResolver` for tests.
+//! `infra`, with an `InMemoryResourceLimitResolver` for tests.
 //!
 //! # Boundaries
 //!

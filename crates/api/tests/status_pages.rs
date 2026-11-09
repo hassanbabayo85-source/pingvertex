@@ -265,7 +265,7 @@ fn build_test_app_with_status_repo(
         Arc::new(NoopSecretCipher),
         InMemoryAuditLogEntryRepository::new(),
     )
-    .with_resource_limit_resolver(infra::InMemoryEntitlementResolver::default_enterprise());
+    .with_resource_limit_resolver(infra::InMemoryResourceLimitResolver::default_enterprise());
 
     // AppState::new installs a NoopStatusPageRepository. Replace it with a
     // real in-memory repo so status-page routes and custom-domain routing

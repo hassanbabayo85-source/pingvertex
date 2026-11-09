@@ -97,8 +97,8 @@ pub use postgres_user_repository::*;
 pub use postgres_dashboard_repository::PostgresDashboardRepository;
 
 // TASK 2 — Entitlement Resolver (single source of truth for quotas):
-pub mod in_memory_entitlement_resolver;
-pub use in_memory_entitlement_resolver::InMemoryEntitlementResolver;
+pub mod in_memory_resource_limit_resolver;
+pub use in_memory_resource_limit_resolver::InMemoryResourceLimitResolver;
 
 // Plan / Subscription / Entitlement model:
 

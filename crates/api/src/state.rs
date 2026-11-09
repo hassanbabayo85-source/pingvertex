@@ -926,7 +926,7 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
-            resource_limit_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(infra::InMemoryResourceLimitResolver::default()),
 
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
@@ -1010,7 +1010,7 @@ impl AppState {
     {
         Self {
             monitor_repository: Arc::new(monitor_repository),
-            resource_limit_resolver: Arc::new(infra::InMemoryEntitlementResolver::default()),
+            resource_limit_resolver: Arc::new(infra::InMemoryResourceLimitResolver::default()),
 
             bulk_monitor_import_repository: None,
             bulk_monitor_action_repository: None,
@@ -1267,7 +1267,7 @@ impl AppState {
     }
 
     /// TASK 2 — substitutes a real `ResourceLimitResolver` in place of
-    /// the Free-default `InMemoryEntitlementResolver`. Production
+    /// the Free-default `InMemoryResourceLimitResolver`. Production
     /// `main.rs` wires `PostgresEntitlementResolver`; tests may leave
     /// the default in place or install their own overrides.
     pub fn with_resource_limit_resolver<R>(mut self, resolver: R) -> Self

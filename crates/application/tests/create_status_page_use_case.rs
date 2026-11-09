@@ -11,7 +11,7 @@ use domain::{
     CheckInterval, ExpectedStatus, HttpMethod, Monitor, MonitorBuilder, MonitorName, Timeout, Url,
 };
 use infra::{
-    InMemoryEntitlementResolver, InMemoryMonitorRepository, InMemoryStatusPageRepository,
+    InMemoryMonitorRepository, InMemoryResourceLimitResolver, InMemoryStatusPageRepository,
     UuidIdGenerator,
 };
 use uuid::Uuid;
@@ -28,8 +28,8 @@ fn request(_user_id: UserId, subdomain: &str) -> CreateStatusPageRequest {
 
 /// Builder for the default resolver (Free tier) — the common case for
 /// tests that only check the wiring.
-fn free_resolver() -> Arc<InMemoryEntitlementResolver> {
-    Arc::new(InMemoryEntitlementResolver::default())
+fn free_resolver() -> Arc<InMemoryResourceLimitResolver> {
+    Arc::new(InMemoryResourceLimitResolver::default())
 }
 
 fn use_case(
@@ -43,7 +43,7 @@ fn use_case(
 fn use_case_with_resolver(
     status_pages: InMemoryStatusPageRepository,
     monitors: InMemoryMonitorRepository,
-    resolver: Arc<InMemoryEntitlementResolver>,
+    resolver: Arc<InMemoryResourceLimitResolver>,
 ) -> CreateStatusPageUseCase<InMemoryStatusPageRepository, UuidIdGenerator, InMemoryMonitorRepository>
 {
     CreateStatusPageUseCase::new(
@@ -232,7 +232,7 @@ async fn starter_plan_allows_its_own_higher_quota() {
         "test only meaningful if Starter is higher than Free"
     );
 
-    let resolver = Arc::new(InMemoryEntitlementResolver::default().with_override(tid, starter));
+    let resolver = Arc::new(InMemoryResourceLimitResolver::default().with_override(tid, starter));
     let use_case = use_case_with_resolver(repository.clone(), monitors, resolver);
 
     // Create Free+1 pages; only a Starter tenant can go past the Free limit.

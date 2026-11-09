@@ -7,7 +7,7 @@ use application::dto::CreateMonitorRequest;
 use application::use_cases::{CreateMonitorError, CreateMonitorUseCase};
 use domain::shared::ids::UserId;
 use domain::{HttpMethod, RegionCode};
-use infra::{InMemoryEntitlementResolver, InMemoryMonitorRepository, UuidIdGenerator};
+use infra::{InMemoryMonitorRepository, InMemoryResourceLimitResolver, UuidIdGenerator};
 
 use uuid::Uuid;
 
@@ -35,8 +35,8 @@ fn req(name: impl Into<String>, interval_seconds: u32) -> CreateMonitorRequest {
     }
 }
 
-fn resolver_default() -> Arc<InMemoryEntitlementResolver> {
-    Arc::new(InMemoryEntitlementResolver::default())
+fn resolver_default() -> Arc<InMemoryResourceLimitResolver> {
+    Arc::new(InMemoryResourceLimitResolver::default())
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ async fn starter_plan_allows_60_seconds_and_30_monitors() {
     let tenant_id = tenant_id();
     let starter = domain::ResourceLimits::starter_v1_fixture();
     let resolver =
-        Arc::new(InMemoryEntitlementResolver::default().with_override(tenant_id, starter));
+        Arc::new(InMemoryResourceLimitResolver::default().with_override(tenant_id, starter));
     let use_case = CreateMonitorUseCase::new(repository, UuidIdGenerator::new(), new_audit_repo())
         .with_resource_limit_resolver(resolver);
 

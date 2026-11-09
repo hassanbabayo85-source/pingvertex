@@ -1,4 +1,4 @@
-//! Smoke tests for `InMemoryEntitlementResolver`.
+//! Smoke tests for `InMemoryResourceLimitResolver`.
 //!
 //! These verify the contract the use-case tests will rely on:
 //!   * a tenant with no override resolves to the Free default;
@@ -7,11 +7,11 @@
 
 use application::ports::ResourceLimitResolver;
 use domain::{ResourceLimits, shared::ids::TenantId};
-use infra::InMemoryEntitlementResolver;
+use infra::InMemoryResourceLimitResolver;
 
 #[tokio::test]
 async fn tenant_with_no_override_resolves_to_free_default() {
-    let resolver = InMemoryEntitlementResolver::default();
+    let resolver = InMemoryResourceLimitResolver::default();
     let ent = resolver.resolve(TenantId::new()).await.unwrap();
     assert_eq!(ent.max_uptime_monitors, 20);
     assert_eq!(ent.min_uptime_interval_seconds, 300);
@@ -24,7 +24,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
 
     let starter = ResourceLimits::starter_v1_fixture();
 
-    let resolver = InMemoryEntitlementResolver::default().with_override(tenant_a, starter);
+    let resolver = InMemoryResourceLimitResolver::default().with_override(tenant_a, starter);
 
     let a = resolver.resolve(tenant_a).await.unwrap();
     assert_eq!(a.max_uptime_monitors, 30);
@@ -36,7 +36,7 @@ async fn explicit_override_is_returned_for_that_tenant_only() {
 #[tokio::test]
 async fn remove_override_falls_back_to_free() {
     let tenant = TenantId::new();
-    let resolver = InMemoryEntitlementResolver::default();
+    let resolver = InMemoryResourceLimitResolver::default();
     let starter = ResourceLimits::starter_v1_fixture();
 
     resolver.set_override(tenant, starter);
