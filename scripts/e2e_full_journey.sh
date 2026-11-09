@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Worker Backend Full E2E Test (API-only).
-# Fifth revision: fixed compose migrate, mailpit, billing env, polling.
+# Fifth revision: fixed compose migrate, mailpit, polling.
 
 set -uo pipefail
 
@@ -8,11 +8,6 @@ if [ -f .env ]; then
   set -a
   . ./.env
   set +a
-fi
-
-# Fallback for webhook secret if not loaded (should match overlay).
-if [ -z "${BILLING_WEBHOOK_SECRET:-}" ]; then
-  BILLING_WEBHOOK_SECRET="e2e-test-webhook-secret"
 fi
 
 API=http://localhost:3000
@@ -143,6 +138,21 @@ else
   fail "response body: $CREATE_JSON"
 fi
 
+# Fetch TENANT_ID from the monitor we just created. It is used by the
+# MASTER DATABASE / TENANT INTEGRITY CHECKS step at the end of the
+# script to verify that the monitor's tenant_id in the DB matches the
+# authenticated user's tenant. This value used to come from the billing
+# webhook flow, which was removed with the billing surface in Phase 3.
+if [ "$MONITOR_ID" != "missing" ]; then
+  TENANT_ID=$(db_query "SELECT tenant_id FROM monitors WHERE id = '$MONITOR_ID' LIMIT 1;")
+  if [ -n "$TENANT_ID" ]; then
+    ok "tenant id: $TENANT_ID"
+  else
+    fail "could not fetch tenant_id from DB for monitor_id=$MONITOR_ID"
+    TENANT_ID=""
+  fi
+fi
+
 # ---------------------------------------------------------------------
 step "FREE INTERVAL BOUNDARY"
 if [ "$MONITOR_ID" != "missing" ]; then
@@ -271,21 +281,6 @@ if [ "$KEY_STATUS" = "201" ]; then
   require_status "external monitors via api key" "200" "$EXTERNAL_STATUS"
 fi
 
-# ---------------------------------------------------------------------
-# ---------------------------------------------------------------------
-step "PAYG PRICING + QUOTE"
-PAYG_PRICING_STATUS=$(curl -sS -b "$COOKIES" -o /tmp/e2e_payg_pricing.json -w '%{http_code}' \
-  "$API/api/v1/payg/pricing")
-require_status "GET PAYG pricing" "200" "$PAYG_PRICING_STATUS"
-QUOTE_BODY=$(jq -n '{monitors:1, interval_seconds:300, regions:1, forecast_days:1}')
-QUOTE_STATUS=$(curl -sS -b "$COOKIES" -o /tmp/e2e_payg_quote.json -w '%{http_code}' \
-  -X POST "$API/api/v1/payg/preview" \
-  -H 'Content-Type: application/json' -d "$QUOTE_BODY")
-require_status "POST PAYG preview" "200" "$QUOTE_STATUS"
-
-step "ENTITLEMENT CHANGE"
-ok "PAYG-first runtime entitlement is exercised by pricing/preview and wallet paths"
-
 step "QUOTA (duplicate submit)"
 if [ "$MONITOR_ID" != "missing" ]; then
   DUP_MONITOR_BODY=$(jq -n '{name:"E2E dup", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:5, assertions:[]}')
@@ -298,57 +293,6 @@ if [ "$MONITOR_ID" != "missing" ]; then
   require_status "second duplicate submit accepted (no idempotency block)" "201" "$DUP_STATUS2"
 else
   fail "skipped QUOTA because monitor id is missing"
-fi
-
-# ---------------------------------------------------------------------
-# step "DOWNGRADE via billing webhook"
-if [ -n "$BILLING_WEBHOOK_SECRET" ]; then
-  if [ "$USER_ID" != "missing" ]; then
-    TENANT_ID=$(db_query "SELECT tenant_id FROM tenant_memberships WHERE user_id = '$USER_ID';")
-    if [ -z "$TENANT_ID" ]; then
-      fail "could not fetch tenant_id from DB for user_id=$USER_ID"
-    else
-      ok "tenant_id fetched: $TENANT_ID"
-      DOWNGRADE_BODY=$(jq -n --arg eid "evt-downgrade-$UNIQUE" --arg et "subscription_canceled" --arg tid "$TENANT_ID" \
-        '{event_id:$eid, event_type:$et, tenant_id:$tid, plan_tier:null, cancel_at_period_end:false, current_period_ends_at:null, data:{}}')
-      SIG=$(printf '%s' "$DOWNGRADE_BODY" | openssl dgst -sha256 -hmac "$BILLING_WEBHOOK_SECRET" | awk '{print $2}')
-      WEBHOOK_STATUS=$(curl -sS -o /tmp/downgrade_resp -w '%{http_code}' -X POST "$API/api/v1/billing/webhook" \
-        -H 'Content-Type: application/json' \
-        -H "x-billing-signature: sha256=$SIG" \
-        -d "$DOWNGRADE_BODY")
-      require_status "send downgrade webhook" "200" "$WEBHOOK_STATUS"
-      DUP_WEBHOOK_STATUS=$(curl -sS -o /tmp/downgrade_dup_resp -w '%{http_code}' -X POST "$API/api/v1/billing/webhook" \
-        -H 'Content-Type: application/json' \
-        -H "x-billing-signature: sha256=$SIG" \
-        -d "$DOWNGRADE_BODY")
-      require_status "duplicate webhook accepted" "200" "$DUP_WEBHOOK_STATUS"
-      if [ "$DUP_WEBHOOK_STATUS" = "200" ]; then
-        DUP_STATUS_BODY=$(cat /tmp/downgrade_dup_resp)
-        if echo "$DUP_STATUS_BODY" | jq -e '.status == "duplicate"' >/dev/null 2>&1; then
-          ok "duplicate webhook response indicates duplicate"
-        else
-          fail "duplicate webhook did not return duplicate status (got: $DUP_STATUS_BODY)"
-        fi
-      fi
-    fi
-  else
-    fail "skipped DOWNGRADE because user id is missing"
-  fi
-else
-  fail "BILLING_WEBHOOK_SECRET not set; cannot sign webhook"
-  TENANT_ID=""
-fi
-
-# ---------------------------------------------------------------------
-step "EXPIRED SUBSCRIPTION / DOWNGRADE EFFECT"
-if [ -n "$TENANT_ID" ]; then
-  sleep 2
-  EXPIRED_MONITOR_BODY=$(jq -n '{name:"E2E should fail", url:"http://mock-target/", method:"GET", expected_status:200, interval_seconds:299, timeout_seconds:5, assertions:[]}')
-  EXPIRED_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/monitors" \
-    -H 'Content-Type: application/json' -d "$EXPIRED_MONITOR_BODY")
-  require_status "create 299s monitor after downgrade should fail (Free plan min 300)" "400" "$EXPIRED_STATUS"
-else
-  fail "tenant_id missing; cannot test expired subscription"
 fi
 
 # ---------------------------------------------------------------------
@@ -834,25 +778,19 @@ PREVIEW_STATUS=$(curl -sS -b "$COOKIES" -o /tmp/e2e_bulk_preview.json -w '%{http
   -F "file=@$CSV_FILE;type=text/csv")
 expect_any "bulk import preview" "$PREVIEW_STATUS" 200 400 403
 if [ "$PREVIEW_STATUS" = "200" ]; then
-  SNAPSHOT=$(jq -r '.pricing_snapshot_hash // empty' /tmp/e2e_bulk_preview.json)
-  if [ -n "$SNAPSHOT" ] && [ "$SNAPSHOT" != "null" ]; then
-    CONFIRM_STATUS=$(curl -sS -b "$COOKIES" -o /tmp/e2e_bulk_confirm.json -w '%{http_code}' \
-      -X POST "$API/api/v1/monitors/bulk-import/confirm?forecast_days=1" \
-      -H "Idempotency-Key: e2e-bulk-${UNIQUE}" \
-      -H "X-Bulk-Pricing-Snapshot: $SNAPSHOT" \
-      -F "file=@$CSV_FILE;type=text/csv")
-    expect_any "bulk import confirm" "$CONFIRM_STATUS" 200 201 202 400 402 409
-    JOB_ID=$(jq -r '.job_id // .id // empty' /tmp/e2e_bulk_confirm.json 2>/dev/null)
-    if [ -n "$JOB_ID" ]; then
-      JOB_STATUS=$(authed_status GET "/api/v1/monitors/bulk-import/jobs/$JOB_ID")
-      expect_any "bulk import job status" "$JOB_STATUS" 200 404
-      PAUSE_STATUS=$(authed_status POST "/api/v1/monitors/bulk-import/jobs/$JOB_ID/pause")
-      expect_any "pause bulk import job" "$PAUSE_STATUS" 200 202 204 400 404 409
-      RESUME_STATUS=$(authed_status POST "/api/v1/monitors/bulk-import/jobs/$JOB_ID/resume")
-      expect_any "resume bulk import job" "$RESUME_STATUS" 200 202 204 400 404 409
-    fi
-  else
-    master_fail "bulk import preview did not return pricing_snapshot_hash"
+  CONFIRM_STATUS=$(curl -sS -b "$COOKIES" -o /tmp/e2e_bulk_confirm.json -w '%{http_code}' \
+    -X POST "$API/api/v1/monitors/bulk-import/confirm?forecast_days=1" \
+    -H "Idempotency-Key: e2e-bulk-${UNIQUE}" \
+    -F "file=@$CSV_FILE;type=text/csv")
+  expect_any "bulk import confirm" "$CONFIRM_STATUS" 200 201 202 400 402 409
+  JOB_ID=$(jq -r '.job_id // .id // empty' /tmp/e2e_bulk_confirm.json 2>/dev/null)
+  if [ -n "$JOB_ID" ]; then
+    JOB_STATUS=$(authed_status GET "/api/v1/monitors/bulk-import/jobs/$JOB_ID")
+    expect_any "bulk import job status" "$JOB_STATUS" 200 404
+    PAUSE_STATUS=$(authed_status POST "/api/v1/monitors/bulk-import/jobs/$JOB_ID/pause")
+    expect_any "pause bulk import job" "$PAUSE_STATUS" 200 202 204 400 404 409
+    RESUME_STATUS=$(authed_status POST "/api/v1/monitors/bulk-import/jobs/$JOB_ID/resume")
+    expect_any "resume bulk import job" "$RESUME_STATUS" 200 202 204 400 404 409
   fi
 fi
 rm -f "$CSV_FILE"
@@ -970,53 +908,6 @@ if [ -n "$RUM_SITE_KEY" ]; then
     -H 'Content-Type: text/plain' -d '{"site_key":"bad","session_key":"x"}')
   expect_any "malformed RUM site key rejected" "$RUM_BAD_STATUS" 404 400
 fi
-
-# ------------------------------------------------------------------
-step "MASTER WALLET + USAGE + TOP-UP + IDEMPOTENCY"
-for route in \
-  /api/v1/wallet \
-  /api/v1/wallet/transactions \
-  /api/v1/wallet/notifications \
-  /api/v1/wallet/settings \
-  /api/v1/wallet/usage \
-  /api/v1/billing/invoices \
-  /api/v1/billing/usage \
-  /api/v1/billing/usage/summary; do
-  ST=$(authed_status GET "$route")
-  expect_any "billing GET $route" "$ST" 200 403
- done
-
-WALLET_SETTINGS_BODY='{"low_balance_threshold_units":100,"critical_balance_threshold_units":20,"auto_top_up_enabled":false,"auto_top_up_threshold_units":50,"auto_top_up_amount_units":500,"payment_method":null,"daily_top_up_limit_units":5000,"monthly_top_up_limit_units":20000,"daily_spend_limit_units":null,"monthly_spend_limit_units":null,"daily_usage_alert_threshold_units":null,"monthly_usage_alert_threshold_units":null,"retry_limit":3}'
-WALLET_SETTINGS_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X PUT "$API/api/v1/wallet/settings" \
-  -H 'Content-Type: application/json' -d "$WALLET_SETTINGS_BODY")
-expect_any "update wallet settings" "$WALLET_SETTINGS_STATUS" 200 400 403
-
-# Missing idempotency must fail. This tests the mandatory replay-safety boundary.
-TOPUP_NO_IDEM=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/wallet/top-up" \
-  -H 'Content-Type: application/json' -d '{"amount_units":500}')
-expect_any "top-up requires Idempotency-Key" "$TOPUP_NO_IDEM" 400 409
-
-TOPUP_RESP=$(curl -sS -b "$COOKIES" -w '\n%{http_code}' -X POST "$API/api/v1/wallet/top-up" \
-  -H 'Content-Type: application/json' -H "Idempotency-Key: e2e-topup-$UNIQUE" \
-  -d '{"amount_units":500}')
-TOPUP_STATUS=$(echo "$TOPUP_RESP" | tail -1)
-expect_any "fake-provider wallet top-up" "$TOPUP_STATUS" 200 201 400 402 403 409
-if [ "$TOPUP_STATUS" = "200" ] || [ "$TOPUP_STATUS" = "201" ]; then
-  TOPUP_JSON=$(echo "$TOPUP_RESP" | sed '$d')
-  CHECKOUT_ID=$(echo "$TOPUP_JSON" | jq -r '.provider_checkout_id // empty')
-  if [ -n "$CHECKOUT_ID" ]; then
-    VERIFY_TOPUP_STATUS=$(authed_status POST "/api/v1/wallet/top-up/$CHECKOUT_ID/verify")
-    expect_any "verify wallet top-up" "$VERIFY_TOPUP_STATUS" 200 201 400 402 404 409
-    VERIFY_TOPUP_STATUS2=$(authed_status POST "/api/v1/wallet/top-up/$CHECKOUT_ID/verify")
-    expect_any "repeat wallet top-up verification is idempotent" "$VERIFY_TOPUP_STATUS2" 200 201 400 404 409
-  fi
-fi
-
-# Refund endpoint is exercised with a deliberately fake provider payment id;
-# the test accepts business-level rejection but must never see a 500.
-REFUND_STATUS=$(curl -sS -b "$COOKIES" -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/wallet/refund" \
-  -H 'Content-Type: application/json' -d '{"provider_payment_id":"fake-nonexistent","amount_units":100,"currency":"USD"}')
-expect_any "refund endpoint business validation" "$REFUND_STATUS" 200 201 400 402 403 404 409
 
 # ------------------------------------------------------------------
 step "MASTER SUPPORT TICKETS"
@@ -1171,22 +1062,6 @@ expect_any "proxy body limit rejects oversized payload" "$HUGE_STATUS" 400 413 4
 rm -f "$HUGE_FILE"
 
 # ------------------------------------------------------------------
-step "MASTER BILLING WEBHOOK SECURITY"
-# Bad signature MUST NOT mutate billing state.
-BAD_WEBHOOK=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/billing/webhook" \
-  -H 'Content-Type: application/json' -H 'x-billing-signature: sha256=deadbeef' \
-  -d '{"event_id":"e2e-invalid-sig","event_type":"subscription_canceled","tenant_id":"00000000-0000-0000-0000-000000000000","data":{}}')
-expect_any "invalid billing webhook signature rejected" "$BAD_WEBHOOK" 400 401 403
-BAD_PAYSTACK=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/billing/webhook/paystack" \
-  -H 'Content-Type: application/json' -H 'x-paystack-signature: deadbeef' -d '{}')
-expect_any "invalid Paystack webhook signature rejected" "$BAD_PAYSTACK" 400 401 403
-
-# ------------------------------------------------------------------
-step "MASTER RETIRED / COMPATIBILITY CONTRACTS"
-RETIRED_SUB=$(authed_status PATCH /api/v1/subscription/usage -H 'Content-Type: application/json' -d '{}')
-expect_any "retired subscription usage endpoint" "$RETIRED_SUB" 410 400 403
-
-# ------------------------------------------------------------------
 step "MASTER ROUTE INVENTORY SMOKE"
 # This is intentionally a route-level smoke matrix. It makes sure every
 # currently exposed first-party API family is exercised at least once, even
@@ -1222,15 +1097,6 @@ route_smoke "GET flows" GET "/api/v1/monitors/$MONITOR_ID/flows"
 route_smoke "GET incident" GET "/api/v1/incidents/$NIL"
 route_smoke "GET api keys" GET /api/v1/api-keys
 route_smoke "GET status pages" GET /api/v1/status-pages
-route_smoke "GET wallet" GET /api/v1/wallet
-route_smoke "GET wallet transactions" GET /api/v1/wallet/transactions
-route_smoke "GET wallet notifications" GET /api/v1/wallet/notifications
-route_smoke "GET wallet settings" GET /api/v1/wallet/settings
-route_smoke "GET wallet usage" GET /api/v1/wallet/usage
-route_smoke "GET invoices" GET /api/v1/billing/invoices
-route_smoke "GET billing usage" GET /api/v1/billing/usage
-route_smoke "GET billing summary" GET /api/v1/billing/usage/summary
-route_smoke "GET PAYG pricing" GET /api/v1/payg/pricing
 route_smoke "GET members" GET /api/v1/members
 route_smoke "GET invitations" GET /api/v1/invitations/pending
 route_smoke "GET support tickets" GET /api/v1/support/tickets
@@ -1250,10 +1116,7 @@ route_smoke "GET proxy results" GET "/api/v1/proxy-checks/$NIL/results"
 route_smoke "GET one-time check" GET "/api/v1/monitors/$MONITOR_ID/checks/one-time/$NIL"
 route_smoke "GET bulk-import job" GET "/api/v1/monitors/bulk-import/jobs/$NIL"
 route_smoke "GET admin audit" GET /api/v1/admin/audit
-route_smoke "GET admin companies" GET /api/v1/admin/companies
 route_smoke "GET admin users" GET /api/v1/admin/users
-route_smoke "GET admin pricing" GET /api/v1/admin/pricing/configs
-route_smoke "GET admin active pricing" GET /api/v1/admin/pricing/configs/active
 
 if [ "$ROUTE_SMOKE" -gt 0 ] && [ "$ROUTE_SMOKE_PASS" -eq "$ROUTE_SMOKE" ]; then
   master_ok "route smoke matrix: $ROUTE_SMOKE/$ROUTE_SMOKE_PASS endpoints returned controlled statuses"
@@ -1275,9 +1138,6 @@ if command -v docker >/dev/null 2>&1; then
       master_fail "monitor tenant ownership mismatch: expected $TENANT_ID got $DB_MONITOR_TENANT"
     fi
   fi
-
-  DUP_CHARGES=$(db_query "SELECT COUNT(*) FROM wallet_transactions WHERE tenant_id = '$TENANT_ID' AND idempotency_key LIKE 'reservation:%' AND created_at > now() - interval '30 minutes';")
-  if [[ "$DUP_CHARGES" =~ ^[0-9]+$ ]]; then master_ok "wallet transaction accounting query returned $DUP_CHARGES reservation transactions"; else master_fail "wallet transaction accounting query failed"; fi
 else
   master_fail "docker unavailable for database integrity checks"
 fi
@@ -1314,7 +1174,6 @@ echo "  auth/session, TOTP, monitors, checks, incidents, notifications"
 echo "  escalation, maintenance, API flows, one-time checks"
 echo "  bulk action/import, status pages, custom domains"
 echo "  API-key scopes/external API, RUM ingest/analytics"
-echo "  wallet/top-up/refund/usage/invoices/PAYG"
 echo "  support, members, invitations, audit, dashboard, help"
 echo "  admin authorization, tenant isolation, CORS, abuse limits"
 echo "  webhooks, route inventory, DB ownership/accounting, logout"
