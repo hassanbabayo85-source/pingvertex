@@ -10,11 +10,11 @@ use domain::shared::ids::TenantId;
 
 /// A resolver that holds a single `ResourceLimits` snapshot parsed from
 /// environment variables at construction time.
-pub struct EnvEntitlementResolver {
+pub struct EnvResourceLimitResolver {
     entitlements: ResourceLimits,
 }
 
-impl EnvEntitlementResolver {
+impl EnvResourceLimitResolver {
     /// Parses `PV_*` env vars once. Returns `EnvConfigError` if any
     /// variable is invalid, so `main.rs` can fail fast on startup.
     pub fn from_env() -> Result<Self, EnvConfigError> {
@@ -25,7 +25,7 @@ impl EnvEntitlementResolver {
 }
 
 #[async_trait]
-impl ResourceLimitResolver for EnvEntitlementResolver {
+impl ResourceLimitResolver for EnvResourceLimitResolver {
     async fn resolve(&self, _tenant_id: TenantId) -> RepoResult<ResourceLimits> {
         Ok(self.entitlements)
     }

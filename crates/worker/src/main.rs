@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         Arc::new(PostgresTenantMembershipRepository::new(pool.clone())),
         Arc::new(PostgresAuditLogEntryRepository::new(pool.clone())),
         tenant_repository.clone(),
-        std::sync::Arc::new(infra::EnvEntitlementResolver::from_env().expect("bad env")),
+        std::sync::Arc::new(infra::EnvResourceLimitResolver::from_env().expect("bad env")),
     );
     let bulk_import_cancel = cancel_token.clone();
     tokio::spawn(async move {
@@ -272,7 +272,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let retention_worker = RetentionWorker::new(
         tenant_repository.clone(),
         history_retention_repository,
-        std::sync::Arc::new(infra::EnvEntitlementResolver::from_env().expect("bad env")),
+        std::sync::Arc::new(infra::EnvResourceLimitResolver::from_env().expect("bad env")),
         worker::retention_worker::DEFAULT_BATCH_SIZE,
         worker::retention_worker::DEFAULT_RETENTION_INTERVAL,
         worker_config.retention_max_concurrent_tenants,
@@ -346,7 +346,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with_tenant_repository(tenant_repository.clone())
         .with_entitlement_repositories(
             monitor_repository.clone(),
-            std::sync::Arc::new(infra::EnvEntitlementResolver::from_env().expect("bad env")),
+            std::sync::Arc::new(infra::EnvResourceLimitResolver::from_env().expect("bad env")),
         )
         .with_backpressure(
             worker_config.scheduler_max_concurrency_per_tenant,
