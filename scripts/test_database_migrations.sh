@@ -5,6 +5,36 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
+# ============================================================================
+# DESTRUCTIVE OPERATION GUARD
+# ============================================================================
+# This script will DROP the database at DATABASE_URL (see `sqlx database
+# drop -y` below). It is designed for disposable test databases only, but
+# without this guard a stray DATABASE_URL (e.g. pointing at a dev or, worse,
+# production database) would be silently and irreversibly dropped.
+#
+# Require explicit opt-in via ALLOW_DB_DROP=1. Every invocation must
+# acknowledge the destructive nature of the operation.
+#
+# Positioned BEFORE the tool-availability checks so that it fires even if
+# sqlx/psql are not installed -- the guard is the first gate, not the second.
+if [[ "${ALLOW_DB_DROP:-0}" != "1" ]]; then
+    echo "REFUSING to run: this script will DROP the database at DATABASE_URL"
+    echo "  DATABASE_URL = ${DATABASE_URL}"
+    echo ""
+    echo "The test harness requires DATABASE_URL to point at a disposable"
+    echo "test database. It runs \`sqlx database drop -y\` on the main DB"
+    echo "and on an upgrade copy derived from it (append \`_upgrade\`)."
+    echo ""
+    echo "If you are absolutely sure this is a disposable test DB, re-run:"
+    echo "  ALLOW_DB_DROP=1 ./scripts/test_database_migrations.sh"
+    echo ""
+    echo "(This guard was added in response to an audit finding that the"
+    echo "script could silently drop production data.)"
+    exit 1
+fi
+# ============================================================================
+
 command -v sqlx >/dev/null || { echo "sqlx CLI is required"; exit 1; }
 command -v psql >/dev/null || { echo "psql is required"; exit 1; }
 
