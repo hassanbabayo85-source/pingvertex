@@ -214,10 +214,9 @@ impl PostgresAgentLeaseRepository {
                     region,
                     agent_id,
                     lease_expires_at,
-                    claimed_at,
-                    billing_reserved
+                    claimed_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT DO NOTHING
                 "#,
             )

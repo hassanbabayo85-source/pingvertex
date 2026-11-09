@@ -143,11 +143,6 @@ impl PostgresSchedulingRepository {
                   AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
                   AND m.lease_expires_at IS NULL
                   AND m.next_due_at <= $4
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM monitor_billing_blocks b
-                      WHERE b.monitor_id = m.id
-                  )
                   AND (
                       $5 = 9223372036854775807
                       OR (
@@ -170,10 +165,6 @@ impl PostgresSchedulingRepository {
                                 AND (earlier.kind <> 'http' OR cardinality(earlier.regions) <= 1)
                                 AND earlier.lease_expires_at IS NULL
                                 AND earlier.next_due_at <= $4
-                                AND NOT EXISTS (
-                                    SELECT 1 FROM monitor_billing_blocks eb
-                                    WHERE eb.monitor_id = earlier.id
-                                )
                                 AND (
                                     earlier.next_due_at < m.next_due_at
                                     OR (
@@ -278,10 +269,6 @@ impl SchedulingRepository for PostgresSchedulingRepository {
               AND (m.kind <> 'http' OR cardinality(m.regions) <= 1)
               AND m.lease_expires_at IS NULL
               AND m.next_due_at <= $1
-              AND NOT EXISTS (
-                  SELECT 1 FROM monitor_billing_blocks b
-                  WHERE b.monitor_id = m.id
-              )
             "#,
         )
         .bind(now)

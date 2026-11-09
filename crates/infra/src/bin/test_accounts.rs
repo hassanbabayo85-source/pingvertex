@@ -79,9 +79,9 @@ async fn ensure_one(
     };
 
     sqlx::query(
-        "INSERT INTO test_access_grants(tenant_id,plan_tier,enabled,expires_at,created_at,updated_at) \
-         VALUES ($1,'enterprise',TRUE,now()+make_interval(days => $2::int),now(),now()) \
-         ON CONFLICT(tenant_id) DO UPDATE SET plan_tier='enterprise',enabled=TRUE,expires_at=EXCLUDED.expires_at,updated_at=now()"
+        "INSERT INTO test_access_grants(tenant_id,enabled,expires_at,created_at,updated_at) \
+         VALUES ($1,TRUE,now()+make_interval(days => $2::int),now(),now()) \
+         ON CONFLICT(tenant_id) DO UPDATE SET enabled=TRUE,expires_at=EXCLUDED.expires_at,updated_at=now()"
     ).bind(tenant_id).bind(ttl_days() as i32).execute(&mut *tx).await?;
     tx.commit().await?;
     println!("enabled tester{n:02}: {email}");

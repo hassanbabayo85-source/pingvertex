@@ -62,14 +62,50 @@ END \$\$;
 
 DO \$\$
 BEGIN
+  -- Core monitoring tables: MUST still exist after the billing surface
+  -- was dropped by migrations 0132-0134. If any of these are missing,
+  -- the drop went too far and the application will not run.
   IF to_regclass('public.tenants') IS NULL THEN RAISE EXCEPTION 'tenants table missing'; END IF;
-  IF to_regclass('public.user_wallets') IS NULL THEN RAISE EXCEPTION 'user_wallets table missing'; END IF;
-  IF to_regclass('public.credit_reservations') IS NULL THEN RAISE EXCEPTION 'credit_reservations table missing'; END IF;
-  IF to_regclass('public.wallet_transactions') IS NULL THEN RAISE EXCEPTION 'wallet_transactions table missing'; END IF;
+  IF to_regclass('public.users') IS NULL THEN RAISE EXCEPTION 'users table missing'; END IF;
+  IF to_regclass('public.monitors') IS NULL THEN RAISE EXCEPTION 'monitors table missing'; END IF;
+  IF to_regclass('public.checks') IS NULL THEN RAISE EXCEPTION 'checks table missing'; END IF;
+  IF to_regclass('public.incidents') IS NULL THEN RAISE EXCEPTION 'incidents table missing'; END IF;
+  IF to_regclass('public.agents') IS NULL THEN RAISE EXCEPTION 'agents table missing'; END IF;
+  IF to_regclass('public.audit_log') IS NULL THEN RAISE EXCEPTION 'audit_log table missing'; END IF;
+  IF to_regclass('public.notification_channels') IS NULL THEN RAISE EXCEPTION 'notification_channels table missing'; END IF;
+  IF to_regclass('public.agent_check_leases') IS NULL THEN RAISE EXCEPTION 'agent_check_leases table missing'; END IF;
   IF to_regclass('public.proxy_check_jobs') IS NULL THEN RAISE EXCEPTION 'proxy_check_jobs table missing'; END IF;
   IF to_regclass('public.proxy_entries') IS NULL THEN RAISE EXCEPTION 'proxy_entries table missing'; END IF;
-  IF to_regclass('public.subscriptions') IS NULL THEN RAISE EXCEPTION 'subscriptions table missing'; END IF;
-  IF to_regclass('public.billing_webhook_idempotency') IS NULL THEN RAISE EXCEPTION 'billing_webhook_idempotency table missing'; END IF;
+  IF to_regclass('public.test_access_grants') IS NULL THEN RAISE EXCEPTION 'test_access_grants table missing'; END IF;
+
+  -- Billing tables: MUST be gone after 0134.
+  IF to_regclass('public.subscriptions') IS NOT NULL THEN RAISE EXCEPTION 'subscriptions table still present'; END IF;
+  IF to_regclass('public.plans') IS NOT NULL THEN RAISE EXCEPTION 'plans table still present'; END IF;
+  IF to_regclass('public.plan_entitlements') IS NOT NULL THEN RAISE EXCEPTION 'plan_entitlements table still present'; END IF;
+  IF to_regclass('public.plan_prices') IS NOT NULL THEN RAISE EXCEPTION 'plan_prices table still present'; END IF;
+  IF to_regclass('public.user_wallets') IS NOT NULL THEN RAISE EXCEPTION 'user_wallets table still present'; END IF;
+  IF to_regclass('public.wallet_transactions') IS NOT NULL THEN RAISE EXCEPTION 'wallet_transactions table still present'; END IF;
+  IF to_regclass('public.credit_reservations') IS NOT NULL THEN RAISE EXCEPTION 'credit_reservations table still present'; END IF;
+  IF to_regclass('public.billing_webhook_idempotency') IS NOT NULL THEN RAISE EXCEPTION 'billing_webhook_idempotency table still present'; END IF;
+  IF to_regclass('public.api_usage_events') IS NOT NULL THEN RAISE EXCEPTION 'api_usage_events table still present'; END IF;
+  IF to_regclass('public.payg_pricing_configs') IS NOT NULL THEN RAISE EXCEPTION 'payg_pricing_configs table still present'; END IF;
+  IF to_regclass('public.monitor_billing_blocks') IS NOT NULL THEN RAISE EXCEPTION 'monitor_billing_blocks table still present'; END IF;
+
+  -- Residue columns: MUST be gone after 0134.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='agent_check_leases' AND column_name='billing_reserved'
+  ) THEN RAISE EXCEPTION 'agent_check_leases.billing_reserved still present'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='test_access_grants' AND column_name='plan_tier'
+  ) THEN RAISE EXCEPTION 'test_access_grants.plan_tier still present'; END IF;
+
+  -- Billing view/functions: MUST be gone after 0134.
+  IF to_regclass('public.payg_financial_event_contract') IS NOT NULL THEN RAISE EXCEPTION 'payg_financial_event_contract view still present'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='prevent_pricing_config_mutation') THEN RAISE EXCEPTION 'prevent_pricing_config_mutation function still present'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='prevent_wallet_transaction_mutation') THEN RAISE EXCEPTION 'prevent_wallet_transaction_mutation function still present'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='prevent_billing_audit_log_mutation') THEN RAISE EXCEPTION 'prevent_billing_audit_log_mutation function still present'; END IF;
 END \$\$;
 
 DO \$\$

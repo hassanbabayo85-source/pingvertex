@@ -1,9 +1,9 @@
 //! Environment-driven resource limits for self-hostable deployments.
 //!
-//! Phase 1L-a: additive only. `ResourceLimits::from_env()` is new and
-//! nothing calls it yet. Phase 1L-b will wire it into api/worker
-//! main.rs. Phase 1L-c will remove `from_rows()` and the billing
-//! fields (`plan_tier`, `entitlement_version`).
+//! `ResourceLimits::from_env()` parses the `PV_*` environment variables
+//! once and returns an immutable snapshot. The API and worker wire this
+//! into an environment-driven resolver at startup; tests that need
+//! per-tenant overrides wire the in-memory equivalent instead.
 
 use crate::resource_limits::ResourceLimits;
 
