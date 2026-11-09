@@ -56,7 +56,7 @@ pub async fn create_api_key(
             | CreateApiKeyError::NameTooLong
             | CreateApiKeyError::EmptyScopes
             | CreateApiKeyError::ExpiryInPast => ApiError::bad_request(err.to_string()),
-            CreateApiKeyError::ResourceLimitExceeded(pl) => ApiError::from_plan_limit(pl),
+            CreateApiKeyError::ResourceLimitExceeded(pl) => ApiError::from_resource_limit(pl),
             CreateApiKeyError::EntitlementResolverMissing => {
                 ApiError::internal("entitlement resolver is not configured")
             }

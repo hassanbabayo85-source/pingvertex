@@ -4,7 +4,7 @@
 //! middleware) so they can focus on the handler contract:
 //!
 //!   * the JSON response never contains proxy credentials;
-//!   * a plan-limit failure maps to `ApiError::PlanLimitReached` (409);
+//!   * a plan-limit failure maps to `ApiError::ResourceLimitReached` (409);
 //!   * cross-tenant reads return 404, not 403 (no existence leak);
 //!   * the list endpoint is tenant-scoped;
 //!   * the update endpoint enforces the 300s interval floor;
@@ -149,10 +149,10 @@ async fn create_returns_201_with_no_credentials_in_response() {
     );
 }
 
-// ── Test 2: Quota — Free tier returns 409 plan_limit_reached ────────
+// ── Test 2: Quota — Free tier returns 409 resource_limit_reached ────────
 
 #[tokio::test]
-async fn create_on_free_tier_returns_409_plan_limit_reached() {
+async fn create_on_free_tier_returns_409_resource_limit_reached() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
     // No override → InMemoryResourceLimitResolver::default() returns the
@@ -166,11 +166,11 @@ async fn create_on_free_tier_returns_409_plan_limit_reached() {
             .unwrap_err();
 
     match err {
-        ApiError::PlanLimitReached { quota, allowed, .. } => {
+        ApiError::ResourceLimitReached { quota, allowed, .. } => {
             assert_eq!(quota, "max_recurring_proxy_monitors");
             assert_eq!(allowed, 0, "Free tier allows 0 recurring monitors");
         }
-        other => panic!("expected ApiError::PlanLimitReached, got {other:?}"),
+        other => panic!("expected ApiError::ResourceLimitReached, got {other:?}"),
     }
 }
 
@@ -265,7 +265,7 @@ async fn list_returns_only_own_monitors() {
 // ── Test 5: Plan floor — update below 300s is rejected ─────────────
 
 #[tokio::test]
-async fn update_below_300s_returns_409_plan_limit_reached() {
+async fn update_below_300s_returns_409_resource_limit_reached() {
     let tenant = TenantId::new();
     let repo = Arc::new(InMemoryRecurringProxyMonitorRepository::new());
     let resolver =
@@ -293,7 +293,7 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
     .unwrap_err();
 
     match err {
-        ApiError::PlanLimitReached {
+        ApiError::ResourceLimitReached {
             quota,
             current,
             allowed,
@@ -303,7 +303,7 @@ async fn update_below_300s_returns_409_plan_limit_reached() {
             assert_eq!(current, 299);
             assert_eq!(allowed, 300);
         }
-        other => panic!("expected PlanLimitReached for interval, got {other:?}"),
+        other => panic!("expected ResourceLimitReached for interval, got {other:?}"),
     }
 }
 

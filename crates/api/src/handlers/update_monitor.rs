@@ -58,7 +58,9 @@ pub async fn update_monitor(
                 return ApiError::forbidden(denied.to_string());
             }
             if let Some(pl) = err.downcast_ref::<application::ResourceLimitError>() {
-                return ApiError::plan_limit_reached(pl.quota, pl.current, pl.allowed, pl.action);
+                return ApiError::resource_limit_reached(
+                    pl.quota, pl.current, pl.allowed, pl.action,
+                );
             }
 
             let msg = err.to_string();

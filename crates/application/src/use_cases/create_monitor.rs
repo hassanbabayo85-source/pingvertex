@@ -194,7 +194,7 @@ where
                     MIN_UPTIME_INTERVAL_SECONDS,
                     u64::from(request.interval_seconds),
                     u64::from(entitlements.min_uptime_interval_seconds),
-                    "upgrade_plan",
+                    "increase_resource_limit",
                 ),
             ));
         }
@@ -206,7 +206,7 @@ where
                     MAX_REGIONS_PER_MONITOR,
                     request.regions.len() as u64,
                     u64::from(entitlements.max_regions_per_monitor),
-                    "upgrade_plan",
+                    "increase_resource_limit",
                 ),
             ));
         }
@@ -230,7 +230,7 @@ where
                         MAX_UPTIME_MONITORS,
                         u64::from(entitlements.max_uptime_monitors),
                         u64::from(entitlements.max_uptime_monitors),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ),
                 ));
             }

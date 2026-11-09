@@ -150,7 +150,7 @@ where
                         MAX_TEAM_MEMBERS,
                         members + pending,
                         u64::from(entitlements.max_team_members),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ),
                 )));
             }

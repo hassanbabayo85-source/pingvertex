@@ -87,7 +87,7 @@ where
                     MIN_RECURRING_PROXY_INTERVAL_SECONDS,
                     u64::from(request.interval_seconds),
                     u64::from(min_interval),
-                    "upgrade_plan",
+                    "increase_resource_limit",
                 ),
             ));
         }
@@ -143,7 +143,7 @@ where
                         MAX_RECURRING_PROXY_MONITORS,
                         u64::from(entitlements.max_recurring_proxy_monitors),
                         u64::from(entitlements.max_recurring_proxy_monitors),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ),
                 ));
             }

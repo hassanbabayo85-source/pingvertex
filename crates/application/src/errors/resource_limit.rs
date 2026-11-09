@@ -10,7 +10,7 @@
 //! Unlike `PaymentRequired`, this is **not** a "pay more" error — it is
 //! a hard subscription limit. The customer cannot pay their way past it
 //! without changing plans. That distinction is why we return a distinct
-//! error type and a distinct code (`plan_limit_reached`), not
+//! error type and a distinct code (`resource_limit_reached`), not
 //! `PAYG_INSUFFICIENT_BALANCE` or similar.
 //!
 //! # Why there is no explicit `From<ResourceLimitError> for Box<dyn Error>`
@@ -37,7 +37,7 @@ pub struct ResourceLimitError {
     pub current: u64,
     /// The plan's allowed maximum.
     pub allowed: u64,
-    /// Suggested corrective action, e.g. `"upgrade_plan"` or
+    /// Suggested corrective action, e.g. `"increase_resource_limit"` or
     /// `"delete_unused_monitors"`.
     pub action: &'static str,
 }
@@ -55,7 +55,7 @@ impl ResourceLimitError {
     /// Stable machine-readable error code. Matches the format mandated
     /// by TASK 2 so a client can branch on it without parsing prose.
     pub fn code(&self) -> &'static str {
-        "plan_limit_reached"
+        "resource_limit_reached"
     }
 }
 
@@ -73,7 +73,7 @@ impl std::error::Error for ResourceLimitError {}
 
 /// Convenience helper that boxes a `ResourceLimitError` into the boxed
 /// error type most `RepoResult<T>` call sites use.
-pub fn plan_limit_err(
+pub fn resource_limit_err(
     quota: &'static str,
     current: u64,
     allowed: u64,
@@ -86,7 +86,7 @@ pub fn plan_limit_err(
 /// `ResourceLimitError`. Used by callers that need to branch on the
 /// structured fields without a full pattern-match across the boxed
 /// dynamic error.
-pub fn is_plan_limit_error(err: &(dyn std::error::Error + 'static)) -> bool {
+pub fn is_resource_limit_error(err: &(dyn std::error::Error + 'static)) -> bool {
     if err.downcast_ref::<ResourceLimitError>().is_some() {
         return true;
     }
@@ -106,18 +106,18 @@ mod tests {
     use crate::ports::RepoResult;
 
     #[test]
-    fn code_is_plan_limit_reached() {
-        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
-        assert_eq!(e.code(), "plan_limit_reached");
+    fn code_is_resource_limit_reached() {
+        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "increase_resource_limit");
+        assert_eq!(e.code(), "resource_limit_reached");
     }
 
     #[test]
     fn display_includes_quota_current_allowed_action() {
-        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
+        let e = ResourceLimitError::new("max_uptime_monitors", 20, 20, "increase_resource_limit");
         let s = e.to_string();
         assert!(s.contains("max_uptime_monitors"), "got: {s}");
         assert!(s.contains("20"), "got: {s}");
-        assert!(s.contains("upgrade_plan"), "got: {s}");
+        assert!(s.contains("increase_resource_limit"), "got: {s}");
     }
 
     #[test]
@@ -126,7 +126,7 @@ mod tests {
             "max_uptime_monitors",
             5,
             5,
-            "upgrade_plan",
+            "increase_resource_limit",
         ));
         let recovered = boxed.downcast_ref::<ResourceLimitError>().unwrap();
         assert_eq!(recovered.quota, "max_uptime_monitors");
@@ -134,8 +134,8 @@ mod tests {
 
     #[test]
     fn plan_limit_err_helper_returns_boxed_plan_limit() {
-        let boxed = plan_limit_err("max_rum_sites", 0, 0, "upgrade_plan");
-        assert!(is_plan_limit_error(boxed.as_ref()));
+        let boxed = resource_limit_err("max_rum_sites", 0, 0, "increase_resource_limit");
+        assert!(is_resource_limit_error(boxed.as_ref()));
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod tests {
         // Verifies the standard-library blanket impl is enough: no
         // manual From<ResourceLimitError> impl is needed for `?` to work.
         fn try_op() -> RepoResult<()> {
-            let e = ResourceLimitError::new("max_uptime_monitors", 1, 1, "upgrade_plan");
+            let e = ResourceLimitError::new("max_uptime_monitors", 1, 1, "increase_resource_limit");
             Err(e)?
         }
         assert!(try_op().is_err());
@@ -168,8 +168,8 @@ mod tests {
             "max_uptime_monitors",
             1,
             1,
-            "upgrade_plan",
+            "increase_resource_limit",
         ));
-        assert!(is_plan_limit_error(&w));
+        assert!(is_resource_limit_error(&w));
     }
 }

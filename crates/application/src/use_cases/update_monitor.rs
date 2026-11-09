@@ -100,7 +100,7 @@ where
                 MIN_UPTIME_INTERVAL_SECONDS,
                 u64::from(command.interval_seconds),
                 u64::from(entitlements.min_uptime_interval_seconds),
-                "upgrade_plan",
+                "increase_resource_limit",
             );
             return Err(Box::new(err));
         }

@@ -216,7 +216,7 @@ impl CreateApiKeyUseCase {
                         MAX_API_KEYS,
                         u64::from(entitlements.max_api_keys),
                         u64::from(entitlements.max_api_keys),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ),
                 ));
             }

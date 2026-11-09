@@ -172,7 +172,7 @@ async fn free_tier_rejects_the_second_api_key() {
         Err(CreateApiKeyError::ResourceLimitExceeded(pl)) => {
             assert_eq!(pl.quota, "max_api_keys");
             assert_eq!(pl.allowed, u64::from(free_limit));
-            assert_eq!(pl.code(), "plan_limit_reached");
+            assert_eq!(pl.code(), "resource_limit_reached");
         }
         other => panic!("expected ResourceLimitExceeded, got {other:?}"),
     }

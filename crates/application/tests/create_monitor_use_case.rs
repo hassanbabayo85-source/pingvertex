@@ -75,8 +75,8 @@ async fn free_tier_rejects_interval_below_300_seconds_via_plan_limit_error() {
             assert_eq!(pl.quota, "min_uptime_interval_seconds");
             assert_eq!(pl.allowed, 300);
             assert_eq!(pl.current, 299);
-            assert_eq!(pl.action, "upgrade_plan");
-            assert_eq!(pl.code(), "plan_limit_reached");
+            assert_eq!(pl.action, "increase_resource_limit");
+            assert_eq!(pl.code(), "resource_limit_reached");
         }
         other => panic!("expected ResourceLimitExceeded for interval, got {other:?}"),
     }
@@ -107,7 +107,7 @@ async fn free_tier_permits_20_monitors_and_rejects_the_21st() {
         CreateMonitorError::ResourceLimitExceeded(pl) => {
             assert_eq!(pl.quota, "max_uptime_monitors");
             assert_eq!(pl.allowed, 20);
-            assert_eq!(pl.code(), "plan_limit_reached");
+            assert_eq!(pl.code(), "resource_limit_reached");
         }
         other => panic!("expected ResourceLimitExceeded for count, got {other:?}"),
     }

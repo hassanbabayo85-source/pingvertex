@@ -64,7 +64,7 @@ fn update_command(id: domain::shared::ids::MonitorId, interval_seconds: u32) -> 
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
+async fn update_rejects_interval_below_free_minimum_with_resource_limit_error() {
     let repository = InMemoryMonitorRepository::new();
     let resolver = Arc::new(InMemoryResourceLimitResolver::default());
     let user_id = UserId(Uuid::new_v4());
@@ -95,8 +95,8 @@ async fn update_rejects_interval_below_free_minimum_with_plan_limit_error() {
     assert_eq!(pl.quota, "min_uptime_interval_seconds");
     assert_eq!(pl.current, 299);
     assert_eq!(pl.allowed, 300);
-    assert_eq!(pl.action, "upgrade_plan");
-    assert_eq!(pl.code(), "plan_limit_reached");
+    assert_eq!(pl.action, "increase_resource_limit");
+    assert_eq!(pl.code(), "resource_limit_reached");
 }
 
 #[tokio::test]

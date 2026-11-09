@@ -143,7 +143,7 @@ async fn rejects_creation_past_free_tier_quota() {
         Err(CreateStatusPageError::ResourceLimitExceeded(pl)) => {
             assert_eq!(pl.quota, "max_status_pages");
             assert_eq!(pl.allowed, u64::from(limit));
-            assert_eq!(pl.code(), "plan_limit_reached");
+            assert_eq!(pl.code(), "resource_limit_reached");
         }
         other => panic!("expected ResourceLimitExceeded, got {other:?}"),
     }

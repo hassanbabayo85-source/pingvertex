@@ -147,7 +147,7 @@ impl AddMemberUseCase {
                         MAX_TEAM_MEMBERS,
                         u64::from(entitlements.max_team_members),
                         u64::from(entitlements.max_team_members),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ))));
                 }
             }

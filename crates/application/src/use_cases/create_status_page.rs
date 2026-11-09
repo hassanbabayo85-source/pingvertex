@@ -173,7 +173,7 @@ where
                         MAX_STATUS_PAGES,
                         u64::from(entitlements.max_status_pages),
                         u64::from(entitlements.max_status_pages),
-                        "upgrade_plan",
+                        "increase_resource_limit",
                     ),
                 ));
             }

@@ -60,7 +60,7 @@ pub async fn create_monitor(
                 ApiError::forbidden("you do not have permission to create monitors")
             }
             CreateMonitorError::ResourceLimitExceeded(plan_err) => {
-                ApiError::from_plan_limit(plan_err)
+                ApiError::from_resource_limit(plan_err)
             }
             CreateMonitorError::TooManyAssertions { limit } => ApiError::bad_request(format!(
                 "too many assertions: a monitor allows at most {limit} assertions"

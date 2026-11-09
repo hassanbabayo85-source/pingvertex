@@ -51,7 +51,7 @@ pub async fn create_status_page(
             CreateStatusPageError::Forbidden => {
                 ApiError::forbidden("you do not have permission to create status pages")
             }
-            CreateStatusPageError::ResourceLimitExceeded(pl) => ApiError::from_plan_limit(pl),
+            CreateStatusPageError::ResourceLimitExceeded(pl) => ApiError::from_resource_limit(pl),
             CreateStatusPageError::SubdomainTaken { .. } => ApiError::conflict(err.to_string()),
             CreateStatusPageError::MonitorNotFound { .. } => ApiError::not_found(err.to_string()),
             CreateStatusPageError::EntitlementResolverMissing => {

@@ -12,7 +12,7 @@ struct ErrorBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     code: Option<&'static str>,
     /// Populated only for structured rejections (today:
-    /// `PlanLimitReached`). `None` for all legacy variants, so existing
+    /// `ResourceLimitReached`). `None` for all legacy variants, so existing
     /// clients see an unchanged wire shape.
     #[serde(skip_serializing_if = "Option::is_none")]
     details: Option<serde_json::Value>,
@@ -35,8 +35,8 @@ pub enum ApiError {
     /// TASK 2 — a hard subscription quota was exceeded. Distinct from
     /// `PaymentRequired`: this is not a "pay more to continue" error,
     /// it is a plan limit that only a plan change can lift. Serialized
-    /// with `code: "plan_limit_reached"` and a `details` object.
-    PlanLimitReached {
+    /// with `code: "resource_limit_reached"` and a `details` object.
+    ResourceLimitReached {
         quota: &'static str,
         current: u64,
         allowed: u64,
@@ -81,13 +81,13 @@ impl ApiError {
         }
     }
 
-    pub fn plan_limit_reached(
+    pub fn resource_limit_reached(
         quota: &'static str,
         current: u64,
         allowed: u64,
         action: &'static str,
     ) -> Self {
-        Self::PlanLimitReached {
+        Self::ResourceLimitReached {
             quota,
             current,
             allowed,
@@ -96,9 +96,9 @@ impl ApiError {
     }
 
     /// Maps a structured `application::ResourceLimitError` to this crate's
-    /// `PlanLimitReached` variant.
-    pub fn from_plan_limit(err: application::ResourceLimitError) -> Self {
-        Self::PlanLimitReached {
+    /// `ResourceLimitReached` variant.
+    pub fn from_resource_limit(err: application::ResourceLimitError) -> Self {
+        Self::ResourceLimitReached {
             quota: err.quota,
             current: err.current,
             allowed: err.allowed,
@@ -122,7 +122,7 @@ impl ApiError {
             return Self::forbidden(denied.to_string());
         }
         if let Some(pl) = err.downcast_ref::<application::ResourceLimitError>() {
-            return Self::PlanLimitReached {
+            return Self::ResourceLimitReached {
                 quota: pl.quota,
                 current: pl.current,
                 allowed: pl.allowed,
@@ -142,7 +142,7 @@ impl ApiError {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::PaymentRequired { .. } => StatusCode::PAYMENT_REQUIRED,
-            Self::PlanLimitReached { .. } => StatusCode::CONFLICT,
+            Self::ResourceLimitReached { .. } => StatusCode::CONFLICT,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -158,7 +158,7 @@ impl ApiError {
             | Self::TooManyRequests(message)
             | Self::Internal(message) => message.clone(),
             Self::PaymentRequired { message, .. } => message.clone(),
-            Self::PlanLimitReached {
+            Self::ResourceLimitReached {
                 quota,
                 current,
                 allowed,
@@ -174,14 +174,14 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
         let body = match &self {
-            ApiError::PlanLimitReached {
+            ApiError::ResourceLimitReached {
                 quota,
                 current,
                 allowed,
                 action,
             } => Json(ErrorBody {
                 message: self.message(),
-                code: Some("plan_limit_reached"),
+                code: Some("resource_limit_reached"),
                 details: Some(serde_json::json!({
                     "quota": quota,
                     "current": current,
@@ -294,12 +294,17 @@ mod tests {
     }
 
     #[test]
-    fn plan_limit_reached_uses_409_conflict() {
-        let err = ApiError::plan_limit_reached("max_uptime_monitors", 20, 20, "upgrade_plan");
+    fn resource_limit_reached_uses_409_conflict() {
+        let err = ApiError::resource_limit_reached(
+            "max_uptime_monitors",
+            20,
+            20,
+            "increase_resource_limit",
+        );
         assert_eq!(err.status_code(), StatusCode::CONFLICT);
         assert!(err.message().contains("max_uptime_monitors"));
         assert!(err.message().contains("20"));
-        assert!(err.message().contains("upgrade_plan"));
+        assert!(err.message().contains("increase_resource_limit"));
     }
 
     #[test]
@@ -308,10 +313,10 @@ mod tests {
             "max_recurring_proxy_monitors",
             5,
             5,
-            "upgrade_plan",
+            "increase_resource_limit",
         );
-        match ApiError::from_plan_limit(pl) {
-            ApiError::PlanLimitReached {
+        match ApiError::from_resource_limit(pl) {
+            ApiError::ResourceLimitReached {
                 quota,
                 current,
                 allowed,
@@ -320,20 +325,26 @@ mod tests {
                 assert_eq!(quota, "max_recurring_proxy_monitors");
                 assert_eq!(current, 5);
                 assert_eq!(allowed, 5);
-                assert_eq!(action, "upgrade_plan");
+                assert_eq!(action, "increase_resource_limit");
             }
-            other => panic!("expected PlanLimitReached, got {other:?}"),
+            other => panic!("expected ResourceLimitReached, got {other:?}"),
         }
     }
 
     #[test]
     fn forbidden_or_internal_detects_plan_limit_through_boxed_error() {
-        let pl =
-            application::ResourceLimitError::new("max_uptime_monitors", 20, 20, "upgrade_plan");
+        let pl = application::ResourceLimitError::new(
+            "max_uptime_monitors",
+            20,
+            20,
+            "increase_resource_limit",
+        );
         let boxed: Box<dyn std::error::Error + Send + Sync> = Box::new(pl);
         match ApiError::forbidden_or_internal("context", boxed) {
-            ApiError::PlanLimitReached { quota, .. } => assert_eq!(quota, "max_uptime_monitors"),
-            other => panic!("expected PlanLimitReached, got {other:?}"),
+            ApiError::ResourceLimitReached { quota, .. } => {
+                assert_eq!(quota, "max_uptime_monitors")
+            }
+            other => panic!("expected ResourceLimitReached, got {other:?}"),
         }
     }
 }
