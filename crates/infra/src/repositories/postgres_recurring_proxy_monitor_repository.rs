@@ -65,7 +65,7 @@ fn scheme_from_db(s: &str) -> RepoResult<ProxyScheme> {
 }
 
 const MONITOR_COLUMNS: &str = "id, tenant_id, user_id, name, host, port, scheme, \
-    encrypted_credentials, interval_seconds, user_enabled, entitlement_suspended, \
+    encrypted_credentials, interval_seconds, user_enabled, resource_limit_suspended, \
     next_run_at, last_run_at, worker_id, lease_expires_at, created_at, updated_at";
 
 const CHECK_COLUMNS: &str = "id, monitor_id, tenant_id, status, started_at, finished_at, \
@@ -83,7 +83,7 @@ struct MonitorRow {
     encrypted_credentials: Option<Vec<u8>>,
     interval_seconds: i32,
     user_enabled: bool,
-    entitlement_suspended: bool,
+    resource_limit_suspended: bool,
     next_run_at: Option<DateTime<Utc>>,
     last_run_at: Option<DateTime<Utc>>,
     // Read from RETURNING in `claim_due_monitors`; the claimed monitor
@@ -162,7 +162,7 @@ impl PostgresRecurringProxyMonitorRepository {
             credentials,
             interval_seconds: row.interval_seconds as u32,
             user_enabled: row.user_enabled,
-            entitlement_suspended: row.entitlement_suspended,
+            resource_limit_suspended: row.resource_limit_suspended,
             next_run_at: row.next_run_at,
             last_run_at: row.last_run_at,
             created_at: row.created_at,
@@ -199,7 +199,7 @@ impl PostgresRecurringProxyMonitorRepository {
             INSERT INTO recurring_proxy_monitors (
                 id, tenant_id, user_id, name, host, port, scheme,
                 encrypted_credentials, interval_seconds, user_enabled,
-                entitlement_suspended, next_run_at, last_run_at,
+                resource_limit_suspended, next_run_at, last_run_at,
                 created_at, updated_at
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             "#,
@@ -214,7 +214,7 @@ impl PostgresRecurringProxyMonitorRepository {
         .bind(encrypted_credentials)
         .bind(monitor.interval_seconds as i32)
         .bind(monitor.user_enabled)
-        .bind(monitor.entitlement_suspended)
+        .bind(monitor.resource_limit_suspended)
         .bind(monitor.next_run_at)
         .bind(monitor.last_run_at)
         .bind(monitor.created_at)
@@ -243,7 +243,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
             INSERT INTO recurring_proxy_monitors (
                 id, tenant_id, user_id, name, host, port, scheme,
                 encrypted_credentials, interval_seconds, user_enabled,
-                entitlement_suspended, next_run_at, last_run_at,
+                resource_limit_suspended, next_run_at, last_run_at,
                 created_at, updated_at
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             ON CONFLICT (id) DO UPDATE SET
@@ -254,7 +254,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
                 encrypted_credentials = EXCLUDED.encrypted_credentials,
                 interval_seconds = EXCLUDED.interval_seconds,
                 user_enabled = EXCLUDED.user_enabled,
-                entitlement_suspended = EXCLUDED.entitlement_suspended,
+                resource_limit_suspended = EXCLUDED.resource_limit_suspended,
                 next_run_at = EXCLUDED.next_run_at,
                 last_run_at = EXCLUDED.last_run_at,
                 updated_at = EXCLUDED.updated_at
@@ -271,7 +271,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
         .bind(encrypted)
         .bind(monitor.interval_seconds as i32)
         .bind(monitor.user_enabled)
-        .bind(monitor.entitlement_suspended)
+        .bind(monitor.resource_limit_suspended)
         .bind(monitor.next_run_at)
         .bind(monitor.last_run_at)
         .bind(monitor.created_at)
@@ -366,7 +366,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
                 encrypted_credentials = $6,
                 interval_seconds = $7,
                 user_enabled = $8,
-                entitlement_suspended = $9,
+                resource_limit_suspended = $9,
                 next_run_at = $10,
                 last_run_at = $11,
                 updated_at = $12
@@ -381,7 +381,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
         .bind(encrypted)
         .bind(monitor.interval_seconds as i32)
         .bind(monitor.user_enabled)
-        .bind(monitor.entitlement_suspended)
+        .bind(monitor.resource_limit_suspended)
         .bind(monitor.next_run_at)
         .bind(monitor.last_run_at)
         .bind(monitor.updated_at)
@@ -439,7 +439,7 @@ impl RecurringProxyMonitorRepository for PostgresRecurringProxyMonitorRepository
                 SELECT id
                 FROM recurring_proxy_monitors
                 WHERE user_enabled = TRUE
-                  AND entitlement_suspended = FALSE
+                  AND resource_limit_suspended = FALSE
                   AND next_run_at IS NOT NULL
                   AND next_run_at <= $1
                   AND (lease_expires_at IS NULL OR lease_expires_at < $1)

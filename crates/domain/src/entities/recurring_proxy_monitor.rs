@@ -49,7 +49,7 @@ pub struct RecurringProxyMonitor {
     /// Backend-set flag: monitor exists but the current subscription
     /// does not permit it. Scheduling must skip it; the customer's
     /// `user_enabled` choice is preserved.
-    pub entitlement_suspended: bool,
+    pub resource_limit_suspended: bool,
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -86,7 +86,7 @@ impl RecurringProxyMonitor {
             credentials,
             interval_seconds,
             user_enabled: true,
-            entitlement_suspended: false,
+            resource_limit_suspended: false,
             next_run_at: Some(now + chrono::Duration::seconds(i64::from(interval_seconds))),
             last_run_at: None,
             created_at: now,
@@ -117,7 +117,7 @@ impl RecurringProxyMonitor {
 
     pub fn set_user_enabled(&mut self, enabled: bool) {
         self.user_enabled = enabled;
-        if enabled && !self.entitlement_suspended {
+        if enabled && !self.resource_limit_suspended {
             self.next_run_at =
                 Some(Utc::now() + chrono::Duration::seconds(i64::from(self.interval_seconds)));
         } else {
@@ -128,8 +128,8 @@ impl RecurringProxyMonitor {
 
     /// Backend flag applied by the entitlement engine. Never touches
     /// `user_enabled`.
-    pub fn set_entitlement_suspended(&mut self, suspended: bool) {
-        self.entitlement_suspended = suspended;
+    pub fn set_resource_limit_suspended(&mut self, suspended: bool) {
+        self.resource_limit_suspended = suspended;
         if suspended {
             self.next_run_at = None;
         } else if self.user_enabled {
@@ -142,7 +142,7 @@ impl RecurringProxyMonitor {
     /// True iff the scheduler is permitted to enqueue a new execution
     /// for this monitor.
     pub fn is_effective_enabled(&self) -> bool {
-        self.user_enabled && !self.entitlement_suspended
+        self.user_enabled && !self.resource_limit_suspended
     }
 
     pub fn record_execution_at(&mut self, when: DateTime<Utc>) {
@@ -326,10 +326,10 @@ mod tests {
         let mut m = make(300).unwrap();
         m.set_user_enabled(false);
         assert!(!m.user_enabled);
-        m.set_entitlement_suspended(true);
+        m.set_resource_limit_suspended(true);
         // User's own choice must not be overwritten by entitlement logic.
         assert!(!m.user_enabled);
-        assert!(m.entitlement_suspended);
+        assert!(m.resource_limit_suspended);
         assert!(!m.is_effective_enabled());
     }
 
@@ -337,8 +337,8 @@ mod tests {
     fn entitlement_clear_does_not_reenable_user_disabled_monitor() {
         let mut m = make(300).unwrap();
         m.set_user_enabled(false);
-        m.set_entitlement_suspended(true);
-        m.set_entitlement_suspended(false);
+        m.set_resource_limit_suspended(true);
+        m.set_resource_limit_suspended(false);
         assert!(!m.user_enabled);
         assert!(!m.is_effective_enabled());
         assert!(m.next_run_at.is_none());

@@ -64,8 +64,8 @@ pub struct RecurringProxyMonitorResponse {
     pub user_enabled: bool,
     /// True iff the backend suspended scheduling because the tenant's
     /// current plan does not permit this monitor.
-    pub entitlement_suspended: bool,
-    /// Convenience: `user_enabled && !entitlement_suspended`.
+    pub resource_limit_suspended: bool,
+    /// Convenience: `user_enabled && !resource_limit_suspended`.
     pub effective_enabled: bool,
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
@@ -101,7 +101,7 @@ impl RecurringProxyMonitorResponse {
             has_credentials: m.credentials.is_some(),
             interval_seconds: m.interval_seconds,
             user_enabled: m.user_enabled,
-            entitlement_suspended: m.entitlement_suspended,
+            resource_limit_suspended: m.resource_limit_suspended,
             effective_enabled: m.is_effective_enabled(),
             next_run_at: m.next_run_at,
             last_run_at: m.last_run_at,
@@ -178,10 +178,10 @@ mod tests {
     #[test]
     fn response_reports_effective_enabled_false_when_suspended() {
         let mut m = sample_monitor(false);
-        m.set_entitlement_suspended(true);
+        m.set_resource_limit_suspended(true);
         let response = RecurringProxyMonitorResponse::from_entity(&m);
         assert!(response.user_enabled);
-        assert!(response.entitlement_suspended);
+        assert!(response.resource_limit_suspended);
         assert!(!response.effective_enabled);
     }
 
@@ -191,7 +191,7 @@ mod tests {
         m.set_user_enabled(false);
         let response = RecurringProxyMonitorResponse::from_entity(&m);
         assert!(!response.user_enabled);
-        assert!(!response.entitlement_suspended);
+        assert!(!response.resource_limit_suspended);
         assert!(!response.effective_enabled);
     }
 

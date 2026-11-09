@@ -31,7 +31,7 @@ where
         authenticated_user.require(Permission::ViewMonitor)?;
         let tenant_id = authenticated_user.tenant_context().tenant_id();
         // Resolve entitlements so a downgraded tenant sees
-        // `entitlement_suspended = true` on their existing monitors
+        // `resource_limit_suspended = true` on their existing monitors
         // (computed by the worker, not here).
         let _ = self.resource_limit_resolver.resolve(tenant_id).await?;
 

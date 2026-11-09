@@ -252,7 +252,7 @@ pub trait MonitorRepository: Send + Sync {
         Ok(0)
     }
 
-    /// TASK 5 — atomically sets `entitlement_suspended` on a specific
+    /// TASK 5 — atomically sets `resource_limit_suspended` on a specific
     /// list of monitors belonging to `tenant_id`. Used by the
     /// reconciliation service to mark (or un-mark) monitors as exceeding
     /// the tenant's current plan limit.
@@ -260,7 +260,7 @@ pub trait MonitorRepository: Send + Sync {
     /// Returns the number of rows actually updated. Monitors belonging
     /// to a different tenant are silently ignored (they don't match the
     /// `tenant_id = $1` predicate).
-    async fn set_entitlement_suspended_for_tenant(
+    async fn set_resource_limit_suspended_for_tenant(
         &self,
         _tenant_id: TenantId,
         _monitor_ids: &[MonitorId],
@@ -386,14 +386,14 @@ where
             .await
     }
 
-    async fn set_entitlement_suspended_for_tenant(
+    async fn set_resource_limit_suspended_for_tenant(
         &self,
         tenant_id: TenantId,
         monitor_ids: &[MonitorId],
         suspended: bool,
     ) -> RepoResult<u64> {
         (**self)
-            .set_entitlement_suspended_for_tenant(tenant_id, monitor_ids, suspended)
+            .set_resource_limit_suspended_for_tenant(tenant_id, monitor_ids, suspended)
             .await
     }
 }

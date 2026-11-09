@@ -243,7 +243,7 @@ impl MonitorRepository for InMemoryMonitorRepository {
         Ok(changed)
     }
 
-    async fn set_entitlement_suspended_for_tenant(
+    async fn set_resource_limit_suspended_for_tenant(
         &self,
         tenant_id: TenantId,
         monitor_ids: &[MonitorId],
@@ -262,8 +262,8 @@ impl MonitorRepository for InMemoryMonitorRepository {
             if monitor.tenant_id != tenant_id || !ids.contains(&monitor.id) {
                 continue;
             }
-            if monitor.entitlement_suspended != suspended {
-                monitor.entitlement_suspended = suspended;
+            if monitor.resource_limit_suspended != suspended {
+                monitor.resource_limit_suspended = suspended;
                 monitor.updated_at = chrono::Utc::now();
                 changed += 1;
             }

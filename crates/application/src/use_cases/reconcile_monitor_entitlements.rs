@@ -6,7 +6,7 @@
 //! For a tenant with `N` monitors and an entitlement limit `L`:
 //!
 //!   * `N <= L` → all monitors are eligible. Any monitor currently
-//!     `entitlement_suspended = true` is **un-suspended**.
+//!     `resource_limit_suspended = true` is **un-suspended**.
 //!   * `N >  L` → the **oldest** `L` monitors remain (or become)
 //!     eligible; the **newest** `N - L` are suspended.
 //!
@@ -19,7 +19,7 @@
 //! `enabled` (the customer's own enable/disable choice) is left exactly
 //! as it was. If a customer had manually disabled a monitor before the
 //! reconciliation ran, that choice survives untouched. Only
-//! `entitlement_suspended` is mutated.
+//! `resource_limit_suspended` is mutated.
 //!
 //! # Idempotency
 //!
@@ -82,7 +82,7 @@ where
             0
         } else {
             self.monitor_repository
-                .set_entitlement_suspended_for_tenant(tenant_id, &plan.to_suspend, true)
+                .set_resource_limit_suspended_for_tenant(tenant_id, &plan.to_suspend, true)
                 .await?
         };
 
@@ -90,7 +90,7 @@ where
             0
         } else {
             self.monitor_repository
-                .set_entitlement_suspended_for_tenant(tenant_id, &plan.to_unsuspend, false)
+                .set_resource_limit_suspended_for_tenant(tenant_id, &plan.to_unsuspend, false)
                 .await?
         };
 
@@ -152,7 +152,7 @@ fn plan_suspension(monitors: &[Monitor], limit: u32) -> SuspensionPlan {
 
     for (index, monitor) in sorted.into_iter().enumerate() {
         let should_be_suspended = index >= limit_usize;
-        match (should_be_suspended, monitor.entitlement_suspended) {
+        match (should_be_suspended, monitor.resource_limit_suspended) {
             (true, false) => plan.to_suspend.push(monitor.id),
             (false, true) => plan.to_unsuspend.push(monitor.id),
             _ => {}
@@ -191,7 +191,7 @@ mod tests {
         .kind(MonitorKind::Http)
         .build();
         monitor.created_at = Utc::now() - Duration::seconds(age_secs);
-        monitor.entitlement_suspended = suspended;
+        monitor.resource_limit_suspended = suspended;
         monitor
     }
 

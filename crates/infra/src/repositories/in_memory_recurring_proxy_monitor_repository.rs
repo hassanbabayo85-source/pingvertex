@@ -39,7 +39,7 @@ struct StoredMonitor {
     credentials: Option<(String, String)>,
     interval_seconds: u32,
     user_enabled: bool,
-    entitlement_suspended: bool,
+    resource_limit_suspended: bool,
     next_run_at: Option<DateTime<Utc>>,
     last_run_at: Option<DateTime<Utc>>,
     worker_id: Option<String>,
@@ -65,7 +65,7 @@ impl StoredMonitor {
             credentials,
             interval_seconds: m.interval_seconds,
             user_enabled: m.user_enabled,
-            entitlement_suspended: m.entitlement_suspended,
+            resource_limit_suspended: m.resource_limit_suspended,
             next_run_at: m.next_run_at,
             last_run_at: m.last_run_at,
             // Worker-claim metadata is not part of the domain entity;
@@ -98,7 +98,7 @@ impl StoredMonitor {
             credentials,
             interval_seconds: self.interval_seconds,
             user_enabled: self.user_enabled,
-            entitlement_suspended: self.entitlement_suspended,
+            resource_limit_suspended: self.resource_limit_suspended,
             next_run_at: self.next_run_at,
             last_run_at: self.last_run_at,
             created_at: self.created_at,
@@ -120,7 +120,7 @@ impl StoredMonitor {
             .map(|c| (c.username().to_owned(), c.password().to_owned()));
         self.interval_seconds = m.interval_seconds;
         self.user_enabled = m.user_enabled;
-        self.entitlement_suspended = m.entitlement_suspended;
+        self.resource_limit_suspended = m.resource_limit_suspended;
         self.next_run_at = m.next_run_at;
         self.last_run_at = m.last_run_at;
         self.updated_at = m.updated_at;
@@ -262,7 +262,7 @@ impl RecurringProxyMonitorRepository for InMemoryRecurringProxyMonitorRepository
             .iter()
             .filter(|(_, m)| {
                 m.user_enabled
-                    && !m.entitlement_suspended
+                    && !m.resource_limit_suspended
                     && m.next_run_at.is_some_and(|t| t <= now)
                     && m.lease_expires_at.is_none_or(|t| t < now)
             })

@@ -301,7 +301,7 @@ async fn suspended_monitor_is_not_processed() {
     )
     .unwrap();
     m.next_run_at = Some(Utc::now() - ChronoDuration::seconds(1));
-    m.set_entitlement_suspended(true);
+    m.set_resource_limit_suspended(true);
     repo.save_monitor(&m).await.unwrap();
 
     let worker = RecurringProxyMonitorWorker::new(repo.clone())

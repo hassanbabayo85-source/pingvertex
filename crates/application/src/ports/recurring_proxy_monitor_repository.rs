@@ -87,7 +87,7 @@ pub trait RecurringProxyMonitorRepository: Send + Sync {
     /// Atomically leases up to `limit` due monitors to `worker_id` for
     /// `lease_for`. A monitor is "due" when all of:
     ///   * `user_enabled = TRUE`,
-    ///   * `entitlement_suspended = FALSE`,
+    ///   * `resource_limit_suspended = FALSE`,
     ///   * `next_run_at IS NOT NULL AND next_run_at <= now()`,
     ///   * `lease_expires_at IS NULL OR lease_expires_at < now()`.
     ///

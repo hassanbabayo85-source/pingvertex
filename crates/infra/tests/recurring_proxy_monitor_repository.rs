@@ -244,7 +244,7 @@ async fn claim_due_monitors_only_returns_effective_enabled_due_monitors() {
 
     // Monitor 3: entitlement suspended.
     let mut m3 = monitor(tenant, user, "suspended", false);
-    m3.set_entitlement_suspended(true);
+    m3.set_resource_limit_suspended(true);
     m3.next_run_at = Some(Utc::now() - Duration::seconds(10));
     repo.save_monitor(&m3).await.unwrap();
 
