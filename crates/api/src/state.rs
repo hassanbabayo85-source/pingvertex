@@ -130,7 +130,6 @@ impl DashboardRepository for NoopDashboardRepository {
     async fn get_badges(&self, _tenant_id: TenantId) -> RepoResult<DashboardBadges> {
         Ok(DashboardBadges {
             active_incidents: 0,
-            unread_notifications: 0,
             pending_invitations: 0,
         })
     }

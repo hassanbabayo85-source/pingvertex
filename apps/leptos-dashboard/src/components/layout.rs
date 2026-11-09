@@ -194,7 +194,6 @@ fn nav_badge_count(href: &str, badges: &DashboardBadges) -> u32 {
     match href {
         "/incidents" => badges.active_incidents,
         "/team/invitations" => badges.pending_invitations,
-        "/settings/notifications" => badges.unread_notifications,
         _ => 0,
     }
 }
@@ -528,16 +527,9 @@ pub fn Layout() -> impl IntoView {
                         <A
                             href="/settings/notifications"
                             attr:class="topbar-icon topbar-icon-link notification-trigger"
-                            attr:aria-label=move || {
-                                let count = nav_badges.get().unread_notifications;
-                                if count > 0 { format!("Notifications, {count} unread") } else { "Notifications".to_string() }
-                            }
+                            attr:aria-label="Notifications"
                         >
                             <span aria-hidden="true">"♢"</span>
-                            {move || {
-                                let count = nav_badges.get().unread_notifications;
-                                if count > 0 { view! { <span class="topbar-notification-badge">{if count > 99 { "99+".to_string() } else { count.to_string() }}</span> }.into_any() } else { ().into_any() }
-                            }}
                         </A>
 
                         <button

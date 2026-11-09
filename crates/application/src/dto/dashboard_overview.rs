@@ -63,7 +63,6 @@ pub struct DashboardPerformance {
 #[derive(Debug, Clone, Serialize)]
 pub struct DashboardBadges {
     pub active_incidents: u32,
-    pub unread_notifications: u32,
     pub pending_invitations: u32,
 }
 

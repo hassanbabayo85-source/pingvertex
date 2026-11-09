@@ -227,7 +227,7 @@ async fn get_overview_respects_tenant_isolation() {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn get_badges_is_tenant_scoped_and_counts_only_unread_active_pending() {
+async fn get_badges_is_tenant_scoped_and_counts_active_pending() {
     let (pool, _guard) = common::setup_pool_exclusive().await;
     let repo = PostgresDashboardRepository::new(pool.clone());
     let user_id = UserId(Uuid::new_v4());
@@ -244,11 +244,6 @@ async fn get_badges_is_tenant_scoped_and_counts_only_unread_active_pending() {
     sqlx::query("UPDATE incidents SET resolved_at = NULL WHERE monitor_id = (SELECT id FROM monitors WHERE tenant_id = $1)")
         .bind(tenant_id.0).execute(&pool).await.unwrap();
 
-    sqlx::query("INSERT INTO wallet_notifications (id, tenant_id, event_type, dedupe_key, message, read_at, created_at) VALUES ($1,$2,'LOW_BALANCE','badge-unread','unread',NULL,NOW()),($3,$2,'PAYMENT','badge-read','read',NOW(),NOW())")
-        .bind(Uuid::new_v4()).bind(tenant_id.0).bind(Uuid::new_v4()).execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO wallet_notifications (id, tenant_id, event_type, dedupe_key, message, read_at, created_at) VALUES ($1,$2,'LOW_BALANCE','other-unread','other',NULL,NOW())")
-        .bind(Uuid::new_v4()).bind(other_tenant.0).execute(&pool).await.unwrap();
-
     sqlx::query("INSERT INTO tenant_invitations (id, tenant_id, email, role, token_prefix, token_hash, expires_at) VALUES ($1,$2,'pending@example.test','Member','prefix01','hash01',NOW()+interval '1 day')")
         .bind(Uuid::new_v4()).bind(tenant_id.0).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO tenant_invitations (id, tenant_id, email, role, token_prefix, token_hash, expires_at, revoked_at) VALUES ($1,$2,'revoked@example.test','Member','prefix02','hash02',NOW()+interval '1 day',NOW())")
@@ -256,11 +251,9 @@ async fn get_badges_is_tenant_scoped_and_counts_only_unread_active_pending() {
 
     let badges = repo.get_badges(tenant_id).await.unwrap();
     assert_eq!(badges.active_incidents, 1);
-    assert_eq!(badges.unread_notifications, 1);
     assert_eq!(badges.pending_invitations, 1);
 
     let other_badges = repo.get_badges(other_tenant).await.unwrap();
     assert_eq!(other_badges.active_incidents, 1);
-    assert_eq!(other_badges.unread_notifications, 1);
     assert_eq!(other_badges.pending_invitations, 0);
 }

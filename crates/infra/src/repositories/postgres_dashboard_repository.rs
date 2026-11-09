@@ -305,7 +305,6 @@ impl DashboardRepository for PostgresDashboardRepository {
         #[derive(Debug, sqlx::FromRow)]
         struct BadgeRow {
             active_incidents: i64,
-            unread_notifications: i64,
             pending_invitations: i64,
         }
 
@@ -315,8 +314,6 @@ impl DashboardRepository for PostgresDashboardRepository {
                 (SELECT COUNT(*) FROM incidents i
                  JOIN monitors m ON m.id = i.monitor_id
                  WHERE m.tenant_id = $1 AND i.resolved_at IS NULL) AS active_incidents,
-                (SELECT COUNT(*) FROM wallet_notifications n
-                 WHERE n.tenant_id = $1 AND n.read_at IS NULL) AS unread_notifications,
                 (SELECT COUNT(*) FROM tenant_invitations ti
                  WHERE ti.tenant_id = $1 AND ti.accepted_at IS NULL AND ti.revoked_at IS NULL AND ti.expires_at > NOW()) AS pending_invitations
             "#,
@@ -327,7 +324,6 @@ impl DashboardRepository for PostgresDashboardRepository {
 
         Ok(DashboardBadges {
             active_incidents: u32::try_from(row.active_incidents).unwrap_or(u32::MAX),
-            unread_notifications: u32::try_from(row.unread_notifications).unwrap_or(u32::MAX),
             pending_invitations: u32::try_from(row.pending_invitations).unwrap_or(u32::MAX),
         })
     }
