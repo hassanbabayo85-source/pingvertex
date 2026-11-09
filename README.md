@@ -35,7 +35,7 @@ It runs as a single Docker Compose stack on one machine, or as distributed agent
 | **Distributed agents** | Remote checkers authenticated with mTLS |
 | **Multi-tenancy** | Tenants, members, invitations, role-based access, per-tenant data isolation enforced at the repository layer |
 | **API access** | Scoped API keys for automation |
-| **Billing** | Wallet, pay-as-you-go metering, plan/pricing primitives |
+| **Resource limits** | Instance-wide limits configurable via `PV_MAX_*` environment variables; no commercial billing |
 | **Observability** | Prometheus metrics, Grafana dashboards, Alertmanager rules shipped in the stack |
 | **Audit trail** | Append-only audit log of tenant-level actions |
 

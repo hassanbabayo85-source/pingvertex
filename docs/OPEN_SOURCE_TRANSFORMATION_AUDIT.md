@@ -1,9 +1,14 @@
 # PingVertex — Open-Source Transformation Audit
 
-**Status:** Phase Zero complete — awaiting sign-off before code modification.
+**Status:** Phases 1–3 complete. Billing surface fully removed from API,
+application, domain, infrastructure, worker, frontend, DB schema (migrations
+0132–0134), and E2E tests. Phase 4 (open-source readiness) in progress. The
+implementation history is in `git log` on `main`.
 **Repo:** https://github.com/hassanbabayo85-source/pingvertex
-**Branch of record:** `main` @ `7431ed4`
-**WIP preserved on:** `wip/pre-open-source-20261107`
+**Branch of record:** `main` (see `git log` for current HEAD)
+**WIP:** the original WIP branch was removed in Phase 3-0 after its state was
+preserved locally in a git bundle (`~/pre-rewrite-backup.bundle`). All
+implementation work since then is on `main`.
 **Audit date:** 2026-11-07
 **Auditor:** AI assistant (with terminal-verified evidence only — no paths guessed)
 
@@ -23,8 +28,12 @@ resource limits (max monitors, min interval, max agents, retention, etc.)
 directly. Anyone wishing to run PingVertex as a SaaS re-implements billing
 themselves as a downstream extension.
 
-**This audit is the gate for all deletion / modification.** No source file has
-been touched.
+**This audit was the gate for all deletion / modification.** It was produced
+before any source file was touched. Every phase from Phase 1 onward landed as
+its own commit with passing `cargo fmt --check`, `cargo check --workspace
+--all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, and —
+for DB-touching work — `scripts/test_database_migrations.sh` against a
+throwaway test DB. See `git log` for the per-phase implementation history.
 
 ---
 
