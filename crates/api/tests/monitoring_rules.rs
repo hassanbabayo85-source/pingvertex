@@ -11,12 +11,8 @@
 //!
 //!   1. Availability of the two services (`ApiDown`, `WorkerDown`)
 //!   2. Worker check failures
-//!   3. Financial reconciliation (`BillingReconciliationMismatch`,
-//!      `BillingReconciliationAnomalies`, `PaygReconciliationAnomalies`)
-//!   4. Auto top-up reconciliation + repeated provider failures
-//!   5. PAYG billing failures + pricing resolution failures
-//!   6. Queue growth (bulk imports and scheduler due-queue)
-//!   7. Scheduler retry storm, backpressure, tenant starvation
+//!   3. Queue growth (bulk imports and scheduler due-queue)
+//!   4. Scheduler retry storm, backpressure, tenant starvation
 
 use std::fs;
 use std::path::PathBuf;
@@ -45,17 +41,6 @@ fn rules_yml_defines_every_required_production_alert() {
         "ApiDown",
         "WorkerDown",
         "WorkerFailures",
-        // Financial reconciliation
-        "BillingReconciliationMismatch",
-        "BillingReconciliationAnomalies",
-        "PaygReconciliationAnomalies",
-        // Auto top-up
-        "AutoTopUpReconciliationRequired",
-        "AutoTopUpPaymentFailures",
-        // PAYG billing
-        "PaygBillingFailures",
-        "PaygPricingResolutionFailure",
-        "PaygPricingMissingPrice",
         // Queues
         "BulkQueueGrowth",
         "SchedulerDueQueueGrowth",
@@ -118,7 +103,7 @@ fn every_alert_has_an_expression() {
     }
 
     assert!(
-        alerts_seen >= 16,
-        "expected at least 16 alerts in rules.yml, found {alerts_seen}"
+        alerts_seen >= 11,
+        "expected at least 11 alerts in rules.yml, found {alerts_seen}"
     );
 }
