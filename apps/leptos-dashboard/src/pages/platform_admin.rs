@@ -105,13 +105,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
     let audit_from = RwSignal::new(String::new());
     let audit_to = RwSignal::new(String::new());
     let error = RwSignal::new(None::<String>);
-    let pricing_operation = RwSignal::new("http_check.monitoring".to_owned());
-    let pricing_units = RwSignal::new("2".to_owned());
-    let pricing_reason = RwSignal::new(String::new());
-
-    // Signals for pricing and usage.
-    let active_pricing = RwSignal::new(None::<String>);
-    let pricing_logs = RwSignal::new(None::<String>);
 
     spawn_local(async move {
         match client::get_json::<Session>("/auth/me").await {
@@ -133,18 +126,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
                     audit_from,
                     audit_to,
                 );
-
-                // Fetch the active pricing and the audit logs.
-                if let Ok(v) =
-                    client::get_json::<serde_json::Value>("/admin/pricing/configs/active").await
-                {
-                    active_pricing.set(Some(serde_json::to_string_pretty(&v).unwrap_or_default()));
-                }
-                if let Ok(v) =
-                    client::get_json::<serde_json::Value>("/admin/pricing/audit-logs").await
-                {
-                    pricing_logs.set(Some(serde_json::to_string_pretty(&v).unwrap_or_default()));
-                }
             }
             Ok(_) => error.set(Some("Platform administrator access required.".to_owned())),
             Err(value) => error.set(Some(value.to_string())),
@@ -211,45 +192,6 @@ pub fn PlatformAdminPage() -> impl IntoView {
                         <div class="table-shell"><table class="data-table"><thead><tr><th>"Username"</th><th>"Email"</th><th>"Status"</th><th>"Action"</th></tr></thead><tbody>
                             {users.get().into_iter().map(|user| { let id=user.id.clone(); let next=if user.status=="active"{"suspended"}else{"active"}; let on_status=move |_| { let id=id.clone(); let status=next.to_owned(); spawn_local(async move { let body=serde_json::json!({"status":status}); let _=client::post_json_no_content_with_body(&format!("/admin/users/{id}/status"),&body).await; }); }; view! { <tr><td>{user.username}</td><td>{user.email}</td><td>{user.status}</td><td><button class="button button-secondary" on:click=on_status>{next}</button></td></tr> } }).collect_view()}
                         </tbody></table></div>
-                    </section>
-
-                    <section class="card">
-                        <div class="section-heading">
-                            <div>
-                                <h2>"PAYG pricing"</h2>
-                                <p class="muted">"Create a new immutable price version; historical versions cannot be edited."</p>
-                            </div>
-                        </div>
-
-                        // Show active pricing and audit logs above the form.
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
-                            <div>
-                                <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">"Active Pricing Configuration"</h3>
-                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 250px; font-size: 0.85rem;">
-                                    {move || active_pricing.get().unwrap_or_else(|| "Loading...".to_string())}
-                                </pre>
-                            </div>
-                            <div>
-                                <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">"Recent Pricing Changes (Audit)"</h3>
-                                <pre style="background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; max-height: 250px; font-size: 0.85rem;">
-                                    {move || pricing_logs.get().unwrap_or_else(|| "Loading...".to_string())}
-                                </pre>
-                            </div>
-                        </div>
-
-                        <div class="form-grid">
-                            <label>"Operation"<select prop:value=pricing_operation on:change=move |e| pricing_operation.set(event_target_value(&e))><option value="http_check.monitoring">"HTTP check"</option><option value="tcp_check.monitoring">"TCP check"</option><option value="dns_check.monitoring">"DNS check"</option><option value="api_flow_check.monitoring">"API flow"</option><option value="network_egress">"Network egress"</option></select></label>
-                            <label>"Unit price (micro-USD)"<input type="number" min="1" prop:value=pricing_units on:input=move |e| pricing_units.set(event_target_value(&e)) /></label>
-                            <label>"Reason"<input placeholder="required change reason" prop:value=pricing_reason on:input=move |e| pricing_reason.set(event_target_value(&e)) /></label>
-                            <button class="button button-secondary" on:click=move |_| {
-                                let operation=pricing_operation.get(); let units=pricing_units.get().parse::<i64>().unwrap_or(0); let reason=pricing_reason.get();
-                                if units<=0 || reason.trim().is_empty() { return; }
-                                spawn_local(async move {
-                                    let body=serde_json::json!({"operation":operation,"unit_name":"check","unit_price":units,"currency":"USD","reason":reason});
-                                    if let Err(e)=client::post_json::<serde_json::Value,_>("/admin/pricing/payg-configs",&body).await { error.set(Some(e.to_string())); }
-                                });
-                            } >"Create version"</button>
-                        </div>
                     </section>
 
                     <section class="card">
