@@ -86,9 +86,6 @@ pub use rum_ingest_request::{
 pub mod verify_email_otp_request;
 pub use verify_email_otp_request::VerifyEmailOtpRequest;
 
-pub mod payg;
-pub use payg::MeterUsageRequest;
-
 pub mod bulk_monitor_import;
 pub mod bulk_monitor_import_job;
 pub use bulk_monitor_import::{
