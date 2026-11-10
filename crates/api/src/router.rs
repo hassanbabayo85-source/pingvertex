@@ -302,16 +302,6 @@ pub fn build_router(app_state: AppState, auth_state: AuthState) -> Router {
         ))
         .with_state(app_state.clone());
 
-    // Public pricing quotes are deliberately read-only and rate-limited.
-    // Actual PAYG previews and wallet mutations remain authenticated.
-
-    // Admin pricing routes: protected by JWT only; permission check is done
-    // inside handlers (require ManageBilling, available to Owner only).
-    // SECURITY: /admin pricing READS are gated on `jwt_auth` only.
-    // WRITES are additionally gated on `require_recent_mfa` — a fresh
-    // TOTP/backup-code step-up within RECENT_MFA_TTL_SECONDS — so a
-    // plain session JWT can never change platform-wide pricing.
-
     let tenant_audit_routes = audit::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
@@ -545,9 +535,7 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
     // with every other route in `build_test_router` — this test router
     // exists precisely so the E2E suite ISN'T subject to IP-based rate
     // limiting (which would make unrelated tests flaky/order-dependent
-    // under `oneshot()`). Isolated billing rate-limit coverage lives in
-    // `crates/api/tests/pricing_rate_limit.rs`, which uses the dedicated
-    // `build_billing_only_router_with_rate_limit` helper instead.
+    // under `oneshot()`).
 
     let help_routes = help::router().with_state(app_state.clone());
 
@@ -559,9 +547,6 @@ pub fn build_test_router(app_state: AppState, auth_state: AuthState) -> Router {
         .route_layer(from_fn_with_state(auth_state.clone(), jwt_auth))
         .with_state(app_state.clone());
 
-    // Admin pricing READS: JWT only (no MFA — reads are safe).
-
-    // Admin pricing WRITES: JWT + recent-MFA step-up.
     let tenant_audit_routes = audit::router()
         .layer(GovernorLayer::new(
             GovernorConfigBuilder::default()
