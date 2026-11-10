@@ -204,15 +204,4 @@ impl NotificationService for NotificationDispatcher {
             NotificationChannelKind::Sms => self.sms.notify(channel, event).await,
         }
     }
-
-    async fn notify_wallet_email(
-        &self,
-        recipient: &str,
-        subject: &str,
-        body: &str,
-    ) -> NotifyResult {
-        self.email
-            .notify_wallet_email(recipient, subject, body)
-            .await
-    }
 }

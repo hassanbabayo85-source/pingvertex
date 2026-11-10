@@ -28,14 +28,10 @@ pub enum ApiError {
     Forbidden(String),
     Unauthorized(String),
     TooManyRequests(String),
-    PaymentRequired {
-        message: String,
-        code: &'static str,
-    },
-    /// TASK 2 — a hard subscription quota was exceeded. Distinct from
-    /// `PaymentRequired`: this is not a "pay more to continue" error,
-    /// it is a plan limit that only a plan change can lift. Serialized
-    /// with `code: "resource_limit_reached"` and a `details` object.
+    /// TASK 2 — a hard subscription quota was exceeded. This is not
+    /// a "pay more to continue" error: it is a plan limit that only a
+    /// plan change can lift. Serialized with `code: "resource_limit_reached"`
+    /// and a `details` object.
     ResourceLimitReached {
         quota: &'static str,
         current: u64,
@@ -72,13 +68,6 @@ impl ApiError {
 
     pub fn too_many_requests(message: impl Into<String>) -> Self {
         Self::TooManyRequests(message.into())
-    }
-
-    pub fn payment_required(message: impl Into<String>, code: &'static str) -> Self {
-        Self::PaymentRequired {
-            message: message.into(),
-            code,
-        }
     }
 
     pub fn resource_limit_reached(
@@ -141,7 +130,6 @@ impl ApiError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
-            Self::PaymentRequired { .. } => StatusCode::PAYMENT_REQUIRED,
             Self::ResourceLimitReached { .. } => StatusCode::CONFLICT,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -157,7 +145,6 @@ impl ApiError {
             | Self::Unauthorized(message)
             | Self::TooManyRequests(message)
             | Self::Internal(message) => message.clone(),
-            Self::PaymentRequired { message, .. } => message.clone(),
             Self::ResourceLimitReached {
                 quota,
                 current,
@@ -188,11 +175,6 @@ impl IntoResponse for ApiError {
                     "allowed": allowed,
                     "action": action,
                 })),
-            }),
-            ApiError::PaymentRequired { code, .. } => Json(ErrorBody {
-                message: self.message(),
-                code: Some(*code),
-                details: None,
             }),
             _ => Json(ErrorBody {
                 message: self.message(),
@@ -275,14 +257,6 @@ mod tests {
             ApiError::forbidden("x").status_code(),
             StatusCode::FORBIDDEN
         );
-    }
-
-    #[test]
-    fn payment_required_uses_402_and_application_code() {
-        let err =
-            ApiError::payment_required("PAYG balance is insufficient", "PAYG_INSUFFICIENT_BALANCE");
-        assert_eq!(err.status_code(), StatusCode::PAYMENT_REQUIRED);
-        assert_eq!(err.message(), "PAYG balance is insufficient");
     }
 
     #[test]
