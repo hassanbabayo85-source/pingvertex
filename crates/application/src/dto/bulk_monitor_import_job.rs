@@ -46,10 +46,7 @@ pub struct BulkMonitorImportJob {
     pub skipped_rows: i32,
     pub forecast_days: i32,
     pub estimated_checks: i64,
-    pub estimated_charge_units: i64,
-    pub currency: String,
     pub batch_size: i32,
-    pub pricing_snapshot: Value,
     pub error_report: Option<Value>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
@@ -78,10 +75,7 @@ pub struct CreateBulkMonitorImportJob {
     pub invalid_rows: i32,
     pub forecast_days: i32,
     pub estimated_checks: i64,
-    pub estimated_charge_units: i64,
-    pub currency: String,
     pub batch_size: i32,
-    pub pricing_snapshot: Value,
     pub rows: Vec<NewBulkMonitorImportRow>,
 }
 

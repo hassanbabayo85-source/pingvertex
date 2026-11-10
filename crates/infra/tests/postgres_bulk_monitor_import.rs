@@ -145,10 +145,7 @@ fn build_job(
         invalid_rows: 0,
         forecast_days: 30,
         estimated_checks: (row_count as i64) * 30,
-        estimated_charge_units: (row_count as i64) * 60,
-        currency: "USD".to_string(),
         batch_size: 500,
-        pricing_snapshot: json!({"version": 1, "prices": []}),
         rows,
     }
 }

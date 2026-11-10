@@ -36,10 +36,7 @@ struct JobRow {
     skipped_rows: i32,
     forecast_days: i32,
     estimated_checks: i64,
-    estimated_charge_units: i64,
-    currency: String,
     batch_size: i32,
-    pricing_snapshot: serde_json::Value,
     error_report: Option<serde_json::Value>,
     created_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
@@ -74,10 +71,7 @@ impl JobRow {
             skipped_rows: self.skipped_rows,
             forecast_days: self.forecast_days,
             estimated_checks: self.estimated_checks,
-            estimated_charge_units: self.estimated_charge_units,
-            currency: self.currency,
             batch_size: self.batch_size,
-            pricing_snapshot: self.pricing_snapshot,
             error_report: self.error_report,
             created_at: self.created_at,
             started_at: self.started_at,
@@ -88,13 +82,13 @@ impl JobRow {
 }
 
 const JOB_COLUMNS: &str = "id, tenant_id, actor_user_id, status, total_rows, valid_rows, invalid_rows, \
-processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, estimated_charge_units, currency, \
-batch_size, pricing_snapshot, error_report, created_at, started_at, completed_at, updated_at";
+processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, \
+batch_size, error_report, created_at, started_at, completed_at, updated_at";
 /// Same column list as `JOB_COLUMNS`, but every column is qualified
 /// with the `j.` table alias so it can be used in `RETURNING` clauses
 /// of an `UPDATE ... FROM` statement without PostgreSQL reporting
 /// "column reference \"id\" is ambiguous" (42702).
-const JOB_COLUMNS_QUALIFIED: &str = "j.id, j.tenant_id, j.actor_user_id, j.status, j.total_rows, j.valid_rows, j.invalid_rows, j.processed_rows, j.created_rows, j.failed_rows, j.skipped_rows, j.forecast_days, j.estimated_checks, j.estimated_charge_units, j.currency, j.batch_size, j.pricing_snapshot, j.error_report, j.created_at, j.started_at, j.completed_at, j.updated_at";
+const JOB_COLUMNS_QUALIFIED: &str = "j.id, j.tenant_id, j.actor_user_id, j.status, j.total_rows, j.valid_rows, j.invalid_rows, j.processed_rows, j.created_rows, j.failed_rows, j.skipped_rows, j.forecast_days, j.estimated_checks, j.batch_size, j.error_report, j.created_at, j.started_at, j.completed_at, j.updated_at";
 
 #[async_trait]
 impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
@@ -107,9 +101,9 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         let inserted = sqlx::query_as::<_, JobRow>(&format!(
             "INSERT INTO monitor_bulk_import_jobs \
              (id, tenant_id, actor_user_id, status, total_rows, valid_rows, invalid_rows, \
-              processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, estimated_charge_units, \
-              currency, batch_size, idempotency_key, source_sha256, pricing_snapshot, confirmed_at) \
-             VALUES ($1,$2,$3,'READY',$4,$5,$6,0,0,0,0,$7,$8,$9,$10,$11,$12,$13,$14,now()) \
+              processed_rows, created_rows, failed_rows, skipped_rows, forecast_days, estimated_checks, \
+              batch_size, idempotency_key, source_sha256, confirmed_at) \
+             VALUES ($1,$2,$3,'READY',$4,$5,$6,0,0,0,0,$7,$8,$9,$10,$11,now()) \
              ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING \
              RETURNING {JOB_COLUMNS}"
         ))
@@ -121,12 +115,9 @@ impl BulkMonitorImportRepository for PostgresBulkMonitorImportRepository {
         .bind(input.invalid_rows)
         .bind(input.forecast_days)
         .bind(input.estimated_checks)
-        .bind(input.estimated_charge_units)
-        .bind(&input.currency)
         .bind(input.batch_size)
         .bind(&input.idempotency_key)
         .bind(&input.source_sha256)
-        .bind(&input.pricing_snapshot)
         .fetch_optional(&mut *tx)
         .await?;
 

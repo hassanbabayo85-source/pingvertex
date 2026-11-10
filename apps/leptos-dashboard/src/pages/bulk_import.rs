@@ -4,16 +4,6 @@ use leptos::task::spawn_local;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::HtmlInputElement;
 
-fn format_units(units: i64, currency: &str) -> String {
-    let sign = if units < 0 { "-" } else { "" };
-    let amount = units.unsigned_abs();
-    format!(
-        "{sign}{currency} {}.{:06}",
-        amount / 1_000_000,
-        amount % 1_000_000
-    )
-}
-
 fn error_csv(value: &monitoring::BulkImportPreview) -> String {
     let mut csv = String::from("row,error\n");
     for item in &value.errors {
@@ -277,10 +267,9 @@ pub fn BulkImportPage() -> impl IntoView {
                                     value.skipped_rows
                                 )}</p>
                                 <p class="muted">{format!(
-                                    "Forecast: {} day(s), {} estimated check(s), {} estimated cost.",
+                                    "Forecast: {} day(s), {} estimated check(s).",
                                     value.forecast_days,
-                                    value.estimated_checks,
-                                    format_units(value.estimated_charge_units, &value.currency)
+                                    value.estimated_checks
                                 )}</p>
                             </div>
                         }.into_any()

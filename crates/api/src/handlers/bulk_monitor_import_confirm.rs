@@ -263,10 +263,7 @@ pub async fn confirm_bulk_monitor_import(
             .map_err(|_| ApiError::bad_request("forecast_days is too large"))?,
         estimated_checks: i64::try_from(preview.estimated_execution_quantity)
             .map_err(|_| ApiError::bad_request("bulk import estimate is too large"))?,
-        estimated_charge_units: 0,
-        currency: "USD".to_string(),
         batch_size: configured_batch_size(),
-        pricing_snapshot: serde_json::json!({}),
         rows: durable_rows,
     };
 
@@ -298,7 +295,7 @@ pub async fn confirm_bulk_monitor_import(
         target_id: format!("bulk-import:{}", job.id),
         metadata: json!({
             "replayed": replayed, "total_rows": job.total_rows, "valid_rows": job.valid_rows,
-            "invalid_rows": job.invalid_rows, "estimated_charge_units": job.estimated_charge_units,
+            "invalid_rows": job.invalid_rows,
         }),
         created_at: chrono::Utc::now(),
     };
