@@ -65,9 +65,6 @@ impl Role {
                 CreateSupportTicket,
                 ReplySupportTicket,
                 ManageSupportTicketStatus,
-                ViewBilling,
-                // Note: ManageBilling is explicitly excluded by product policy.
-                // Admin must NOT manage billing semantics ambiguously.
             ],
             Role::Owner => &[
                 ViewOwnProfile,
@@ -85,8 +82,6 @@ impl Role {
                 UpdateTenantSettings,
                 ManageUsers,
                 ManageApiKeys,
-                ManageBilling,
-                ViewBilling,
                 ViewAuditLog,
                 ViewSupportTickets,
                 CreateSupportTicket,
@@ -95,7 +90,6 @@ impl Role {
             ],
             Role::Auditor => &[
                 ViewOwnProfile,
-                ViewBilling,
                 ViewMonitor,
                 ViewIncident,
                 ViewTenantSettings,
@@ -118,18 +112,16 @@ mod tests {
     fn owner_has_full_authority() {
         let p = Role::Owner.permissions();
         assert!(p.contains(&Permission::CreateMonitor));
-        assert!(p.contains(&Permission::ManageBilling));
         assert!(p.contains(&Permission::ManageUsers));
         assert!(p.contains(&Permission::UpdateTenantSettings));
     }
 
     #[test]
-    fn admin_has_admin_operations_but_no_billing() {
+    fn admin_has_admin_operations() {
         let p = Role::Admin.permissions();
         assert!(p.contains(&Permission::CreateMonitor));
         assert!(p.contains(&Permission::ManageUsers));
         assert!(p.contains(&Permission::UpdateTenantSettings));
-        assert!(!p.contains(&Permission::ManageBilling)); // Explicitly disabled
     }
 
     #[test]
@@ -139,7 +131,6 @@ mod tests {
         assert!(p.contains(&Permission::UpdateMonitor));
         assert!(p.contains(&Permission::ViewMonitor));
         assert!(!p.contains(&Permission::ManageUsers));
-        assert!(!p.contains(&Permission::ManageBilling));
         assert!(!p.contains(&Permission::UpdateTenantSettings));
     }
 
@@ -150,7 +141,6 @@ mod tests {
         assert!(!p.contains(&Permission::CreateMonitor));
         assert!(!p.contains(&Permission::UpdateMonitor));
         assert!(!p.contains(&Permission::ManageUsers));
-        assert!(!p.contains(&Permission::ManageBilling));
         assert!(!p.contains(&Permission::UpdateTenantSettings));
     }
 }

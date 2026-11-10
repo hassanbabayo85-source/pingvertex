@@ -2,6 +2,10 @@
 ///
 /// Keep this list stable and additive. Avoid removing or reusing
 /// permission names once they are shipped.
+///
+/// Exception: `ViewBilling` and `ManageBilling` were removed during the
+/// open-source transformation (pre-release) when the entire billing
+/// surface was dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Permission {
     // User/account actions
@@ -26,8 +30,6 @@ pub enum Permission {
     UpdateTenantSettings,
     ManageUsers,
     ManageApiKeys,
-    ViewBilling,
-    ManageBilling,
 
     // Audit log actions
     ViewAuditLog,
