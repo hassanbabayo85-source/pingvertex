@@ -7,11 +7,11 @@
 //!   * the plan's allowed maximum,
 //!   * a suggested corrective action.
 //!
-//! Unlike `PaymentRequired`, this is **not** a "pay more" error — it is
-//! a hard subscription limit. The customer cannot pay their way past it
-//! without changing plans. That distinction is why we return a distinct
-//! error type and a distinct code (`resource_limit_reached`), not
-//! `PAYG_INSUFFICIENT_BALANCE` or similar.
+//! This is **not** a "pay more" error — it is a hard resource limit
+//! defined at the instance level. The customer cannot pay their way
+//! past it without an operator changing the instance-wide limit. That
+//! distinction is why we return a distinct error type and a distinct
+//! code (`resource_limit_reached`).
 //!
 //! # Why there is no explicit `From<ResourceLimitError> for Box<dyn Error>`
 //!
@@ -26,7 +26,7 @@
 //! blanket impl (E0119). The `?` operator works without any additional
 //! impl because of the blanket impl.
 
-/// A hard subscription quota that the current operation would exceed.
+/// A hard resource quota that the current operation would exceed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceLimitError {
     /// Machine-readable quota identifier, e.g. `"max_uptime_monitors"`.

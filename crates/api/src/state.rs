@@ -31,7 +31,7 @@ type RepoResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub struct AppState {
     pub monitor_repository: Arc<dyn MonitorRepository>,
     /// TASK 2 — the single authoritative source for the tenant's
-    /// hard subscription entitlements (quotas and minimums).
+    /// hard resource limits (quotas and minimums).
     /// All hard-quota enforcement paths must go through this.
     pub resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
     pub bulk_monitor_import_repository: Option<Arc<dyn BulkMonitorImportRepository>>,
@@ -1249,8 +1249,8 @@ impl AppState {
 
     /// TASK 2 — substitutes a real `ResourceLimitResolver` in place of
     /// the Free-default `InMemoryResourceLimitResolver`. Production
-    /// `main.rs` wires `PostgresEntitlementResolver`; tests may leave
-    /// the default in place or install their own overrides.
+    /// `main.rs` wires `EnvResourceLimitResolver`; tests may leave the
+    /// default in place or install their own overrides.
     pub fn with_resource_limit_resolver<R>(mut self, resolver: R) -> Self
     where
         R: ResourceLimitResolver + 'static,

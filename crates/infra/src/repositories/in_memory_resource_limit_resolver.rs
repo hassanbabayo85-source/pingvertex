@@ -1,9 +1,8 @@
 //! In-memory `ResourceLimitResolver` for tests.
 //!
-//! Mirrors `PostgresEntitlementResolver`'s fallback behavior: a tenant
-//! with no override resolves to `free_default`. Tests seed specific
-//! tenants via `set_override` / `with_override`, and rely on the
-//! default only when they want to simulate "no subscription row".
+//! A tenant with no explicit override resolves to `free_default`.
+//! Tests seed specific tenants via the override API and rely on the
+//! default only when they want to exercise the fallback path.
 
 use std::collections::HashMap;
 use std::sync::RwLock;

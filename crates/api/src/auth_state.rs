@@ -366,9 +366,9 @@ pub struct AuthState {
     pub oauth_identity_repository: Arc<dyn OAuthIdentityRepository>,
     pub audit_log_entry_repository: Arc<dyn application::ports::AuditLogEntryRepository>,
     /// TASK 4A — the single authoritative source for the tenant's
-    /// hard subscription entitlements. Defaults to the Free-tier
-    /// in-memory resolver for tests; production `main.rs` overrides
-    /// with `PostgresEntitlementResolver`.
+    /// hard resource limits. Defaults to the Free-tier in-memory
+    /// resolver for tests; production `main.rs` overrides with
+    /// `EnvResourceLimitResolver`.
     pub resource_limit_resolver: Arc<dyn ResourceLimitResolver>,
 }
 

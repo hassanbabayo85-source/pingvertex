@@ -1,16 +1,21 @@
-//! The single authoritative resolver for a tenant's subscription
-//! entitlements.
+//! The single authoritative resolver for a tenant's resource limits.
 //!
 //! # Authority
 //!
 //! `ResourceLimitResolver::resolve(tenant)` is the *only* sanctioned way
 //! to answer "what does this tenant's plan allow right now?". Every
 //! hard-quota enforcement path in the application MUST go through this
-//! trait. Reading `plan_entitlements` directly from a use case is a
-//! bug; so is calling `ResolveEntitlementsUseCase` (which is retired).
+//! trait.
 //!
-//! The resolver is implemented by `PostgresEntitlementResolver` in
-//! `infra`, with an `InMemoryResourceLimitResolver` for tests.
+//! Two implementations exist in `infra`:
+//!
+//!   * `EnvResourceLimitResolver` — for self-hostable deployments.
+//!     Parses `PV_*` environment variables once at construction and
+//!     returns the same snapshot for every tenant. Wired by both
+//!     `api::main` and `worker::main`.
+//!   * `InMemoryResourceLimitResolver` — for tests. Defaults every
+//!     tenant to a `free_default` snapshot and supports per-tenant
+//!     overrides.
 //!
 //! # Boundaries
 //!
@@ -27,17 +32,8 @@ use super::RepoResult;
 
 #[async_trait]
 pub trait ResourceLimitResolver: Send + Sync {
-    /// Resolves `tenant_id`'s effective entitlements for the *current*
-    /// moment:
-    ///
-    ///   * a tenant with no `subscriptions` row is treated as `Free`;
-    ///   * a tenant whose subscription is `Expired` or `Canceled` is
-    ///     treated as `Free` (their previous entitlements are no
-    ///     longer honored);
-    ///   * a tenant whose subscription is `Active`, `Trialing`, or
-    ///     `PastDue` (in grace) uses the plan's entitlements;
-    ///   * the "current" version of `plan_entitlements` for that plan
-    ///     is the latest `version` row.
+    /// Resolves `tenant_id`'s effective resource limits for the current
+    /// moment.
     ///
     /// The returned `ResourceLimits` must be treated as a hard ceiling:
     /// no operation may be performed that would exceed one of its
