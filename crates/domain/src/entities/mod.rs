@@ -76,14 +76,8 @@ pub use recurring_proxy_monitor::{
     RecurringProxyMonitorError,
 };
 
-// Billing Provider Abstraction & Checkout:
-
-// Billing Webhooks:
-
 mod notification_outbox_entry;
 pub use notification_outbox_entry::NotificationOutboxEntry;
-
-// Proration Service:
 
 mod check;
 pub use check::Check;

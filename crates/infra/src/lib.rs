@@ -26,6 +26,4 @@ pub use services::{
 pub use twilio_config::{TwilioConfig, TwilioConfigError};
 pub use twilio_pricing::TwilioPricingService;
 
-// Billing Provider Abstraction & Checkout:
-
 pub mod test_support;

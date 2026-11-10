@@ -70,12 +70,6 @@ pub use reset_password_token_id::ResetPasswordTokenId;
 pub mod invitation_id;
 pub use invitation_id::InvitationId;
 
-// Plan / Subscription / Entitlement model:
-
-// Billing Provider Abstraction & Checkout:
-
-// Proration Service:
-
 // Help Center & Support:
 pub mod help_article_id;
 pub mod help_category_id;

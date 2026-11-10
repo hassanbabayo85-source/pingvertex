@@ -48,8 +48,6 @@ pub use telegram_notification_service::TelegramNotificationService;
 pub use uuid_id_generator::UuidIdGenerator;
 pub use webhook_notification_service::WebhookNotificationService;
 
-// Billing Provider Abstraction & Checkout:
-
 // RUM (Real User Monitoring):
 pub mod maxmind_geo_ip_lookup;
 pub use maxmind_geo_ip_lookup::MaxMindGeoIpLookup;

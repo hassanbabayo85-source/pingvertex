@@ -130,10 +130,6 @@ pub use tenant_invitation_repository::TenantInvitationRepository;
 pub mod resource_limit_resolver;
 pub use resource_limit_resolver::ResourceLimitResolver;
 
-// Billing Provider Abstraction & Checkout:
-
-// Billing Webhooks:
-
 // Durable Scheduler:
 pub mod scheduling_repository;
 pub use scheduling_repository::{ClaimedMonitor, ClaimedOneTimeExecution, SchedulingRepository};
@@ -153,8 +149,6 @@ pub use health_check::{HealthCheckPort, HealthCheckResult};
 
 // Dashboard Overview:
 pub use dashboard_repository::DashboardRepository;
-
-// Proration Service:
 
 pub mod sms_provider_pricing;
 pub use sms_provider_pricing::{SmsPricingResult, SmsProviderPricing};
@@ -197,7 +191,3 @@ pub use bulk_monitor_action_repository::{
 };
 
 pub use agent_registry::{AgentRegistry, AgentRegistryResult};
-
-// Task 6 — server-side plan prices:
-
-// Task 6 — subscription billing records:

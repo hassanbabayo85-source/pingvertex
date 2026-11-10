@@ -83,12 +83,6 @@ pub use audit_action::AuditAction;
 pub mod api_key_scope;
 pub use api_key_scope::ApiKeyScope;
 
-// Subscription Lifecycle:
-
-// Billing Provider Abstraction & Checkout:
-
-// Billing Webhooks:
-
 pub mod notification_outbox_status;
 pub use notification_outbox_status::NotificationOutboxStatus;
 

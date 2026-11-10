@@ -100,12 +100,6 @@ pub use postgres_dashboard_repository::PostgresDashboardRepository;
 pub mod in_memory_resource_limit_resolver;
 pub use in_memory_resource_limit_resolver::InMemoryResourceLimitResolver;
 
-// Plan / Subscription / Entitlement model:
-
-// Billing Provider Abstraction & Checkout:
-
-// Billing Webhooks:
-
 // Durable Scheduler:
 pub mod postgres_scheduling_repository;
 pub use postgres_scheduling_repository::PostgresSchedulingRepository;
@@ -123,8 +117,6 @@ pub mod postgres_history_retention_repository;
 
 pub use in_memory_history_retention_repository::InMemoryHistoryRetentionRepository;
 pub use postgres_history_retention_repository::PostgresHistoryRetentionRepository;
-
-// Proration Service:
 
 // Help Center & Support:
 pub mod in_memory_help_article_repository;
@@ -169,10 +161,6 @@ pub use postgres_bulk_monitor_import_repository::PostgresBulkMonitorImportReposi
 pub use in_memory_agent_registry::InMemoryAgentRegistry;
 
 pub use postgres_agent_registry_repository::PostgresAgentRegistryRepository;
-
-// Task 6 — plan prices:
-
-// Task 6 — subscription billing records:
 
 pub mod env_resource_limit_resolver;
 pub use env_resource_limit_resolver::EnvResourceLimitResolver;
