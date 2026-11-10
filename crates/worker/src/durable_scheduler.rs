@@ -45,12 +45,11 @@ async fn execute_with_controls<E: CheckExecutor>(
         match executor.execute(&monitor).await {
             Ok(result) => {
                 let elapsed = started.elapsed().as_secs_f64();
-                metrics::histogram!("payg_scheduler_execution_latency_seconds").record(elapsed);
                 metrics::histogram!("monitor_execution_latency_seconds").record(elapsed);
                 return Ok(result);
             }
             Err(error) if attempt < retry_limit => {
-                metrics::counter!("payg_scheduler_retry_total").increment(1);
+                metrics::counter!("scheduler_retry_total").increment(1);
                 let exponential = retry_base.saturating_mul(1u32 << attempt.min(5));
                 let jitter_ms = if jitter.is_zero() {
                     0
@@ -58,16 +57,15 @@ async fn execute_with_controls<E: CheckExecutor>(
                     rand::rng().random_range(0..=jitter.as_millis() as u64)
                 };
                 warn!(monitor_id=%monitor.id.0, attempt=attempt + 1, delay_ms=exponential.as_millis().saturating_add(u128::from(jitter_ms)), error=%error, "monitor executor failed; retrying with backoff");
-                metrics::counter!("payg_scheduler_backoff_total").increment(1);
+                metrics::counter!("scheduler_backoff_total").increment(1);
                 if jitter_ms > 0 {
-                    metrics::counter!("payg_scheduler_jitter_total").increment(1);
+                    metrics::counter!("scheduler_jitter_total").increment(1);
                 }
                 tokio::time::sleep(exponential + Duration::from_millis(jitter_ms)).await;
                 attempt += 1;
             }
             Err(error) => {
                 let elapsed = started.elapsed().as_secs_f64();
-                metrics::histogram!("payg_scheduler_execution_latency_seconds").record(elapsed);
                 metrics::histogram!("monitor_execution_latency_seconds").record(elapsed);
                 return Err(error);
             }
@@ -294,7 +292,7 @@ where
                 .recover_expired_leases(Utc::now())
                 .await?;
             if expired > 0 {
-                metrics::counter!("payg_scheduler_lease_expiry_total").increment(expired as u64);
+                metrics::counter!("scheduler_lease_expiry_total").increment(expired as u64);
             }
 
             let due_depth = self
@@ -302,11 +300,10 @@ where
                 .due_monitor_count(Utc::now())
                 .await?;
             metrics::gauge!("scheduler_due_queue_depth").set(due_depth as f64);
-            metrics::gauge!("payg_scheduler_due_monitors").set(due_depth as f64);
             metrics::gauge!("scheduler_active_tasks").set(tasks.len() as f64);
-            metrics::gauge!("payg_scheduler_running_tasks").set(tasks.len() as f64);
+            metrics::gauge!("scheduler_running_tasks").set(tasks.len() as f64);
 
-            metrics::gauge!("payg_scheduler_per_tenant_concurrency_limit")
+            metrics::gauge!("scheduler_per_tenant_concurrency_limit")
                 .set(self.max_concurrency_per_tenant as f64);
             let free_capacity = self.max_concurrency.saturating_sub(tasks.len());
             if free_capacity == 0 {
@@ -498,8 +495,6 @@ where
                         .is_some_and(|(status, _)| *status != TenantStatus::Active)
                     {
                         metrics::counter!("scheduler_suspended_tenant_skips_total").increment(1);
-                        metrics::counter!("payg_scheduler_suspended_tenant_skips_total")
-                            .increment(1);
                         metrics::counter!("checks_skipped_total", "reason" => "tenant_inactive")
                             .increment(1);
                         scheduling_repository

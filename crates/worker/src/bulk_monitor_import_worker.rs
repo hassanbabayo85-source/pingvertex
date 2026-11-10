@@ -99,7 +99,7 @@ impl BulkMonitorImportWorker {
 
     async fn run_once(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let queue_depth = self.jobs.queue_depth().await?;
-        metrics::gauge!("payg_bulk_queue_depth").set(queue_depth as f64);
+        metrics::gauge!("bulk_import_queue_depth").set(queue_depth as f64);
         let jobs = self
             .jobs
             .claim_jobs(
@@ -110,11 +110,11 @@ impl BulkMonitorImportWorker {
             .await?;
 
         for job in jobs {
-            metrics::counter!("payg_bulk_jobs_claimed_total").increment(1);
+            metrics::counter!("bulk_import_jobs_claimed_total").increment(1);
             let started = Instant::now();
             if let Err(error) = self.process_job(&job).await {
-                metrics::counter!("payg_bulk_import_failures_total").increment(1);
-                metrics::histogram!("payg_bulk_import_duration_seconds")
+                metrics::counter!("bulk_import_failures_total").increment(1);
+                metrics::histogram!("bulk_import_duration_seconds")
                     .record(started.elapsed().as_secs_f64());
                 tracing::error!(
                     job_id=%job.id,
@@ -130,7 +130,7 @@ impl BulkMonitorImportWorker {
                     )
                     .await?;
             } else {
-                metrics::histogram!("payg_bulk_import_duration_seconds")
+                metrics::histogram!("bulk_import_duration_seconds")
                     .record(started.elapsed().as_secs_f64());
             }
         }
@@ -283,7 +283,7 @@ impl BulkMonitorImportWorker {
                 }
 
                 if !can_create {
-                    metrics::counter!("payg_bulk_rows_failed_total").increment(1);
+                    metrics::counter!("bulk_import_rows_failed_total").increment(1);
                     self.jobs
                         .fail_row(
                             row.id,
@@ -296,7 +296,7 @@ impl BulkMonitorImportWorker {
                 let planned_id = MonitorId(row.planned_monitor_id);
                 if let Some(existing) = self.monitors.find_by_id(planned_id).await? {
                     if existing.tenant_id != tenant_id {
-                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
+                        metrics::counter!("bulk_import_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(row.id, "planned monitor id collided across tenant boundary")
                             .await?;
@@ -304,7 +304,7 @@ impl BulkMonitorImportWorker {
                         self.jobs
                             .mark_row_created(row.id, row.planned_monitor_id)
                             .await?;
-                        metrics::counter!("payg_bulk_rows_processed_total").increment(1);
+                        metrics::counter!("bulk_import_rows_processed_total").increment(1);
                     }
                     continue;
                 }
@@ -367,16 +367,16 @@ impl BulkMonitorImportWorker {
                         self.jobs
                             .mark_row_created(row.id, row.planned_monitor_id)
                             .await?;
-                        metrics::counter!("payg_bulk_rows_processed_total").increment(1);
+                        metrics::counter!("bulk_import_rows_processed_total").increment(1);
                     }
                     Err(error) if is_permanent(&error) => {
-                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
+                        metrics::counter!("bulk_import_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(row.id, &bounded_error(&error.to_string()))
                             .await?;
                     }
                     Err(error) if row.attempt_count >= self.max_row_attempts => {
-                        metrics::counter!("payg_bulk_rows_failed_total").increment(1);
+                        metrics::counter!("bulk_import_rows_failed_total").increment(1);
                         self.jobs
                             .fail_row(
                                 row.id,

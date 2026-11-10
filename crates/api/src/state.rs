@@ -1198,15 +1198,6 @@ impl AppState {
         self
     }
 
-    pub fn with_payg_pricing_repository<R>(self, _repository: R) -> Self {
-        // No-op stub: this field was removed in Phase 1G-c-b-b.
-        // Kept for API compatibility so existing call sites
-        // (including test harnesses) still compile. Deferred to
-        // Phase 1L where admin-config resource limits replace
-        // this pattern.
-        self
-    }
-
     pub fn with_tenant_alert_allowance_repository<R>(mut self, repository: R) -> Self
     where
         R: TenantAlertAllowanceRepository + 'static,

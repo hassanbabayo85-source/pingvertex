@@ -141,7 +141,7 @@ pub async fn bulk_monitor_action(
         BulkMonitorAction::Pause => "pause",
         BulkMonitorAction::Resume => "resume",
     };
-    counter!("payg_bulk_action_requests_total", "action" => action).increment(1);
+    counter!("bulk_action_requests_total", "action" => action).increment(1);
 
     let repo = state
         .bulk_monitor_action_repository

@@ -159,7 +159,7 @@ groups:
       # ------------------------------------------------------------------
 
       - alert: BulkImportFailureRate
-        expr: increase(payg_bulk_import_failures_total[15m]) / clamp_min(increase(payg_bulk_jobs_claimed_total[15m]), 1) > 0.10
+        expr: increase(bulk_import_failures_total[15m]) / clamp_min(increase(bulk_import_jobs_claimed_total[15m]), 1) > 0.10
         for: 10m
         labels:
           severity: warning
@@ -168,7 +168,7 @@ groups:
           description: "More than 10% of claimed bulk-import jobs encountered a transient worker failure."
 
       - alert: BulkQueueGrowth
-        expr: payg_bulk_queue_depth > 1000
+        expr: bulk_import_queue_depth > 1000
         for: 10m
         labels:
           severity: warning
@@ -208,7 +208,7 @@ groups:
           description: "The 95th percentile monitor execution latency has exceeded 10 seconds for 5 minutes."
 
       - alert: SchedulerRetryStorm
-        expr: increase(payg_scheduler_retry_total[5m]) > 100
+        expr: increase(scheduler_retry_total[5m]) > 100
         for: 5m
         labels:
           severity: warning

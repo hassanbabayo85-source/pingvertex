@@ -49,7 +49,7 @@ impl BulkMonitorActionWorker {
                 _ = sleep(self.poll_interval) => {}
             }
             let queue_depth = self.jobs.queue_depth().await?;
-            metrics::gauge!("payg_bulk_action_queue_depth").set(queue_depth as f64);
+            metrics::gauge!("bulk_action_queue_depth").set(queue_depth as f64);
             let jobs = self
                 .jobs
                 .claim_jobs(
@@ -61,16 +61,16 @@ impl BulkMonitorActionWorker {
             for job in jobs {
                 let started = Instant::now();
                 if let Err(err) = self.process(worker_id, job.clone()).await {
-                    metrics::counter!("payg_bulk_action_failures_total", "action" => job.action.clone())
+                    metrics::counter!("bulk_action_failures_total", "action" => job.action.clone())
                         .increment(1);
-                    metrics::histogram!("payg_bulk_action_duration_seconds")
+                    metrics::histogram!("bulk_action_duration_seconds")
                         .record(started.elapsed().as_secs_f64());
                     error!(job_id=%job.id, error=%err, "bulk monitor action failed");
                     let _ = self.jobs.fail(job.id, worker_id, &err.to_string()).await;
                 } else {
-                    metrics::counter!("payg_bulk_action_completed_total", "action" => job.action.clone())
+                    metrics::counter!("bulk_action_completed_total", "action" => job.action.clone())
                         .increment(1);
-                    metrics::histogram!("payg_bulk_action_duration_seconds")
+                    metrics::histogram!("bulk_action_duration_seconds")
                         .record(started.elapsed().as_secs_f64());
                 }
             }
