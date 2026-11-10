@@ -149,8 +149,13 @@ sqlx migrate run --source "$TMP_MIGRATIONS" --database-url "$UPGRADE_DATABASE_UR
 psql "$UPGRADE_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 DO $$
 BEGIN
+  -- NOTE: `subscriptions` is intentionally NOT checked here.
+  -- Migration 0134 drops it, so once latest advances past 0134, the
+  -- pre-latest schema (latest-1) is past that drop too. The
+  -- post-latest block above (billing tables MUST be gone) already
+  -- enforces the invariant. This block only verifies that the schema
+  -- is in a runnable pre-upgrade state.
   IF to_regclass('public.users') IS NULL OR to_regclass('public.tenants') IS NULL
-     OR to_regclass('public.subscriptions') IS NULL
      OR to_regclass('public.proxy_check_jobs') IS NULL
   THEN RAISE EXCEPTION 'pre-latest schema missing required tables'; END IF;
 END $$;
